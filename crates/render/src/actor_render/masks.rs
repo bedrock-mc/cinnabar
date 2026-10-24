@@ -340,7 +340,7 @@ fn selected(mask: &mod_render::masks::Mask, identity: &render_model::ActorRender
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         })
 }
 

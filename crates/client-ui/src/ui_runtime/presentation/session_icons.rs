@@ -211,7 +211,7 @@ impl UiPresentationRuntime {
     }
 
     /// Returns the session override for this item variant, falling back to variant zero.
-    pub(super) fn session_item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
+    pub fn session_item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
         self.session_icons.icon(identifier, metadata)
     }
 
@@ -512,6 +512,7 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
         }
         let [left, top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
         let placement = IconRef {
+            color_mask: None,
             page: page_index,
             uv: [
                 left as u16,

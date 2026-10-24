@@ -19,7 +19,7 @@ pub fn mask_targets(frame: &crate::ActorRenderFrame) -> Vec<(mod_api::drawing::M
             connection: entry.identity.session_id,
             dimension: entry.identity.dimension,
             runtime_id: entry.identity.runtime_id,
-            spawn_revision: entry.identity.spawn_revision,
+            spawn_revision: entry.identity.spawn_revision.get(),
         };
         let vertices = frame
             .rig

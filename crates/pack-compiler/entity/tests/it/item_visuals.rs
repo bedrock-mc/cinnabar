@@ -10,6 +10,9 @@ use tempfile::TempDir;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");
 
+#[path = "item_visuals/fireworks.rs"]
+mod fireworks;
+
 #[path = "item_visuals/spawn_eggs.rs"]
 mod spawn_eggs;
 
@@ -18,6 +21,9 @@ mod beds;
 
 #[path = "item_visuals/redstone.rs"]
 mod redstone;
+
+#[path = "item_visuals/coverage.rs"]
+mod coverage;
 
 #[test]
 fn independent_retail_inventory_has_explicit_compiled_glint_facts() {
@@ -682,4 +688,49 @@ fn nether_wart_keeps_its_item_sprite_over_its_crop() {
         visual(&compiled.item_visuals, "minecraft:nether_wart", 0).route,
         ItemVisualDefinitionRoute::Sprite { .. }
     ));
+}
+
+/// Filled-map terrain identities do not select the inventory sprite; its default is atlas art.
+#[test]
+fn filled_map_default_icon_keeps_the_pack_atlas_pixels() {
+    let pack = item_pack(false);
+    write(
+        pack.path(),
+        "textures/item_texture.json",
+        br#"{"texture_data":{"map_filled":{"textures":"textures/items/fixture_map"}}}"#,
+    );
+    let expected = [31, 127, 73, 255];
+    std::fs::create_dir_all(pack.path().join("textures/items")).unwrap();
+    image::save_buffer(
+        pack.path().join("textures/items/fixture_map.png"),
+        &expected,
+        1,
+        1,
+        image::ColorType::Rgba8,
+    )
+    .unwrap();
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let definition = compiled.item_visuals.iter().find(|visual| {
+        visual.key.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
+            && visual.key.metadata == 0
+    });
+    assert!(
+        definition
+            .is_some_and(|visual| matches!(visual.route, ItemVisualDefinitionRoute::Sprite { .. })),
+        "filled map must keep its inventory sprite"
+    );
+    let ItemVisualDefinitionRoute::Sprite { texture } = definition.unwrap().route else {
+        unreachable!();
+    };
+    assert_eq!(
+        compiled.sources[texture.source as usize].path.as_ref(),
+        "textures/items/fixture_map.png"
+    );
+    let decoded = image::open(
+        pack.path()
+            .join(compiled.sources[texture.source as usize].path.as_ref()),
+    )
+    .unwrap()
+    .into_rgba8();
+    assert_eq!(decoded.as_raw(), &expected);
 }

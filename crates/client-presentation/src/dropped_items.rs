@@ -30,6 +30,7 @@ pub(crate) struct DroppedItemFrame<'a> {
     pub(crate) partial_tick: f32,
     pub(crate) fishing_line_anchors:
         &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+    pub(crate) prepared_blocks: Option<&'a Arc<crate::presentation::equipment::PreparedBlockItems>>,
 }
 
 mod dials;
@@ -100,14 +101,64 @@ fn tint_rgba(flags: u32) -> u32 {
     rope_color(r, g, b)
 }
 
-fn item_block_id(stream: &WorldStream, visual: ItemVisualRoute) -> Option<(NetworkIdMode, u32)> {
-    match visual {
+/// Resolves item blocks while keeping carried-sprite families off the placed-model path.
+fn item_block_id(
+    stream: &WorldStream,
+    visual: ItemVisualRoute,
+    identifier: Option<&str>,
+    assets: Option<&RuntimeAssets>,
+) -> Option<(NetworkIdMode, u32)> {
+    let block = match visual {
         ItemVisualRoute::BlockItem(id) => Some((NetworkIdMode::Sequential, id.0)),
         ItemVisualRoute::RetainedBlock { block_runtime_id } => Some((
             stream.network_id_mode(),
             stream.resolve_block_network_id(u32::from_ne_bytes(block_runtime_id.to_ne_bytes())),
         )),
         _ => None,
+    }?;
+    if identifier.is_some_and(|identifier| {
+        matches!(
+            assets::facts::block_render_fact(identifier).kind,
+            assets::facts::BlockRenderKind::Lantern
+                | assets::facts::BlockRenderKind::Chain
+                | assets::facts::BlockRenderKind::Bamboo
+                | assets::facts::BlockRenderKind::CoralFan
+                | assets::facts::BlockRenderKind::DefaultRail
+                | assets::facts::BlockRenderKind::LeafLitter
+                | assets::facts::BlockRenderKind::ResinClump
+                | assets::facts::BlockRenderKind::TripwireHook
+                | assets::facts::BlockRenderKind::Ladder
+                | assets::facts::BlockRenderKind::LilyPad
+                | assets::facts::BlockRenderKind::SeaPickle
+        ) || assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::FLOWER_BED_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CANDLE_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::METAL_BAR_ITEM_IDENTIFIERS.contains(&identifier)
+    }) {
+        return None;
+    }
+    assets
+        .is_none_or(|assets| assets.resolve(block.0, block.1).kind() != VisualKind::Cross)
+        .then_some(block)
+}
+
+/// Selects stock carried geometry only when this item has no admitted session sprite.
+fn prepared_block_visual(
+    icons: &UiPresentationRuntime,
+    identifier: &str,
+    metadata: u32,
+    block: Option<(NetworkIdMode, u32)>,
+    assets: Option<&RuntimeAssets>,
+) -> Option<u32> {
+    if icons.session_item_icon(identifier, metadata).is_some() {
+        return None;
+    }
+    let ((mode, id), assets) = block.zip(assets)?;
+    match mode {
+        NetworkIdMode::Sequential => Some(id),
+        NetworkIdMode::Hashed => assets.sequential_id_for_hash(id),
     }
 }
 
@@ -400,6 +451,7 @@ impl DroppedItemPublisher<'_, '_> {
         let DroppedItemFrame {
             partial_tick,
             fishing_line_anchors,
+            prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
         let frustum = self.culling_view(cull_view);
@@ -426,7 +478,11 @@ impl DroppedItemPublisher<'_, '_> {
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
-        let assets = self.textures.as_ref().map(|textures| textures.assets());
+        let world = self.textures.as_ref().map(|textures| textures.assets());
+        cache.sync_prepared_blocks(
+            prepared_blocks.filter(|source| world.is_some_and(|world| source.matches(world))),
+        );
+        let assets = world.map(Arc::as_ref);
         instances.clear();
         terrain_instances.clear();
         placement_icons.clear();
@@ -444,7 +500,23 @@ impl DroppedItemPublisher<'_, '_> {
             {
                 cache.request(&ModelKey::session_block(sheet));
             }
-            if let Some((mode, id)) = item_block_id(stream, view.item.visual) {
+            if let Some((mode, id)) = item_block_id(
+                stream,
+                view.item.visual,
+                view.item.identifier.as_deref(),
+                assets,
+            ) {
+                if let Some(visual) = view.item.identifier.as_deref().and_then(|identifier| {
+                    prepared_block_visual(
+                        icons,
+                        identifier,
+                        view.item.identity.metadata,
+                        Some((mode, id)),
+                        assets,
+                    )
+                }) {
+                    cache.request(&ModelKey::PreparedBlock { id: visual });
+                }
                 let hashed = mode == NetworkIdMode::Hashed;
                 cache.request(&ModelKey::CarriedBlock { hashed, id });
                 cache.request(&ModelKey::Block { hashed, id });
@@ -488,7 +560,7 @@ impl DroppedItemPublisher<'_, '_> {
             let Some(identifier) = view.item.identifier.as_ref() else {
                 continue;
             };
-            let block_id = item_block_id(stream, view.item.visual);
+            let block_id = item_block_id(stream, view.item.visual, Some(identifier), assets);
             let preparation = DropPreparation {
                 view,
                 native_origin: stream.authority().actor(view.runtime_id).map_or(
@@ -529,25 +601,44 @@ impl DroppedItemPublisher<'_, '_> {
                         },
                     )
                 });
-            let cube = session_block.or_else(|| {
-                block_id.zip(assets).and_then(|((mode, id), assets)| {
-                    let hashed = mode == NetworkIdMode::Hashed;
-                    preparation
-                        .model(
-                            cache,
-                            &ModelKey::CarriedBlock { hashed, id },
-                            DroppedItemShape::Cube,
-                            |cache| Self::carried_block_model(cache, icons, assets, mode, id),
-                        )
-                        .or_else(|| {
-                            preparation.model(
+            let stock_visual = prepared_block_visual(
+                icons,
+                identifier,
+                view.item.identity.metadata,
+                block_id,
+                assets,
+            );
+            let carried_model = session_block.or_else(|| {
+                let visual = stock_visual?;
+                preparation.model(
+                    cache,
+                    &ModelKey::PreparedBlock { id: visual },
+                    DroppedItemShape::Cube,
+                    |cache| cache.prepared_block(visual),
+                )
+            });
+            let cube = carried_model.or_else(|| {
+                block_id
+                    .filter(|_| stock_visual.is_some())
+                    .zip(assets)
+                    .and_then(|((mode, id), assets)| {
+                        let hashed = mode == NetworkIdMode::Hashed;
+                        preparation
+                            .model(
                                 cache,
-                                &ModelKey::Block { hashed, id },
+                                &ModelKey::CarriedBlock { hashed, id },
                                 DroppedItemShape::Cube,
-                                |cache| Self::block_model(cache, assets, mode, id),
+                                |cache| Self::carried_block_model(cache, icons, assets, mode, id),
                             )
-                        })
-                })
+                            .or_else(|| {
+                                preparation.model(
+                                    cache,
+                                    &ModelKey::Block { hashed, id },
+                                    DroppedItemShape::Cube,
+                                    |cache| Self::block_model(cache, assets, mode, id),
+                                )
+                            })
+                    })
             });
             let prepared = cube.or_else(|| {
                 let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);

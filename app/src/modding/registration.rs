@@ -66,10 +66,10 @@ pub(super) struct RegisteredHost {
 struct SourceSnapshot {
     registration: Entry,
     identity: [u8; 32],
-    component: Vec<u8>,
+    component: Arc<[u8]>,
     drawing: Option<super::admission::DrawingContext>,
-    font: Option<Vec<u8>>,
-    ui: Option<Vec<u8>>,
+    font: Option<Arc<[u8]>>,
+    ui: Option<Arc<[u8]>>,
     settings: SettingsSeed,
 }
 

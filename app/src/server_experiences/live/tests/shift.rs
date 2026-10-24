@@ -13,9 +13,10 @@ fn shift_reaches_the_open_bundle_when_it_changes() {
     assert!(live.shift_changed(false));
     assert_eq!(
         live.instances["bundle0"]
-            .events
+            .queue
+            .entries
             .iter()
-            .cloned()
+            .map(|entry| entry.event.clone())
             .collect::<Vec<_>>(),
         [Event::Shift { held: false }]
     );
@@ -201,9 +202,10 @@ fn closing_a_held_modal_releases_shift_before_reopening() {
     assert_eq!(live.instances["bundle0"].shift, Some(false));
     assert_eq!(
         live.instances["bundle0"]
-            .events
+            .queue
+            .entries
             .iter()
-            .cloned()
+            .map(|entry| entry.event.clone())
             .collect::<Vec<_>>(),
         [Event::Shift { held: false }]
     );
@@ -237,9 +239,10 @@ fn replacing_a_held_modal_releases_the_previous_bundle() {
     assert_eq!(live.instances["bundle1"].shift, Some(false));
     assert_eq!(
         live.instances["bundle1"]
-            .events
+            .queue
+            .entries
             .iter()
-            .cloned()
+            .map(|entry| entry.event.clone())
             .collect::<Vec<_>>(),
         [Event::Shift { held: false }]
     );
@@ -251,7 +254,7 @@ fn a_full_queue_retries_shift_release_after_modal_close() {
     let mut live = opened();
     assert!(live.shift_changed(true));
     let instance = live.instances.get_mut("bundle0").unwrap();
-    instance.events.clear();
+    instance.queue.clear();
     while live.press("bundle0.pick", None) {}
     live.close_modal();
     assert_eq!(
@@ -259,15 +262,16 @@ fn a_full_queue_retries_shift_release_after_modal_close() {
         Some(true),
         "the full queue still owes release"
     );
-    live.instances
-        .get_mut("bundle0")
-        .unwrap()
-        .events
-        .pop_front();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert!(live.shift_changed(false));
     assert_eq!(live.instances["bundle0"].shift, Some(false));
     assert!(matches!(
-        live.instances["bundle0"].events.back(),
+        live.instances["bundle0"]
+            .queue
+            .entries
+            .back()
+            .map(|entry| &entry.event),
         Some(Event::Shift { held: false })
     ));
 }

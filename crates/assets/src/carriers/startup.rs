@@ -17,7 +17,8 @@ mod loading;
 pub use entity_facts::require_entity_facts;
 pub use loading::{
     CarrierLoadObserver, atmosphere_asset_path, entity_asset_path, font_asset_path,
-    load_runtime_assets, load_runtime_assets_observed, local_font_asset_path,
+    load_menu_assets, load_runtime_assets, load_runtime_assets_observed,
+    load_world_assets_observed, local_font_asset_path,
 };
 pub mod delivery;
 mod world_provenance;
@@ -43,7 +44,7 @@ const VANILLA_SOURCE_JSON: &str = crate::VANILLA_SOURCE_MANIFEST;
 const FONT_SOURCE_JSON: &str = include_str!("../../../../assets/cinnangles-sans-source.json");
 const MAX_RUNTIME_BLOB_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ATMOSPHERE_BLOB_BYTES: u64 = 512 * 1024;
-const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_ENTITY_ASSET_BLOB_BYTES: u64 = crate::MAX_ENTITY_CATALOG_BYTES as u64;
 const MAX_FONT_ASSET_BLOB_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_HUD_ASSET_BLOB_BYTES: u64 = 8 * 1024 * 1024;
 
@@ -69,6 +70,13 @@ pub struct CarrierMetrics {
     pub missing_mapping_count: u64,
 }
 
+/// Validated artwork needed by the menu, independent of world and actor decoding.
+#[derive(Clone)]
+pub struct MenuAssets {
+    pub atmosphere: LoadedAtmosphereAssets,
+    pub fonts: LoadedFontAssets,
+}
+
 pub struct LoadedAssets {
     pub runtime: Arc<RuntimeAssets>,
     pub item_facts: Arc<crate::facts::ItemFacts>,
@@ -83,6 +91,7 @@ pub struct LoadedAssets {
     pub notice: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct LoadedAtmosphereAssets {
     runtime: Arc<RuntimeAtmosphereAssets>,
     identity: [u8; 32],
@@ -95,6 +104,7 @@ pub struct LoadedEntityAssets {
     selected_path: PathBuf,
 }
 
+#[derive(Clone)]
 pub struct LoadedFontAssets {
     runtime: Arc<RuntimeFontCatalog>,
     selected_path: PathBuf,

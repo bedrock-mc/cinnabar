@@ -15,10 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 func TestParseSettingsValidates(t *testing.T) {
@@ -49,6 +50,15 @@ func TestUserConfigIsOfflineAndScopedToDir(t *testing.T) {
 		if !strings.HasPrefix(folder, s.dir) {
 			t.Fatalf("folder %q escapes world dir", folder)
 		}
+	}
+}
+
+func TestConfigureChunkSendingReplacesDragonflyDefaults(t *testing.T) {
+	var conf server.Config
+	configureChunkSending(&conf)
+	// Zero would select Dragonfly's default budget.
+	if conf.ChunkLoadsPerTick != localChunkLoadsPerTick || conf.MaxChunkTransactions != localChunkTransactions {
+		t.Fatalf("chunk send budget = %d loads, %d transactions", conf.ChunkLoadsPerTick, conf.MaxChunkTransactions)
 	}
 }
 
@@ -166,13 +176,17 @@ func TestSetPausedSuspendsAndRestoresWorlds(t *testing.T) {
 	stopped.StopTime()
 	worlds := []*world.World{cycling, stopped}
 
-	setPaused(worlds, true)
+	pauses := &pauseState{settings: settings{gameMode: "survival", diff: "normal"}}
+	for _, w := range worlds {
+		pauses.WorldOpened(w)
+	}
+	pauses.request(true)
 	for _, w := range worlds {
 		if !w.Paused() {
 			t.Fatal("world not paused")
 		}
 	}
-	setPaused(worlds, false)
+	pauses.request(false)
 	if cycling.Paused() || stopped.Paused() {
 		t.Fatal("world still paused after resume")
 	}

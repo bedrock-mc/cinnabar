@@ -9,13 +9,14 @@ pub use engine_variables::EngineVariable;
 pub mod interactions;
 pub mod item_use;
 mod molang_program;
+pub mod offered_use;
 pub mod placement;
 mod query_manifest;
 pub mod seats;
 pub use query_manifest::{
     MOLANG_QUERIES, MOLANG_QUERY_DESCRIPTORS, MOLANG_QUERY_MANIFEST_VERSION, MolangQuery,
     MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler, MolangQueryOutput,
-    MolangQuerySupport, bind_molang_queries,
+    MolangQuerySampling, MolangQuerySupport, bind_molang_queries,
 };
 pub mod mount;
 mod server_animation;
@@ -35,7 +36,7 @@ mod v4;
 pub use source_paths::{
     ACTOR_GLINT_TEXTURE_IDENTIFIER, BED_GEOMETRY_IDENTIFIER, CAPE_GEOMETRY_IDENTIFIER,
     ELYTRA_GEOMETRY_IDENTIFIER, GLINT_TEXTURE_IDENTIFIERS, ITEM_GLINT_TEXTURE_IDENTIFIER,
-    LEGACY_ENTITY_GEOMETRY_PATH,
+    LEGACY_ENTITY_GEOMETRY_PATH, MAP_BACKGROUND_TEXTURE_IDENTIFIER, shared_equipment_textures,
 };
 use source_paths::{validate_relative_path, validate_symbol_source};
 pub use texture_mesh::{EntityGeometryTextureMesh, MAX_ENTITY_GEOMETRY_TEXTURE_MESHES};
@@ -48,9 +49,9 @@ pub use v4::{
     EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
     EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
     EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
-    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
+    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
@@ -68,7 +69,7 @@ pub use v4::{
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
 /// Includes item-use, seat, interaction, rig-frame, intrinsic shine and geometry-locator facts;
 /// stale carriers need `make assets`.
-pub const ENTITY_BLOB_VERSION: u32 = 23;
+pub const ENTITY_BLOB_VERSION: u32 = 24;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).

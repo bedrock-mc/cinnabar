@@ -10,9 +10,11 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
+
+var _ experience.ClientChannels = (*extension.Server)(nil)
 
 // startClientParts sets up the server half of client parts for the -extension flags: it reads
 // the server key and the bundles, takes the next revision, signs the offer and writes it as an
@@ -26,9 +28,19 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 	if err != nil {
 		return nil, fmt.Errorf("-extension-key %s: %w", cfg.extensionKey, err)
 	}
-	bundles, err := extension.ReadBundles(cfg.extensionCXB)
-	if err != nil {
-		return nil, fmt.Errorf("-extension-cxb: %w", err)
+	var bundles []extension.Bundle
+	if cfg.extensionCXB != "" {
+		bundles, err = extension.ReadBundles(cfg.extensionCXB)
+		if err != nil {
+			return nil, fmt.Errorf("-extension-cxb: %w", err)
+		}
+	}
+	for _, path := range cfg.modClients {
+		bundle, err := extension.ReadBundle(path)
+		if err != nil {
+			return nil, err
+		}
+		bundles = append(bundles, bundle)
 	}
 	revision, err := extension.NextRevision(filepath.Join(cfg.dir, extension.RevisionFile))
 	if err != nil {
@@ -42,7 +54,7 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 		}
 		mediaOrigins = []string{origin}
 	}
-	ext, err := extension.NewServer(extension.Config{
+	ext, err := extension.New(extension.Config{
 		Key:          key,
 		Audience:     cfg.extensionAudience,
 		Revision:     revision,
@@ -81,15 +93,15 @@ func startMedia(cfg settings, log *slog.Logger) (*extension.MediaServer, error) 
 // client part kept running through, to the Experience whose id is the bundle id, as that
 // player's callback; a player who has left, or a server without that Experience, drops it.
 func deliverClientPartEvents(ext *extension.Server, players func(uuid.UUID) (*world.EntityHandle, bool), host *experience.Host, log *slog.Logger) {
-	ext.OnClientMessage(func(player uuid.UUID, exp, channel string, schema uint16, payload []experience.Scalar) {
+	ext.OnClientMessage(func(player uuid.UUID, source extension.PlayerSession, exp, channel string, schema uint16, payload []extension.Scalar) {
 		handle, ok := players(player)
-		if !ok || host == nil || !host.DeliverClientMessage(handle, exp, channel, schema, payload) {
+		if !ok || host == nil || host.PlayerSession(handle) != source || !host.DeliverClientMessage(handle, exp, channel, schema, payload) {
 			log.Debug("client part message dropped", "experience", exp, "channel", channel, "schema", schema)
 		}
 	})
-	ext.OnEpoch(func(player uuid.UUID, exp string) {
+	ext.OnEpoch(func(player uuid.UUID, source extension.PlayerSession, exp string) {
 		handle, ok := players(player)
-		if !ok || host == nil || !host.DeliverEpoch(handle, exp) {
+		if !ok || host == nil || host.PlayerSession(handle) != source || !host.DeliverEpoch(handle, exp) {
 			log.Debug("client part epoch dropped", "experience", exp)
 		}
 	})

@@ -9,7 +9,7 @@ pub const BLOCK_ITEM_SHEET_SIZE: [u16; 2] = [
     BLOCK_ITEM_FACE_SIDE * BLOCK_ITEM_SHEET_GRID[0],
     BLOCK_ITEM_FACE_SIDE * BLOCK_ITEM_SHEET_GRID[1],
 ];
-pub const MAX_ICON_BLOCK_SHEETS: usize = 1024;
+pub const MAX_ICON_BLOCK_SHEETS: usize = 2048;
 
 /// A six-face carried sheet in the ordinary sprite pool, indexed by compiled block visual.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,6 +23,8 @@ pub struct IconBlockSheet {
 pub struct IconBlockModel {
     pub sprite: u32,
     pub visual: BlockVisualId,
+    /// Independent carried artwork when the GUI model replaces a flat item preview.
+    pub held_sprite: Option<u32>,
 }
 
 /// Checks that model bindings are bounded, sorted and reference existing sprites.
@@ -40,6 +42,12 @@ pub(super) fn validate_models(
         }
         if model.sprite as usize >= sprites.len() {
             return Err(invalid("block model thumbnail references a missing sprite"));
+        }
+        if model
+            .held_sprite
+            .is_some_and(|sprite| sprite as usize >= sprites.len())
+        {
+            return Err(invalid("held block sprite references a missing sprite"));
         }
         previous = Some(model.sprite);
     }

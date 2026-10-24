@@ -8,6 +8,7 @@ use {
 
 mod item_use;
 pub(super) mod potion;
+pub(super) mod tint;
 pub(super) mod wolf;
 
 #[cfg(test)]
@@ -474,6 +475,12 @@ pub(super) fn delta_time(context: &ActorTickContext) -> f32 {
 
 pub(super) fn is_arrow(actor: &dyn AnimatedActor) -> bool {
     actor.entity_fact().native_class == NativeEntityClass::Arrow
+}
+
+/// Arrows are not mobs, and the shulker post-AI step zeroes body yaw every tick, so neither
+/// model turns with its synced yaw.
+pub(super) fn has_zero_body_yaw(actor: &dyn AnimatedActor) -> bool {
+    is_arrow(actor) || super::shulker::is_shulker(actor)
 }
 
 fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::WornArmor> {

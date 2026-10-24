@@ -15,8 +15,18 @@ impl<H: Worker> Live<H> {
     ) -> Result<Vec<Vec<u8>>> {
         let mut packets = Vec::new();
         self.discard_stopped();
-        if epoch != self.epoch {
-            self.change_epoch(epoch, &mut packets)?;
+        self.set_epoch(epoch)?;
+        if let Some(control) = &self.pending_control {
+            let bytes = serde_json::to_vec(control)?;
+            let class = control.rate_class(Direction::ToServer, true);
+            match self.egress.charge_class(class, bytes.len(), now_ms) {
+                Ok(()) => {
+                    self.pending_control = None;
+                    packets.push(bytes);
+                }
+                Err(error) if error.is::<RateExceeded>() => {}
+                Err(error) => return Err(error),
+            }
         }
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
@@ -36,6 +46,11 @@ impl<H: Worker> Live<H> {
             let Some(result) = result else { continue };
             let stale_references = instance.presentation.stale_references;
             instance.busy = false;
+            if matches!(&result, Ok(Reply::NotReady { .. })) {
+                instance.pending = None;
+            } else if let Some(id) = instance.pending.take() {
+                instance.queue.acknowledge(id);
+            }
             instance.initialized |= instance.callback == "init";
             self.scene_revision += 1;
             let result = match result {
@@ -45,67 +60,63 @@ impl<H: Worker> Live<H> {
                     presentation,
                     references,
                 }) => {
+                    if instance.waiting_for.take().is_some() {
+                        instance.queue.replay();
+                    }
                     bevy::log::debug!(bundle = %instance.owner.bundle, callback = instance.callback,
                         fuel, "client part callback committed");
-                    instance
-                        .commit(
+                    instance.commit(
+                        transaction,
+                        presentation,
+                        references,
+                        self.epoch,
+                        self.drawing_fence,
+                        &valid,
+                        &mut self.modal_order,
+                    )
+                }
+                Ok(Reply::NotReady {
+                    transaction,
+                    confirmation,
+                }) => {
+                    instance.waiting_for = Some(confirmation);
+                    instance.commit(
+                        transaction,
+                        None,
+                        instance.drawing_references.clone(),
+                        self.epoch,
+                        self.drawing_fence,
+                        &valid,
+                        &mut self.modal_order,
+                    )
+                }
+                Ok(Reply::Recovered {
+                    failure,
+                    transaction,
+                    confirmation,
+                    references,
+                }) => {
+                    instance.waiting_for = confirmation;
+                    failed(
+                        instance,
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &failure,
+                        now_ms,
+                    );
+                    if instance.stopped.is_some() {
+                        Ok(Vec::new())
+                    } else {
+                        instance.commit(
                             transaction,
-                            presentation,
+                            None,
                             references,
                             self.epoch,
                             self.drawing_fence,
                             &valid,
                             &mut self.modal_order,
                         )
-                        .and_then(|commands| {
-                            for command in commands {
-                                match command {
-                                    Command::Media {
-                                        id,
-                                        operation,
-                                        position_ms,
-                                    } => {
-                                        self.media.queue(
-                                            &instance.owner,
-                                            id,
-                                            operation,
-                                            position_ms,
-                                        )?;
-                                    }
-                                    Command::Send {
-                                        channel,
-                                        schema,
-                                        record,
-                                    } => {
-                                        let send = Envelope {
-                                            version: self.grant.wire.version,
-                                            session: self.grant.session.clone(),
-                                            connection: self.grant.connection.clone(),
-                                            subclient: self.grant.subclient,
-                                            bundle: instance.owner.bundle.clone(),
-                                            generation: instance.owner.generation,
-                                            channel,
-                                            schema,
-                                            sequence: u64::MAX,
-                                            world_epoch: instance.epoch,
-                                            payload: record,
-                                        };
-                                        let bytes = wire::encode(&send, &self.grant.wire)?;
-                                        let size: usize = bytes.iter().map(Vec::len).sum();
-                                        ensure!(
-                                            self.pending_sends.len() < MAX_QUEUE_MESSAGES
-                                                && size
-                                                    <= MAX_QUEUE_BYTES - self.pending_send_bytes,
-                                            "outbound initialization queue overflow"
-                                        );
-                                        self.pending_send_bytes += size;
-                                        self.pending_sends.push_back((send, size));
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            Ok(())
-                        })
+                    }
                 }
                 Ok(Reply::Failed {
                     failure,
@@ -119,14 +130,65 @@ impl<H: Worker> Live<H> {
                         Ok(())
                     };
                     if result.is_ok() {
-                        failed(instance, &mut self.budget, &failure, now_ms);
+                        failed(
+                            instance,
+                            &mut self.budget,
+                            &mut self.scene_revision,
+                            &failure,
+                            now_ms,
+                        );
                     }
-                    result
+                    result.map(|()| Vec::new())
                 }
                 Err(error) => Err(error),
             };
+            let result = result.and_then(|commands| {
+                for command in commands {
+                    match command {
+                        Command::Media {
+                            id,
+                            operation,
+                            position_ms,
+                        } => {
+                            self.media
+                                .queue(&instance.owner, id, operation, position_ms)?;
+                        }
+                        Command::Send {
+                            channel,
+                            schema,
+                            record,
+                        } => {
+                            let send = Envelope {
+                                version: self.grant.wire.version,
+                                session: self.grant.session.clone(),
+                                connection: self.grant.connection.clone(),
+                                subclient: self.grant.subclient,
+                                bundle: instance.owner.bundle.clone(),
+                                generation: instance.owner.generation,
+                                channel,
+                                schema,
+                                sequence: u64::MAX,
+                                world_epoch: instance.epoch,
+                                payload: record,
+                            };
+                            let frames = wire::encode(&send, &self.grant.wire)?;
+                            let size =
+                                RateClass::Data.cost(frames.iter().map(Vec::len))?.bytes as usize;
+                            ensure!(
+                                self.pending_sends.len() < MAX_QUEUE_MESSAGES
+                                    && size <= MAX_QUEUE_BYTES - self.pending_send_bytes,
+                                "outbound initialization queue overflow"
+                            );
+                            self.pending_send_bytes += size;
+                            self.pending_sends.push_back((send, size));
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(())
+            });
             if let Err(error) = result {
-                instance.unavailable(&mut self.budget, &error, now_ms);
+                instance.unavailable(&mut self.budget, &mut self.scene_revision, &error, now_ms);
             }
             let discarded = instance.presentation.stale_references - stale_references;
             if discarded != 0 {
@@ -142,6 +204,7 @@ impl<H: Worker> Live<H> {
         }
         if !self.ready && self.instances.values().all(|instance| instance.initialized) {
             self.ready = true;
+            self.pending_control = None;
             // Trusted readiness and epoch controls belong to the whole session.
             packets.push(serde_json::to_vec(&Control::Ready {
                 session: self.grant.session.clone(),
@@ -164,10 +227,10 @@ impl<H: Worker> Live<H> {
                 world_epoch: self.epoch,
             })?);
         }
-        if self.ready {
+        if self.ready && self.pending_control.is_none() {
             self.send_pending(now_ms, &mut packets)?;
             if dispatch {
-                self.dispatch_pending(epoch, now_ms)?;
+                self.dispatch_pending(now_ms);
             }
         }
         self.discard_stopped();
@@ -202,9 +265,7 @@ impl<H: Worker> Live<H> {
             let result = (|| {
                 let bytes = wire::encode(&send, &self.grant.wire)?;
                 let mut candidate = self.egress.clone();
-                for part in &bytes {
-                    candidate.charge(part.len(), now_ms)?;
-                }
+                candidate.charge_all(bytes.iter().map(Vec::len), now_ms)?;
                 self.egress = candidate;
                 Ok::<_, anyhow::Error>(bytes)
             })();
@@ -213,8 +274,18 @@ impl<H: Worker> Live<H> {
                     self.sequence = next;
                     packets.extend(bytes);
                 }
+                Err(error) if error.is::<RateExceeded>() => {
+                    self.pending_send_bytes += size;
+                    self.pending_sends.push_front((send, size));
+                    break;
+                }
                 Err(error) => {
-                    instance.unavailable(&mut self.budget, &error, now_ms);
+                    instance.unavailable(
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &error,
+                        now_ms,
+                    );
                     self.scene_revision += 1;
                 }
             }

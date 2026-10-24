@@ -100,6 +100,7 @@ fn airborne() -> ModeObservation {
         liquid_contact_height: None,
         jump_edge: false,
         jump_down: false,
+        spinning: false,
     }
 }
 
@@ -556,7 +557,9 @@ fn an_ended_glide_restarts_the_cancel_window() {
     for _ in 0..12 {
         pick(&mut tracker, intent, airborne());
     }
-    tracker.end(MovementMode::Gliding);
+    let mut poses = tracker.pose_flags();
+    poses.gliding = false;
+    tracker.adopt_pose_flags(poses);
     assert_eq!(
         pick(&mut tracker, intent, pressed(airborne())),
         MovementMode::Gliding
@@ -697,6 +700,25 @@ fn a_gap_that_fits_a_sneak_but_not_a_stand_forces_the_sneak_pose() {
         .unwrap();
     assert_eq!(choice.mode, MovementMode::Walking);
     assert!(choice.forced_sneak);
+}
+
+/// A level older than base game version 1.20.10 sneaks at standing height, so
+/// the same gap skips the sneak pose and crawls; resets keep that profile.
+#[test]
+fn a_legacy_sneak_profile_crawls_where_the_current_one_forces_a_sneak() {
+    let mut tracker = ModeTracker::default();
+    tracker.set_sneak_profile(SneakProfile::Legacy);
+    tracker.reset();
+    let observed = ModeObservation {
+        on_ground: true,
+        feet: Vec3::new(0.0, 0.0, 0.0),
+        ..airborne()
+    };
+    let choice = tracker
+        .select(ModeIntent::default(), observed, &Ceiling(Some(1.6)))
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Crawling);
+    assert!(!choice.forced_sneak);
 }
 
 /// Shallow water with the head above the surface never starts a swim; a swimmer keeps going.

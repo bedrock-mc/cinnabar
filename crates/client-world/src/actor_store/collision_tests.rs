@@ -34,7 +34,14 @@ fn collidable_definitions_supply_bounds_and_exclude_self_and_mount() {
         assert!((bounds.1[0] - bounds.0[0] - width).abs() < 1e-6);
         assert!((bounds.1[1] - bounds.0[1] - height).abs() < 1e-6);
     }
-    store.rider_to_ridden.insert(100, 2);
+    store.rider_to_ridden.insert(
+        100,
+        super::riding_control::RiderLink {
+            vehicle: 2,
+            order: 0,
+            pending: false,
+        },
+    );
     assert_eq!(
         store.movement_collider_snapshot(1, 100).len(),
         records.len() - 2

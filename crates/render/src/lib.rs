@@ -31,6 +31,7 @@ mod block_entity;
 mod chunk;
 
 mod cloud_render;
+mod deferred_resource;
 mod device_poll;
 pub mod device_settings;
 
@@ -84,7 +85,9 @@ mod pipeline_warmup;
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;
 
+mod post_process;
 mod present_mode;
+pub use post_process::ClientPostProcessPlugin;
 mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
@@ -184,6 +187,9 @@ mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
 pub mod startup_presentation;
+mod stock_systems;
+pub use stock_systems::StockSystemsPlugin;
+mod world_passes;
 
 #[cfg(test)]
 mod queue_review_support;

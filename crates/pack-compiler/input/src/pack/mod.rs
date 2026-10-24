@@ -19,7 +19,7 @@ pub use block::{
 };
 pub use component_cross::CrossMaterial;
 pub use component_models::ComponentModel;
-pub use flipbook::MAX_FLIPBOOKS;
+pub use flipbook::{MAX_FLIPBOOKS, select_flipbook_index};
 pub use terrain::TerrainTextureMap;
 
 use block::read_blocks;

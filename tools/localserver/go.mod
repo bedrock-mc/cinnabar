@@ -1,9 +1,9 @@
-module github.com/hashimthearab/rust-mcbe/tools/localserver
+module github.com/cinnabar-mc/cinnabar/tools/localserver
 
 go 1.26.1
 
 require (
-	github.com/df-mc/dragonfly v0.11.2-0.20260807000407-2988c7f4f621
+	github.com/df-mc/dragonfly v0.11.5
 	github.com/df-mc/goleveldb v1.1.9
 	github.com/go-gl/mathgl v1.2.0
 	github.com/google/uuid v1.6.0
@@ -55,7 +55,7 @@ require (
 )
 
 replace (
-	github.com/df-mc/dragonfly => github.com/HashimTheArab/dragonfly v0.0.0-20261022024801-c272439d3975
+	github.com/df-mc/dragonfly => github.com/HashimTheArab/dragonfly v0.0.0-20261024061022-1f3ee8b41e92
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
 	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261022024750-27a649aeb9f9
 )

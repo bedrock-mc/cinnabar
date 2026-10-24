@@ -3895,6 +3895,35 @@
       ]
     },
     {
+      "id": "flat-icon-metal-bars",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "suffix": "_bars"
+    },
+    {
+      "id": "flat-icon-crystals-and-spikes",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:amethyst_cluster",
+        "minecraft:large_amethyst_bud",
+        "minecraft:medium_amethyst_bud",
+        "minecraft:small_amethyst_bud",
+        "minecraft:pointed_dripstone",
+        "minecraft:sulfur_spike"
+      ]
+    },
+    {
+      "id": "flat-icon-eggs-and-frogspawn",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:turtle_egg",
+        "minecraft:sniffer_egg",
+        "minecraft:frog_spawn"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",
@@ -3922,7 +3951,11 @@
         "minecraft:sea_pickle",
         "minecraft:spore_blossom",
         "minecraft:bamboo",
-        "minecraft:bell"
+        "minecraft:bell",
+        "minecraft:tripwire_hook",
+        "minecraft:open_eyeblossom",
+        "minecraft:closed_eyeblossom",
+        "minecraft:pitcher_plant"
       ]
     },
     {
@@ -5629,6 +5662,16 @@
       }
     },
     {
+      "id": "class-Sheep",
+      "status": "provisional",
+      "members": [
+        "minecraft:sheep"
+      ],
+      "facts": {
+        "native_class": "Sheep"
+      }
+    },
+    {
       "id": "class-SplashPotion",
       "status": "provisional",
       "members": [
@@ -5656,6 +5699,16 @@
       ],
       "facts": {
         "native_class": "Tropicalfish"
+      }
+    },
+    {
+      "id": "class-Shulker",
+      "status": "provisional",
+      "members": [
+        "minecraft:shulker"
+      ],
+      "facts": {
+        "native_class": "Shulker"
       }
     },
     {
@@ -5936,6 +5989,173 @@
       ],
       "facts": {
         "native_class": "AreaEffectCloud"
+      }
+    },
+    {
+      "id": "component-use",
+      "status": "verified",
+      "members": [
+        "minecraft:bogged",
+        "minecraft:cow",
+        "minecraft:donkey",
+        "minecraft:drowned",
+        "minecraft:happy_ghast",
+        "minecraft:horse",
+        "minecraft:husk",
+        "minecraft:mule",
+        "minecraft:parched",
+        "minecraft:skeleton",
+        "minecraft:skeleton_horse",
+        "minecraft:stray",
+        "minecraft:wither_skeleton",
+        "minecraft:zombie",
+        "minecraft:zombie_horse"
+      ],
+      "facts": {
+        "actor_use_resolver": "Components"
+      }
+    },
+    {
+      "id": "prevent-default-use",
+      "status": "verified",
+      "members": [
+        "minecraft:armor_stand"
+      ],
+      "facts": {
+        "actor_use_resolver": "PreventDefault"
+      }
+    },
+    {
+      "id": "unresolved-use",
+      "status": "verified",
+      "members": [
+        "minecraft:agent",
+        "minecraft:allay",
+        "minecraft:area_effect_cloud",
+        "minecraft:armadillo",
+        "minecraft:arrow",
+        "minecraft:axolotl",
+        "minecraft:balloon",
+        "minecraft:bat",
+        "minecraft:bee",
+        "minecraft:blaze",
+        "minecraft:boat",
+        "minecraft:breeze",
+        "minecraft:breeze_wind_charge_projectile",
+        "minecraft:camel",
+        "minecraft:camel_husk",
+        "minecraft:cat",
+        "minecraft:cave_spider",
+        "minecraft:chalkboard",
+        "minecraft:chest_boat",
+        "minecraft:chest_minecart",
+        "minecraft:chicken",
+        "minecraft:cod",
+        "minecraft:command_block_minecart",
+        "minecraft:copper_golem",
+        "minecraft:creaking",
+        "minecraft:creeper",
+        "minecraft:cushion",
+        "minecraft:dolphin",
+        "minecraft:dragon_fireball",
+        "minecraft:egg",
+        "minecraft:elder_guardian",
+        "minecraft:elder_guardian_ghost",
+        "minecraft:ender_crystal",
+        "minecraft:ender_dragon",
+        "minecraft:ender_pearl",
+        "minecraft:enderman",
+        "minecraft:endermite",
+        "minecraft:evocation_fang",
+        "minecraft:evocation_illager",
+        "minecraft:eye_of_ender_signal",
+        "minecraft:falling_block",
+        "minecraft:fireball",
+        "minecraft:fireworks_rocket",
+        "minecraft:fishing_hook",
+        "minecraft:fox",
+        "minecraft:frog",
+        "minecraft:ghast",
+        "minecraft:glow_squid",
+        "minecraft:goat",
+        "minecraft:guardian",
+        "minecraft:hoglin",
+        "minecraft:hopper_minecart",
+        "minecraft:ice_bomb",
+        "minecraft:iron_golem",
+        "minecraft:item",
+        "minecraft:leash_knot",
+        "minecraft:lightning_bolt",
+        "minecraft:lingering_potion",
+        "minecraft:llama",
+        "minecraft:llama_spit",
+        "minecraft:magma_cube",
+        "minecraft:minecart",
+        "minecraft:mooshroom",
+        "minecraft:moving_block",
+        "minecraft:nautilus",
+        "minecraft:npc",
+        "minecraft:ocelot",
+        "minecraft:ominous_item_spawner",
+        "minecraft:painting",
+        "minecraft:panda",
+        "minecraft:parrot",
+        "minecraft:phantom",
+        "minecraft:pig",
+        "minecraft:piglin",
+        "minecraft:piglin_brute",
+        "minecraft:pillager",
+        "minecraft:player",
+        "minecraft:polar_bear",
+        "minecraft:pufferfish",
+        "minecraft:rabbit",
+        "minecraft:ravager",
+        "minecraft:salmon",
+        "minecraft:sheep",
+        "minecraft:shield",
+        "minecraft:shulker",
+        "minecraft:shulker_bullet",
+        "minecraft:silverfish",
+        "minecraft:slime",
+        "minecraft:small_fireball",
+        "minecraft:sniffer",
+        "minecraft:snow_golem",
+        "minecraft:snowball",
+        "minecraft:spider",
+        "minecraft:splash_potion",
+        "minecraft:squid",
+        "minecraft:strider",
+        "minecraft:sulfur_cube",
+        "minecraft:tadpole",
+        "minecraft:thrown_trident",
+        "minecraft:tnt",
+        "minecraft:tnt_minecart",
+        "minecraft:trader_llama",
+        "minecraft:tripod_camera",
+        "minecraft:tropicalfish",
+        "minecraft:turtle",
+        "minecraft:vex",
+        "minecraft:villager",
+        "minecraft:villager_v2",
+        "minecraft:vindicator",
+        "minecraft:wandering_trader",
+        "minecraft:warden",
+        "minecraft:wind_charge_projectile",
+        "minecraft:witch",
+        "minecraft:wither",
+        "minecraft:wither_skull",
+        "minecraft:wither_skull_dangerous",
+        "minecraft:wolf",
+        "minecraft:xp_bottle",
+        "minecraft:xp_orb",
+        "minecraft:zoglin",
+        "minecraft:zombie_nautilus",
+        "minecraft:zombie_pigman",
+        "minecraft:zombie_villager",
+        "minecraft:zombie_villager_v2"
+      ],
+      "facts": {
+        "actor_use_resolver": "Unresolved"
       }
     }
   ],
@@ -6886,6 +7106,13 @@
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",
       "HeavyCore": "minecraft:heavy_core",
+      "Crafter": "minecraft:crafter",
+      "DriedGhast": "minecraft:dried_ghast",
+      "SculkSensor": "minecraft:sculk_sensor",
+      "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
+      "SculkShrieker": "minecraft:sculk_shrieker",
+      "BigDripleaf": "minecraft:big_dripleaf",
+      "SmallDripleaf": "minecraft:small_dripleaf_block",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {
@@ -6944,20 +7171,11 @@
     "powered_prefix": "powered",
     "materials": {
       "elytra": "UnmaskedArmor",
-      "skeleton": "AlphaTestNoCull",
-      "experience_orb": "AlphaTest",
-      "player_spectator": "AlphaBlend",
-      "slime_outer": "AlphaBlend",
-      "sulfur_cube": "AlphaTestNoCull",
-      "sulfur_cube_outer": "AlphaBlend",
-      "breeze_wind": "Wind",
-      "charged_creeper": "Charged",
       "ender_dragon": "Dragon",
       "entity_dissolve_layer0": "DissolveDepth",
       "entity_dissolve_layer0.skinning": "DissolveDepth",
       "entity_dissolve_layer1": "DissolveColor",
-      "entity_dissolve_layer1.skinning": "DissolveColor",
-      "entity_alphatest": "AlphaTestNoCull"
+      "entity_dissolve_layer1.skinning": "DissolveColor"
     },
     "egg_aliases": {
       "minecraft:evocation_illager": "minecraft:evoker_spawn_egg",
@@ -6983,6 +7201,9 @@
         "path": "textures/blocks/sulfur"
       }
     ],
+    "default_item_tints": {
+      "minecraft:firework_star": [0, 0, 0]
+    },
     "item_visuals": {
       "minecraft:banner": "BlockModel",
       "minecraft:bed": "Sprite",

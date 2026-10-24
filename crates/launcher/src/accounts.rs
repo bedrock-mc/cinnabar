@@ -587,13 +587,12 @@ fn write_private_bounded(path: &Path, bytes: &[u8], limit: u64) -> io::Result<()
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
-        {
-            let mut file = options.open(&temporary)?;
-            #[cfg(windows)]
-            protect_windows(&temporary)?;
-            file.write_all(bytes)?;
-            file.sync_all()?;
-        }
+        let mut file = options.open(&temporary)?;
+        #[cfg(windows)]
+        protect_windows(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
         fs::rename(&temporary, path)
     })();
     let _ = fs::remove_file(&temporary);

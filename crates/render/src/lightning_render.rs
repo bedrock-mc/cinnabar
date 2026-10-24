@@ -47,6 +47,7 @@ pub(crate) fn install_lightning_render(app: &mut App) {
         crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<LightningPipeline>()
         .add_render_command::<Transparent3d, DrawLightningCommands>()
@@ -57,7 +58,7 @@ pub(crate) fn install_lightning_render(app: &mut App) {
                 prepare_lightning_records.in_set(RenderSystems::PrepareResources),
                 prepare_lightning_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_lightning
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );

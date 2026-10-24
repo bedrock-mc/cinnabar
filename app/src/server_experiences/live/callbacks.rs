@@ -2,31 +2,17 @@
 
 use super::*;
 
-impl<H: Worker> Instance<H> {
-    /// Charges and dispatches one callback, stopping only this bundle if its helper refuses.
-    pub(super) fn admit(
-        &mut self,
-        budget: &mut Budget,
-        session: Option<&SessionData>,
-        event: Event,
-        epoch: u64,
-        gui: Option<GuiSize>,
-        now_ms: u64,
-    ) {
-        let result = budget
-            .dispatch(&self.owner)
-            .and_then(|_| self.dispatch(session, event, epoch, gui));
-        if let Err(error) = result {
-            self.unavailable(budget, &error, now_ms);
-        }
-    }
-}
-
 impl<H> Instance<H> {
     /// Routes unusable helper output and transport through the callback-failure policy.
-    pub(super) fn unavailable(&mut self, budget: &mut Budget, error: &anyhow::Error, now_ms: u64) {
+    pub(super) fn unavailable(
+        &mut self,
+        budget: &mut Budget,
+        scene_revision: &mut u64,
+        error: &anyhow::Error,
+        now_ms: u64,
+    ) {
         let failure = CallFailure::unavailable(&self.owner.bundle, self.callback, error);
-        failed(self, budget, &failure, now_ms);
+        failed(self, budget, scene_revision, &failure, now_ms);
     }
 }
 
@@ -58,67 +44,21 @@ impl<H: Worker> Live<H> {
                 }
                 Err(error) => {
                     let failure = CallFailure::startup(&instance.owner.bundle, &error);
-                    failed(instance, &mut self.budget, &failure, now_ms);
+                    failed(
+                        instance,
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &failure,
+                        now_ms,
+                    );
                 }
             }
         }
     }
 
-    /// Delivers waiting input and messages before rotating through frame callbacks.
-    pub(super) fn dispatch_pending(&mut self, epoch: u64, now_ms: u64) -> Result<()> {
-        self.deliver_events(epoch, now_ms);
-        while let Some((bundle, record)) = self.media.next_event() {
-            let Some(instance) = self.instances.get_mut(&bundle) else {
-                continue;
-            };
-            if instance.stopped.is_some() {
-                continue;
-            }
-            if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                self.media.defer_event((bundle, record));
-                break;
-            }
-            instance.admit(
-                &mut self.budget,
-                self.session.as_deref(),
-                Event::Message {
-                    channel: super::super::media::EVENT_CHANNEL.into(),
-                    record,
-                },
-                epoch,
-                modal::size_for(&self.gui, &instance.owner.bundle),
-                now_ms,
-            );
-        }
-        while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
-            // Ingress checks the signed route before queuing; a missing owner is session corruption.
-            let instance = self
-                .instances
-                .get_mut(&message.bundle)
-                .ok_or_else(|| anyhow::anyhow!("unknown bundle"))?;
-            if instance.stopped.is_some() {
-                self.ingress.pop(u64::MAX, epoch);
-                continue;
-            }
-            if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                break;
-            }
-            let message = self.ingress.pop(u64::MAX, epoch).expect("front checked");
-            match serde_json::to_vec(&message.payload) {
-                Ok(record) => instance.admit(
-                    &mut self.budget,
-                    self.session.as_deref(),
-                    Event::Message {
-                        channel: message.channel,
-                        record,
-                    },
-                    epoch,
-                    modal::size_for(&self.gui, &instance.owner.bundle),
-                    now_ms,
-                ),
-                Err(error) => instance.unavailable(&mut self.budget, &error.into(), now_ms),
-            }
-        }
+    /// Delivers queued callbacks before rotating through idle presentation producers.
+    pub(super) fn dispatch_pending(&mut self, now_ms: u64) {
+        self.schedule(now_ms);
         let mut ids: Vec<_> = self.instances.keys().cloned().collect();
         let start =
             ids.partition_point(|id| self.frame_cursor.as_ref().is_some_and(|last| id <= last));
@@ -126,22 +66,31 @@ impl<H: Worker> Live<H> {
         for id in ids {
             let instance = self.instances.get_mut(&id).expect("current bundle");
             if instance.stopped.is_none()
+                && instance.waiting_for.is_none()
                 && instance.helper.is_some()
                 && !instance.busy
                 && instance.capabilities.has_presentation()
                 && self.budget.can_dispatch(&instance.owner)
             {
-                instance.admit(
-                    &mut self.budget,
-                    self.session.as_deref(),
-                    Event::Frame,
-                    epoch,
-                    modal::size_for(&self.gui, &instance.owner.bundle),
-                    now_ms,
-                );
+                let result = self.budget.dispatch(&instance.owner).and_then(|_| {
+                    instance.dispatch(
+                        self.session.as_deref(),
+                        Event::Frame,
+                        self.epoch,
+                        modal::size_for(&self.gui, &instance.owner.bundle),
+                        None,
+                    )
+                });
+                if let Err(error) = result {
+                    instance.unavailable(
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &error,
+                        now_ms,
+                    );
+                }
                 self.frame_cursor = Some(id);
             }
         }
-        Ok(())
     }
 }

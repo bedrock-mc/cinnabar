@@ -30,7 +30,9 @@ fn despawn_during_callback_drops_only_stale_drawing_and_keeps_the_bundle_running
         Permission::EntityHighlight,
     ]);
     instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
-    instance.dispatch(None, Event::Frame, 1, None).unwrap();
+    instance
+        .dispatch(None, Event::Frame, 1, None, None)
+        .unwrap();
     let mut output = retained_scene(1);
     for (slot, key) in [stale, alive].into_iter().enumerate() {
         let entity = DrawingHandle {
@@ -116,7 +118,9 @@ fn failed_callback_drops_despawned_references_without_a_transport_fault() {
         spawn_revision: 3,
     };
     let instance = live.instances.get_mut("bundle0").unwrap();
-    instance.dispatch(None, Event::Frame, 1, None).unwrap();
+    instance
+        .dispatch(None, Event::Frame, 1, None, None)
+        .unwrap();
     let helper = instance.helper.as_mut().unwrap();
     helper.references = vec![actor];
     helper.response = None;

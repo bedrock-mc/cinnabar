@@ -94,7 +94,10 @@ fn failed(error: &anyhow::Error) -> Outcome {
 /// staged, and how much of its caps it has used.
 pub struct CallbackRes {
     info: CallbackInfo,
+    context: Option<protocol::WorldContext>,
+    simulation: Option<protocol::SimulationContext>,
     actor: Option<String>,
+    player_store: bool,
     /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
     /// its anchor would have.
     focus: Option<BlockPos>,
@@ -155,6 +158,15 @@ struct Slot {
 
 /// The export a callback calls, with its arguments.
 enum Export<'a> {
+    Tick(wit::SimulationStep),
+    Timer {
+        handle: wit::ScheduleHandle,
+        step: wit::SimulationStep,
+    },
+    Player {
+        player: &'a wit::PlayerId,
+        event: wit::PlayerEvent,
+    },
     Place(wit::BlockChange),
     Break(wit::BlockChange),
     Interact {
@@ -208,6 +220,49 @@ fn prepare<'a>(
     player_id("actor", actor.as_deref())?;
     let mut focused = None;
     let (anchor, export) = match call {
+        Call::Tick { step } | Call::Timer { step, .. } => {
+            if actor.is_some()
+                || !snapshot.is_empty()
+                || info.simulation.as_ref().is_none_or(|s| s.step != *step)
+            {
+                return Err(
+                    "simulation callback has unauthorized snapshot or inconsistent time".into(),
+                );
+            }
+            if let Call::Timer { handle, .. } = call
+                && (info
+                    .context
+                    .as_ref()
+                    .is_none_or(|c| c.current != handle.world)
+                    || info
+                        .simulation
+                        .as_ref()
+                        .is_none_or(|s| !s.schedules.contains(handle)))
+            {
+                return Err("scheduled callback has no active instance handle".into());
+            }
+            let export = match call {
+                Call::Timer { handle, .. } => Export::Timer {
+                    handle: handle.clone().into(),
+                    step: (*step).into(),
+                },
+                _ => Export::Tick((*step).into()),
+            };
+            (None, export)
+        }
+        Call::Player { player, event } => {
+            player_id("player", Some(player))?;
+            if !snapshot.is_empty() || actor.as_deref().is_some_and(|actor| actor != player) {
+                return Err("player observation has unauthorized snapshot or actor".into());
+            }
+            (
+                None,
+                Export::Player {
+                    player,
+                    event: event.clone().into(),
+                },
+            )
+        }
         Call::Place { change } => (Some(change.pos), Export::Place(block_change(change)?)),
         Call::Break { change } => (Some(change.pos), Export::Break(block_change(change)?)),
         Call::Interact { player, pos, face } => {
@@ -285,6 +340,8 @@ fn prepare<'a>(
         items::check_inventory(own, inventory, actor.as_deref())?;
     }
     let res = CallbackRes {
+        context: info.context.clone(),
+        simulation: info.simulation.clone(),
         info: CallbackInfo {
             world_id: info.world_id.clone(),
             dimension_id: info.dimension_id.clone(),
@@ -292,6 +349,7 @@ fn prepare<'a>(
             event_sequence: info.event_sequence,
         },
         actor: actor.clone(),
+        player_store: actor.is_some() || matches!(call, Call::Player { .. }),
         focus: focused,
         own: Arc::clone(own),
         snapshot: Snapshot {
@@ -646,6 +704,29 @@ impl CallbackRes {
         schema: u16,
         payload: Vec<ValueNode>,
     ) -> Result<Result<(), WorldError>> {
+        self.stage_client(player, channel, schema, payload, false)
+    }
+
+    /// Stages a reply for the adapter's retained control delivery using the same send limits.
+    pub(crate) fn send_control(
+        &mut self,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+    ) -> Result<Result<(), WorldError>> {
+        self.stage_client(player, channel, schema, payload, true)
+    }
+
+    /// Validates and stages one actor message with its selected delivery mode.
+    fn stage_client(
+        &mut self,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+        control: bool,
+    ) -> Result<Result<(), WorldError>> {
         self.host_call()?;
         if let Err(error) = self.actor_is(&player) {
             return Ok(Err(error));
@@ -666,6 +747,7 @@ impl CallbackRes {
             return Err(LimitExceeded(sends).into());
         }
         let op = Op::SendClient {
+            control,
             player,
             channel,
             schema,
@@ -698,6 +780,9 @@ impl CallbackRes {
 
 /// Appends `op`; the op past [`MAX_STAGED_OPS`] traps.
 fn stage(ops: &mut Vec<Op>, op: Op) -> Result<()> {
+    if ops.iter().any(|op| matches!(op, Op::World { .. })) {
+        bail!("a world lifecycle operation must be the only staged operation");
+    }
     if ops.len() == MAX_STAGED_OPS {
         return Err(LimitExceeded(format!("more than {MAX_STAGED_OPS} staged ops")).into());
     }
@@ -745,6 +830,9 @@ fn data_op(ops: &[Op], pos: BlockPos) -> Option<usize> {
 fn staged_len(op: &Op) -> usize {
     match op {
         Op::SetBlockData {
+            data: Some(hex), ..
+        }
+        | Op::StoreWrite {
             data: Some(hex), ..
         } => hex.len() / 2,
         _ => 0,
@@ -815,3 +903,7 @@ mod invoke;
 mod items;
 #[cfg(test)]
 mod tests;
+
+mod worlds;
+
+mod simulation;

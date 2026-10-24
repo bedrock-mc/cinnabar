@@ -12,9 +12,13 @@ impl PhysicsSampleContext {
 }
 
 /// Input edges and controller state retained alongside one completed simulation tick.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    pub sync_state: posture::SyncState,
+    pub sync_server: Vec<posture::ServerWrite>,
+    /// Feet position before travel, retained independently of live position updates.
+    pub position_before_tick: Vec3,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
@@ -27,6 +31,17 @@ pub(super) struct ControllerFrame {
     pub requested_sprint: bool,
     pub sprint_down: bool,
     pub server_sprinting: Option<bool>,
+    /// Client-owned actor flags this tick started with, before its corrections;
+    /// replay refreshes it for every frame after the one it starts from.
+    pub entry_flags: server_flags::FlagWord,
+    /// Retained server flag writes that apply before this tick.
+    pub flag_correction: server_flags::FlagCorrection,
+    /// Counters this tick started with; replay restores those of the frame it
+    /// starts from and refreshes later ones.
+    pub entry_counters: server_flags::EntryCounters,
+    /// The camera eye this tick started with, which replay restores for the
+    /// frame it starts from and refreshes for later ones.
+    pub entry_eye: eye::LocalEyeOffset,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,
@@ -48,7 +63,8 @@ impl ControllerFrame {
         eye.tick(
             self.input.mode,
             self.input.sneaking,
-            state.spin_attack_ticks.is_some(),
+            self.input.sneak_profile,
+            state.spin_attack_ticks.is_some() || self.input.horizontal_pose,
         );
         self.eye_offset = *eye;
     }
@@ -63,6 +79,7 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
             anchor_state.note_hard_anchor();
@@ -89,7 +106,7 @@ impl ControllerFrame {
             self.sprint_override = Some(input.sprinting);
         }
         input.liquid_contact_height =
-            Some(modes.liquid_contact_height(state.spin_attack_ticks.is_some()));
+            Some(modes.spin_aware_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
         input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
         if let Some(sprinting) = self.sprint_override {
@@ -117,6 +134,7 @@ impl ControllerFrame {
             liquid_contact_height: input.liquid_contact_height,
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
+            spinning: state.spin_attack_ticks.is_some(),
         };
         anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
         state.position = observed.feet;
@@ -137,6 +155,8 @@ impl ControllerFrame {
         input.mode = self.mode_override.unwrap_or(choice.mode);
         input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);
+        input.horizontal_pose = modes.pose_flags().horizontal();
+        input.swim_pose_active = Some(modes.pose_flags().swim_pose());
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
@@ -174,6 +194,7 @@ impl ControllerFrame {
             state.velocity.y as f32,
             state.velocity.z as f32,
         ];
+        self.position_before_tick = state.position;
         self.modes = *modes;
         self.anchor_state = *anchor_state;
         self.input = *input;

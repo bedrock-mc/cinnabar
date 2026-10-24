@@ -103,7 +103,9 @@ pub(super) fn portal_body(
                 .is_some_and(|(sneak, _)| sneak);
             Some(sim::Aabb::player_with_height_at(
                 state.position,
-                physics.mode().hitbox_height(sneaking),
+                physics
+                    .mode()
+                    .hitbox_height(sneaking, physics.sneak_profile()),
             ))
         })
         .unwrap_or_else(|| {

@@ -125,6 +125,8 @@ pub const SHULKER_LID: ModelBox = ([-8.0, 4.0, -8.0], [16.0, 12.0, 16.0], [0.0, 
 pub const CONDUIT_SHELL: ModelBox = ([-3.0; 3], [6.0; 3], [0.0; 2]);
 pub const POT_BODY_HALF: f32 = 7.0;
 pub const POT_BODY_HEIGHT: f32 = 16.0;
+/// Artwork between the side texture's two transparent border columns.
+pub const POT_SIDE_TEXELS: [f32; 4] = [1.0, 0.0, 14.0, 16.0];
 pub const POT_NECK: ModelBox = ([-4.0, 14.0, -4.0], [8.0, 3.0, 8.0], [0.0, 0.0]);
 pub const POT_LIP: ModelBox = ([-3.0, POT_BODY_HEIGHT, -3.0], [6.0, 1.0, 6.0], [0.0, 5.0]);
 pub const POT_NECK_INFLATE: f32 = -0.1;

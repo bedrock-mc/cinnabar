@@ -288,6 +288,13 @@ where
         (trace, trace.now(), packets.len() as i64, tick)
     });
     let now = opportunity.map(|origin| simulation_clock::Moment::from_elapsed(origin.elapsed()));
+    // The peer can receive an acknowledgment and send its next notice before this flush
+    // resolves. Retire the acknowledged epochs before handing the batch to the transport.
+    for packet in &packets {
+        if let Some(epoch) = protocol::experience_world_ack(packet) {
+            experience_gate.acknowledged(epoch);
+        }
+    }
     match wait_for_send_or_cancel(outbound.send_batch(packets, now), shutdown_rx).await {
         None => Flush::Stopped,
         Some(Err(error)) => Flush::Failed(FlushFailure {

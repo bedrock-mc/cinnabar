@@ -28,6 +28,7 @@ fn only_chat_history_background_follows_opacity_on_rebind() {
     let messages = VecDeque::new();
     let clocks = BTreeMap::new();
     let input = ChatInput {
+        local_player: "Alex",
         editor: &editor,
         messages: &messages,
         suggestions: &[],

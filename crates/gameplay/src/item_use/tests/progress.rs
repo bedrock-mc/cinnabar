@@ -207,3 +207,48 @@ fn use_progress_requires_a_verified_eating_or_drinking_selection() {
     );
     assert_eq!(packets.len(), 1);
 }
+
+/// Reselecting an eating or drinking stack clears the report once, at cancellation.
+#[test]
+fn progress_cancellation_clears_reported_use() {
+    for animation in [ItemUseAnimationFact::Eat, ItemUseAnimationFact::Drink] {
+        for empty in [false, true] {
+            let (mut runtime, selection) = eating();
+            assert_eq!(runtime.reported_using_item(), Some(true));
+            let mut changed = selection.clone();
+            if empty {
+                changed.item = selection.item.less_one(0).less_one(0);
+            } else {
+                changed.slot += 1;
+            }
+            let mut packets = Vec::new();
+            send(
+                &mut runtime,
+                107,
+                Some(&changed),
+                Some(animation),
+                &mut packets,
+            );
+            assert!(!runtime.is_using());
+            assert_eq!(runtime.reported_using_item(), Some(false));
+            assert!(
+                packets.is_empty(),
+                "cancellation does not send progress or a release"
+            );
+            runtime.adopt_server_using_item(Some(true));
+            send(
+                &mut runtime,
+                111,
+                Some(&changed),
+                Some(animation),
+                &mut packets,
+            );
+            runtime.step(&item_frame(112, false, changed, "minecraft:golden_apple"));
+            assert_eq!(
+                runtime.reported_using_item(),
+                Some(true),
+                "idle maintenance preserves a later server write"
+            );
+        }
+    }
+}

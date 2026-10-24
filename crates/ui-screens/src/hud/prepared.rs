@@ -7,7 +7,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use json_ui::{Catalog, Context, ResolvedControl};
 
 /// Resolves the HUD and crosshair screens under each of `placements`, the HUD contexts of every
-/// chat placement, on the calling thread, and returns the textures their controls name.
+/// HUD placement, on the calling thread, and returns the textures their controls name.
 pub fn prepare(
     catalog: &Arc<Catalog>,
     placements: impl IntoIterator<Item = Context>,

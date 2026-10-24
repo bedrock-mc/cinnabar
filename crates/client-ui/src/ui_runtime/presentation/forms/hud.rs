@@ -51,13 +51,14 @@ const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
 
-/// Resolves the HUD screens of `catalog` under both chat placements on the calling thread, and
+/// Resolves the HUD screens of `catalog` under every HUD placement on the calling thread, and
 /// returns the textures their controls name.
 pub(in crate::ui_runtime::presentation) fn prepare(catalog: &Arc<Catalog>) -> BTreeSet<String> {
     let base = hud_context(&ui_screens::menu_screens::retail_context());
     ui_screens::hud::prepared::prepare(
         catalog,
-        [false, true].map(|top| ui_screens::chat_position::placed(base.clone(), top)),
+        ui_screens::hud_placement::HudPlacement::ALL
+            .map(|placement| placement.placed(base.clone())),
     )
 }
 
@@ -94,7 +95,9 @@ impl UiPresentationRuntime {
         }
         let context = self.screens.hud.context(
             renderer.context(),
-            self.screens.chat.settings.options().chat_at_top(),
+            ui_screens::hud_placement::HudPlacement::from_settings(
+                self.screens.chat.settings.options(),
+            ),
         );
         let reference = if crosshair {
             Reference::HudCrosshairHudCrosshairScreen.as_str()
@@ -185,6 +188,9 @@ impl UiPresentationRuntime {
         } else {
             None
         };
+        let drew = &self.hud_renderers[usize::from(crosshair)];
+        let renderers_unchanged =
+            drew.preview == player_preview && drew.crosshair == crosshair_spec;
         let translate = |key: &str| runtime.translation(key);
         let preview_view = std::cell::Cell::new(None);
         let mut preview = PreviewRenderer {
@@ -215,6 +221,7 @@ impl UiPresentationRuntime {
             renderer,
             HudInput {
                 capture_keep_out: self.screens.mod_ui.mod_hud_editor_open(),
+                renderers_unchanged,
                 crosshair,
                 catalog: &catalog,
                 context: &context,
@@ -234,12 +241,29 @@ impl UiPresentationRuntime {
             self.screens.touch.hud_keep_out = self.screens.hud.editor_keep_out;
             self.screens.touch.hud = drawn;
         }
-        if let Some(view) = preview_view.get() {
+        // A reused paint ran no player renderer; the pose it asked for still holds.
+        let reused = self.screens.hud.reused(crosshair);
+        let drew = &mut self.hud_renderers[usize::from(crosshair)];
+        if !reused {
+            drew.view = preview_view.get();
+        }
+        drew.preview = player_preview;
+        drew.crosshair = crosshair_spec;
+        if let Some(view) = drew.view {
             self.hud_preview_view = view;
             self.player_preview_view = view;
         }
         Ok(true)
     }
+}
+
+/// What the presentation's own renderers drew one HUD screen from, and the player pose its
+/// player renderer asked for, so an unchanged paint can be reused.
+#[derive(Default)]
+pub(in crate::ui_runtime::presentation) struct HudRendererInputs {
+    preview: Option<ui::IconRef>,
+    crosshair: Option<ui::mod_hud::Crosshair>,
+    view: Option<super::super::player_preview::PreviewView>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -252,6 +276,17 @@ impl UiPresentationRuntime {
     /// Bind+layout passes the engine HUD ran.
     pub fn hud_passes(&self) -> usize {
         self.screens.hud.hud.passes
+    }
+
+    /// Paints the engine HUD and its crosshair overlay ran rather than reused:
+    /// `[hud, crosshair]`.
+    pub fn hud_paints(&self) -> [usize; 2] {
+        self.screens.hud.paints()
+    }
+
+    /// Drops the engine HUD's retained paints, so the next frame paints both screens in full.
+    pub fn forget_hud_paints(&mut self) {
+        self.screens.hud.forget_paints();
     }
 
     /// The engine HUD's painted sprite paths that resolve to no texture source.

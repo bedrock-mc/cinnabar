@@ -1,6 +1,6 @@
 //! Bounded process protocol. OS-restricted production launch deliberately fails closed.
 
-use crate::server::BundleHost;
+use crate::server::{BundleHost, DispatchResult};
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use server_experience::{
@@ -25,17 +25,16 @@ const MAX_STARTUP_IPC: usize =
 const MAX_ITEMS_IPC: usize = 8 << 20;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
 const MAX_DISPATCH_IPC: usize = MAX_MESSAGE_BYTES * 4 + MAX_HOST_OUTPUT + MAX_ITEMS_IPC;
-/// A reply: one callback's output, or a failure, with room for the reply's own framing.
-const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 2 * MAX_FAILURE_REASON_BYTES;
+/// A reply has room for bounded output, an escaped failure, and its framing and identifiers.
+const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 4 * MAX_FAILURE_REASON_BYTES;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The helper IPC protocol. A client and its helper ship together; a helper of another version
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
-/// the helper exiting; 3 the session items a dispatch carries; 4 verified drawing assets,
-/// native drawing context and typed presentation output; 5 requires that context at startup
-/// and before every callback; 6 reports held actor references independently of drawing chunks;
-/// 7 publishes legacy scene objects in the same snapshot as drawing.
-const HELPER_PROTOCOL: u32 = 7;
+/// the helper exiting; 3 the session items a dispatch carries; 4 restart initialization output;
+/// 5 terminal queue overflow; 6 registry confirmation; 7 terminal registry mismatches;
+/// 8 verified drawing assets, native context, held actor references and shared scene snapshots.
+const HELPER_PROTOCOL: u32 = 8;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -180,11 +179,25 @@ pub enum Reply {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         presentation: Option<Box<crate::presentation::Chunk>>,
     },
-    /// The callback failed and published nothing. After a failed dispatch the helper runs on, on
-    /// a fresh instance of the guest; after a failed start it exits.
+    /// The event did not run. Keep it queued; only this confirmation channel may run yet.
+    NotReady {
+        transaction: Transaction,
+        confirmation: String,
+    },
+    /// The callback failed and published nothing. Recoverable dispatch failures start a fresh
+    /// guest. A failed start exits.
     Failed {
         failure: CallFailure,
         references: Vec<mod_render::retained::EntityKey>,
+    },
+    /// The callback failed, but a fresh guest initialized successfully. Publish only its
+    /// initialization messages, unless this failure stops the part.
+    Recovered {
+        failure: CallFailure,
+        transaction: Transaction,
+        references: Vec<mod_render::retained::EntityKey>,
+        /// The fresh guest's confirmation channel, if it requires registry negotiation.
+        confirmation: Option<String>,
     },
 }
 
@@ -205,6 +218,8 @@ pub enum FailureKind {
     Startup,
     /// The helper or its output cannot be used safely; this bundle must stop.
     Unavailable,
+    /// The server's shared definitions differ from this client part's definitions.
+    RegistryMismatch,
 }
 
 /// A failed callback: its bundle, the guest export it called, the kind of failure and a bounded
@@ -226,11 +241,15 @@ impl CallFailure {
     /// guest backtrace of a trap.
     pub(crate) fn of(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
         use wasmtime::Trap;
-        let kind = match error.downcast_ref::<Trap>() {
-            Some(Trap::OutOfFuel) => FailureKind::Fuel,
-            Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
-            Some(_) => FailureKind::Trap,
-            None => FailureKind::Refused,
+        let kind = if error.is::<crate::server::RegistryMismatch>() {
+            FailureKind::RegistryMismatch
+        } else {
+            match error.downcast_ref::<Trap>() {
+                Some(Trap::OutOfFuel) => FailureKind::Fuel,
+                Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
+                Some(_) => FailureKind::Trap,
+                None => FailureKind::Refused,
+            }
         };
         Self::new(bundle, callback, kind, error)
     }
@@ -498,7 +517,13 @@ pub fn serve_developer() -> Result<()> {
         }
     };
     let transaction = host.take_transaction();
-    let init = committed(&mut host, transaction, &bundle, "init");
+    let init = match host.waiting_for().map(str::to_owned) {
+        Some(confirmation) => Reply::NotReady {
+            transaction,
+            confirmation,
+        },
+        None => committed(&mut host, transaction, &bundle, "init"),
+    };
     answer(&mut output, init, &bundle, "init")?;
     loop {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
@@ -508,14 +533,34 @@ pub fn serve_developer() -> Result<()> {
             host.set_session(std::sync::Arc::new(items.into()));
         }
         let reply = match host.dispatch(&request.event, request.epoch, &request.drawing) {
-            Ok(transaction) => committed(&mut host, transaction, &bundle, callback),
-            Err(error) => Reply::Failed {
-                failure: CallFailure {
+            Ok(DispatchResult::Committed(transaction)) => {
+                committed(&mut host, transaction, &bundle, callback)
+            }
+            Ok(DispatchResult::NotReady(transaction)) => Reply::NotReady {
+                transaction,
+                confirmation: host.waiting_for().expect("negotiation pending").to_owned(),
+            },
+            Err(error) => {
+                let failure = CallFailure {
                     fuel: Some(host.last_fuel_used()),
                     ..CallFailure::of(&bundle, callback, &error)
-                },
-                references: host.drawing_references(),
-            },
+                };
+                let transaction = host.take_transaction();
+                let references = host.drawing_references();
+                if transaction.commands.is_empty() {
+                    Reply::Failed {
+                        failure,
+                        references,
+                    }
+                } else {
+                    Reply::Recovered {
+                        failure,
+                        transaction,
+                        references,
+                        confirmation: host.waiting_for().map(str::to_owned),
+                    }
+                }
+            }
         };
         answer(&mut output, reply, &bundle, callback)?;
     }
@@ -566,9 +611,10 @@ fn answer(output: &mut impl Write, reply: Reply, bundle: &str, callback: &str) -
         Err(error) => {
             let failure = CallFailure::new(bundle, callback, FailureKind::Refused, &error);
             let references = match reply {
-                Reply::Committed { references, .. } | Reply::Failed { references, .. } => {
-                    references
-                }
+                Reply::Committed { references, .. }
+                | Reply::Failed { references, .. }
+                | Reply::Recovered { references, .. } => references,
+                Reply::NotReady { .. } => Vec::new(),
             };
             serialize_frame(
                 &Reply::Failed {

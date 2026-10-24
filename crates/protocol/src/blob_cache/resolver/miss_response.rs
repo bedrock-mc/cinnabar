@@ -1,5 +1,10 @@
 use super::*;
 
+#[cfg(test)]
+thread_local! {
+    static DELTA_PIN_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl BlobCacheResolver {
     /// Validates the response before publishing its cache delta.
     pub(super) fn accept_miss_response_inner(
@@ -8,10 +13,14 @@ impl BlobCacheResolver {
     ) -> Result<(), BlobCacheError> {
         let mut unique = Vec::<(u64, bytes::Bytes)>::new();
         let mut positions = HashMap::<u64, usize>::new();
+        let mut unsolicited = None;
         for blob in response.missing_blobs {
             let (blob_id, blob_data) = (blob.blob_id.0, blob.blob_data);
             if !self.pending_by_hash.contains_key(&blob_id) && !self.cache.contains(blob_id) {
-                return Err(BlobCacheError::UnsolicitedBlob(blob_id));
+                // A retired transaction can leave a late blob beside still-needed payloads.
+                // Ignore its body without discarding or recovering the other columns.
+                unsolicited = Some(blob_id);
+                continue;
             }
             if let Some(&index) = positions.get(&blob_id) {
                 if unique[index].1 != blob_data {
@@ -29,6 +38,13 @@ impl BlobCacheResolver {
             }
             positions.insert(blob_id, unique.len());
             unique.push((blob_id, blob_data));
+        }
+        if let Some(hash) = unsolicited {
+            if unique.is_empty() {
+                return Err(BlobCacheError::UnsolicitedBlob(hash));
+            }
+            self.stats.miss_response_unsolicited =
+                self.stats.miss_response_unsolicited.saturating_add(1);
         }
 
         let mut staged_additions = HashMap::<u64, usize>::new();
@@ -126,13 +142,20 @@ fn validate_delta(
             new_entries += 1;
         }
     }
-    let pinned_entries = store
-        .entries
-        .keys()
-        .filter(|hash| store.pins.contains_key(hash))
-        .count();
-    if pinned_entries.saturating_add(new_entries) > MAX_CLIENT_BLOB_CACHE_ENTRIES {
-        return Err(BlobCacheError::CacheEntryPressure);
+    // Every resident pin belongs to the pin index, so its size proves ordinary responses fit
+    // without inspecting bodies retained from earlier worlds. Missing pins only need an exact
+    // intersection when this conservative bound exceeds capacity.
+    if store.pins.len().saturating_add(new_entries) > MAX_CLIENT_BLOB_CACHE_ENTRIES {
+        #[cfg(test)]
+        DELTA_PIN_VISITS.with(|visits| visits.set(visits.get() + store.entries.len()));
+        let pinned_entries = store
+            .entries
+            .keys()
+            .filter(|hash| store.pins.contains_key(hash))
+            .count();
+        if pinned_entries.saturating_add(new_entries) > MAX_CLIENT_BLOB_CACHE_ENTRIES {
+            return Err(BlobCacheError::CacheEntryPressure);
+        }
     }
     Ok(new_entries)
 }
@@ -140,6 +163,62 @@ fn validate_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A small response does not inspect unrelated bodies retained from previous worlds.
+    #[test]
+    fn blob_cache_delta_validation_skips_unrelated_entries() {
+        let mut store = CacheStore::default();
+        for hash in 0..4_096 {
+            insert_verified(&mut store, BlobCacheLimits::default(), hash, b"body").unwrap();
+        }
+        store.pins.insert(0, 2);
+        store.pins.insert(8_192, 1);
+        DELTA_PIN_VISITS.with(|visits| visits.set(0));
+        assert_eq!(
+            validate_delta(&store, &[(8_192, bytes::Bytes::from_static(b"new"))]),
+            Ok(1)
+        );
+        DELTA_PIN_VISITS.with(|visits| assert_eq!(visits.get(), 0));
+    }
+
+    /// Unresolved pins cannot reject a response when its resident pinned bodies still fit.
+    #[test]
+    fn response_delta_counts_resident_pins_at_capacity() {
+        let mut store = CacheStore::default();
+        for hash in 0..MAX_CLIENT_BLOB_CACHE_ENTRIES as u64 {
+            store.pins.insert(hash, 1);
+        }
+        store.pins.insert(0, 2);
+        insert_verified(&mut store, BlobCacheLimits::default(), 0, b"resident").unwrap();
+        let candidate = [(1, bytes::Bytes::from_static(b"new"))];
+        assert_eq!(validate_delta(&store, &candidate), Ok(1));
+        let entry = store.entries[&0].clone();
+        for hash in 1..MAX_CLIENT_BLOB_CACHE_ENTRIES as u64 {
+            store.entries.insert(hash, entry.clone());
+        }
+        assert_eq!(
+            validate_delta(
+                &store,
+                &[(u64::MAX, bytes::Bytes::from_static(b"overflow"))]
+            ),
+            Err(BlobCacheError::CacheEntryPressure)
+        );
+    }
+
+    /// The upper bound accepts exact capacity without inspecting any resident pin bodies.
+    #[test]
+    fn response_delta_accepts_exact_pin_capacity_without_scanning() {
+        let mut store = CacheStore::default();
+        for hash in 0..MAX_CLIENT_BLOB_CACHE_ENTRIES as u64 - 1 {
+            store.pins.insert(hash, 1);
+        }
+        DELTA_PIN_VISITS.with(|visits| visits.set(0));
+        assert_eq!(
+            validate_delta(&store, &[(u64::MAX, bytes::Bytes::from_static(b"new"))]),
+            Ok(1)
+        );
+        DELTA_PIN_VISITS.with(|visits| assert_eq!(visits.get(), 0));
+    }
 
     /// Batch validation rejects a later conflict before admitting the earlier delta.
     #[test]

@@ -85,7 +85,8 @@ pub(super) fn fixed_toggle(
     toggle_at(canvas, at, knob, Interaction::default(), false)
 }
 
-fn toggle_at(
+/// Draws a switch at `at` with its knob `knob` rem from the left; the caller owns input.
+pub(crate) fn toggle_at(
     canvas: &mut Canvas<'_>,
     at: [f32; 2],
     knob: f32,
@@ -184,8 +185,9 @@ pub(super) fn slider(
     if actions.is_empty() {
         return Ok(());
     }
-    let half = canvas.r(1.6).min((b[2] - b[0]) * 0.5);
-    let travel = (b[2] - b[0] - half * 2.0).max(0.0);
+    let [start, end] = slider_travel(canvas, b);
+    let half = start - b[0];
+    let travel = end - start;
     let selected_fraction = if actions.len() > 1 {
         selected.min(actions.len() - 1) as f32 / (actions.len() - 1) as f32
     } else {
@@ -211,10 +213,70 @@ pub(super) fn slider(
         ),
         _ => target,
     };
-    let centre = b[0] + half + fraction * travel;
+    let same =
+        |candidate: Option<MenuAction>| actions.iter().any(|action| Some(*action) == candidate);
+    let state = Interaction {
+        action: actions.get(selected).copied(),
+        hovered: (view.settings.slider_pointer.is_none()
+            && index.is_some_and(|index| view.settings.slider_hovered == Some(index)))
+            || pointer.is_some()
+            || index.is_some_and(|index| view.settings.slider_selected == Some(index)),
+        pressed: false,
+        focused: view.navigation_focus_visible && same(view.focused_action),
+    };
+    let enabled = actions.len() > 1;
+    let marks = if show_steps { actions.len() } else { 0 };
+    let thumb_bounds = slider_face(canvas, b, fraction, marks, state, enabled)?;
+    if enabled {
+        let track = [b[0] + half, b[1], b[2] - half, b[3]];
+        canvas.slider_track(actions[0], track, thumb_bounds)?;
+        canvas.focus_target(actions[selected.min(actions.len() - 1)], track)?;
+    }
+    if actions.len() <= 1 {
+        return Ok(());
+    }
+    let capture_focus = canvas.capture_focus;
+    canvas.capture_focus = false;
+    let result = actions.iter().enumerate().try_for_each(|(index, action)| {
+        let steps = actions.len().saturating_sub(1) as f32;
+        let left = if index == 0 {
+            b[0]
+        } else {
+            b[0] + half + travel * (index as f32 - 0.5) / steps
+        };
+        let right = if index + 1 == actions.len() {
+            b[2]
+        } else {
+            b[0] + half + travel * (index as f32 + 0.5) / steps
+        };
+        canvas.hit(*action, [left, b[1], right, b[3]])
+    });
+    canvas.capture_focus = capture_focus;
+    result
+}
+
+/// The x range a slider thumb's centre moves over in `b`: inset by half the thumb at each end.
+pub(crate) fn slider_travel(canvas: &Canvas<'_>, b: Bounds) -> [f32; 2] {
+    let half = canvas.r(1.6).min((b[2] - b[0]) * 0.5);
+    [b[0] + half, (b[2] - half).max(b[0] + half)]
+}
+
+/// Draws a slider rail filled up to `fraction` and its thumb in `state`; returns the thumb
+/// bounds. `marks` stops (more than two) draw their interior step ticks; the caller owns input.
+pub(crate) fn slider_face(
+    canvas: &mut Canvas<'_>,
+    b: Bounds,
+    fraction: f32,
+    marks: usize,
+    state: Interaction,
+    enabled: bool,
+) -> Result<Bounds, PaintError> {
+    let [start, end] = slider_travel(canvas, b);
+    let half = start - b[0];
+    let travel = end - start;
+    let centre = start + fraction * travel;
     let middle = (b[1] + b[3]) * 0.5;
     let rail = [b[0], middle - canvas.r(0.6), b[2], middle + canvas.r(0.6)];
-    let enabled = actions.len() > 1;
     canvas.fill(rail, if enabled { theme::BORDER } else { RAIL_OFF })?;
     let edge = canvas.r(EDGE);
     let inner = [
@@ -266,11 +328,9 @@ pub(super) fn slider(
             )?;
         }
     }
-    let same =
-        |candidate: Option<MenuAction>| actions.iter().any(|action| Some(*action) == candidate);
-    if show_steps && actions.len() > 2 {
-        for index in 1..actions.len() - 1 {
-            let x = b[0] + half + travel * index as f32 / (actions.len() - 1) as f32;
+    if marks > 2 {
+        for index in 1..marks - 1 {
+            let x = b[0] + half + travel * index as f32 / (marks - 1) as f32;
             canvas.fill(
                 [x, rail[1], x + edge, rail[3]],
                 if enabled { theme::BORDER } else { RAIL_OFF },
@@ -278,47 +338,8 @@ pub(super) fn slider(
         }
     }
     let thumb_bounds = [centre - half, b[1], centre + half, b[3]];
-    thumb(
-        canvas,
-        thumb_bounds,
-        Interaction {
-            action: actions.get(selected).copied(),
-            hovered: (view.settings.slider_pointer.is_none()
-                && index.is_some_and(|index| view.settings.slider_hovered == Some(index)))
-                || pointer.is_some()
-                || index.is_some_and(|index| view.settings.slider_selected == Some(index)),
-            pressed: false,
-            focused: view.navigation_focus_visible && same(view.focused_action),
-        },
-        enabled,
-        true,
-    )?;
-    if enabled {
-        let track = [b[0] + half, b[1], b[2] - half, b[3]];
-        canvas.slider_track(actions[0], track, thumb_bounds)?;
-        canvas.focus_target(actions[selected.min(actions.len() - 1)], track)?;
-    }
-    if actions.len() <= 1 {
-        return Ok(());
-    }
-    let capture_focus = canvas.capture_focus;
-    canvas.capture_focus = false;
-    let result = actions.iter().enumerate().try_for_each(|(index, action)| {
-        let steps = actions.len().saturating_sub(1) as f32;
-        let left = if index == 0 {
-            b[0]
-        } else {
-            b[0] + half + travel * (index as f32 - 0.5) / steps
-        };
-        let right = if index + 1 == actions.len() {
-            b[2]
-        } else {
-            b[0] + half + travel * (index as f32 + 0.5) / steps
-        };
-        canvas.hit(*action, [left, b[1], right, b[3]])
-    });
-    canvas.capture_focus = capture_focus;
-    result
+    thumb(canvas, thumb_bounds, state, enabled, true)?;
+    Ok(thumb_bounds)
 }
 
 #[cfg(test)]

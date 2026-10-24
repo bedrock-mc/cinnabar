@@ -1,6 +1,15 @@
 use super::tests::local_health_feed;
 use super::*;
 
+/// Drains authority controls and returns the logical death transitions under test.
+fn take_deaths(authority: &mut WorldAuthority) -> Vec<CommittedControlEvent> {
+    authority
+        .take_committed_controls()
+        .into_iter()
+        .filter(|control| matches!(control, CommittedControlEvent::LocalDeath { .. }))
+        .collect()
+}
+
 #[test]
 fn local_death_controls_follow_accepted_health_and_actor_transitions() {
     let mut authority = authority();
@@ -18,7 +27,7 @@ fn local_death_controls_follow_accepted_health_and_actor_transitions() {
                 Some(sequence),
             )
             .unwrap();
-        let controls = authority.take_committed_controls();
+        let controls = take_deaths(&mut authority);
         assert_eq!(
             controls,
             if died {
@@ -32,7 +41,7 @@ fn local_death_controls_follow_accepted_health_and_actor_transitions() {
     authority
         .apply_ordered_event(health_update(20.0, 20.0), Some(6))
         .unwrap();
-    assert!(authority.take_committed_controls().is_empty());
+    assert!(take_deaths(&mut authority).is_empty());
     for (sequence, runtime_id, kind, died) in [
         (7, 1, protocol::ActorStatusKind::SpawnAlive, false),
         (8, 2, protocol::ActorStatusKind::Death, false),
@@ -49,7 +58,7 @@ fn local_death_controls_follow_accepted_health_and_actor_transitions() {
                 Some(sequence),
             )
             .unwrap();
-        let controls = authority.take_committed_controls();
+        let controls = take_deaths(&mut authority);
         assert_eq!(
             controls,
             if died {
@@ -92,7 +101,7 @@ fn health_attributes_only_publish_local_deaths_in_the_active_dimension() {
                 Some(sequence),
             )
             .unwrap();
-        let controls = authority.take_committed_controls();
+        let controls = take_deaths(&mut authority);
         assert_eq!(
             controls,
             if died {
@@ -110,7 +119,7 @@ fn health_attributes_only_publish_local_deaths_in_the_active_dimension() {
         )
         .unwrap();
     assert!(
-        authority.take_committed_controls().is_empty(),
+        take_deaths(&mut authority).is_empty(),
         "actor replacement does not create a new life"
     );
 }
@@ -169,7 +178,7 @@ fn readiness_before_initial_health_requires_a_new_life_before_another_death() {
                 .apply_ordered_event(event, Some(sequence))
                 .unwrap();
             assert_eq!(
-                authority.take_committed_controls(),
+                take_deaths(&mut authority),
                 if died {
                     vec![CommittedControlEvent::LocalDeath { sequence }]
                 } else {
@@ -202,16 +211,13 @@ fn rejected_health_attributes_cannot_arm_or_rearm_a_death_hold() {
             authority
                 .apply_ordered_event(health_update(current, max), Some(index as u64 + 1))
                 .unwrap();
-            assert!(
-                authority.take_committed_controls().is_empty(),
-                "{current}/{max}"
-            );
+            assert!(take_deaths(&mut authority).is_empty(), "{current}/{max}");
         }
         authority
             .apply_ordered_event(health_update(0.0, 20.0), Some(8))
             .unwrap();
         assert_eq!(
-            authority.take_committed_controls(),
+            take_deaths(&mut authority),
             [CommittedControlEvent::LocalDeath { sequence: 8 }]
         );
         authority
@@ -220,7 +226,7 @@ fn rejected_health_attributes_cannot_arm_or_rearm_a_death_hold() {
         authority
             .apply_ordered_event(health_update(0.0, 20.0), Some(10))
             .unwrap();
-        assert!(authority.take_committed_controls().is_empty());
+        assert!(take_deaths(&mut authority).is_empty());
     }
 }
 
@@ -242,7 +248,7 @@ fn set_health_life_ignores_an_unusable_retained_attribute_range() {
                 )
                 .unwrap();
             assert_eq!(
-                authority.take_committed_controls(),
+                take_deaths(&mut authority),
                 if died {
                     vec![CommittedControlEvent::LocalDeath { sequence }]
                 } else {

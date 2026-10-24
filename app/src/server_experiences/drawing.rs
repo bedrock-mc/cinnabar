@@ -22,7 +22,7 @@ impl Frame<'_, '_> {
                 && key.dimension == authority.current_dimension()
                 && authority
                     .actor(key.runtime_id)
-                    .is_some_and(|actor| actor.spawn_revision == key.spawn_revision)
+                    .is_some_and(|actor| actor.render_spawn_revision.get() == key.spawn_revision)
         })
     }
 

@@ -108,6 +108,13 @@
     },
     {
       "module": "policy",
+      "name": "MAX_BURST_BYTES",
+      "type": "u64",
+      "value": "3 * MAX_MESSAGE_BYTES as u64",
+      "go": "MaxBurstBytes"
+    },
+    {
+      "module": "policy",
       "name": "MAX_QUEUE_MESSAGES",
       "type": "usize",
       "value": "256"
@@ -1442,13 +1449,21 @@
           "rust": "Hello",
           "go": "Hello",
           "json": "hello",
-          "type": "Hello"
+          "type": "Hello",
+          "rate": {
+            "to_client": "Handshake",
+            "to_server": "Handshake"
+          }
         },
         {
           "rust": "Accept",
           "go": "Accept",
           "json": "accept",
-          "type": "SignedDocument"
+          "type": "SignedDocument",
+          "rate": {
+            "to_client": "Handshake",
+            "to_server": "Handshake"
+          }
         },
         {
           "rust": "Ready",
@@ -1490,7 +1505,11 @@
               "optional": false,
               "skip": false
             }
-          ]
+          ],
+          "rate": {
+            "to_client": "Handshake",
+            "to_server": "Handshake"
+          }
         },
         {
           "rust": "Epoch",
@@ -1511,12 +1530,53 @@
               "optional": false,
               "skip": false
             }
-          ]
+          ],
+          "rate": {
+            "to_client": "WorldNotice",
+            "to_server": "NativeEpoch"
+          }
+        },
+        {
+          "rust": "WorldAck",
+          "go": "WorldAck",
+          "json": "world_ack",
+          "fields": [
+            {
+              "name": "session",
+              "go": "Session",
+              "type": "String",
+              "optional": false,
+              "skip": false
+            },
+            {
+              "name": "world_epoch",
+              "go": "WorldEpoch",
+              "type": "u64",
+              "optional": false,
+              "skip": false
+            },
+            {
+              "name": "requested_epoch",
+              "go": "RequestedEpoch",
+              "type": "u64",
+              "optional": false,
+              "skip": false
+            }
+          ],
+          "rate": {
+            "to_client": "Data",
+            "to_server": "Data",
+            "matching_notice": "WorldAck"
+          }
         },
         {
           "rust": "Disabled",
           "go": "Disabled",
-          "json": "disabled"
+          "json": "disabled",
+          "rate": {
+            "to_client": "Handshake",
+            "to_server": "Handshake"
+          }
         }
       ]
     }
@@ -1531,5 +1591,15 @@
       "depth": "MAX_FIELD_DEPTH"
     },
     "wire_limits": "ascending_nonzero"
+  },
+  "rate_budget": {
+    "size": "encoded_carrier_bytes",
+    "classes": {
+      "Data": true,
+      "NativeEpoch": true,
+      "WorldNotice": false,
+      "WorldAck": false,
+      "Handshake": false
+    }
   }
 }

@@ -17,7 +17,7 @@ use zip::{CompressionMethod, ZipArchive};
 use crate::{
     AdmissionError, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK,
     crypto::{ContentKey, contents_file_keys},
-    manifest::{IdentityPolicy, read_manifest_with_policy},
+    manifest::{IdentityPolicy, Version, read_manifest_with_policy},
     pack::{ArchiveBytes, EntryIndex, ValidatedPack, read_entry},
     read_cache::ReadCache,
 };
@@ -30,7 +30,15 @@ const MAX_CONTENTS_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Validates one unencrypted archive under a nil identity; used by fuzzing.
 pub fn validate_archive_bytes(bytes: &[u8]) -> Result<(), AdmissionError> {
-    validate_archive_parts(Uuid::nil(), "0.0.0", "", bytes.to_vec(), None, None).map(|_| ())
+    validate_archive_parts(
+        Uuid::nil(),
+        Version([0, 0, 0]),
+        "",
+        bytes.to_vec(),
+        None,
+        None,
+    )
+    .map(|_| ())
 }
 
 /// Admits highest-priority-first server entries, then stores layers lowest priority first.
@@ -87,12 +95,15 @@ pub(super) fn validate_stack(
 #[cfg(feature = "handoff")]
 fn admit_stack_entry<T>(
     archive: ResourcePackArchive,
-    seen: &mut HashSet<Uuid>,
+    seen: &mut HashSet<(Uuid, Version)>,
     memory: Option<u32>,
     reads: Arc<ReadCache>,
     stack_bounds: impl FnOnce(&ValidatedPack, u64) -> Result<T, AdmissionError>,
 ) -> Result<(ValidatedPack, T), AdmissionError> {
-    if seen.contains(&archive.pack_id) {
+    // The client keys stack entries by UUID and numeric version, so one pack may appear at
+    // several versions; an unparsable version is rejected by validation below.
+    let identity = Version::parse(&archive.version).map(|version| (archive.pack_id, version));
+    if identity.is_some_and(|identity| seen.contains(&identity)) {
         return Err(AdmissionError::DuplicatePack);
     }
     let key = archive.content_key.expose();
@@ -103,23 +114,22 @@ fn admit_stack_entry<T>(
     };
     let (pack, declared) = validate_archive_parts_cached(
         archive.pack_id,
-        &archive.version,
         &archive.sub_pack_name,
         archive.archive,
         key,
         memory,
         reads,
-        IdentityPolicy::ServerAdvertisement,
+        IdentityPolicy::ServerAdvertisement(archive.version),
     )?;
     let bounds = stack_bounds(&pack, declared)?;
-    seen.insert(pack.pack_id);
+    seen.extend(identity);
     Ok((pack, bounds))
 }
 
 /// Admits one local selection with its own bounded read cache and exact manifest identity.
 pub(crate) fn validate_archive_parts(
     pack_id: Uuid,
-    version: &str,
+    version: Version,
     sub_pack_name: &str,
     archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
@@ -127,22 +137,19 @@ pub(crate) fn validate_archive_parts(
 ) -> Result<(ValidatedPack, u64), AdmissionError> {
     validate_archive_parts_cached(
         pack_id,
-        version,
         sub_pack_name,
         archive_bytes,
         key,
         memory,
         Arc::default(),
-        IdentityPolicy::Manifest,
+        IdentityPolicy::Manifest(version),
     )
 }
 
 /// Admits a pack whose plaintext storage shares the caller's byte budget; `identity`
 /// decides whether the manifest must name the selected UUID and version.
-#[allow(clippy::too_many_arguments)] // Selection, content key and budgets stay explicit.
 pub(crate) fn validate_archive_parts_cached(
     pack_id: Uuid,
-    version: &str,
     sub_pack_name: &str,
     mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
@@ -214,7 +221,7 @@ pub(crate) fn validate_archive_parts_cached(
         .ok_or(AdmissionError::MissingManifest)?;
     let mut pack = ValidatedPack {
         pack_id,
-        version: version.into(),
+        version: identity.version_text().into(),
         sub_pack_name: sub_pack_name.into(),
         archive_bytes,
         declared_bytes: declared,
@@ -231,7 +238,7 @@ pub(crate) fn validate_archive_parts_cached(
     let manifest_bytes = pack
         .read_file(manifest_path)?
         .ok_or(AdmissionError::MissingManifest)?;
-    let manifest = read_manifest_with_policy(&manifest_bytes, pack_id, version, identity)?;
+    let manifest = read_manifest_with_policy(&manifest_bytes, pack_id, &identity)?;
     let selected = if let Some(memory) = memory {
         crate::subpacks::supported(&manifest.subpacks, sub_pack_name, memory)
     } else {

@@ -197,7 +197,6 @@ pub fn world_worker_threads(cores: usize) -> usize {
 }
 
 /// Diagnostic cap on the logical processors every thread pool sizes itself for.
-#[cfg(not(target_arch = "wasm32"))]
 const CORES_ENV: &str = "CINNABAR_CPU_CORES";
 
 /// Logical processors the client's pools are sized for: the machine's count, or fewer when
@@ -241,7 +240,7 @@ pub(super) static WORKERS: LazyLock<WorldPool> = LazyLock::new(|| {
 });
 
 impl WorldPool {
-    /// Submits detached allocations to the executor driven by the browser host.
+    /// Submits detached work to the executor driven by the browser host.
     #[cfg(any(test, target_arch = "wasm32"))]
     fn retire(&self, job: impl FnOnce() + Send + 'static) {
         // Decode ageing also prevents a mesh backlog from retaining evicted allocations.
@@ -297,8 +296,9 @@ impl WorldPool {
     }
 }
 
-/// Releases detached world allocations through the host's background executor.
-pub(super) fn retire(job: impl FnOnce() + Send + 'static) {
+/// Runs detached work, such as releasing world allocations or building a shared table, on the
+/// host's background executor, never on the submitting thread.
+pub(super) fn detach(job: impl FnOnce() + Send + 'static) {
     #[cfg(not(target_arch = "wasm32"))]
     rayon::spawn(job);
     #[cfg(target_arch = "wasm32")]

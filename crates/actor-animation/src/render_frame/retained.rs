@@ -48,7 +48,8 @@ impl Key {
                 context,
                 evaluator.input.swim_amount,
             ),
-            color: crate::query::wolf::default_render_color(evaluator.actor).map(f32::to_bits),
+            color: crate::query::tint::default_render_color(evaluator.actor, evaluator.life_tick)
+                .map(f32::to_bits),
             skin,
             skin_tick: (skin && !state.skin_layers.is_empty()).then_some(evaluator.life_tick),
         }

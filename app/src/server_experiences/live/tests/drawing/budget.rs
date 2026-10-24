@@ -32,7 +32,9 @@ fn queue(
         .extend([Permission::WorldDraw, Permission::Scene]);
     instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
     instance.capabilities.assets.insert("legacy".into());
-    instance.dispatch(None, Event::Frame, 1, None).unwrap();
+    instance
+        .dispatch(None, Event::Frame, 1, None, None)
+        .unwrap();
     let bytes = serde_json::to_vec(output).unwrap();
     let chunks: Vec<_> = bytes
         .chunks(4096)

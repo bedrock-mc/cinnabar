@@ -198,6 +198,33 @@ impl CustomUniforms {
         self.inputs.iter().map(String::as_str)
     }
 
+    /// Returns float uniforms that forward `input` unchanged, including chains through
+    /// float variables and uniforms. Computed expressions and type conversions are not
+    /// aliases and must retain their normal evaluation.
+    pub fn float_aliases(&self, input: &str) -> Vec<&str> {
+        let mut aliases = Vec::with_capacity(self.definitions.len());
+        let mut names = Vec::new();
+        for definition in self.definitions.iter() {
+            let alias = definition.ty == DeclaredType::Float
+                && match &definition.node {
+                    Node::Input {
+                        slot,
+                        access: compile::Access::Whole,
+                    } => self.inputs[*slot] == input,
+                    Node::Local {
+                        index,
+                        component: None,
+                    } => aliases[*index],
+                    _ => false,
+                };
+            aliases.push(alias);
+            if alias && let Some(result) = definition.result {
+                names.push(self.results[result].0.as_str());
+            }
+        }
+        names
+    }
+
     /// Forgets every `smooth()` accumulator, so each call next returns its current value,
     /// as on the first evaluation. Iris builds a pack's uniforms when the world starts
     /// rendering; a host that evaluates them earlier (before the player's biome is known)

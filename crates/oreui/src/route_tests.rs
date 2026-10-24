@@ -82,6 +82,7 @@ fn pause_actions_align_with_the_character_footer_and_logo_has_extra_top_space() 
     let view = MenuView::new(true, "Fixture".into());
     let (_, hits, nodes) = super::review_tests::paint(Default::default(), |canvas| {
         canvas.title_artwork = Some(ui::IconRef {
+            color_mask: None,
             page: 1,
             uv: [0, 0, 300, 100],
             glint: false,

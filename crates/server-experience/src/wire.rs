@@ -159,7 +159,7 @@ impl Channel {
 }
 // END GENERATED EXTENSION CONTRACT
 
-use crate::rate_limit::RateLimit;
+use crate::rate_limit::{RateClass, RateLimit};
 use crate::{
     manifest::identifier,
     negotiation::{Grant, Wire},
@@ -266,7 +266,9 @@ struct Partial {
     header: Envelope,
     count: u32,
     next: u32,
-    data: String,
+    /// None drains the rest of a fragmented message after its recipient overflowed.
+    data: Option<String>,
+    payload_bytes: usize,
     /// Carrier bytes of the fragments so far.
     bytes: usize,
 }
@@ -287,6 +289,11 @@ impl std::fmt::Display for BundleFailure {
 
 impl std::error::Error for BundleFailure {}
 
+/// Allows a message to run only in the world epoch where it originated.
+pub fn is_current_epoch(message_epoch: u64, world_epoch: u64) -> bool {
+    message_epoch == world_epoch
+}
+
 /// One reliable direction, shared by every bundle in a server session.
 #[derive(Debug)]
 pub struct Ingress {
@@ -296,13 +303,71 @@ pub struct Ingress {
     bytes: usize,
     partial: Option<Partial>,
     failed: bool,
+    /// Overflow is terminal for a recipient for the rest of this session.
+    retired: std::collections::BTreeSet<String>,
     /// Messages of an undeclared channel schema, possibly a newer revision.
     pub skipped: u64,
     /// Messages of another world epoch than the current one when they came up for dispatch.
     pub stale: u64,
 }
 
+/// The recipient whose next message cannot fit in the reliable ingress queue.
+#[derive(Debug)]
+pub struct QueueOverflow {
+    pub bundle: String,
+}
+
+impl std::fmt::Display for QueueOverflow {
+    /// Names the part that must stop rather than lose accepted callbacks silently.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "reliable queue overflow for {}; client part stopped",
+            self.bundle
+        )
+    }
+}
+
+impl std::error::Error for QueueOverflow {}
+
 impl Ingress {
+    /// Takes a server request to advance the logical world epoch on wire v2. Notices bypass
+    /// the data rate budget and cannot interrupt a fragmented message.
+    pub fn receive_epoch_request(
+        &mut self,
+        message: &protocol::ExperienceMessage,
+        grant: &Grant,
+        now_ms: u64,
+    ) -> Result<Option<u64>> {
+        let Some((session, world_epoch)) = message.world_notice() else {
+            return Ok(None);
+        };
+        let result = (|| {
+            ensure!(!self.failed, "channel quarantined");
+            ensure!(
+                message.as_bytes().len() <= protocol::MAX_EXPERIENCE_CONTROL_BYTES,
+                "control message too large"
+            );
+            ensure!(
+                grant.wire.version != WIRE_VERSION,
+                "world notice requires wire v2"
+            );
+            ensure!(session == grant.session, "world notice for another session");
+            ensure!(world_epoch != 0, "zero world epoch request");
+            ensure!(
+                self.partial.is_none(),
+                "world notice inside a fragmented message"
+            );
+            self.rate
+                .charge_class(RateClass::WorldNotice, message.as_bytes().len(), now_ms)?;
+            Ok(Some(world_epoch))
+        })();
+        if result.is_err() {
+            self.quarantine();
+        }
+        result
+    }
+
     /// Starts a fresh sequence space after a signed handshake.
     pub fn new(now_ms: u64) -> Self {
         Self {
@@ -312,13 +377,14 @@ impl Ingress {
             bytes: 0,
             partial: None,
             failed: false,
+            retired: Default::default(),
             skipped: 0,
             stale: 0,
         }
     }
 
-    /// Quarantines the optional channel on replay, a sequence gap, a malformed fragment or
-    /// overflow.
+    /// Quarantines malformed traffic, replay or sequence gaps. Queue overflow retires only
+    /// the named recipient's queued messages; the caller must stop that client part.
     pub fn receive<'a>(
         &mut self,
         bytes: &[u8],
@@ -328,9 +394,14 @@ impl Ingress {
         recipient: impl FnOnce(&str) -> Option<&'a crate::runtime::Capabilities>,
     ) -> Result<()> {
         let result = self.receive_inner(bytes, now_ms, publication, grant, recipient);
-        if result
+        if let Err(error) = &result
+            && let Some(overflow) = error.downcast_ref::<QueueOverflow>()
+        {
+            self.retired.insert(overflow.bundle.clone());
+            self.discard_bundle(&overflow.bundle);
+        } else if result
             .as_ref()
-            .is_err_and(|error| error.downcast_ref::<BundleFailure>().is_none())
+            .is_err_and(|error| !error.is::<BundleFailure>())
         {
             self.failed = true;
             self.queue.clear();
@@ -338,6 +409,14 @@ impl Ingress {
             self.partial = None;
         }
         result
+    }
+
+    /// Revokes this direction and releases all queued or partially assembled messages.
+    fn quarantine(&mut self) {
+        self.failed = true;
+        self.queue.clear();
+        self.bytes = 0;
+        self.partial = None;
     }
 
     /// Validates identity and schema after charging aggregate ingress cost.
@@ -380,12 +459,13 @@ impl Ingress {
             }
         };
         self.route(&message, grant)?;
-        self.next = self
-            .next
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
+        self.consume_sequence()?;
+        if self.retired.contains(&message.bundle) {
+            self.skipped = self.skipped.saturating_add(1);
+            return Ok(());
+        }
         let bundle = message.bundle.clone();
-        let result = (|| {
+        let admitted = (|| {
             ensure!(
                 message.channel.starts_with(&format!("{}.", message.bundle)),
                 "foreign channel namespace"
@@ -409,15 +489,18 @@ impl Ingress {
                 return Ok(false);
             };
             channel.validate(&message.payload, Direction::ToClient, max_bytes as usize)?;
-            ensure!(
-                self.queue.len() < MAX_QUEUE_MESSAGES
-                    && size <= (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes),
-                "reliable queue overflow"
-            );
             Ok(true)
         })();
-        if !result.map_err(|error| BundleFailure { bundle, error })? {
+        if !admitted.map_err(|error| BundleFailure { bundle, error })? {
             return Ok(());
+        }
+        if self.queue.len() >= MAX_QUEUE_MESSAGES
+            || size > (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes)
+        {
+            return Err(QueueOverflow {
+                bundle: message.bundle,
+            }
+            .into());
         }
         self.bytes += size;
         self.queue.push_back((publication, size, message));
@@ -444,9 +527,18 @@ impl Ingress {
                     .offer
                     .packages
                     .iter()
-                    .any(|p| p.id == message.bundle),
+                    .any(|package| package.id == message.bundle),
             "wrong bundle generation"
         );
+        Ok(())
+    }
+
+    /// Spends a complete message's sequence even when its overflowing recipient was stopped.
+    fn consume_sequence(&mut self) -> Result<()> {
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
         Ok(())
     }
 
@@ -474,7 +566,8 @@ impl Ingress {
                     header: header.clone(),
                     count: part.count,
                     next: 0,
-                    data: String::new(),
+                    data: Some(String::new()),
+                    payload_bytes: 0,
                     bytes: 0,
                 }
             }
@@ -483,37 +576,49 @@ impl Ingress {
             header == partial.header && part.count == partial.count && part.index == partial.next,
             "fragment out of order"
         );
-        partial.data.push_str(&part.data);
+        partial.payload_bytes += part.data.len();
         partial.bytes += size;
         partial.next += 1;
         ensure!(
-            partial.data.len() <= limits.max_message_bytes as usize,
+            partial.payload_bytes <= limits.max_message_bytes as usize,
             "message too large"
         );
-        ensure!(
-            partial.bytes <= (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes),
-            "reassembly budget exceeded"
-        );
-        if partial.next < partial.count {
-            self.partial = Some(partial);
-            return Ok(None);
+        let overflow = (partial.data.is_some()
+            && partial.bytes > (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes))
+        .then(|| QueueOverflow {
+            bundle: partial.header.bundle.clone(),
+        });
+        if overflow.is_some() {
+            partial.data = None;
         }
-        let mut message = partial.header;
-        message.payload = match serde_json::from_str(&partial.data) {
-            Ok(payload) => payload,
-            Err(error) => {
-                self.next = self
-                    .next
-                    .checked_add(1)
-                    .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
-                return Err(BundleFailure {
-                    bundle: message.bundle,
-                    error: error.into(),
+        if let Some(data) = &mut partial.data {
+            data.push_str(&part.data);
+        }
+        let completed = if partial.next < partial.count {
+            self.partial = Some(partial);
+            None
+        } else if let Some(data) = partial.data {
+            let mut message = partial.header;
+            message.payload = match serde_json::from_str(&data) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    self.consume_sequence()?;
+                    return Err(BundleFailure {
+                        bundle: message.bundle,
+                        error: error.into(),
+                    }
+                    .into());
                 }
-                .into());
-            }
+            };
+            Some((message, partial.bytes))
+        } else {
+            self.consume_sequence()?;
+            None
         };
-        Ok(Some((message, partial.bytes)))
+        if let Some(overflow) = overflow {
+            return Err(overflow.into());
+        }
+        Ok(completed)
     }
 
     /// Releases a stopped bundle's queued records without changing the shared sequence or framing.
@@ -534,7 +639,7 @@ impl Ingress {
             if *publication > committed {
                 return None;
             }
-            if message.world_epoch == world_epoch {
+            if is_current_epoch(message.world_epoch, world_epoch) {
                 return self.queue.front().map(|entry| &entry.2);
             }
             let (_, bytes, _) = self.queue.pop_front()?;
@@ -546,6 +651,15 @@ impl Ingress {
     /// Publishes only after preceding world events; old dimension work is discarded.
     pub fn pop(&mut self, committed: u64, world_epoch: u64) -> Option<Envelope> {
         self.peek(committed, world_epoch)?;
+        self.take_committed(committed)
+    }
+
+    /// Transfers the next committed message to a caller-owned queue. The caller must check
+    /// its world epoch before admission and again before dispatch.
+    pub fn take_committed(&mut self, committed: u64) -> Option<Envelope> {
+        if self.queue.front()?.0 > committed {
+            return None;
+        }
         let (_, bytes, message) = self.queue.pop_front()?;
         self.bytes -= bytes;
         Some(message)

@@ -275,6 +275,14 @@ fn drive(
     let focused = driven.is_some()
         || (window.is_some_and(|window| window.focused)
             && focus.as_ref().is_none_or(|focus| focus.available()));
+    if let Some(live) = service.live.as_mut()
+        && let Err(error) = live.set_epoch(extension.epoch)
+    {
+        bevy::log::warn!("server experiences stopped: {error}");
+        extension.session.disable();
+        service.download = None;
+        service.live = None;
+    }
     let modal_focus = focused
         && !wants_prompt
         && service.live.is_some()
@@ -485,7 +493,7 @@ fn present_media(
     let mut scene = scene;
     if let Some(live) = &mut service.live {
         // Consent already covers playback here; the autoplay preference awaits a settings UI.
-        live.media_mut().service(
+        live.service_media(
             client_ui::experience_session::unix_seconds(),
             local_us,
             true,
@@ -585,11 +593,13 @@ fn advance_runtime(
         while extension.pop().is_some() {}
     }
     if let Some(live) = &mut service.live {
+        while let Some((received_ms, bytes)) = extension.pop() {
+            live.receive(&bytes, received_ms, extension.epoch)?;
+        }
+        live.set_epoch(extension.epoch)?;
+        let context = drawing.context(live.drawing_epoch());
         if let Some(context) = &context {
             live.bind_drawing(context, |key| drawing.current(key))?;
-        }
-        while let Some((received_ms, bytes)) = extension.pop() {
-            live.receive(&bytes, received_ms)?;
         }
         for bytes in live.poll(extension.epoch, now_ms, context.is_some(), |key| {
             drawing.current(key)

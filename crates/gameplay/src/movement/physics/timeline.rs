@@ -1,6 +1,7 @@
 //! Tick-stamped authoritative edits (motion, attributes, flags) entering the
 //! rewind timeline.
 
+use super::server_flags::FlagWrite;
 use super::*;
 
 /// Placement of a tick-stamped authoritative update on the prediction timeline.
@@ -279,17 +280,26 @@ pub struct ServerControlFlags {
 
 impl LocalPhysicsController {
     /// Applies server movement flags stamped `tick` (`SetActorData`); returns
-    /// the tick to replay from when retained inputs changed.
+    /// the tick to replay from when retained history changed.
     ///
     /// A retained tick rewrites only the client's unchanged run after it, so a
     /// later client transition still wins; stale ticks clamp to the oldest
-    /// frame as vanilla's frame correction does. Modes are only ended, never
-    /// started: entry needs environment predicates the flag does not carry.
+    /// frame as vanilla's frame correction does. Pose and spin flags
+    /// follow vanilla's flag corrections (see `server_flags`).
     pub fn apply_server_movement_flags(
         &mut self,
         tick: u64,
         flags: client_world::MovementFlagUpdate,
     ) -> Option<u64> {
+        self.note_server_flags(client_world::MovementFlagUpdate {
+            sneaking: None,
+            sprinting: None,
+            gliding: None,
+            swimming: None,
+            crawling: None,
+            spinning: None,
+            ..flags
+        });
         self.state.as_ref()?;
         let rewind = match self.timeline_slot(tick) {
             TimelineSlot::Live => None,
@@ -297,12 +307,13 @@ impl LocalPhysicsController {
             TimelineSlot::Stale => self.history.oldest_tick(),
         };
         let Some(tick) = rewind else {
+            self.adopt_live_server_flags(tick, FlagWrite::from_flags(&flags));
             self.adopt_live_flags(flags);
             return None;
         };
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
-        let mut changed = false;
+        let mut changed = self.retain_server_flags(tick, FlagWrite::from_flags(&flags));
         if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
             let (edited, _) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),
@@ -349,30 +360,7 @@ impl LocalPhysicsController {
             changed |= edited;
             present.sneaking = reached.then_some(sneaking);
         }
-        for (flag, mode) in [
-            (flags.gliding, sim::MovementMode::Gliding),
-            (flags.swimming, sim::MovementMode::Swimming),
-            (flags.crawling, sim::MovementMode::Crawling),
-        ] {
-            if flag != Some(false) || anchor.mode != mode {
-                continue;
-            }
-            let (edited, reached) = rewrite_run(
-                self.history.retained_inputs_after_mut(tick),
-                |input| input.mode == mode,
-                |input| input.mode = sim::MovementMode::Walking,
-            );
-            changed |= edited;
-            if reached {
-                self.modes.end(mode);
-            }
-        }
-        self.adopt_live_flags(client_world::MovementFlagUpdate {
-            gliding: None,
-            swimming: None,
-            crawling: None,
-            ..present
-        });
+        self.adopt_live_flags(present);
         changed.then_some(tick)
     }
 
@@ -381,26 +369,25 @@ impl LocalPhysicsController {
         self.server_control_flags.take()
     }
 
-    fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
-        for (flag, mode) in [
-            (flags.gliding, sim::MovementMode::Gliding),
-            (flags.swimming, sim::MovementMode::Swimming),
-            (flags.crawling, sim::MovementMode::Crawling),
-        ] {
-            if flag == Some(false) {
-                self.modes.end(mode);
-            }
-        }
-        if !pose_flag_controls_sneak(self.modes.mode()) {
-            flags.sneaking = None;
-        }
+    /// Adopts present control flags after retained local transitions have been reconciled.
+    pub(super) fn adopt_live_flags(&mut self, flags: client_world::MovementFlagUpdate) {
+        let flags = self
+            .modes
+            .adopt_actor_flags(client_world::MovementFlagUpdate {
+                sneaking: flags.sneaking,
+                sprinting: flags.sprinting,
+                ..Default::default()
+            });
+        self.sync_pending
+            .push(posture::ServerWrite::Controls(flags));
         if flags.sprinting.is_none() && flags.sneaking.is_none() {
             return;
         }
-        self.modes.restore_controls(
-            flags.sprinting.unwrap_or(self.modes.sprinting()),
-            flags.sneaking.unwrap_or(self.modes.sneaking()),
-        );
+        self.note_server_flags(client_world::MovementFlagUpdate {
+            sneaking: flags.sneaking,
+            sprinting: flags.sprinting,
+            ..Default::default()
+        });
         self.live_posture.sprinting = flags.sprinting.or(self.live_posture.sprinting);
         self.live_posture.sneaking = flags.sneaking.or(self.live_posture.sneaking);
         let pending = self.server_control_flags.get_or_insert_default();

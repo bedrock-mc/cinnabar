@@ -383,7 +383,7 @@ interface render {
 /// against the vanilla catalog, as a client part's modal templates do. Every function but
 /// `layout` errs when the `screen` permission is denied.
 interface screen {
-    use cinnabar:server-experience/ui@1.4.0.{value, gui-size};
+    use cinnabar:server-experience/ui@1.5.0.{value, gui-size};
 
     /// A rectangle in GUI units, from the top left of the screen root.
     record rect {

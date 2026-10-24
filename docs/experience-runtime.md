@@ -1,564 +1,284 @@
-# Server Experiences
+# Server Experience runtime
 
-A server Experience is a WebAssembly guest that adds stateless cube blocks to the local Dragonfly
-server (`tools/localserver`) and reacts to them being placed, broken, used and disturbed. Each
-Experience runs in its own `experience-runtime` helper process, off the world goroutine; the Go
-adapter in `tools/localserver/experience` validates what the guest asks for and commits it.
+For a paired Rust mod, use [the author guide](mods/README.md). This reference is
+for server callbacks, saved data and hosts of `experience-runtime`.
 
-This file is the canonical description of the runtime's semantics. Numbers live in the sources it
-names, never here.
+## Running and artifacts
 
-## Running
+`make local-server` builds `bedrock-local-server`, `experience-runtime` and the
+bundle verifier. Installed `.cmod` packages are discovered under `<world>/mods/`.
+For unpackaged server artifacts:
 
-```text
-bedrock-local-server -dir <world> -addr <addr> -experiences <dir> -experience-runtime <binary>
+```sh
+bedrock-local-server -dir <world> -addr 127.0.0.1:19132 \
+  -experiences <artifacts> -experience-runtime <binary>
 ```
 
-`make local-server` builds both `bedrock-local-server` and `experience-runtime`
-(`cargo build -p experience-runtime --release --locked`). `-experience-runtime` is required with
-`-experiences`. Without `-experiences`, startup checks any existing installation manifest and
-refuses a world that requires Experiences. Fresh worlds create no Experience files and spawn no
-helper. The `-extension-*` flags add the server half of client parts; see
-[Client parts](#client-parts).
+Each immediate artifact directory contains `experience.toml`, `server.wasm` and
+`assets/`. The manifest declares `id`, `version`, `api`, `data-schema` and `[files]`,
+which indexes every other file with a lowercase SHA-256. Paths are relative,
+slash-separated and cannot contain traversal or symlinks. `[client]` is ignored by
+the server runtime; the bundle builder validates it separately. Other unknown keys
+are refused. See [manifest validation](../crates/experience-runtime/src/manifest.rs).
 
-Startup, all before the server listens and prints `ready`; any failure exits with an error:
+The module must implement its declared server WIT. Client components, WASI,
+unknown imports and serialized native Wasmtime artifacts fail loading. Hashes
+prove integrity, not trust; install server artifacts as carefully as server code.
+Helpers run as the server's OS user without an OS sandbox.
 
-1. Every immediate subdirectory of `-experiences` that contains `experience.toml` is an artifact,
-   taken in byte order of the directory names.
-2. The private store opens at `<world>/experience-data`.
-3. One helper per artifact starts and loads it. Two artifacts with the same id fail startup.
-4. Every recorded Experience and block ID must still be provided. A missing definition fails
-   startup before the world opens. Additions, ordering and presentation changes are allowed.
-5. The blocks are registered with Dragonfly before `server.Config.New`, which builds the
-   resource pack from them, each Experience getting a creative group named after its id. The
-   started ids are then recorded as installed.
+All artifacts load and register before listening. Duplicate IDs, a missing installed
+Experience or a missing saved block definition fail startup. `minecraft` is reserved.
+Do not edit an artifact during startup: texture registration follows manifest checking.
 
-Stdin commands, besides `pause`, `resume` and `stop`:
+## Callbacks
 
-- `pause` and `resume` also hold and release Experience dispatch and commits.
-- `experience reload <id>` reloads that Experience (see
-  [Strikes, quarantine and reload](#strikes-quarantine-and-reload)) and logs the result on
-  stderr.
-- `stop`, stdin EOF, SIGINT and SIGTERM close the server first, then the Experiences: admission
-  stops, in-flight work is cancelled, the store is flushed and the helpers are shut down.
+Implement `experience_sdk::server::Experience`. A paired project's `#[server]`
+entry point owns registration and registry replies; low-level guests can use
+`export_experience!`. [SDK contracts](../crates/experience-sdk/src/server.rs) and
+[server WIT](../crates/experience-sdk/wit/server/server.wit) define the types.
 
-On Windows the helpers share the server's console, so Ctrl+C in that console reaches them as well
-as the server, which shuts down on it anyway. A helper that Ctrl+C ends before the adapter's
-shutdown frame may show up in the shutdown error or as a fault in the log.
+| Callback | When and scope |
+| --- | --- |
+| `registration` / `register` | Startup; declares blocks and items, or plain cubes only |
+| `world_definitions` | Startup; immutable world definitions and optional startup instances |
+| `on_player` | Ordered join, leave, world-change and sampled move observations |
+| `on_place` | After player placement of an owned block |
+| `on_break` | After player break; includes old ID and data |
+| `on_interact` | Player uses an owned block; interaction is consumed immediately |
+| `on_neighbor_changed` | A neighbor of an owned block changes |
+| `client_message` | Actor's typed client record; valid focus snapshot or no block access |
+| `epoch` | Client part changes world epoch; resend required state |
+| `on_scheduled_update` | An owned block's scheduled update becomes due |
+| `on_tick` | Each fixed tick of a bound world instance, with or without viewers |
+| `on_timer` | A timer from `Callback::schedule` becomes due |
 
-## Artifact
+Block callbacks do not report changes from liquids, explosions or other plugins.
+A fresh guest instance runs each server callback: memory does not survive it.
+Use block data or scoped records for durable state. `callback-info.tick` supplies
+the world tick; there is no ambient clock or randomness. A borrowed `Callback` expires at return.
 
-An artifact is a directory holding `experience.toml`, `server.wasm` and `assets/`. One
-`experience.toml` declares both halves of the Experience:
+## Reads, writes and commits
 
-```toml
-id = "benergistics"   # owns the block namespace "benergistics:"
-version = "0.1.0"     # of both halves; the client part's package_version
-api = "0.3"           # server WIT major.minor
-data-schema = 1       # block-data schema
+| Operation | Contract |
+| --- | --- |
+| Read block/state/data | Anchor, its six neighbors and network members, from a snapshot plus staged writes |
+| `set_block` | Anchor/neighbor write scope in the anchor's chunk column; replaces air or owned blocks with air or owned blocks |
+| `set_block_data`, `set_block_state` | Owned blocks in the write scope, plus snapshotted network members |
+| `tell` | Event actor only; no control characters or formatting prefix |
+| `send_client` | Actor's active client part on its declared channel; ordinary best-effort delivery after commit |
+| `send_control` | Same recipient rules; retains negotiation/acknowledgment replies when transport credit is exhausted |
+| `inventory`, `set_slot` | Actor's snapshot; writes are checked again at commit |
+| `drop_item` | Fresh stack at a position where `set_block` may write |
+| `crafting_result` | Matches the supplied grid against the host's crafting-table recipes |
+| `schedule_update` | Owned block in data-write scope; survives restart, runs when loaded and still unchanged |
 
-[client]              # the client part; the runtime ignores this table
-permissions = ["ui", "messaging"]
-actions = []          # declared action ids
-templates = []        # ui/<name>.json files, read beside experience.toml
-textures = []         # files under textures/, read beside experience.toml
+An accepted mutation is staged. A guest error or trap discards all gameplay output;
+a refused individual operation stages nothing. Logs survive failures. The adapter
+commits block/inventory results in one world transaction, after checking snapshot
+tokens, written inventory slots and actor presence. Lifecycle operations run
+outside that transaction. A stale result applies nothing.
+Tells follow world mutations; client messages follow the world transaction.
+A full block-event queue drops and counts new events without blocking the world
+thread. A full player-observation queue suspends that Experience to avoid gaps.
 
-[[client.channels]]
-id = "benergistics.controller"
-schema = 1
-direction = "to_client"
-fields = [{ type = "integer", min = 0, max = 4294967295 }]
+Replacing a block, even with the same ID, clears its data and starts a new placement
+generation. State changes retain data and generation. Missing data differs from empty data.
+Unknown, unloaded and out-of-scope cells are not air; inspect returned errors.
 
-[files]               # every other file, '/'-separated, with its lowercase hex SHA-256
-"server.wasm" = "…"
-"assets/controller.png" = "…"
-```
+Focus is the player's last interacted block for that Experience. It becomes invalid
+on replacement, unload, dimension/world change or excessive distance. The current
+distance uses the provisional `provisionalFocusRange` in the adapter's
+[limits](../tools/localserver/experience/limits.go). It is incomplete parity work.
 
-`crates/experience-runtime/src/manifest.rs` is the authority on the manifest: the id and version
-rules, the accepted `api` (each server WIT version the runtime implements, see
-[Version matrix](#version-matrix)) and `data-schema`, and the index rules (every file indexed,
-no absolute paths, `..`, backslashes or symlinks). The hashes give integrity, not publisher
-trust. The id `minecraft` is reserved: it is the namespace of vanilla blocks, so the adapter
-refuses an Experience with that id at registration, before anything is registered.
+Network membership follows face-adjacent owned members. Break callbacks include
+both sides of a split. Guests decide which faces actually connect. Flooding stops
+at unloaded cells and network/data/frame budgets; treat a truncated network as
+unavailable. Commit checks members and boundary changes.
 
-The runtime ignores `[client]`, whatever it holds, and refuses any other unknown key. The server
-half of client parts routes messages by the client part's signed manifest, never by this file,
-and `cinnabar-cxb build --experience` checks the table with the client's own verifier when it
-signs it into the `.cxb` ([Client parts](#client-parts)). The Go adapter only looks for the file
-and never parses it. A channel declaration uses the signed manifest's own spelling
-(`to_client`, `max_bytes`, `max_items`; see
-[server-experiences.md](server-experiences.md#typed-runtime-messaging-and-publication)).
+## Worlds and player lifecycle
 
-`server.wasm` is the core module that cargo emits for `wasm32-unknown-unknown` with the WIT
-embedded by `experience-sdk`. The runtime componentizes it with `wit_component::ComponentEncoder`
-(the route `mod-host` uses) and instantiates it against the exact `server` world of its manifest's
-`api`. A client component, a WASI import, another `api`'s world or any unknown import fails the
-load; serialized native Wasmtime artifacts are never accepted.
+Server WIT 0.8 adds world definitions, player observations and scoped state.
+The SDK defaults the new exports to empty/no-op implementations. Rebuilt guests
+must declare `api = "0.9"`; existing 0.1–0.6 and 0.8 artifacts retain their frozen ABIs.
 
-### The author SDK
+| Type or operation | Contract |
+| --- | --- |
+| `world_definitions` | Mod-namespaced immutable definitions; empty/flat generator, Overworld/Nether/End environment, persistent/temporary terrain |
+| Definition, instance, handle | Distinct identities: a definition, stable storage ID, and one opening's generation; network dimension numbers stay in the host |
+| Startup instances | Open before players join on every start; runtime-created instances reopen only on request |
+| `Callback::world` | Current instance opening; legacy `info` metadata keeps its meaning |
+| `resolve_world` | Snapshot lookup of this mod's open instances |
+| `create_world` | Open an instance of an already registered definition |
+| `unload_world` | Refuse occupied or reserved instances; invalidate handles before closing |
+| `transfer` | Move only the callback actor to an authorized handle and finite position |
+| `player_location` | Only the callback actor's live location; unavailable for leave |
 
-`crates/experience-sdk` is one SDK for both halves, each its own component:
+Each lifecycle mutation must be the callback's only staged operation. Acceptance
+means staged for host validation, not completed. Observe creation in a later
+`resolve_world` and travel through `on_player`. Stale handles fail after unload,
+reopen or server restart. World definitions cannot be added in callbacks.
 
-| Feature | Module | Builds |
-|---|---|---|
-| `server` | `experience_sdk::server` | the server half: implement `Experience`, export it with `export_experience!`; WIT in `wit/server/` |
-| `client` | `experience_sdk::client` | the client part: implement `ClientPart`, export it with `export_client_part!`, send with `client::send`; WIT in `wit/client/` |
-| `declarations` | `experience_sdk::declarations` | for a build script: `generate("<path>/experience.toml")` |
+Persistent terrain uses `<world>/experience-worlds/<mod>/<instance>/`. Reopening
+retains terrain and private records but gives a new handle generation. Changing
+a saved definition needs an explicit migration. Temporary terrain survives chunk
+eviction, then disappears on close; its block records are removed and quota is
+refunded. Fresh temporary openings also clear old block records after a crash.
+Scoped records have independent lifetimes. Instances share the local gameplay
+settings and pause state; new instances start at their generator's spawn, while
+persistent reopenings retain saved spawn settings.
 
-Both halves share `Value`, one value of a channel record, and the channel declaration types
-`Channel`, `Direction` and `Field`. The server half passes records as `server::nodes` and
-`server::values`; the client part receives and sends them as `Value`s, which the SDK carries in
-the wire's JSON form. Every feature is on by default, so the SDK's own tests and docs cover all
-of it; a crate that uses the SDK sets `default-features = false` and names what it uses.
+| `on_player` event | Contract |
+| --- | --- |
+| Join | Initial committed placement, before movement observations |
+| World change | Historical before/after locations with handles and epochs |
+| Move | First/last committed sampled positions; at most once per player per host tick, independent of pauseable world clocks |
+| Leave | Historical location and private player-state access; no live inventory, position reads, messages or travel |
 
-A guest takes its channels, actions and templates from `experience.toml`, so neither half
-restates one: its build script, with the SDK as a build dependency with `declarations`, calls
-`experience_sdk::declarations::generate`, and `mod experience { experience_sdk::include_declarations!(); }`
-brings in `channels` (a `Channel` constant per `[[client.channels]]`, named after its id without
-the `<id>.` prefix in upper snake case), `actions` and `templates` (`&str` constants). Two
-declarations with one name, a channel outside the namespace and a template that is not
-`ui/<name>.json` fail the build.
+Join, move and world-change include inventory snapshots; writes recheck slots.
+Historical locations remain readable after later travel; writes still need current
+session/epoch authority. Departure clears focus and invalidates queued work, reads
+and deferred sends, even after returning to the same live instance.
 
-### Building and packaging
+The host prepares the destination before detach. Failed admission restores the
+source with a newer epoch, including cancellation after detach. A disconnected
+player loses authority; cancellation after admission leaves the destination in
+charge. Client traffic stays fenced until the correlated acknowledgment and any
+preparation finish; see [wire fencing](server-experiences.md#versions-and-wire).
+An active wire-v1 client part blocks coordinated departure; mandatory native moves
+end that part. Initial placement can still activate v1. Ordinary players need no
+extension notice. Failed notice delivery ends only the optional client part.
+Acknowledgment does not prove terrain has rendered; live client-part transfer
+qualification and crash-atomic multi-provider saves remain incomplete.
 
-1. Write `experience.toml` without `[files]`.
-2. Write the server half: a `cdylib` crate that depends on `crates/experience-sdk` with the
-   `server` feature and takes `experience.toml`'s declarations. `examples/experiences/probe` is a
-   complete example.
-3. Write the client part, if there is one: a `cdylib` crate with the `client` feature.
-4. `cargo build -p <crate> --target wasm32-unknown-unknown --release --locked` for each.
-5. Copy the server module to `server.wasm` and the textures under `assets/`, and write
-   `experience.toml` with `[files]` appended, listing the SHA-256 of every other file.
-6. `cinnabar-cxb build --experience experience.toml --component <client part .wasm>
-   --publisher-seed <seed file> --out <id>.cxb` signs the client part.
+Player saves pair stable instance identity and position in `<world>/player-worlds/`.
+Reconnect uses that instance's current opening. If closed or missing from an older
+save, use the default Overworld spawn, without the other instance's coordinates.
 
-The Applied Benergistics repository's `scripts/package.ps1` (and `scripts/package.sh`) does all of
-this from its root `experience.toml`, and verifies the result; `-VerifyOnly` checks an existing
-package.
+## Ticks and timers
 
-The runtime verifies every `[files]` hash when it loads the artifact. The adapter reads the
-texture files afterwards, when it registers the blocks, so an operator who edits an artifact while
-the server starts can get textures that were not the hashed ones. Do not change artifacts during
-startup.
+Server WIT 0.9 adds `on_tick` and `on_timer`; older artifacts receive neither.
 
-## WIT and semantics
+| Rule | Contract |
+| --- | --- |
+| Clock | `SimulationStep` carries the counter and fixed tick duration (ns). Unload pauses it; reopening resumes with a new world generation. Process-local: not restored after a server restart |
+| `Callback::schedule(after, period)` | Handle scoped to this mod and instance opening. Delay starts at commit; period 0 runs once, otherwise repeats. Unload discards the opening's timers |
+| `cancel_schedule` | Cancels an active handle, including an occurrence already queued behind the caller |
+| Final leave | No simulation context: scheduling and cancelling return `Unavailable`; private-state writes still work |
+| Order | Per tick: `on_tick`, then due timers by handle, in the mod's FIFO. Callbacks see their admitted tick even if they run later |
+| Overload | Queue overflow drops and counts ticks and repeating occurrences. A failed one-shot stays due. Repeating timers keep at most one queued occurrence; missed periods are skipped, never replayed |
+| Limits | Active timers per mod and instance share `MAX_SCHEDULED_UPDATES`; delays use `MAX_SCHEDULE_TICKS` |
 
-The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.6.0`, world `server`. The guest exports `register`, which runs once
-at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
-`on-break`, `on-interact` and `on-neighbor-changed`, `client-message`, `epoch` and
-`on-scheduled-update`. Every world
-method goes through the borrowed `callback` resource, valid for one callback only. The runtime
-still runs older artifacts against their frozen worlds, by the manifest's `api`:
+## Blocks and items
 
-- `api = "0.5"`, `crates/experience-runtime/wit/0.5/server.wit`: no `crafting-result` or
-  `schedule-update`, and no `on-scheduled-update`; a scheduled update for it is rejected without
-  running it. 0.6 only added types, so the 0.5 world shares them.
-- `api = "0.4"`, `crates/experience-runtime/wit/0.4/server.wit`: `register` declares plain
-  `block-def`s, which the runtime reads as cube block types and no items, and the callback has
-  none of 0.5's calls. 0.5 only added types, so the 0.4 world shares them.
+Paired declarations cover cubes and items; richer guests return `Registration`.
+Blocks may declare states, placement traits, indexed geometry, material bindings,
+flipbooks and ordered visual permutations. State names belong to the Experience;
+placement-trait axes precede authored axes. The first value is the default.
+Later matching permutations override earlier ones. A zero rotation cannot undo an
+earlier nonzero rotation. Plain cubes have full collision/selection, are harvestable
+by hand and drop themselves. See the WIT and [registration validator](../crates/experience-runtime/src/load.rs).
 
-- `api = "0.3"`, `crates/experience-runtime/wit/0.3/server.wit`: no `callback.focus`, so client
-  messages and epochs never have a snapshot. The adapter gives such an Experience no focus, and
-  the runtime rejects one with a focus without running it.
-- `api = "0.2"`, `crates/experience-runtime/wit/0.2/server.wit`: client messages and sends hold
-  scalars only, and there is no `epoch`. A client message holding a list or record, or an epoch,
-  for such an Experience is rejected without running it.
-- `api = "0.1"`, `crates/experience-runtime/wit/0.1/server.wit`: neither `send-client` nor
-  `client-message` nor `epoch`; a client message or an epoch for it is rejected without running
-  it.
+The actor's inventory has hotbar slots first and offhand last. Fresh stacks may
+contain own-item data; foreign/ordinary stacks cannot. Vanilla metadata variants,
+stack limits and offhand eligibility come from the adapter's item catalog.
+Own-item data persists with the stack and reaches clients; decode it as untrusted.
+Private block data does not enter chunk NBT.
 
-WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
-(`tools/localserver/experience`) both enforce them.
+## Budgets and limits
 
-- **0.6.** `crafting-result` matches a 3�3 grid against the server's crafting-table recipes,
-  which the adapter sends with `load` (`recipes`, at most `MAX_RECIPES`, each input of at most
-  `MAX_RECIPE_INPUT_ITEMS` items): the first shaped recipe whose shape the grid's items fill,
-  anywhere in the grid or mirrored left to right with every other cell empty, or the first
-  shapeless one whose inputs the grid's items are exactly. An item tag input is its members, any
-  metadata. The Dragonfly adapter registers the server's recipes only once the server is built,
-  after the helpers first load, so it reloads each helper then. `schedule-update` stages a
-  `schedule_update` op for an owned block where `set-block-data` may write, 1 to
-  `MAX_SCHEDULE_TICKS` ticks on, at most `MAX_SCHEDULED_UPDATES` a callback; the adapter
-  schedules a Dragonfly block update, which the world keeps across a restart and runs only while
-  its block is unchanged (a state change drops it). When it is due, the adapter queues a
-  `scheduled_update` call anchored on the block, with an interaction's snapshot.
-- **0.5.** 0.5 declares block states and placement traits, visuals (geometry, material
-  instances with render methods and flipbooks, bone visibility, boxes, rotation, permutations
-  over structured conditions), network membership and items, and the callback calls
-  `block-states`, `set-block-state`, `network`, `inventory`, `set-slot` and `drop-item`; IPC
-  protocol 5 carries all of them (SP5 tasks C, E, F and G of the Applied Benergistics plan).
-- **Items (0.5).** `register` declares items: `<experience id>:<name>` like blocks and distinct
-  from them, with a display name, an indexed icon and 1 to `MAX_STACK_SIZE` to a stack, at most
-  `MAX_ITEMS`. The adapter registers each as a Dragonfly custom item in the Experience's creative
-  group, its icon in the pack under its whole id. A callback with an actor has the actor's
-  inventory: 37 slots, the hotbar's 9 first and the offhand last, and the selected hotbar slot.
-  Each stack is its id, metadata, count and the most one stack holds, which the adapter derives;
-  its data only on this Experience's own items; and `plain` when it carries nothing else (no
-  name, lore, enchantment, wear, anvil cost, block NBT or other value). The guest makes fresh
-  stacks only: of its own items, with data up to `MAX_ITEM_DATA_BYTES`, or of its blocks or the
-  server's items, without data, within the most one stack holds. The adapter lists the server's
-  vanilla metadata variants, each with that most, in `load`, so a guest learns an item's stack size by being
-  refused: an unknown item is `unknown-block`, a stack past its most or data past its bound
-  `too-large`, data on an item not its own `not-owned`, an empty stack or metadata on its own
-  item `unsupported-state`. `set-slot` stages a slot's new content, a slot written again
-  replacing its op, and `inventory` reads the staged slots back; commit discards the whole
-  result if a slot it writes changed since the snapshot. Vanilla stacks must match an exact
-  metadata variant listed by the adapter at load; unsupported variants are refused before staging.
-  Offhand writes also require the item eligibility reported by the adapter, and ineligible writes
-  reject the callback before any operations commit.
-  `drop-item` spawns an item entity at a position `set-block` may write. Own-item data is a Dragonfly stack value: it is saved with the
-  stack and, unlike block data, reaches clients in the stack's NBT, as AE2's cell contents do,
-  so guests decode it as untrusted. Staged vanilla stacks use the adapter's plain classification,
-  including its conservative exclusion of NBT-bearing item types.
-- **Network scope (0.5).** A block type may be a network member. A callback anchored on a member
-  (place, interact, neighbor, or a client message or epoch whose focus is one) has the anchor's
-  network: the adapter floods from the anchor through face-adjacent members of the Experience
-  over all six faces, and for the break of a member from its six neighbors, so both halves of a
-  split are in it. The guest applies its own rules about which faces connect. The flood stops at
-  unloaded positions, as an AE2 grid does, and at `MAX_NETWORK_BLOCKS` members or
-  `MAX_NETWORK_DATA_BYTES` of their data. The adapter also stops before a member would make
-  the encoded callback exceed the IPC frame limit, including its inventory and neighbors.
-  At any of these limits, `network` says truncated and the guest should treat it as unavailable.
-  The snapshot holds every member with its id, states, data and token; reads cover them and the anchor's neighbors, `set-block-data` and
-  `set-block-state` reach every member, and `set-block` keeps the anchor's chunk column. Commit
-  checks every member's token and rejected boundary positions for new members, so a foreign
-  change to the network or a new connection discards the whole
-  result; one Experience's callbacks run one at a time, so only foreign changes can. Neither
-  side keeps a grid: each callback recomputes from this snapshot. `network` is none off a
-  member.
-- **Block types (0.5).** The runtime checks every rule below at load and the adapter again at
-  registration; every bound is a constant in `limits.rs`, mirrored in `limits.go` and checked
-  against the limits fixture.
-  - States are `<experience id>:<name>`, the name `^[a-z0-9_]{1,MAX_NAME_BYTES}$`: a bool, or 1
-    to `MAX_STATE_VALUES` distinct string values of the same form. Placement traits add
-    Bedrock's `minecraft:cardinal_direction`, `minecraft:facing_direction`,
-    `minecraft:block_face` and `minecraft:vertical_half`, with the client's values in its order.
-    A block's axes are its traits' states, then its own, in that order everywhere (snapshots,
-    defaults, the client's permutation index). Each axis takes `ceil(log2(values))` state bits,
-    at least one, and a block takes at most `MAX_STATE_BITS`, the bits the client packs states
-    into (a test in `crates/protocol` checks it). The adapter registers every combination.
-  - A condition tests only the block's states, against values they take, at most
-    `MAX_CONDITION_TESTS` times; the adapter writes it as `q.block_state` Molang.
-  - A visual replaces the block's textures. Its geometry is an indexed `.geo.json` holding one
-    geometry identified `geometry.<experience id>.<name>`; one identifier is one file across the
-    Experience. Material instances are `*`, a face, or one the geometry draws with, once each,
-    and together cover every instance it draws with (or list `*`); at most `MAX_MATERIALS`. A
-    flipbook's strip is whole square frames, and it shows only frames there are, each for at
-    least a tick. Bone visibilities name bones of the geometry, at most `MAX_BONES`. Boxes are
-    non-empty, within 0 to 16 pixels; rotations 0 to 3 quarter turns per axis.
-  - At most `MAX_PERMUTATIONS` permutations, which need a visual; each holds sometimes and sets
-    something. A later one wins where two hold, so the adapter keeps their order. A permutation
-    geometry brings its own bones; the block's materials, unless it sets its own, must cover it.
-    A zero rotation cannot undo a turned visual or an earlier matching nonzero rotation,
-    since the client reads zero as none. Disjoint zero-rotation permutations remain supported.
-  - The adapter names each geometry file by the whole block id
-    (`models/blocks/<namespace>/<name>.geo.json`, a permutation's under
-    `models/blocks/<namespace>/<name>/`), gives each distinct texture and flipbook of a block its
-    own texture key, and writes `textures/flipbook_textures.json`.
-- **States.** A placed block's placement trait states follow the vanilla client's placement
-  callbacks (`BlockTrait::PlacementDirection` and `BlockTrait::PlacementPosition`); a block set
-  by a guest starts in its default states, the first value of each. Snapshots carry an own
-  block's states. `block-states` reads them like `get-block`; `set-block-state` writes where
-  `set-block-data` writes, only to this Experience's blocks (`not-owned`), each state once,
-  among the block's, at a value it takes (`unsupported-state`), and keeps the block's data and
-  generation. Writes to one block merge into one op; a later `set-block` drops it. Commit
-  discards a result whose snapshot cell changed state.
-- **Blocks.** Registered at startup only. Without a visual, a cube with an opaque texture per
-  material slot (`*` or all six faces) and full-cube collision and selection; mining that is either
-  `unbreakable` or `breakable(hardness)`. Every block is harvestable by hand and drops itself.
-  Block ids are `<experience id>:<name>`.
-- **Callbacks.**
-  - Place: after a successful player placement.
-  - Break: after a player break, with the old id and the old data.
-  - Interact: the server consumes the interaction at once and queues the call.
-  - Neighbor: queued when a block next to one of the Experience's blocks changes.
-  - Liquids, explosions and other plugins produce no notification.
-- **Staging.** An `ok` from a mutation means staged. A guest error or a trap discards everything
-  staged; a rejected single operation leaves the staged state unchanged and the callback
-  continues. Logs are not gameplay output and survive a discarded callback.
-- **Reads.** Reads see only the anchor (the event's block, or a client message's or an epoch's
-  focus), its six orthogonal neighbors in the same dimension and its network's members, as they
-  were snapshotted.
-  - `get-block` returns a snapshot position's id with staged writes applied; an unloaded position
-    is `unavailable`, one outside the snapshot `denied`, one outside the world height
-    `out-of-bounds`.
-  - `block-data` returns data only while the position holds this Experience's block (staged
-    writes applied), else `not-owned`. No data and empty data are distinct.
-- **Writes.** Writes reach the anchor and the snapshot neighbors in the anchor's chunk column;
-  data and states also reach the network's members.
-  - `set-block`: the current block (staged writes applied) must be air or this Experience's own,
-    else `not-owned`; the new id must be `minecraft:air` or this Experience's own, else
-    `unknown-block`. Every replacement, even with the same id, clears the position's data and
-    starts a new block generation.
-  - `set-block-data`: only on this Experience's own block in the write scope. Data over
-    `MAX_BLOCK_DATA_BYTES` is `too-large`; data over the Experience's remaining budget, which
-    each callback carries, is `quota-exceeded`.
-- **`tell`.** Only to the event's actor, else `denied`; `player-unavailable` when the event has no
-  actor. Control characters and `§` are `invalid-text`; text over `MAX_TELL_BYTES` is
-  `too-large`; at most `MAX_TELLS` per callback.
-- **`send-client`.** Stages a typed record (the client wire protocol's field values) for the
-  actor's client part on a channel and schema revision; `denied` and `player-unavailable` as for
-  `tell`. A callback's channels and payloads hold at most `MAX_CLIENT_SEND_BYTES` as JSON, else
-  `too-large`; that is room for one message as large as wire v2 carries, on a channel with the
-  longest id, which `TestRuntimeClientSendsFitTheWire` in `tools/localserver` checks against the
-  wire's constants. At most `MAX_CLIENT_SENDS` per callback. The adapter sends a staged message
-  only after the whole result commits, and only on a channel, in the direction to the client,
-  that the Experience's own client part declares; anything else, or a player without an active
-  client part, is dropped and counted. Without the server half of client parts every staged
-  message is dropped.
-- **Payload values.** A record's values are scalars, lists and records, as the channel declares
-  them. WIT has no recursive types, so a payload is a `list<value-node>`: its values in
-  pre-order, a scalar as a `leaf`, a list or record as a header holding its item count followed
-  by that many values. That is the layout of MessagePack and CBOR arrays, and the boring choice:
-  unlike a node table with child indices it cannot share a node or form a cycle, so the only
-  malformed input is a header that counts more items than follow it, and unlike JSON text the
-  leaves stay typed and neither side runs a parser. Lists and records nest at most
-  `MAX_VALUE_DEPTH` deep, a top-level one being level 1, which is the wire's `MAX_FIELD_DEPTH`;
-  a deeper payload is `too-large`. A malformed payload traps. The SDK's `Value`, `server::nodes`
-  and `server::values` build and read payloads, and `Experience::client_message` receives
-  `Value`s.
-- **`client-message`.** A typed record that a player's client part sent arrives through the same
-  queue as the block callbacks, with that player as the actor, its lists and records as pre-order
-  nodes like a send's. Its `callback` has the snapshot of the player's focus, if any; without one
-  every block read and write is refused. It may `tell` and `send-client` to the player, and its
-  result commits like any other, in the world the player is in when it runs.
-- **`epoch`.** A player's client part moved to a new world epoch, such as another dimension, and
-  kept running, so it may have missed what was sent before; the guest resends its state. The
-  callback comes through the same queue, with that player as the actor and the snapshot of the
-  player's focus, and acts exactly like `client-message`'s.
-- **Focus.** When a player's `on-interact` runs for one of an Experience's blocks, the adapter
-  records that block, its dimension and its placement generation as the player's focus for that
-  Experience; a newer interaction replaces it, and a disconnect clears it. A `client-message` or
-  `epoch` of that player gets exactly the snapshot `on-interact` gets for the focus block: the
-  block and its six neighbors, read and written by the same rules, writes in its chunk column.
-  `callback.focus` names the block, and is none in every other callback. The focus counts as
-  none, an empty snapshot, while the block is gone or replaced (another generation), no longer
-  this Experience's, unloaded, in another dimension than the player, or farther than
-  `provisionalFocusRange` (`tools/localserver/experience/limits.go`) from the player's eyes to
-  the block's centre. That bound is provisional, labeled incomplete in `plan.md`: it should be
-  the distance at which vanilla Bedrock closes an open container's screen, the player's pick
-  range (per input mode, survival or creative) from the eyes to the block's centre. Those
-  constants are not yet known, so it is Dragonfly's survival reach for using a block. Commit and the
-  stale check are unchanged: if the focus block or its data changed after the snapshot, the
-  result is discarded.
-- **No ambient time or randomness.** `callback-info.tick` is the integer world tick.
-- **Fresh instance per callback.** Each callback runs on a new instance of the precompiled
-  component, so guest memory never survives a callback; durable state belongs in block data.
-- **Commit.** The adapter commits a result in a fresh world task, whole or not at all. If any
-  snapshotted block or data changed meanwhile, or the actor is no longer connected in that
-  world, the result is discarded as stale. Otherwise block and data ops apply, then the tells,
-  and then, outside the world task, the client messages.
-- **Guest imports never call back into the live world.** Hooks on the world goroutine only
-  enqueue; a full queue drops the event and counts it.
+Use the constants below rather than treating a denied operation as success.
+[Runtime limits](../crates/experience-runtime/src/limits.rs) are authoritative;
+the adapter's mirrored commit limits are checked against generated fixtures.
 
-## Client parts
+| Resource | Source constants |
+| --- | --- |
+| Fuel and deadlines | `CALLBACK_FUEL`, `REGISTER_FUEL`, `CALLBACK_DEADLINE`, `REGISTER_DEADLINE` |
+| Guest memory, stack, tables, instances | `MAX_MEMORY_BYTES`, `MAX_WASM_STACK_BYTES`, `MAX_TABLE_ELEMENTS`, `MAX_CORE_INSTANCES` |
+| Artifact and declarations | `MAX_COMPONENT_BYTES`, `MAX_MANIFEST_BYTES`, `MAX_BLOCKS`, `MAX_ITEMS`, `MAX_STATE_BITS`, `MAX_PERMUTATIONS` |
+| Callback work | `MAX_HOST_CALLS`, `MAX_STAGED_OPS`, `MAX_STAGED_DATA_BYTES`, `MAX_SCHEDULED_UPDATES`, `MAX_SCHEDULE_TICKS` |
+| Private/item data | `MAX_BLOCK_DATA_BYTES` per block or scoped record, `MAX_ITEM_DATA_BYTES` |
+| Messages and tells | `MAX_CLIENT_SENDS`, `MAX_CLIENT_SEND_BYTES`, `MAX_VALUE_DEPTH`, `MAX_TELLS`, `MAX_TELL_BYTES` |
+| Networks and recipes | `MAX_NETWORK_BLOCKS`, `MAX_NETWORK_DATA_BYTES`, `MAX_RECIPES`, `MAX_RECIPE_INPUT_ITEMS` |
+| IPC | `MAX_FRAME_BYTES` |
+| Adapter lifecycle/storage | `loadDeadline`, `resultDeadline`, `eventQueueCap`, `dataQuota`, `flushInterval` in [adapter limits](../tools/localserver/experience/limits.go) |
 
-The server half of client parts (`tools/localserver/extension`) offers each Experience's client
-part, a `.cxb` that `cinnabar-cxb build --experience` makes from the Experience's
-`experience.toml`, over PR #34's unchanged handshake and typed channels
-([server-experiences.md](server-experiences.md)). On the client a failed client part callback
-drops only its own output and the helper restarts the guest; repeated failures stop that part,
-as the server stops a failing Experience (see server-experiences.md on helper failures).
-
-```text
-bedrock-local-server … -extension-key <seed file> -extension-audience <host:port> -extension-cxb <dir>
-```
-
-- **Flags.** The three come together. `-extension-key` is a raw Ed25519 seed as
-  `cinnabar-cxb keygen` writes it; keep it under `.local/`. `-extension-audience` is the address
-  players join by, exactly as the client canonicalizes it: lowercase host, bracketed IPv6 and an
-  explicit nonzero port, such as `127.0.0.1:19132`; a client that joins by another address
-  ignores the offer. `-extension-cxb` is a directory whose `.cxb` files, in byte order of their
-  names, are offered. A bundle's id is the id of the Experience it belongs to.
-- **Startup**, before the resource packs load; any failure exits with an error. Each bundle's
-  manifest must be signed by the publisher key it names, at the client's API, with its channels in
-  its namespace. The revision in `<world>/extension-revision` goes up by one and is stored first; a
-  file that holds no revision fails startup instead of offering a lower one, which clients that
-  pinned the server would refuse. The server key signs an offer of the bundles: the union of their
-  permissions, the origin `https://cxb.invalid`, as much memory as the client gives that many
-  guests, no GPU memory and a fixed fallback text. `.invalid` never resolves, so a client takes a
-  bundle only from its cache, which `cinnabar-cxb seed-cache` fills. The offer expires a day less
-  an hour after startup, the hour being margin for client clocks behind the server's; after that
-  no joining player is offered client parts, so restart the server at least daily. The marker is
-  written into the optional resource pack `<world>/resources/cinnabar-extension-offer`, whose
-  version is the revision, so a pack cache never serves an older offer. Without the flags that
-  pack is removed and nothing else changes.
-- **Carrier.** Each connection that Dragonfly's RakNet listener accepts is wrapped. The wrapper
-  takes `ScriptMessage`s with the identifier `cinnabar:extensions/v1` out of the packet stream and
-  passes every other packet through untouched. Dragonfly's listener does not expose packet
-  headers; it admits no sub-client login, so every packet on a connection is its primary
-  client's, and Hello and envelopes must name sub-client 0.
-- **Handshake**, per connection. A Hello must have the client's handshake and API versions, the
-  current offer's digest, sub-client 0, 32-byte nonces and a capability set that is not empty,
-  before the offer expires. The server answers with an Accept signed by the server key that
-  echoes the Hello, with a fresh challenge and session, expiring with the offer. The Accept
-  selects the highest wire version that the Hello's `wire` lists and the server speaks, at the
-  lower of each of the Hello's ceilings and the server's (`HostLimits`, the client's own
-  constants); a v1 Hello, or one whose highest common version is 1, gets an Accept that selects
-  nothing, exactly as before wire v2. A Hello with no common version or unusable ceilings falls
-  back. Ready must name that session, the offer's bundle digests in order and generation 1, and
-  grant each bundle permissions within its manifest, the Hello's capabilities and the offer's
-  scope. The client part is then active with Ready's world epoch.
-- **Messages.** A committed `send-client` goes out only to an active client part, on a declared
-  `to_client` channel of a bundle granted `messaging`, sequenced from 1 with the current world
-  epoch and within the client's message and byte rates; anything else is dropped and counted. On
-  wire v2 a record over the inline limit goes out in fragments, all of them or, when the client's
-  remaining rate cannot take them all, none. Inbound envelopes, and on v2 fragments, pass the
-  client's own ingress rules (route, sequence, order, bundle, namespace, `messaging` grant,
-  schema, size, reassembly budget, rate) against the manifest's `to_server` channels and become
-  `client-message` callbacks of the Experience whose id is the bundle id. An undeclared channel
-  schema, which the client would skip as a newer revision, is a violation here, since the server
-  knows the exact manifest; so is another world epoch on wire v1.
-- **World epochs.** On wire v2 a dimension change keeps the client part. The client's `epoch`
-  control moves the session to its new epoch: the server's later envelopes carry it, the client's
-  envelopes of the old epoch are dropped and counted, and `Server.OnEpoch` queues the `epoch`
-  callback (`Host.DeliverEpoch`) of each Experience with an active client part for that player,
-  so it can resend its state.
-- **Fallback.** Any violation, the Accept's expiry, a dimension change on wire v1 (it resets the
-  client's world epoch) or a disconnect puts that connection in fallback for good: its client
-  part gets nothing more, its messages are dropped, and the player stays connected and plays on
-  as without a client part. A dimension change before the Hello ends nothing. One log line
-  reports each client part that becomes active, changes epoch or falls back.
-- **Tests.** `go test ./extension` covers the handshake rules, the v1/v2 negotiation matrix,
-  epochs and fragment attacks with Dragonfly's listener faked; `TestClientPartHandshakeOverRakNet`
-  runs a Hello over real RakNet. `testdata/go` holds the server half's own marker, v2 Accept,
-  envelope and fragments, which `tools/cxb/tests/fixtures.rs` runs through the client's
-  verifiers; regenerate them with
-  `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures`.
-
-### Client part media (developer)
-
-`-extension-media <dir>` (with the `-extension` flags) serves `<dir>` over HTTPS at
-`-extension-media-addr` (IPv4 loopback, default `127.0.0.1:19443`), adds that origin and surface
-GPU memory to the offer, and writes a fresh CA to `<world>/extension-media-ca.pem`. The client
-fetches loopback media only with `CINNABAR_DEV_SERVER_EXPERIENCES=1` and `CINNABAR_DEV_MEDIA_CA`
-naming that file. `cinnabar-cxb media` strips tags from a profile WebM and writes its descriptor;
-`cinnabar-cxb build --assets <dir>` indexes it into a bundle.
-
-## Limits
-
-- `crates/experience-runtime/src/limits.rs` is the only source of the guest limits: fuel, epoch
-  and wall deadlines, memory, tables, instances, stack, component and manifest size, blocks per
-  Experience, host calls, staged ops and data, tells, client messages, block data, logs and the
-  IPC frame.
-- `tools/localserver/experience/limits.go` holds the adapter's limits: load and result deadlines,
-  strikes and restarts, shutdown grace, queue and neighbor caps, flush interval, data quota and
-  texture limits. The values that the commit check enforces again mirror Rust constants;
-  `TestFrameLimitMatchesRust` and `TestCommitLimitsMatchRust` compare them with
-  `testdata/protocol/limits.json`, which the runtime writes.
-- `experience-runtime serve --report-fuel` logs the fuel each callback used.
-
-## Adapter protocol
-
-The adapter and a helper talk over the helper's stdin and stdout; the helper logs to stderr, which
-the adapter logs tagged with the Experience id. A frame is a 4-byte little-endian length and that
-many bytes of JSON, at most `MAX_FRAME_BYTES`; bytes inside messages are lowercase hex.
-
-`crates/experience-runtime/src/protocol.rs` defines every message and `PROTOCOL_VERSION`.
-`tools/localserver/experience/protocol.go` mirrors them. The golden fixtures in
-`tools/localserver/experience/testdata/protocol` come from
-`experience-runtime write-fixtures <dir>`; the Go tests decode and re-encode each one and require
-identical JSON, and reject unknown fields. A helper that answers `load` with another protocol
-version fails the load. A client message is a `callback` whose `call` is `client_message`, and an
-epoch one whose `call` is `epoch`; both carry `focus`, the player's focus block or null, and
-have that block's snapshot with a focus and an empty one without. `loaded` carries `focus`,
-whether the Experience's world takes one; the adapter gives none to an Experience whose world
-does not. A staged client message is a
-`send_client` op. Their `scalar` values have the client wire protocol's form,
-`{"type": "integer", "value": 42}`, a list or record holding its values in an array,
-`{"type": "list", "value": [...]}`; the runtime turns them into and out of the guest's pre-order
-nodes. Protocol 5 adds server WIT 0.5's contract: each cell's `states`, a callback's `network`
-(the anchor's network, whose members the snapshot holds) and `inventory` (the actor's), each
-block's `states`, `placement`, `visual`, `permutations` and `network` and `loaded`'s `items`, with
-asset paths absolute as textures' are, and the ops `set_block_state`, `set_slot` and
-`drop_item`. State values have the scalar form, `{"type": "choice", "value": "online"}`.
+`experience-runtime serve --report-fuel` logs callback fuel use. Client grants and
+message/byte rates apply in addition to the server callback budgets; see
+[client parts](server-experiences.md#permissions-and-budgets).
 
 ## Private data store
 
-Block data never enters chunk NBT, so it never reaches clients. The adapter keeps it in
-`<world>/experience-data/<id>.json`, one file per Experience, keyed by dimension and position;
-each entry has a placement generation, a data revision and optional bytes. A placement or
-replacement starts a new generation without data; a write bumps the revision. Reads check that the
-live block is still the Experience's, so orphaned data is never returned. Each Experience may
-store at most `dataQuota` bytes (`limits.go`).
+`<world>/experience-data/<id>.json` stores block data by stable world-instance ID
+and position, with placement generations and data revisions, plus scoped records.
+Orphaned block data is not returned. Dirty files flush atomically on the configured interval and shutdown.
+A crash can lose one interval of writes; world saves and data saves are independent.
 
-Files are written atomically (temporary file and rename) every `flushInterval` (`limits.go`) when
-dirty, and on shutdown. **Crash window:** a crash loses up to one flush interval of data writes.
-The world and the store are saved independently, so after a crash a block can exist without its
-latest data.
+| Private record scope | Authorized identity |
+| --- | --- |
+| `StoreScope::Player` | Callback's stable player ID, including final leave; writes require session authority |
+| `StoreScope::Instance` | Callback's current stable instance |
+| `StoreScope::Mod` | Installing mod |
 
-`_installed.json` records installed Experience IDs and their required block IDs together. Removing
-an artifact or one of its block definitions fails startup. Both lists are replaced atomically.
+Each scope holds one versioned record per identity. `Persistent` and
+`Callback::read_state`/`write_state` use serde JSON. `store_read`/`store_write`
+expose bytes for explicit migrations: read the old schema before replacing it.
+A different schema read fails; absent and empty differ, and `None` deletes.
+Deleted records retain revisions. Records stay private unless explicitly sent.
 
-An older ID-only manifest requires explicit migration: restore the original installed artifacts,
-then add a `"blocks"` object mapping each recorded Experience ID to all of its original block IDs
-(for example, `"blocks": {"probe": ["probe:counter"]}`). Do not infer these IDs from an updated
-artifact that may have removed definitions. Startup refuses an incomplete manifest instead of
-risking unreadable saved chunks.
+Block and scoped writes validate and commit together, sharing `dataQuota` by net
+byte change and the callback's staged-data/operation budgets. Snapshots contain
+only authorized scopes. Leave writes retain scope/revision checks without a live
+world. The flush crash window still applies.
 
-## Strikes, quarantine and reload
+Bind worlds with stable `cinnabarext.WorldID` values. Opening generations are
+reserved in `_worlds.json` before publication, including across restarts.
+Store schema 3 adds scoped records to schema 2's instance-keyed blocks; schema 1's
+dimensions migrate to the three existing world instances. Unknown or ambiguous
+legacy identities fail startup. Back up before upgrading: older servers require the old backup to downgrade.
+`_installed.json` records required Experience and block IDs; removing either fails
+startup. For an older ID-only manifest, restore original artifacts and explicitly
+add a `blocks` map of each recorded Experience to its original block IDs.
 
-The supervisor of each Experience (`supervisor.go`) runs one callback at a time within the result
-deadline. A missed deadline, garbage, an oversized frame or a helper exit is a fault: the helper is
-killed, reaped and restarted. `failed` results (trap, fuel, deadline, limit) and faults are
-strikes; a guest's `rejected` error is not. Too many strikes or restarts within their windows
-(`limits.go`) quarantine the Experience: its events are dropped without IPC, while its blocks stay
-registered and in the world, and players and other Experiences carry on.
+## Reload
 
-`experience reload <id>` starts a fresh helper and clears the strikes, the restart history and the
-quarantine. The fresh helper must load the same id and the same block definitions, in the same
-order, as at startup, because those are registered; only the version may change, so a reload can
-ship fixed guest code. A failed reload leaves the Experience quarantined.
+Server stdin accepts `pause`, `resume`, `experience reload <id>` and `stop`.
+Pause holds dispatch and commits. Reload clears strikes, restarts and quarantine,
+but must preserve ID, registered blocks/items in order and world declarations;
+code and version may change. A failed reload leaves the Experience quarantined.
 
-## Security: developer profile
+Guest traps, budget failures and protocol violations count as strikes; guest
+rejections, host cancellation, transport and host encoding failures do not.
+Unusable helpers are replaced; host-canceled replacements consume no fault
+restart. The adapter's strike/restart windows can quarantine one Experience while its blocks and other Experiences remain.
+Shutdown stops admission, delivers final leaves and drains callbacks before
+flushing stores, reaping helpers and closing worlds. The local server uses a
+ten-second drain deadline and reports timeout as an error; a full queue does not
+drop final leaves. Custom hosts must call `Host.Drain` with a bounded context
+before closing the server or worlds.
 
-This is a developer profile, not a sandbox for untrusted code. Guests are confined by Wasmtime and
-the limits above, and helpers start with a cleared environment and private pipes, but helpers run
-with the server's OS user and privileges and have no OS-level sandbox. Artifact hashes give
-integrity, not publisher trust; artifacts are unsigned. Install only artifacts that you trust as
-much as the server binary. OS-level restriction of the helper is a later, separate milestone.
+## Host protocol and versions
 
-## Version matrix
+| Axis | Current contract |
+| --- | --- |
+| Server WIT | 0.9; frozen 0.1–0.6 and 0.8 worlds remain in [runtime WIT](../crates/experience-runtime/wit) |
+| Adapter IPC | 9, `PROTOCOL_VERSION` in [protocol.rs](../crates/experience-runtime/src/protocol.rs); exact match required |
+| Manifest data schema | `DATA_SCHEMA` in [artifact.rs](../crates/experience-sdk/src/artifact.rs) |
+| Client WIT/wire | [Client compatibility](server-experiences.md#versions-and-wire); [shared drawing](server-experiences.md#drawing-and-signed-assets) |
 
-These axes are versioned separately. Before 1.0, a breaking change bumps the minor version.
+Server 0.1 has no client messages; 0.2 adds scalar messages; 0.3 adds nested records
+and epochs; 0.4 adds focus; 0.5 adds block states/visuals, items, inventories and
+networks; 0.6 adds recipes and scheduled updates; 0.8 adds worlds, player events
+and scoped state; 0.9 adds ticks and timers. Unsupported callbacks are rejected.
 
-| Axis | Version | Source |
-|---|---|---|
-| Server WIT | 0.6; 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
-| IPC protocol | 6 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
-| Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
-| Client WIT | `cinnabar:server-experience@1.4.0`; earlier 1.x components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/mod-api/wit/client.wit` |
-| Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
-| Bedrock target | | `assets/bedrock-target.json` |
-
-A server artifact, its Bedrock art and a client extension are separate artifacts with separate
-authority; accepting the resource pack is never consent to client code.
-
-## Writing another adapter
-
-Another server can host the same artifacts by speaking the protocol to `experience-runtime serve`:
-
-1. Spawn one helper per artifact with a cleared environment and private pipes; forward its stderr
-   to your log.
-2. Send `load { dir }` within the load deadline and read `loaded` (or `load_failed`, after which
-   the helper exits). Check its protocol version, register its blocks before your block registry
-   freezes, and decode the textures it names.
-3. For each event, snapshot the anchor and its neighbors with each cell's id, ownership, data and
-   a token, send `callback`, and wait for `result` with the same `seq` outside your world thread.
-4. Commit a `committed` result in one world transaction, whole or not at all, after checking that
-   no token or block id changed and that the actor is still there; enforce the write scope, the
-   ownership rules and the commit limits again, since the helper is not trusted.
-5. After the commit, send each `send_client` op to the actor's client part if that Experience's
-   client part declares the channel; drop and count the rest. Deliver a client part's messages
-   as `client_message` callbacks, and its moves to a new world epoch as `epoch` callbacks, with
-   that player as actor. If `loaded` said the Experience takes a focus, remember the block of
-   each player's last interaction with it, and while that block is still valid give its snapshot
-   and `focus`; otherwise send an empty snapshot and a null `focus`.
-6. Count `failed` results and helper faults as strikes, and restart, quarantine and reload as
-   described above.
-7. Own the store: generations, revisions, the quota and atomic flushes.
-8. Send `shutdown` on exit and kill a helper that outlives the grace period.
-
-Check your implementation against the fixtures in `tools/localserver/experience/testdata/protocol`
-and the Go adapter's tests.
+A host runs one `experience-runtime serve` helper per artifact over private stdio.
+Frames are a little-endian u32 JSON length followed by JSON, bounded by
+`MAX_FRAME_BYTES`; binary fields use lowercase hex. Clear the helper environment,
+forward stderr separately, check `loaded`'s protocol, and register content before
+freezing the server registry. Never run guest IPC on the world thread.
+Snapshot events, validate and commit returned operations atomically, then deliver
+messages on declared client routes. Own instance generations, player-session and
+epoch fences, scoped snapshots, storage, stale checks, quotas, strikes and shutdown
+deadlines. Current Go `OnClientMessage`/`OnEpoch` hooks receive the originating
+`cinnabarext.PlayerSession`; match the admitted session before routing input. Use
+the [Go adapter](../tools/localserver/experience) and its `testdata/protocol`
+fixtures to check a new host.

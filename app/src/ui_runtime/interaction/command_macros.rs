@@ -42,6 +42,7 @@ pub(in crate::ui_runtime) fn command(
         || runtime.sign_editor().is_open()
         || runtime.emotes().is_open()
         || runtime.server_forms().owns_input()
+        || runtime.data_driven_ui().owns_input()
         || runtime.credits().owns_input()
     {
         return None;

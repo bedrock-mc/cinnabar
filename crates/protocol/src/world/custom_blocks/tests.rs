@@ -21,6 +21,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
         player_interact: false,
         name: "ns:b".into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count: 6,
         collides: true,
         collision_boxes: None,
@@ -94,6 +95,7 @@ fn block_target_tags_survive_wire_decode_and_odd_entries_are_counted() {
         [std::sync::Arc::from("test:target")]
     );
     assert_eq!(blocks.skipped, 1);
+    assert!(!blocks.blocks[0].tags_complete);
 
     let mut nbt = named(10, "");
     nbt.extend(named(8, "blockTags"));
@@ -103,6 +105,26 @@ fn block_target_tags_survive_wire_decode_and_odd_entries_are_counted() {
     assert_eq!(blocks.blocks.len(), 1);
     assert!(blocks.blocks[0].tags.is_empty());
     assert_eq!(blocks.skipped, 1);
+}
+
+#[test]
+fn custom_tag_completeness_tracks_dropped_entries() {
+    let tags = |entries| compound(vec![("blockTags", Nbt::List(entries))]);
+    for (root, complete, retained) in [
+        (compound(vec![]), true, 0),
+        (tags(vec![]), true, 0),
+        (tags(vec![text("test:tag"), text("test:tag")]), true, 1),
+        (tags((0..256).map(|_| text("test:tag")).collect()), true, 1),
+        (tags((0..257).map(|_| text("test:tag")).collect()), false, 1),
+        (tags(vec![text(&"x".repeat(256))]), true, 1),
+        (tags(vec![text(&"x".repeat(257))]), false, 0),
+        (tags(vec![text("test:tag"), Nbt::Int(1)]), false, 1),
+        (compound(vec![("blockTags", text("not a list"))]), false, 0),
+    ] {
+        let definition = super::parse_definition(&root).unwrap();
+        assert_eq!(definition.tags_complete, complete);
+        assert_eq!(definition.tags.len(), retained);
+    }
 }
 
 #[test]
@@ -221,6 +243,7 @@ fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
         player_interact: definition.player_interact,
         name: name.into(),
         tags: definition.tags,
+        tags_complete: definition.tags_complete,
         state_count: definition.state_count,
         collides: definition.collides,
         collision_boxes: definition.collision_boxes,
@@ -740,6 +763,7 @@ fn aggregate_admission_retains_rejected_palette_runs_without_expanding_states() 
     // Rejected runs retain their names and counts without expanded states.
     for block in &admitted.blocks[first_rejected..] {
         assert!(block.visual.materialization_disabled);
+        assert!(!block.tags_complete);
         assert!(block.hashed_states().is_empty());
         assert!(block.state_physics.is_empty());
         assert!(

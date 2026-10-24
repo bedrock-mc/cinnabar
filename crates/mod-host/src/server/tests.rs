@@ -48,6 +48,8 @@ fn state() -> State {
         commands: Vec::new(),
         bytes: 0,
         calls: 0,
+        initializing: false,
+        negotiation: None,
     };
     state.begin_output().unwrap();
     state
@@ -175,7 +177,7 @@ fn guest_1_1(template: &str) -> String {
         .replace("$TEMPLATE", template)
 }
 
-fn owner() -> Principal {
+pub(super) fn owner() -> Principal {
     Principal {
         session: "s".into(),
         bundle: "demo".into(),
@@ -183,7 +185,7 @@ fn owner() -> Principal {
     }
 }
 
-fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
+pub(super) fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
     Capabilities {
         scope: Scope {
             permissions: permissions.iter().copied().collect(),
@@ -227,12 +229,14 @@ fn component_built_against_1_0_still_links_and_skips_newer_events() {
     assert!(
         host.dispatch(&message, 1, &drawing_context(1))
             .unwrap()
+            .into_transaction()
             .commands
             .is_empty()
     );
     let epoch = host
         .dispatch(&Event::Epoch, 2, &drawing_context(2))
-        .unwrap();
+        .unwrap()
+        .into_transaction();
     assert_eq!(epoch.epoch, 2);
     assert!(epoch.commands.is_empty());
     let action = Event::Action {
@@ -242,6 +246,7 @@ fn component_built_against_1_0_still_links_and_skips_newer_events() {
     assert!(
         host.dispatch(&action, 2, &drawing_context(2))
             .unwrap()
+            .into_transaction()
             .commands
             .is_empty()
     );
@@ -270,6 +275,7 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
     match host
         .dispatch(&message, 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -284,7 +290,7 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         index: Some(3),
     };
     assert!(matches!(
-        host.dispatch(&pick, 1, &drawing_context(1)).unwrap().commands.as_slice(),
+        host.dispatch(&pick, 1, &drawing_context(1)).unwrap().into_transaction().commands.as_slice(),
         [Command::Value { name, value: screen::Value::Integer(3) }] if name == "#row"
     ));
     let undeclared = Event::Action {
@@ -294,7 +300,8 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
     assert!(host.dispatch(&undeclared, 1, &drawing_context(1)).is_err());
     let epoch = host
         .dispatch(&Event::Epoch, 5, &drawing_context(5))
-        .unwrap();
+        .unwrap()
+        .into_transaction();
     assert_eq!(epoch.epoch, 5);
     assert!(matches!(
         epoch.commands.as_slice(),
@@ -309,6 +316,7 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         assert!(
             host.dispatch(&event, 5, &drawing_context(5))
                 .unwrap()
+                .into_transaction()
                 .commands
                 .is_empty()
         );
@@ -320,6 +328,7 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
     assert!(
         host.dispatch(&malformed, 5, &drawing_context(5))
             .unwrap()
+            .into_transaction()
             .commands
             .is_empty()
     );
@@ -426,6 +435,7 @@ fn terminal_sized_list_record_dispatches_within_callback_fuel() {
     match host
         .dispatch(&message, 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -456,7 +466,7 @@ fn terminal() -> BundleHost {
 }
 
 /// An empty record on `channel`, which selects the terminal guest's behavior.
-fn on(channel: &str) -> Event {
+pub(super) fn on(channel: &str) -> Event {
     Event::Message {
         channel: channel.into(),
         record: b"[]".to_vec(),
@@ -468,6 +478,7 @@ fn count(host: &mut BundleHost) -> i64 {
     match host
         .dispatch(&on("terminal.count"), 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -497,6 +508,46 @@ fn a_trapped_dispatch_fails_alone_and_the_next_runs_on_a_fresh_instance() {
     );
     assert!(host.take_transaction().commands.is_empty());
     assert_eq!(count(&mut host), 1);
+}
+
+/// Restart messages belong to the fresh initializer, without replaying presentation or
+/// publishing the failed callback's staged send, even when no further event arrives.
+#[test]
+fn restarted_guest_publishes_initialization_messages_without_another_callback() {
+    use server_experience::wire::{Channel, Direction, Field, Scalar};
+
+    let mut capabilities = screen_capabilities(&[Permission::Ui, Permission::Messaging]);
+    capabilities.channels.push(Channel {
+        id: "demo.request".into(),
+        schema: 1,
+        direction: Direction::ToServer,
+        fields: vec![Field::Bool {}],
+    });
+    let mut host = BundleHost::launch(
+        include_bytes!("guest_recovery.wat"),
+        owner(),
+        capabilities,
+        1,
+        Default::default(),
+        drawing_context(1),
+    )
+    .unwrap();
+    assert_eq!(host.take_transaction().commands.len(), 2);
+    for epoch in 2..=3 {
+        assert!(
+            host.dispatch(&on("demo.fail"), epoch, &drawing_context(epoch))
+                .is_err()
+        );
+        let recovery = host.take_transaction();
+        assert_eq!(recovery.owner, owner());
+        assert_eq!(recovery.epoch, epoch);
+        assert!(
+            matches!(recovery.commands.as_slice(), [Command::Send { channel, schema: 1, record }]
+                if channel == "demo.request" && record == &[Scalar::Bool(false)]),
+            "restart must publish only the fresh initializer's message: {recovery:?}"
+        );
+        assert!(host.take_transaction().commands.is_empty());
+    }
 }
 
 /// Running out of fuel is a trap like any other: reported, and survived.
@@ -542,7 +593,7 @@ fn resized(width: f64) -> Event {
 }
 
 /// Typed text in the modal's edit box `control`.
-fn typed(control: &str, text: &str) -> Event {
+pub(super) fn typed(control: &str, text: &str) -> Event {
     Event::Text {
         control: control.into(),
         text: text.into(),
@@ -576,6 +627,7 @@ fn modal_resized_reports_the_size_modal_size_reads() {
     match host
         .dispatch(&resized(320.0), 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -601,6 +653,7 @@ fn modal_resized_reports_the_size_modal_size_reads() {
     match host
         .dispatch(&on("terminal.size"), 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -624,6 +677,7 @@ fn text_changed_reaches_the_guest_and_set_text_stages_text() {
     match host
         .dispatch(&typed("terminal.search", "iron"), 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -653,6 +707,7 @@ fn secondary_presses_reach_secondary_action() {
     match host
         .dispatch(&press("terminal.search"), 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -683,6 +738,7 @@ fn shift_changed_reaches_the_guest() {
     match host
         .dispatch(&Event::Shift { held: true }, 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -732,6 +788,7 @@ fn scroll_changed_reaches_the_guest() {
     match host
         .dispatch(&scrolled("terminal.search", 36.0), 1, &drawing_context(1))
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -776,7 +833,8 @@ fn scroll_changed_reaches_the_guest() {
     old.take_transaction();
     let skipped = old
         .dispatch(&scrolled("terminal.search", 0.0), 1, &drawing_context(1))
-        .unwrap();
+        .unwrap()
+        .into_transaction();
     assert!(skipped.commands.is_empty());
 }
 
@@ -965,11 +1023,13 @@ fn a_client_part_built_against_1_3_keeps_its_existing_callbacks() {
     assert!(
         host.dispatch(&Event::Frame, 1, &drawing_context(1))
             .unwrap()
+            .into_transaction()
             .commands
             .is_empty()
     );
     host.dispatch(&Event::Epoch, 2, &drawing_context(2))
-        .unwrap();
+        .unwrap()
+        .into_transaction();
 }
 
 /// Exercises the real canonical import and the optional frame callback through Wasmtime.
@@ -1012,7 +1072,8 @@ fn canonical_drawing_import_reports_only_bundle_grants() {
         )
         .unwrap();
         host.dispatch(&Event::Frame, 1, &drawing_context(1))
-            .unwrap();
+            .unwrap()
+            .into_transaction();
     }
 }
 
@@ -1105,20 +1166,26 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
             live: vec![actor],
             targets: vec![(target, 3)],
         };
-        host.dispatch(&Event::Epoch, 2, &context).unwrap();
+        host.dispatch(&Event::Epoch, 2, &context)
+            .unwrap()
+            .into_transaction();
         assert_eq!(host.drawing_references(), [actor]);
     }
     let first = host.take_presentation(1).unwrap().unwrap();
     assert!(first.bytes.len() < first.total as usize);
     let mut context = drawing_context(2);
     context.live.push(actor);
-    host.dispatch(&Event::Frame, 2, &context).unwrap();
+    host.dispatch(&Event::Frame, 2, &context)
+        .unwrap()
+        .into_transaction();
     assert_eq!(host.drawing_references(), [actor]);
     let next = host.take_presentation(1).unwrap().unwrap();
     assert_eq!(first.revision, next.revision);
     assert_eq!(next.offset, 1);
     context.live.clear();
-    host.dispatch(&Event::Frame, 2, &context).unwrap();
+    host.dispatch(&Event::Frame, 2, &context)
+        .unwrap()
+        .into_transaction();
     assert!(host.drawing_references().is_empty());
 }
 

@@ -1,7 +1,12 @@
 use super::*;
+use protocol::ExperienceMessage;
 
 mod drawing;
+mod negotiation;
+mod recovery;
+mod scheduling;
 mod shift;
+mod world;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
 use server_experience::{
@@ -25,6 +30,9 @@ struct FakeWorker {
     fail: bool,
     transport_error: bool,
     refuse_dispatch: bool,
+    /// The confirmation channel blocking callbacks, and the channel used after a restart.
+    confirmation: Option<String>,
+    registry: Option<String>,
     dispatched: Vec<Event>,
     /// Makes epoch callbacks publish the actor references they observe.
     observe_epoch: bool,
@@ -55,6 +63,8 @@ impl Worker for FakeWorker {
             fail: false,
             transport_error: false,
             refuse_dispatch: false,
+            confirmation: None,
+            registry: None,
             dispatched: Vec::new(),
             observe_epoch: false,
             contexts: vec![drawing],
@@ -70,17 +80,31 @@ impl Worker for FakeWorker {
             return Some(Err(anyhow::anyhow!("fixture reply decode failed")));
         }
         if let Some(failure) = self.failure.take() {
-            return Some(Ok(Reply::Failed {
-                failure,
-                references: self.references.clone(),
+            return Some(Ok(match self.response.take() {
+                Some(transaction) => Reply::Recovered {
+                    failure,
+                    transaction,
+                    confirmation: self.confirmation.clone(),
+                    references: self.references.clone(),
+                },
+                None => Reply::Failed {
+                    failure,
+                    references: self.references.clone(),
+                },
             }));
         }
         self.response.take().map(|transaction| {
-            Ok(Reply::Committed {
-                transaction,
-                fuel: 1,
-                references: self.references.clone(),
-                presentation: self.presentation.pop_front().map(Box::new),
+            Ok(match &self.confirmation {
+                Some(confirmation) => Reply::NotReady {
+                    transaction,
+                    confirmation: confirmation.clone(),
+                },
+                None => Reply::Committed {
+                    transaction,
+                    fuel: 1,
+                    references: self.references.clone(),
+                    presentation: self.presentation.pop_front().map(Box::new),
+                },
             })
         })
     }
@@ -119,7 +143,20 @@ impl Worker for FakeWorker {
         self.sizes.push(request.gui);
         self.items
             .push(request.items.as_ref().map(|items| items.revision));
+        if let Some(confirmation) = &self.confirmation {
+            if matches!(&request.event, Event::Message { channel, .. } if channel == confirmation) {
+                self.confirmation = None;
+            } else {
+                self.response = Some(Transaction {
+                    owner: self.owner.clone(),
+                    epoch: request.epoch,
+                    commands: Vec::new(),
+                });
+                return Ok(());
+            }
+        }
         if self.fail {
+            self.confirmation.clone_from(&self.registry);
             self.failure = Some(CallFailure {
                 bundle: self.owner.bundle.clone(),
                 callback: "dispatch".into(),
@@ -128,6 +165,13 @@ impl Worker for FakeWorker {
                 fuel: Some(1),
             });
             self.dispatched.push(request.event);
+            if self.confirmation.is_some() {
+                self.response = Some(Transaction {
+                    owner: self.owner.clone(),
+                    epoch: request.epoch,
+                    commands: Vec::new(),
+                });
+            }
             return Ok(());
         }
         self.dispatched.push(request.event);
@@ -236,9 +280,11 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     contributions: Contributions::default(),
                     busy: true,
                     initialized: false,
+                    pending: None,
+                    waiting_for: None,
                     files: Arc::default(),
                     opened: 0,
-                    events: VecDeque::new(),
+                    queue: CallbackQueue::default(),
                     epoch: 1,
                     strikes: VecDeque::new(),
                     stopped: None,
@@ -259,6 +305,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         scene_revision: 0,
         grant,
         instances,
+        last_recipient: None,
         executable: PathBuf::new(),
         pending_sends: VecDeque::new(),
         pending_send_bytes: 0,
@@ -269,7 +316,10 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         slice_ms: 0,
         ready: false,
         epoch: 1,
+        pending_control: None,
         modal_order: 0,
+        native_epoch: 1,
+        requested_epoch: None,
         gui: None,
         drawing_fence: None,
         drawing: Default::default(),
@@ -404,8 +454,12 @@ fn receive(live: &mut Live<FakeWorker>, id: &str, sequence: u64) {
         world_epoch: live.epoch,
         payload: vec![Scalar::Bool(sequence.is_multiple_of(2))],
     };
-    live.receive(&serde_json::to_vec(&message).unwrap(), CALLBACK_INTERVAL_MS)
-        .unwrap();
+    live.receive(
+        &ExperienceMessage::new(serde_json::to_vec(&message).unwrap()),
+        CALLBACK_INTERVAL_MS,
+        live.epoch,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -446,9 +500,13 @@ fn outbound_sends_enforce_the_shared_rate_limit() {
     }
 
     complete(&mut live, "bundle0");
-    assert!(live.poll(1, 0, true, |_| true).unwrap().is_empty());
-    assert!(live.instances["bundle0"].stopped.is_some());
-    assert!(live.poll(1, 1000, true, |_| true).unwrap().is_empty());
+    assert!(live.poll_ready(1, 0).unwrap().is_empty());
+    assert_eq!(live.pending_sends.len(), 1);
+
+    let packets = live.poll_ready(1, 1000).unwrap();
+    assert_eq!(packets.len(), 1);
+    let send: Envelope = serde_json::from_slice(&packets[0]).unwrap();
+    assert_eq!(send.payload, vec![Scalar::Bool(true)]);
 }
 
 #[test]
@@ -509,12 +567,20 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
     live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
         .unwrap();
     assert!(live.instances["bundle0"].busy);
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 2);
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS + 1, true, |_| true)
-        .unwrap();
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 3);
-    assert!(
+    assert_eq!(
         live.instances["bundle1"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched
+            .len(),
+        1
+    );
+    assert_eq!(live.instances["bundle0"].queue.entries.len(), 2);
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS + 1).unwrap();
+    assert_eq!(live.instances["bundle0"].queue.entries.len(), 1);
+    assert!(
+        live.instances["bundle2"]
             .helper
             .as_ref()
             .unwrap()
@@ -531,7 +597,11 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
         .map(|instance| instance.helper.as_ref().unwrap().dispatched.len())
         .collect::<Vec<_>>();
     assert_eq!(delivered, [2, 1, 1]);
-    assert!(live.ingress.peek(u64::MAX, 1).is_none());
+    assert!(
+        live.instances
+            .values()
+            .all(|instance| instance.queue.entries.is_empty())
+    );
     let records = &live.instances["bundle0"]
         .helper
         .as_ref()
@@ -684,14 +754,13 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
         .unwrap()
     };
     // A callback dispatched in epoch 1 is still running when the world moves to epoch 2.
-    live.receive(&message(&live, 1, 1), 1).unwrap();
-    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
-    sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
-    live.receive(&message(&live, 2, 1), 2).unwrap();
-    live.bind_drawing(&context(2), |_| false).unwrap();
-    let packets = live
-        .poll(2, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+    live.receive(&ExperienceMessage::new(message(&live, 1, 1)), 1, 1)
         .unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
+    sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
+    live.receive(&ExperienceMessage::new(message(&live, 2, 1)), 2, 1)
+        .unwrap();
+    let packets = live.poll_ready(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
     let Control::Epoch {
         session,
         world_epoch,
@@ -709,12 +778,14 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     assert_eq!(helper.dispatched.len(), 2);
     assert_eq!(helper.dispatched[1], Event::Epoch);
     // Its transaction carries the new epoch, and the new epoch's messages reach the guest.
-    live.receive(&message(&live, 3, 2), 3 * CALLBACK_INTERVAL_MS)
-        .unwrap();
-    live.poll(2, 3 * CALLBACK_INTERVAL_MS, true, |_| true)
-        .unwrap();
-    live.poll(2, 4 * CALLBACK_INTERVAL_MS, true, |_| true)
-        .unwrap();
+    live.receive(
+        &ExperienceMessage::new(message(&live, 3, 2)),
+        3 * CALLBACK_INTERVAL_MS,
+        2,
+    )
+    .unwrap();
+    live.poll_ready(2, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll_ready(2, 4 * CALLBACK_INTERVAL_MS).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert!(matches!(
         &helper.dispatched[2],
@@ -767,7 +838,8 @@ fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
         payload: large_list(),
     };
     for bytes in wire::encode(&incoming, &live.grant.wire).unwrap() {
-        live.receive(&bytes, 1).unwrap();
+        live.receive(&ExperienceMessage::new(bytes), 1, live.epoch)
+            .unwrap();
     }
     live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
@@ -924,9 +996,12 @@ fn modal_size_changes_reach_the_open_bundle_once_each() {
     live.set_modal_size(Some(size(320.0)));
     live.set_modal_size(Some(size(320.0)));
     live.set_modal_size(Some(size(400.0)));
-    let pending = &live.instances["bundle0"].events;
+    let pending = &live.instances["bundle0"].queue.entries;
     assert_eq!(
-        pending.iter().cloned().collect::<Vec<_>>(),
+        pending
+            .iter()
+            .map(|entry| entry.event.clone())
+            .collect::<Vec<_>>(),
         [Event::Resized { size: size(400.0) }]
     );
     live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
@@ -936,7 +1011,16 @@ fn modal_size_changes_reach_the_open_bundle_once_each() {
     // Closed, there is no size and nothing to report.
     live.close_modal();
     live.set_modal_size(None);
-    assert!(live.instances["bundle0"].events.is_empty());
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert!(live.instances["bundle0"].queue.entries.is_empty());
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched,
+        [Event::Resized { size: size(400.0) }]
+    );
 }
 
 /// Edits reach the open bundle only for a declared action's box, latest text per box.
@@ -948,9 +1032,10 @@ fn text_edits_reach_the_open_bundle_for_declared_boxes_only() {
     assert!(live.text_changed("bundle0.pick", "iron"));
     assert_eq!(
         live.instances["bundle0"]
-            .events
+            .queue
+            .entries
             .iter()
-            .cloned()
+            .map(|entry| entry.event.clone())
             .collect::<Vec<_>>(),
         [Event::Text {
             control: "bundle0.pick".into(),
@@ -977,9 +1062,10 @@ fn scroll_ranges_coalesce_for_declared_views_only() {
     assert!(!live.scroll_changed("bundle0.pick", range(f64::NAN)));
     assert_eq!(
         live.instances["bundle0"]
-            .events
+            .queue
+            .entries
             .iter()
-            .cloned()
+            .map(|entry| entry.event.clone())
             .collect::<Vec<_>>(),
         [Event::Scrolled {
             view: "bundle0.pick".into(),
@@ -998,9 +1084,10 @@ fn secondary_presses_reach_only_declared_actions() {
     assert!(live.press_secondary("bundle0.pick", Some(2)));
     assert_eq!(
         live.instances["bundle0"]
-            .events
+            .queue
+            .entries
             .iter()
-            .cloned()
+            .map(|entry| entry.event.clone())
             .collect::<Vec<_>>(),
         [Event::SecondaryAction {
             id: "bundle0.pick".into(),
@@ -1072,8 +1159,8 @@ fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
     });
     live.poll(1, 0, true, |_| true).unwrap();
     // No verified descriptor was registered, so the player is refused and reported stopped.
-    live.media_mut().service(0, 0, true);
-    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
+    live.service_media(0, 0, true);
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     let messages: Vec<_> = helper
         .dispatched
@@ -1132,4 +1219,21 @@ fn an_unchanged_media_scene_is_presented_without_rebuilding() {
     let unchanged = live.changed_screens().is_none();
     assert_eq!(test_alloc::thread_allocations() - before, 0);
     assert!(unchanged);
+}
+
+impl Live<FakeWorker> {
+    /// Binds the current logical world before polling fixtures that exercise native lifecycle.
+    fn poll_ready(&mut self, native_epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
+        self.set_epoch(native_epoch)?;
+        let mut drawing = self
+            .instances
+            .values()
+            .next()
+            .unwrap()
+            .drawing_context
+            .clone();
+        drawing.epoch = self.epoch;
+        self.bind_drawing(&drawing, |_| true)?;
+        self.poll(native_epoch, now_ms, true, |_| true)
+    }
 }

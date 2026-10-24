@@ -512,11 +512,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         if template.flags == crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT
             && (template.quad_count == 0
                 || compiled.model_templates.get(index + 1).is_none_or(|next| {
-                    !matches!(
-                        next.flags,
-                        0 | crate::MODEL_TEMPLATE_FLAG_BAMBOO
-                            | crate::MODEL_TEMPLATE_FLAG_SHORT_GRASS
-                    )
+                    !crate::model::potted_world_template_flags_are_valid(next.flags)
                 }))
         {
             return Err(invalid(
@@ -875,7 +871,7 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
             }
         }
     }
-    let (temporary_path, file) = temporary.ok_or_else(|| AssetError::Io {
+    let (temporary_path, mut file) = temporary.ok_or_else(|| AssetError::Io {
         path: path.to_path_buf(),
         source: io::Error::new(
             io::ErrorKind::AlreadyExists,
@@ -883,12 +879,10 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
         ),
     })?;
     let result = (|| -> io::Result<()> {
-        {
-            let mut file = file;
-            file.write_all(bytes)?;
-            file.flush()?;
-            file.sync_all()?;
-        }
+        file.write_all(bytes)?;
+        file.flush()?;
+        file.sync_all()?;
+        drop(file);
         fs::rename(&temporary_path, path)
     })();
     if let Err(source) = result {

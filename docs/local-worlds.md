@@ -102,6 +102,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   are never silently extended with a different generator. Seeds are retained in world metadata
   for BDS; Dragonfly's flat terrain does not use them. Natural-terrain imports are rejected before
   saving if the selected backend is Dragonfly; retry with BDS available.
+- **Dragonfly chunk streaming:** each player gets up to 32 chunk requests per tick while fewer than 64
+  sub-chunk blob cache transactions await the client's acknowledgement (Dragonfly defaults: 4 and 8).
+  Unacknowledged blobs stay capped at 4,096 per session.
 - **Dragonfly animals:** Passive animal simulation and natural population are unsupported. Previously saved
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
@@ -111,14 +114,10 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
   budget before the exit sweep escalates to SIGTERM and kill.
-- **Standby (translated BDS):** translated servers take minutes to start, so once the menu is up the
-  most recently played world starts in the background if it runs on an installed BDS. Leaving a
-  running BDS world keeps its server for five minutes when it already holds every saved setting;
-  settings for the next start or a missed live command stop it instead. Until the same world is opened, such a server is
-  hidden: status and the core report no open world. Opening it reuses the server after reconciling the
-  host's operator grant. Opening another world, editing or deleting this one, a core restart and
-  client exit save and stop it first. A start still in progress is killed instead. A hidden server
-  that exits is logged, not shown as a failure. Native and container servers stop when left.
+- **World lifetime:** saved worlds start only on an explicit open. Leaving requests a save and
+  stop immediately on every backend, including translated BDS. Reopening waits for the previous
+  server's save and backend cleanup before starting another server. Android setup prepares
+  reusable startup code in a temporary world; attaching the launcher never starts a saved world.
 - **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds

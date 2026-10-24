@@ -23,6 +23,9 @@ pub(in crate::ui_runtime::presentation) fn mesh(
     let mut vertices = Vec::with_capacity(quads.len() * 4);
     let mut by_page: BTreeMap<u16, Vec<u32>> = BTreeMap::new();
     for (quad, texture) in quads {
+        if !quad.visible_in_gui() {
+            continue;
+        }
         if quad
             .uvs
             .iter()

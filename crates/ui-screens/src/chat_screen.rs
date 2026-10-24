@@ -98,11 +98,13 @@ pub struct ChatScreen {
     scale: f32,
     pointer: Option<UiPoint>,
     /// The chat context, kept while the engine context and placement stay.
-    context: crate::chat_position::PlacedContext,
+    context: crate::hud_placement::PlacedContext,
 }
 
 /// What one chat paint reads from the client's chat state.
 pub struct ChatInput<'a> {
+    /// The current local actor display name used for mention matching.
+    pub local_player: &'a str,
     pub editor: &'a ui::ChatEditor,
     /// The history, oldest first.
     pub messages: &'a VecDeque<ui::ChatMessage>,
@@ -149,8 +151,8 @@ impl ChatScreen {
         let view = self.view_state(input.selected_suggestion);
         let context = self.context.get(
             engine.context(),
-            self.settings.options.chat_at_top(),
-            crate::chat_position::placed,
+            crate::hud_placement::HudPlacement::from_settings(&self.settings.options),
+            |base, placement| placement.placed(base),
         );
         let catalog = Arc::clone(engine.screen_catalog(CHAT_SCREEN));
         let metrics = frame.metrics;
@@ -164,6 +166,7 @@ impl ChatScreen {
                 text,
                 color,
                 Some(self.settings.options.mentions_color_code()),
+                input.local_player,
             )
         };
         let art = ScreenArt {

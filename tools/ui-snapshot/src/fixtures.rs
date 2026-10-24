@@ -7,11 +7,13 @@ mod cosmetics;
 mod hud_card_fit;
 mod hud_cards;
 mod hud_editor;
+mod hud_hotbar;
 mod local_identity;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
 mod roster;
+mod server_forms;
 mod settings_screens;
 mod shader_options;
 mod shader_pack;
@@ -75,6 +77,11 @@ pub enum Fixture {
     /// Gameplay touch controls and their utility overlays.
     #[cfg(feature = "test-support")]
     TouchUtilities(TouchUtilityView),
+    /// The survival HUD's hotbar flush with the bottom edge or at vanilla Bedrock's height.
+    #[cfg(feature = "test-support")]
+    BedrockHotbar {
+        raised: bool,
+    },
     Loading(ui::LoadingStage),
     Chat {
         draft: &'static str,
@@ -101,6 +108,9 @@ pub enum Fixture {
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// A script form shown through data-driven UI.
+    #[cfg(feature = "test-support")]
+    DataDriven(protocol::ddui::ScriptedScreen),
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
@@ -274,20 +284,6 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::SettingsDraft,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-overlap",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::FormOverlap,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-control-locked",
-        size: [1280, 960],
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::ControlLocked,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -995,5 +991,7 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(settings_screens::SEARCH_STATES)
         .chain(settings_screens::WORLD_STATES)
         .chain(settings_screens::PAGE_STATES)
+        .chain(server_forms::STATES)
+        .chain(hud_hotbar::STATES)
         .chain(touch_editor::STATES)
 }

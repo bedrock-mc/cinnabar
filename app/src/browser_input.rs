@@ -66,6 +66,10 @@ pub(crate) fn sample_input(
         .into_iter()
         .flatten()
         .any(pressed);
+    controls.hide_hud = options
+        .0
+        .value(launcher::menu::settings_options::SettingId::HideHud)
+        != 0;
     pending.replace(frame);
 }
 

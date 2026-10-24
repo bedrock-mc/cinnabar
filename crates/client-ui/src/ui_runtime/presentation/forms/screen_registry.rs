@@ -31,6 +31,7 @@ fn compose() -> ScreenRegistry {
     catalog.layer_builtin(ui_screens::occlusion_setting::install);
     catalog.layer_builtin(ui_screens::discord_presence_setting::install);
     catalog.layer_builtin(ui_screens::crosshair_settings::install);
+    catalog.layer_builtin(ui_screens::hud_placement::install);
     ui_screens::hud::register(&mut registry);
     let catalog = registry.catalog_mut();
     catalog.layer_builtin(ui_screens::menu_renderers::install_brand_overlays);

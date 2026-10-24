@@ -30,7 +30,8 @@ impl StatuePose {
         }
     }
 
-    const fn index(self) -> usize {
+    /// The shared geometry slot for this pose.
+    pub(super) const fn index(self) -> usize {
         match self {
             Self::Standing => 0,
             Self::Sitting => 1,
@@ -40,7 +41,7 @@ impl StatuePose {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Oxidation {
     Unaffected,
     Exposed,
@@ -64,12 +65,14 @@ impl Oxidation {
         })
     }
 
-    const fn suffix(self) -> &'static str {
+    /// Selects the registry-owned oxidation domain for shared statue artwork.
+    pub(super) const fn age(self) -> assets::facts::CopperAge {
+        use assets::facts::CopperAge;
         match self {
-            Self::Unaffected => "",
-            Self::Exposed => "_exposed",
-            Self::Weathered => "_weathered",
-            Self::Oxidized => "_oxidized",
+            Self::Unaffected => CopperAge::Unaffected,
+            Self::Exposed => CopperAge::Exposed,
+            Self::Weathered => CopperAge::Weathered,
+            Self::Oxidized => CopperAge::Oxidized,
         }
     }
 }
@@ -91,16 +94,11 @@ pub(super) fn emit(
     let Some(geometry) = heads.statues[model.pose.index()].as_ref() else {
         return;
     };
-    let suffix = model.oxidation.suffix();
+    let [body_path, eyes_path] =
+        assets::block_entity_geometry::heads::statue_textures(model.oxidation.age());
     let matrix = model_matrix(block, [0.5, 0.0, 0.5], model.facing.yaw_degrees());
-    let body = atlas.texture(
-        &format!("textures/entity/copper_golem/copper_golem{suffix}"),
-        geometry.texture,
-    );
-    let eyes = atlas.texture(
-        &format!("textures/entity/copper_golem/copper_golem_eyes{suffix}"),
-        geometry.texture,
-    );
+    let body = atlas.texture(&body_path, geometry.texture);
+    let eyes = atlas.texture(&eyes_path, geometry.texture);
     for (texture, bright) in [(body, false), (eyes, true)] {
         let Some(texture) = texture else {
             continue;

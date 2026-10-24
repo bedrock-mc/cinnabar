@@ -20,6 +20,9 @@ pub struct LocalMovementFacts {
     /// Runtime identity of the retained mount, when its actor is available.
     pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
+    /// The current vehicle selects the local player as its controller.
+    pub vehicle_controlled_locally: bool,
+    /// Abilities permit flight.
     pub can_fly: bool,
     pub flight: FlightAuthority,
     pub ability_sequence: Option<u64>,
@@ -103,6 +106,7 @@ pub fn read(
         ride_seat: ride
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
+        vehicle_controlled_locally: stream.local_vehicle_controlled(),
         can_fly,
         flight: capabilities.map(|caps| caps.flight).unwrap_or_default(),
         ability_sequence: player.facts.local_abilities_sequence(),
@@ -240,6 +244,7 @@ mod tests {
             },
             identifier: Some(identifier.into()),
             visual: assets::ItemVisualRoute::Missing,
+            map_id: None,
             charged_projectile: None,
             damage,
             enchanted: false,
@@ -275,6 +280,7 @@ mod tests {
             },
             identifier: Some(ELYTRA_IDENTIFIER.into()),
             visual: assets::ItemVisualRoute::Missing,
+            map_id: None,
             charged_projectile: None,
             damage,
             enchanted: false,

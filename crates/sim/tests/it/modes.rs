@@ -1,7 +1,7 @@
 use sim::{
     Aabb, BlockPhysicsFacts, BlockPhysicsFlags, BlockPhysicsSample, CollisionQuery, CollisionWorld,
-    MovementInput, MovementMode, PlayerState, ProvenancedCollider, Simulator, SurfaceResponse,
-    Vec3, WorldQueryError, pose_fits,
+    MovementInput, MovementMode, PlayerState, ProvenancedCollider, Simulator, SneakProfile,
+    SurfaceResponse, Vec3, WorldQueryError, pose_fits,
 };
 
 /// Fixed solids with optional per-world block flags on every sampled cell.
@@ -165,10 +165,11 @@ fn low_poses_fit_a_one_block_gap_that_standing_does_not() {
         flags: BlockPhysicsFlags::default(),
     };
     let feet = Vec3::new(0.5, 0.0, 0.5);
-    assert!(!pose_fits(&world, feet, MovementMode::Walking, false).unwrap());
-    assert!(!pose_fits(&world, feet, MovementMode::Walking, true).unwrap());
-    assert!(pose_fits(&world, feet, MovementMode::Crawling, false).unwrap());
-    assert!(pose_fits(&world, feet, MovementMode::Swimming, false).unwrap());
+    let current = SneakProfile::Current;
+    assert!(!pose_fits(&world, feet, MovementMode::Walking, false, current).unwrap());
+    assert!(!pose_fits(&world, feet, MovementMode::Walking, true, current).unwrap());
+    assert!(pose_fits(&world, feet, MovementMode::Crawling, false, current).unwrap());
+    assert!(pose_fits(&world, feet, MovementMode::Swimming, false, current).unwrap());
 }
 
 #[test]
