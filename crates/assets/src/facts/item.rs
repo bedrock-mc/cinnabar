@@ -36,6 +36,9 @@ pub const TORCH_ITEM_IDENTIFIERS: [&str; 4] = [
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
 pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
+/// Flower-bed items whose dropped form uses their carried sprite.
+pub const FLOWER_BED_ITEM_IDENTIFIERS: [&str; 2] =
+    ["minecraft:pink_petals", "minecraft:wildflowers"];
 
 /// Matches bucket-shaped names for conservative callers; this does not establish item behavior.
 pub fn has_bucket_name(identifier: &str) -> bool {
