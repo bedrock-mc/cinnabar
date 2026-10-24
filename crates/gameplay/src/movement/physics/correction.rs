@@ -273,9 +273,10 @@ impl LocalPhysicsController {
                         .find(|frame| frame.tick == next_tick)
                         .expect("controller and prediction histories retain the same ticks");
                     if let Some(climber) = preceding_climber
-                        && !frame.sync_server.iter().any(|write| {
-                            matches!(write, posture::ServerWrite::Replacement(..))
-                        })
+                        && !frame
+                            .sync_server
+                            .iter()
+                            .any(|write| matches!(write, posture::ServerWrite::Replacement(..)))
                     {
                         frame.entry_climber = climber;
                     }
