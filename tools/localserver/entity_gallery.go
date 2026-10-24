@@ -23,6 +23,9 @@ import (
 const entityGalleryFirstID = 9300000
 const entityGalleryPageSize = 16
 
+// entityGalleryFlagWords follows the client's flag layout, including the third-word key alias.
+var entityGalleryFlagWords = [...]uint32{protocol.EntityDataKeyFlags, protocol.EntityDataKeyFlagsTwo, protocol.EntityDataKeyArrowShooterID}
+
 // entityAppearance holds typed wire values rather than untyped JSON metadata numbers.
 type entityAppearance struct {
 	Identifier string                     `json:"identifier"`
@@ -100,7 +103,7 @@ func loadEntityGallery(registry, appearances string) ([]entityAppearance, error)
 				return nil, fmt.Errorf("invalid appearance %q for %q", appearance.Name, appearance.Identifier)
 			}
 			for _, flag := range appearance.Flags {
-				if flag >= 128 {
+				if int(flag) >= len(entityGalleryFlagWords)*64 {
 					return nil, fmt.Errorf("flag %d exceeds the metadata flag words", flag)
 				}
 			}
@@ -246,7 +249,7 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 		columns := min(4, len(page))
 		position := origin.Add(mgl32.Vec3{(float32(i%4) - float32(columns-1)/2) * 5, -1.62, 7 + float32(i/4)*7})
 		metadata := appearance.metadata()
-		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position, Yaw: 180, HeadYaw: 180, BodyYaw: 180, EntityMetadata: metadata, Attributes: appearance.Attributes, EntityProperties: appearance.Properties}
+		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position.Add(mgl32.Vec3{0, appearance.spawnOffset(), 0}), Yaw: 180, HeadYaw: 180, BodyYaw: 180, EntityMetadata: metadata, Attributes: appearance.Attributes, EntityProperties: appearance.Properties}
 		if appearance.Identifier == "minecraft:painting" {
 			title := appearance.Painting
 			if title == "" {
@@ -263,12 +266,19 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 		} else if appearance.Identifier == "minecraft:player" {
 			identity := entityGalleryUUID(id)
 			packets = append(packets, &packet.PlayerList{Entries: []protocol.PlayerListEntry{{ActionType: protocol.PlayerListActionAdd, UUID: identity, EntityUniqueID: id, Username: "Gallery player", Skin: actorBurstSkin(0, 0)}}})
-			actor = &packet.AddPlayer{UUID: identity, Username: "Gallery player", EntityRuntimeID: uint64(id), Position: position.Add(mgl32.Vec3{0, 1.62, 0}), EntityMetadata: metadata, AbilityData: protocol.AbilityData{EntityUniqueID: id}}
+			actor = &packet.AddPlayer{UUID: identity, Username: "Gallery player", EntityRuntimeID: uint64(id), Position: position.Add(mgl32.Vec3{0, 1.62, 0}), EntityMetadata: metadata, EntityProperties: appearance.Properties, AbilityData: protocol.AbilityData{EntityUniqueID: id}}
 		}
 		label := protocol.EntityMetadata{protocol.EntityDataKeyFlags: int64(0), protocol.EntityDataKeyName: appearance.Identifier + "\n" + appearance.Name, protocol.EntityDataKeyScale: float32(0), protocol.EntityDataKeyWidth: float32(0), protocol.EntityDataKeyHeight: float32(0), protocol.EntityDataKeyAlwaysShowNameTag: uint8(1)}
 		label.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagShowName)
 		label.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagAlwaysShowName)
 		packets = append(packets, actor, &packet.AddActor{EntityUniqueID: id + 1, EntityRuntimeID: uint64(id + 1), EntityType: "minecraft:armor_stand", Position: position.Add(mgl32.Vec3{0, 3, 0}), EntityMetadata: label})
+		if appearance.Identifier == "minecraft:player" && len(appearance.Attributes) > 0 {
+			attributes := make([]protocol.Attribute, len(appearance.Attributes))
+			for i, value := range appearance.Attributes {
+				attributes[i] = protocol.Attribute{AttributeValue: value, DefaultMin: value.Min, DefaultMax: value.Max, Default: value.Value}
+			}
+			packets = append(packets, &packet.UpdateAttributes{EntityRuntimeID: uint64(id), Attributes: attributes})
+		}
 		if appearance.Armour != nil {
 			armour := *appearance.Armour
 			armour.EntityRuntimeID = uint64(id)
@@ -283,18 +293,29 @@ func entityGalleryUUID(id int64) uuid.UUID {
 	return uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("entity-gallery-%d", id)))
 }
 
-// metadata preserves each field's network type and puts high flags in the second word.
+// spawnOffset compensates for constructor offsets checked against the shared entity facts.
+func (a entityAppearance) spawnOffset() float32 {
+	switch a.Identifier {
+	case "minecraft:boat", "minecraft:chest_boat":
+		return 0.375
+	case "minecraft:falling_block":
+		return 0.5
+	default:
+		return 0
+	}
+}
+
+// metadata preserves each field's network type and places flags in their metadata word.
 func (a entityAppearance) metadata() protocol.EntityMetadata {
 	metadata := protocol.NewEntityMetadata()
+	for _, key := range entityGalleryFlagWords {
+		metadata[key] = int64(0)
+	}
 	metadata[protocol.EntityDataKeyVariant], metadata[protocol.EntityDataKeyMarkVariant] = a.Variant, a.Mark
 	metadata[protocol.EntityDataKeyColorIndex], metadata[protocol.EntityDataKeyColorTwoIndex] = a.Color, a.Color2
 	metadata[protocol.EntityDataKeyValue] = a.Value
 	for _, flag := range a.Flags {
-		key := uint32(protocol.EntityDataKeyFlags)
-		if flag >= 64 {
-			key, flag = protocol.EntityDataKeyFlagsTwo, flag-64
-		}
-		metadata.SetFlag(key, flag)
+		metadata.SetFlag(entityGalleryFlagWords[flag/64], flag%64)
 	}
 	if a.Scale != nil {
 		metadata[protocol.EntityDataKeyScale] = *a.Scale

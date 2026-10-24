@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -127,5 +129,141 @@ func TestEntityGalleryReplacementClearsActorsAndLabels(t *testing.T) {
 		if pk.(*packet.RemoveActor).EntityUniqueID != int64(entityGalleryFirstID+i) {
 			t.Fatal("removed another fixture's actor")
 		}
+	}
+}
+
+func TestEntityGallerySpawnHeightsMatchEntityFacts(t *testing.T) {
+	paths, err := filepath.Glob("../../crates/assets/data/entity-facts-*.bin")
+	if err != nil || len(paths) == 0 {
+		t.Fatal("missing pinned entity facts registry")
+	}
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var facts struct {
+			Records []struct {
+				Identifier string `json:"identifier"`
+				Fact       struct {
+					NativeClass    string  `json:"native_class"`
+					NetworkYOffset float32 `json:"network_y_offset"`
+				} `json:"fact"`
+			} `json:"records"`
+		}
+		if err := json.Unmarshal(data[8:len(data)-32], &facts); err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range facts.Records {
+			offset := float32(0)
+			if record.Fact.NativeClass == "Boat" || record.Fact.NativeClass == "FallingBlock" {
+				offset = record.Fact.NetworkYOffset
+			}
+			packets := entityGalleryPackets([]entityAppearance{{Identifier: record.Identifier}}, mgl32.Vec3{0, 65.62, 0})
+			for _, pk := range packets {
+				if actor, ok := pk.(*packet.AddActor); ok && actor.EntityRuntimeID == entityGalleryFirstID {
+					if want := float32(65.62) - float32(1.62) + offset; actor.Position[1] != want {
+						t.Errorf("%s: network height %v, want %v from %s", record.Identifier, actor.Position[1], want, path)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestEntityGallerySupportsEveryProtocolFlag(t *testing.T) {
+	data, err := os.ReadFile("../../crates/protocol-ids/data/actor-data-extensions.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var extensions map[string]uint32
+	if err := json.Unmarshal(data, &extensions); err != nil {
+		t.Fatal(err)
+	}
+	third, ok := extensions["FlagsThird"]
+	if !ok {
+		t.Fatal("missing third flag word definition")
+	}
+	keys := []uint32{protocol.EntityDataKeyFlags, protocol.EntityDataKeyFlagsTwo, third}
+	if protocol.EntityDataFlagCount > len(keys)*64 {
+		t.Fatal("protocol flags exceed gallery metadata words")
+	}
+	var appearances []entityAppearance
+	for flag := 0; flag < protocol.EntityDataFlagCount; flag++ {
+		appearances = append(appearances, entityAppearance{Identifier: "minecraft:sheep", Name: strconv.Itoa(flag), Flags: []uint8{uint8(flag)}})
+	}
+	path := filepath.Join(t.TempDir(), "appearances.json")
+	data, err = json.Marshal(appearances)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	gallery, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_50.txt", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, appearance := range gallery {
+		if len(appearance.Flags) == 0 {
+			continue
+		}
+		var buffer bytes.Buffer
+		entityGalleryPackets([]entityAppearance{appearance}, mgl32.Vec3{})[0].Marshal(protocol.NewWriter(&buffer, 0))
+		var actor packet.AddActor
+		actor.Marshal(protocol.NewReader(&buffer, 0, true))
+		flag := appearance.Flags[0]
+		for word, key := range keys {
+			want := int64(0)
+			if word == int(flag)/64 {
+				want = int64(uint64(1) << (flag % 64))
+			}
+			if got := actor.EntityMetadata[key]; got != want {
+				t.Errorf("flag %d, word %d: got %v, want %d", flag, word, got, want)
+			}
+		}
+	}
+}
+
+func TestEntityGalleryPreservesPlayerPropertiesAndAttributes(t *testing.T) {
+	properties := protocol.EntityProperties{
+		IntegerProperties: []protocol.IntegerEntityProperty{{Index: 2, Value: 7}},
+		FloatProperties:   []protocol.FloatEntityProperty{{Index: 4, Value: 0.25}},
+	}
+	attributes := []protocol.AttributeValue{{Name: "minecraft:health", Value: 0, Min: 0, Max: 20}, {Name: "minecraft:movement", Value: 0.1, Min: 0, Max: 1}}
+	packets := entityGalleryPackets([]entityAppearance{{Identifier: "minecraft:player", Properties: properties, Attributes: attributes}, {Identifier: "minecraft:player"}}, mgl32.Vec3{})
+	spawned, updated := false, false
+	for _, pk := range packets {
+		var buffer bytes.Buffer
+		pk.Marshal(protocol.NewWriter(&buffer, 0))
+		switch pk.(type) {
+		case *packet.AddPlayer:
+			var actor packet.AddPlayer
+			actor.Marshal(protocol.NewReader(&buffer, 0, true))
+			if actor.EntityRuntimeID == entityGalleryFirstID {
+				spawned = true
+				if !reflect.DeepEqual(actor.EntityProperties, properties) {
+					t.Errorf("player properties lost: %+v", actor.EntityProperties)
+				}
+			}
+		case *packet.UpdateAttributes:
+			var update packet.UpdateAttributes
+			update.Marshal(protocol.NewReader(&buffer, 0, true))
+			if update.EntityRuntimeID != entityGalleryFirstID || !spawned || updated {
+				t.Fatal("player attributes must follow their spawn exactly once")
+			}
+			updated = true
+			if len(update.Attributes) != len(attributes) {
+				t.Fatalf("player attributes lost: %+v", update.Attributes)
+			}
+			for i, attribute := range update.Attributes {
+				if attribute.AttributeValue != attributes[i] {
+					t.Errorf("player attribute changed: %+v", attribute)
+				}
+			}
+		}
+	}
+	if !spawned || !updated {
+		t.Fatal("player spawn or configured attribute update missing")
 	}
 }
