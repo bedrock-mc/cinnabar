@@ -296,7 +296,9 @@ independently of simulation admission. Unsupported attribute models leave report
 with the actor's current value. A completed local pose tick replaces earlier accepted
 pose writes. Retained corrections arm its idle countdown; bare snaps do not.
 Sparse dimension writes preserve the untouched accepted component, including local
-pose sizes. Network and synthetic local actors share arrival-ordered lifetimes.
+pose sizes. Dimensions enter gameplay with ordered metadata controls, and correction
+replay retains their order alongside flag writes. Network and synthetic local actors
+share arrival-ordered lifetimes.
 Accepted local spawns retire old dimension ownership, replace accepted item-use flags,
 and refresh movement speed or use the new actor's current. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.

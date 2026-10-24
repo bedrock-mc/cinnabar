@@ -217,12 +217,12 @@ impl LocalPhysicsController {
         let anchor_controller = controller_frames
             .iter()
             .find(|frame| frame.tick == tick)
-            .copied()
+            .cloned()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
         let mut anchor_state = anchor_controller.anchor_state;
         let mut eye = anchor_controller.eye_offset;
-        let mut sync_state = anchor_controller.sync_state;
+        let mut sync_state = anchor_controller.sync_state.clone();
         let deferred_corrections = self.deferred_corrections.clone();
         let boosts = self.boosts.clone();
         let (replay, replayed_ticks) = self
@@ -242,10 +242,9 @@ impl LocalPhysicsController {
                             .find(|frame| frame.tick == previous.tick_result.tick)
                             .expect("controller and prediction histories retain the same ticks");
                         frame.finish_eye(&mut eye, state);
-                        sync_state.server_flags(frame.sync_server);
-                        sync_state.take_pending();
+                        sync_state.replay_server(&frame.sync_server);
                         sync_state.complete_tick(frame, state);
-                        frame.sync_state = sync_state;
+                        frame.sync_state = sync_state.clone();
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
@@ -284,10 +283,9 @@ impl LocalPhysicsController {
                 .as_ref()
                 .expect("successful replay retains state");
             frame.finish_eye(&mut eye, state);
-            sync_state.server_flags(frame.sync_server);
-            sync_state.take_pending();
+            sync_state.replay_server(&frame.sync_server);
             sync_state.complete_tick(frame, state);
-            frame.sync_state = sync_state;
+            frame.sync_state = sync_state.clone();
         }
         // Replay supplies actual jump initiations; grounded correction anchors close the old arc.
         let mut jump_fold = {
@@ -400,7 +398,7 @@ impl LocalPhysicsController {
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
         self.controller_history = controller_frames;
-        sync_state.restore_pending(self.sync_state);
+        sync_state.restore_pending(&self.sync_state);
         self.sync_state = sync_state;
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self

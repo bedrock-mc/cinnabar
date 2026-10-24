@@ -6,7 +6,7 @@ use super::*;
 const MOVING_FLAG_DISTANCE_SQUARED: f32 = 0.001;
 
 /// Accepted flag writes and size, independent of replay history and travel-mode selection.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct SyncState {
     pub flags: client_world::MovementFlagUpdate,
     pub size: Option<[f32; 2]>,
@@ -14,15 +14,30 @@ pub(super) struct SyncState {
     dimensions: client_world::ExplicitDimensions,
     last_pose: (bool, bool),
     previous_mode: sim::MovementMode,
-    pending: client_world::MovementFlagUpdate,
+    pending: Vec<ServerWrite>,
     local_spinning: bool,
+}
+
+/// One accepted server edit retained in arrival order between completed ticks.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum ServerWrite {
+    Flags(client_world::MovementFlagUpdate),
+    Dimensions(client_world::ExplicitDimensions),
 }
 
 impl SyncState {
     /// Applies only supplied server bits, preserving independent pose flags.
     pub(super) fn server_flags(&mut self, update: client_world::MovementFlagUpdate) {
+        if update == client_world::MovementFlagUpdate::default() {
+            return;
+        }
+        self.pending.push(ServerWrite::Flags(update));
+        self.apply_flags(update);
+    }
+
+    /// Updates flag and pose ownership without recording another replay edit.
+    fn apply_flags(&mut self, update: client_world::MovementFlagUpdate) {
         self.flags.merge(update);
-        self.pending.merge(update);
         if self.explicit_size && update.sneaking.is_some() {
             // A matching local sneak does not request another resize.
             self.last_pose.0 = self.sneaking_pose();
@@ -45,6 +60,14 @@ impl SyncState {
     /// Applies sparse dimensions without changing accepted pose comparisons.
     /// A replacement starts from default dimensions instead of the previous actor's size.
     fn server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
+        if self.apply_dimensions(dimensions) {
+            self.pending.push(ServerWrite::Dimensions(dimensions));
+        }
+    }
+
+    /// Applies a size arrival and reports whether it changed component ownership or lifetime.
+    fn apply_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) -> bool {
+        let mut changed = false;
         if let Some(revision) = dimensions.spawn_revision
             && self.dimensions.spawn_revision != Some(revision)
         {
@@ -53,18 +76,19 @@ impl SyncState {
                 .spawn_revision
                 .is_some_and(|current| revision < current)
             {
-                return;
+                return false;
             }
             if self.dimensions.spawn_revision.is_some() {
                 self.size = None;
                 self.explicit_size = false;
             }
             self.dimensions = client_world::ExplicitDimensions::for_spawn(revision);
+            changed = true;
         }
         let mut size = self
             .size
             .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]);
-        let mut changed = false;
+        let mut resized = false;
         for ((previous, received), value) in
             [&mut self.dimensions.width, &mut self.dimensions.height]
                 .into_iter()
@@ -74,29 +98,41 @@ impl SyncState {
             if let Some(write) = received.filter(|write| Some(*write) != *previous) {
                 *previous = Some(write);
                 *value = write.value;
-                changed = true;
+                resized = true;
             }
         }
-        if changed {
+        if resized {
             self.size = Some(size);
             self.explicit_size = true;
         }
+        changed || resized
     }
 
     /// Associates server writes with the next retained tick for correction replay.
-    pub(super) fn take_pending(&mut self) -> client_world::MovementFlagUpdate {
+    pub(super) fn take_pending(&mut self) -> Vec<ServerWrite> {
         std::mem::take(&mut self.pending)
     }
 
     /// Reapplies server writes received after the last completed tick to a replay result.
-    pub(super) fn restore_pending(&mut self, live: Self) {
-        self.server_flags(live.pending);
-        self.server_dimensions(live.dimensions);
+    pub(super) fn restore_pending(&mut self, live: &Self) {
+        self.replay_server(&live.pending);
+        self.pending.clone_from(&live.pending);
+    }
+
+    /// Replays accepted flag and dimension writes in their original order.
+    pub(super) fn replay_server(&mut self, writes: &[ServerWrite]) {
+        for write in writes {
+            match *write {
+                ServerWrite::Flags(flags) => self.apply_flags(flags),
+                ServerWrite::Dimensions(dimensions) => {
+                    self.apply_dimensions(dimensions);
+                }
+            }
+        }
     }
 
     /// Records producer writes after a successful movement tick.
     pub(super) fn complete_tick(&mut self, frame: &ControllerFrame, state: &PlayerState) {
-        self.server_dimensions(frame.intent.explicit_dimensions);
         self.flags.sneaking = Some(frame.input.sneaking);
         self.flags.sprinting = Some(frame.input.sprinting);
         self.flags.has_collision = Some(!frame.input.no_clip);
@@ -166,10 +202,7 @@ impl LocalPhysicsController {
     }
 
     /// Records a server dimension write before any later local resize is evaluated.
-    pub(in crate::movement) fn note_server_dimensions(
-        &mut self,
-        dimensions: client_world::ExplicitDimensions,
-    ) {
+    pub(crate) fn note_server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
         self.sync_state.server_dimensions(dimensions);
     }
 
@@ -178,7 +211,7 @@ impl LocalPhysicsController {
         self.sync_state.explicit_size
     }
 
-    /// Returns the unscaled size written by the most recent local resize.
+    /// Returns the unscaled size after accepted server and completed local writes.
     pub(in crate::movement) fn prediction_sync_size(&self) -> Option<[f32; 2]> {
         self.sync_state.size
     }

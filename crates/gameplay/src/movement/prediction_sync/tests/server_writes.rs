@@ -76,6 +76,7 @@ fn sync_regression_preserves_explicit_pose_sized_dimensions() {
                     .insert(key.wire_value(), ActorMetadataValue::Float(value));
             }
             record_dimensions(&mut actor, 20);
+            physics.note_server_dimensions(actor.0.explicit_dimensions);
             send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
                 assert_eq!(
                     protocol::test_support::packets::prediction_sync_bounding_box(&packet),
@@ -449,16 +450,11 @@ fn sync_preserves_explicit_spawn_dimensions() {
         ActorMetadataValue::Float(1.5),
     );
     record_dimensions(&mut actor, 1);
+    physics.note_server_dimensions(actor.0.explicit_dimensions);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
-        crate::movement::PhysicsSampleContext {
-            mode_intent: crate::movement::ModeIntent {
-                explicit_dimensions: actor.0.explicit_dimensions,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        crate::movement::PhysicsSampleContext::default(),
         &OpenWorld,
     );
     assert_eq!(

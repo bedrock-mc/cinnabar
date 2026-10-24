@@ -145,17 +145,12 @@ fn sync_lifetime_network_dimensions_replace_a_synthetic_actor() {
     assert!(world.actor(7).is_none());
     world.sync_local_player_pose(&feed);
     let synthetic = world.actor(7).unwrap().explicit_dimensions;
+    physics.note_server_dimensions(synthetic);
     let anchor = physics
         .advance_with_context(
             simulation_clock::TICK_DURATION,
             sim::MovementInput::default(),
-            crate::movement::PhysicsSampleContext {
-                mode_intent: crate::movement::ModeIntent {
-                    explicit_dimensions: synthetic,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
+            crate::movement::PhysicsSampleContext::default(),
             &OpenWorld,
         )
         .samples
@@ -171,6 +166,7 @@ fn sync_lifetime_network_dimensions_replace_a_synthetic_actor() {
             Some(3),
         )
         .unwrap();
+    super::state_updates::apply_controls(&mut world, &mut physics);
     assert_eq!(world.actor(7).unwrap().spawn_revision, 3);
     assert_eq!(
         world
@@ -190,13 +186,7 @@ fn sync_lifetime_network_dimensions_replace_a_synthetic_actor() {
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
-        crate::movement::PhysicsSampleContext {
-            mode_intent: crate::movement::ModeIntent {
-                explicit_dimensions: world.actor(7).unwrap().explicit_dimensions,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        crate::movement::PhysicsSampleContext::default(),
         &OpenWorld,
     );
     physics
@@ -218,16 +208,11 @@ fn sync_lifetime_network_dimensions_replace_a_synthetic_actor() {
         Some([1.0, sim::PLAYER_WIDTH as f32, 0.7]),
         "replay must retain the accepted network lifetime"
     );
+    physics.note_server_dimensions(synthetic);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
-        crate::movement::PhysicsSampleContext {
-            mode_intent: crate::movement::ModeIntent {
-                explicit_dimensions: synthetic,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        crate::movement::PhysicsSampleContext::default(),
         &OpenWorld,
     );
     let packet = reported_packet(&world, &mut physics, &ItemUseRuntime::default());

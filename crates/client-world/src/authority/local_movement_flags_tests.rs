@@ -75,7 +75,7 @@ fn local_spawn_use_follows_admission_and_replacement() {
                 .take_committed_controls()
                 .iter()
                 .any(|control| matches!(control,
-                    CommittedControlEvent::LocalMovementFlags { sequence: received, tick: 0, flags }
+                    CommittedControlEvent::LocalMovementFlags { sequence: received, tick: 0, flags, .. }
                     if *received == sequence && flags.using_item == Some(using.unwrap_or(false))
                 ))
         );
@@ -159,6 +159,74 @@ fn metadata(runtime_id: u64, dimension: i32, flags: u64) -> WorldEvent {
     }))
 }
 
+/// Sends one sparse size component through ordinary actor metadata admission.
+fn dimension_metadata(runtime_id: u64, dimension: i32, value: f32) -> WorldEvent {
+    WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {
+        runtime_id,
+        dimension,
+        metadata: Arc::from([ActorMetadata {
+            key: ActorDataKey::Width.wire_value(),
+            value: ActorMetadataValue::Float(value),
+        }]),
+        properties: Arc::from([]),
+        tick: 0,
+    }))
+}
+
+#[test]
+fn sparse_dimensions_share_the_ordered_movement_authority_queue() {
+    let mut authority = spawn_authority();
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(spawn_with_use(None))),
+            Some(1),
+        )
+        .unwrap();
+    authority.take_committed_controls();
+    for (sequence, event) in [
+        (2, dimension_metadata(41, 2, 0.8)),
+        (3, metadata(41, 2, 1 << ActorFlag::Sneaking.wire_value())),
+        (4, dimension_metadata(41, 2, 0.8)),
+        (5, dimension_metadata(41, 2, f32::NAN)),
+        (6, dimension_metadata(41, 3, 0.9)),
+        (7, dimension_metadata(72, 2, 0.9)),
+    ] {
+        authority
+            .apply_ordered_event(event, Some(sequence))
+            .unwrap();
+    }
+    let controls = authority.take_committed_controls();
+    let writes: Vec<_> = controls
+        .into_iter()
+        .map(|control| {
+            let CommittedControlEvent::LocalMovementFlags {
+                sequence,
+                flags,
+                dimensions,
+                ..
+            } = control
+            else {
+                panic!("expected movement metadata");
+            };
+            (
+                sequence,
+                flags.sneaking,
+                dimensions
+                    .and_then(|size| size.width)
+                    .map(|write| (write.sequence, write.value)),
+            )
+        })
+        .collect();
+    assert_eq!(
+        writes,
+        [
+            (2, None, Some((2, 0.8))),
+            (3, Some(true), None),
+            (4, None, Some((4, 0.8)))
+        ]
+    );
+}
+
 #[test]
 fn immobile_control_is_local_and_dimension_scoped_before_the_actor_exists() {
     let mut authority = WorldAuthority::new(
@@ -198,6 +266,7 @@ fn immobile_control_is_local_and_dimension_scoped_before_the_actor_exists() {
                 immobile: Some(true),
                 ..
             },
+            ..
         }],
     ));
     assert!(authority.actor(41).is_none());

@@ -627,7 +627,7 @@ impl LocalPhysicsController {
                     }
                     let mut controller = ControllerFrame {
                         tick: state.tick,
-                        sync_state: self.sync_state,
+                        sync_state: Default::default(),
                         sync_server: self.sync_state.take_pending(),
                         position_before_tick: before,
                         anchor_state: self.anchor_state,
@@ -656,7 +656,7 @@ impl LocalPhysicsController {
                     };
                     controller.finish_eye(&mut self.eye_offset, state);
                     self.sync_state.complete_tick(&controller, state);
-                    controller.sync_state = self.sync_state;
+                    controller.sync_state = self.sync_state.clone();
                     self.controller_history.push_back(controller);
                     effects.commit_successful_tick();
                     self.previous_position = before;

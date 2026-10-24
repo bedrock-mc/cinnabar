@@ -22,8 +22,7 @@ pub struct LocalMovementFacts {
     pub ride_seat: Option<[f32; 3]>,
     /// The current vehicle selects the local player as its controller.
     pub vehicle_controlled_locally: bool,
-    /// Latest supplied server dimensions and their separate arrivals.
-    pub explicit_dimensions: client_world::ExplicitDimensions,
+    /// Abilities permit flight.
     pub can_fly: bool,
     pub flight: FlightAuthority,
     pub ability_sequence: Option<u64>,
@@ -108,10 +107,6 @@ pub fn read(
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
         vehicle_controlled_locally: stream.local_vehicle_controlled(),
-        explicit_dimensions: stream
-            .actor(stream.local_player_runtime_id())
-            .map(|actor| actor.explicit_dimensions)
-            .unwrap_or_default(),
         can_fly,
         flight: capabilities.map(|caps| caps.flight).unwrap_or_default(),
         ability_sequence: player.facts.local_abilities_sequence(),

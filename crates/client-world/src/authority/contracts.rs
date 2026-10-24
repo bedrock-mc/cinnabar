@@ -106,12 +106,14 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
-    /// Movement flags from local-player metadata, or item use from an accepted spawn.
+    /// Movement flags and dimensions from local metadata or an accepted spawn.
     LocalMovementFlags {
         sequence: u64,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
         flags: crate::MovementFlagUpdate,
+        /// Accepted sparse size writes, or the dimensions of a replacement actor.
+        dimensions: Option<crate::ExplicitDimensions>,
     },
     /// Attribute authority from a local update or an accepted actor spawn.
     /// Unsupported or absent spawn movement attributes still carry arrival.

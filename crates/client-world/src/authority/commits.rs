@@ -206,6 +206,7 @@ impl WorldAuthority {
                         });
                     }
                 }
+                let mut local_metadata = None;
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -215,14 +216,10 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         metadata: Arc::clone(&update.metadata),
                     });
-                    if let Some(flags) = crate::MovementFlagUpdate::from_metadata(&update.metadata)
-                    {
-                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
-                            sequence,
-                            tick: update.tick,
-                            flags,
-                        });
-                    }
+                    local_metadata = Some((
+                        update.tick,
+                        crate::MovementFlagUpdate::from_metadata(&update.metadata),
+                    ));
                 }
                 let local_hurt = matches!(
                     &event,
@@ -275,6 +272,33 @@ impl WorldAuthority {
                     _ => None,
                 };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if let Some((tick, flags)) = local_metadata {
+                    let dimensions = self
+                        .actors
+                        .get(self.local_player_runtime_id)
+                        .filter(|_| {
+                            matches!(
+                                result,
+                                crate::actor_store::ActorApplyResult::Updated
+                                    | crate::actor_store::ActorApplyResult::CapacityRejected
+                            )
+                        })
+                        .map(|actor| actor.explicit_dimensions)
+                        .filter(|dimensions| {
+                            [dimensions.width, dimensions.height]
+                                .into_iter()
+                                .flatten()
+                                .any(|write| write.sequence == sequence)
+                        });
+                    if flags.is_some() || dimensions.is_some() {
+                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
+                            sequence,
+                            tick,
+                            flags: flags.unwrap_or_default(),
+                            dimensions,
+                        });
+                    }
+                }
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some(runtime_id) = attributes_runtime
                     && self
@@ -340,6 +364,7 @@ impl WorldAuthority {
                         if local_spawn {
                             if let Some(actor) = self.actors.get(self.local_player_runtime_id) {
                                 let using_item = actor.is_using_item();
+                                let dimensions = actor.explicit_dimensions;
                                 self.push_committed_control(
                                     CommittedControlEvent::LocalMovementFlags {
                                         sequence,
@@ -348,6 +373,7 @@ impl WorldAuthority {
                                             using_item: Some(using_item),
                                             ..Default::default()
                                         },
+                                        dimensions: Some(dimensions),
                                     },
                                 );
                             }
