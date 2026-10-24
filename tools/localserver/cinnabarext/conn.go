@@ -41,12 +41,16 @@ func (l *listener) Accept() (session.Conn, error) {
 		// Dragonfly refuses such a connection itself; there is no player to offer anything to.
 		return c, nil
 	}
-	return &Conn{Conn: c, s: l.s, player: player}, nil
+	wrapped := &Conn{Conn: c, s: l.s, player: player, hostEpoch: 1}
+	l.s.mu.Lock()
+	l.s.connections[player] = wrapped
+	l.s.mu.Unlock()
+	return wrapped, nil
 }
 
 func (l *listener) Disconnect(c session.Conn, reason string) error {
 	if wrapped, ok := c.(*Conn); ok {
-		wrapped.end("disconnected")
+		wrapped.Retire()
 		c = wrapped.Conn
 	}
 	return l.Listener.Disconnect(c, reason)
@@ -78,8 +82,12 @@ type Conn struct {
 	s      *Server
 	player uuid.UUID
 
-	mu    sync.Mutex
-	phase phase
+	mu             sync.Mutex
+	phase          phase
+	retired        bool
+	pendingChange  *WorldChange
+	committedWorld WorldID
+	hostEpoch      uint64
 	// hello, session and wire are the Hello, the session and the wire that the Accept bound.
 	hello   Hello
 	session string
@@ -131,13 +139,15 @@ func (c *Conn) WritePacket(pk packet.Packet) error {
 
 // Close ends the client part with the connection.
 func (c *Conn) Close() error {
-	c.end("disconnected")
+	c.Retire()
 	return c.Conn.Close()
 }
 
 // receive handles one carrier message and passes a valid client part message, or a v2 client's
 // new world epoch, on.
 func (c *Conn) receive(data []byte) {
+	c.s.transferMu.Lock()
+	defer c.s.transferMu.Unlock()
 	c.deliveryMu.Lock()
 	defer c.deliveryMu.Unlock()
 	c.mu.Lock()
@@ -155,7 +165,7 @@ func (c *Conn) receive(data []byte) {
 			handler(c.player, envelope.Payload)
 		}
 		if c.s.receive != nil {
-			c.s.receive(c.player, envelope.Bundle, envelope.Channel, envelope.Schema, envelope.Payload)
+			c.s.receive(c.player, c, envelope.Bundle, envelope.Channel, envelope.Schema, envelope.Payload)
 		}
 	}
 	c.deliverEpochCallbacks(changed)
@@ -165,7 +175,7 @@ func (c *Conn) receive(data []byte) {
 // envelope.
 func (c *Conn) handle(data []byte) (*Envelope, error) {
 	now := c.s.now()
-	if c.phase == fallenBack {
+	if c.retired || c.phase == fallenBack {
 		return nil, nil
 	}
 	if c.phase != awaitingHello && uint64(now.Unix()) >= c.expires {
@@ -403,7 +413,9 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 	c.egress = NewRateLimit(nowMs)
 	c.sequence = 1
 	c.phase = active
-	c.s.activate(c)
+	if err := c.s.activate(c); err != nil {
+		return err
+	}
 	c.s.log.Info("client part active", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch, "wire", c.wire.Version)
 	return nil
 }
@@ -411,9 +423,15 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 // send sends one to_client message, in fragments when it does not fit inline, if the client part
 // is active and would take it. Its fragments go together or not at all.
 func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
+	return c.SendRecordAt(0, exp, channel, schema, payload)
+}
+
+// SendRecordAt sends only while the captured host epoch still owns this connection.
+// Zero is reserved for callers outside the host's player lifecycle.
+func (c *Conn) SendRecordAt(epoch uint64, exp, channel string, schema uint16, payload []Scalar) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.phase != active || c.worldNoticePending || c.prepared != nil {
+	if c.retired || epoch != 0 && epoch != c.hostEpoch || c.phase != active || c.worldNoticePending || c.prepared != nil {
 		return false
 	}
 	now := c.s.now()
@@ -462,13 +480,20 @@ func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
 	return true
 }
 
-// end falls back for reason unless no handshake started, which a vanilla connection never does.
-func (c *Conn) end(reason string) {
+// Retire discards every transfer and grant owned by this connection, even before Hello.
+// Removing an older connection never removes an overlapping reconnect.
+func (c *Conn) Retire() {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.phase != awaitingHello {
-		c.fallBack(errors.New(reason))
+	c.retired = true
+	c.pendingChange, c.prepared = nil, nil
+	c.committedWorld, c.worldID = "", ""
+	c.fallBack(errors.New("disconnected"))
+	c.mu.Unlock()
+	c.s.mu.Lock()
+	if c.s.connections[c.player] == c {
+		delete(c.s.connections, c.player)
 	}
+	c.s.mu.Unlock()
 }
 
 // dimensionChanged ends a v1 client part, whose client resets its world epoch with its runtime;
@@ -489,6 +514,5 @@ func (c *Conn) fallBack(reason error) {
 	}
 	c.phase = fallenBack
 	c.grant, c.ingress = nil, nil
-	c.s.deactivate(c)
 	c.s.log.Info("client part fallback", "player", c.IdentityData().DisplayName, "reason", reason.Error())
 }

@@ -45,6 +45,12 @@ func (messageTeller) tell(p world.Entity, text string) {
 // event's world, unless the snapshot went stale or an op is invalid; then it applies nothing.
 // Once the result has applied, its client messages go out to the actor's client part.
 func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) {
+	if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
+		if err := h.commitLeave(d.id, ev, snap, ops); err != nil {
+			h.log.Warn("leave commit refused", "experience", d.id, "error", err)
+		}
+		return
+	}
 	for _, op := range ops {
 		if op.World != nil {
 			if err := h.commitLifecycle(ctx, d, ev, snap, ops); err != nil {
@@ -183,6 +189,11 @@ func (h *Host) current(tx *world.Tx, exp string, ev event, snap snapshot) (world
 	if !h.playerCurrent(ev) {
 		return nil, fmt.Errorf("%w: player location epoch changed", errStale)
 	}
+	return h.currentWorld(tx, exp, ev, snap)
+}
+
+// currentWorld validates transaction-owned state after a coordinator has fenced player admission.
+func (h *Host) currentWorld(tx *world.Tx, exp string, ev event, snap snapshot) (world.Entity, error) {
 	if snap.req.Info.Context != nil && !h.store.statesCurrent(exp, stateAddresses(ev.instance.handle.ID, ev.storePrincipal(snap.req.Actor)), snap.req.Info.Context.Stores) {
 		return nil, fmt.Errorf("%w: private state changed", errStale)
 	}

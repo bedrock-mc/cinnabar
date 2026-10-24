@@ -3,12 +3,12 @@ package experience
 import (
 	"context"
 	"errors"
-	"math"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
@@ -16,10 +16,12 @@ import (
 
 // playerState tracks one session; a departure fences work even when it returns to the same world.
 type playerState struct {
-	sends         *sync.Mutex
+	connection    cinnabarext.PlayerSession
 	location      PlayerLocation
 	w             *world.World
 	transferring  bool
+	retiring      bool
+	synchronizing bool
 	publishing    bool
 	pendingEpochs map[string]bool
 	lastTick      uint64
@@ -29,6 +31,8 @@ type playerState struct {
 type playerLocations struct {
 	mu    sync.Mutex
 	items map[*world.EntityHandle]*playerState
+	// leaves retains final observations during shutdown, outside the bounded callback queues.
+	leaves []event
 }
 
 // positionOf converts a position read under the player's world transaction.
@@ -39,41 +43,69 @@ func (p Position) vec() mgl64.Vec3 { return mgl64.Vec3{p.X, p.Y, p.Z} }
 
 // PlayerJoined admits a session and queues join before any movement observations. Call in its transaction.
 func (h *Host) PlayerJoined(p *player.Player) {
-	instance, ok := h.worlds.of(p.Tx().World())
+	_, ok := h.worlds.of(p.Tx().World())
 	if !ok || h.closed.Load() {
 		return
 	}
 	h.players.mu.Lock()
-	defer h.players.mu.Unlock()
+	if h.closed.Load() {
+		h.players.mu.Unlock()
+		return
+	}
 	if h.players.items == nil {
 		h.players.items = make(map[*world.EntityHandle]*playerState)
 	}
 	if _, exists := h.players.items[p.H()]; exists {
+		h.players.mu.Unlock()
 		return
 	}
-	loc := PlayerLocation{World: instance.handle, Epoch: 1, Position: positionOf(p.Position())}
-	h.players.items[p.H()] = &playerState{sends: new(sync.Mutex), location: loc, w: p.Tx().World()}
-	h.observeLocked(p, instance, PlayerEvent{Type: "join", Location: &loc})
+	state := &playerState{}
+	if h.channels != nil {
+		state.connection = h.channels.PlayerSession(p.UUID())
+	}
+	h.players.items[p.H()] = state
+	h.players.mu.Unlock()
+	if err := h.changeWorld(p.H(), cinnabarext.InitialPlacement, func(admit func(*player.Player), _ *PlayerLocation) error { admit(p); return nil }); err != nil {
+		h.log.Error("player admission failed", "error", err)
+	}
 }
 
-// PlayerDisconnected removes only this session; an overlapping reconnect keeps its own authority.
+// PlayerDisconnected retires only this session, preserving an overlapping reconnect's authority.
 func (h *Host) PlayerDisconnected(p *player.Player) {
 	h.players.mu.Lock()
-	defer h.players.mu.Unlock()
 	state := h.players.items[p.H()]
-	if state == nil {
+	if state == nil || state.retiring {
+		h.players.mu.Unlock()
+		return
+	}
+	state.retiring = true
+	h.players.mu.Unlock()
+	if state.connection != nil {
+		state.connection.Retire()
+	}
+	h.reconcilePlayer(p, false)
+	h.players.mu.Lock()
+	defer h.players.mu.Unlock()
+	if h.players.items[p.H()] != state {
 		return
 	}
 	h.flushFocus(p.UUID())
-	instance, ok := h.worlds.of(p.Tx().World())
-	if !ok {
-		delete(h.players.items, p.H())
-		return
+	if instance, ok := h.worlds.of(p.Tx().World()); ok {
+		loc := state.location
+		loc.Position = positionOf(p.Position())
+		h.observeLocked(p, instance, PlayerEvent{Type: "leave", Location: &loc})
 	}
-	h.reconcilePlayerLocked(p, instance, state, false)
-	loc := state.location
-	h.observeLocked(p, instance, PlayerEvent{Type: "leave", Location: &loc})
 	delete(h.players.items, p.H())
+}
+
+// PlayerSession identifies the transport admitted with this handle, without resolving a newer login by UUID.
+func (h *Host) PlayerSession(handle *world.EntityHandle) cinnabarext.PlayerSession {
+	h.players.mu.Lock()
+	defer h.players.mu.Unlock()
+	if state := h.players.items[handle]; state != nil && !state.retiring {
+		return state.connection
+	}
+	return nil
 }
 
 // epoch returns the current admission epoch, or zero for a session not admitted to this host.
@@ -94,13 +126,16 @@ func (h *Host) playerCurrent(ev event) bool {
 	if ev.actor == nil {
 		return true
 	}
+	if h.closed.Load() {
+		return false
+	}
 	h.players.mu.Lock()
 	defer h.players.mu.Unlock()
 	state := h.players.items[ev.actor]
 	if state == nil {
 		return ev.epoch == 0
 	}
-	return !state.transferring && state.location.Epoch == ev.epoch
+	return !state.retiring && !state.transferring && state.location.Epoch == ev.epoch
 }
 
 // observeLocked captures immutable observations and inventory in the owning transaction.
@@ -111,19 +146,25 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 	if loc == nil {
 		loc = observation.After
 	}
+	ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
+	if observation.Type == "leave" {
+		ev.actor = nil
+		if h.closed.Load() {
+			h.players.leaves = append(h.players.leaves, ev)
+			return
+		}
+	}
 	for _, d := range h.dispatchers {
 		if d.sup.registered.Worlds == nil || h.closed.Load() {
 			continue
 		}
-		ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
-		if observation.Type == "leave" {
-			ev.actor = nil
-		} else {
-			ev.inventory, ev.slots = inventoryOf(d.id, p)
-			ev.entities = h.entitySnapshot(p.Tx(), d.id)
+		queued := ev
+		if queued.actor != nil {
+			queued.inventory, queued.slots = inventoryOf(d.id, p)
+			queued.entities = h.entitySnapshot(p.Tx(), d.id)
 		}
 		select {
-		case d.events <- ev:
+		case d.events <- queued:
 		default:
 			// Losing a lifecycle observation would violate ordering. Suspend this mod instead.
 			d.sup.quarantined.Store(true)
@@ -144,14 +185,14 @@ func (h *Host) PollPlayers(ctx context.Context, tick uint64) error {
 	for _, handle := range handles {
 		if err := await(ctx, handle.Do(func(tx *world.Tx, e world.Entity) {
 			h.players.mu.Lock()
-			defer h.players.mu.Unlock()
 			state := h.players.items[handle]
-			instance, ok := h.worlds.of(tx.World())
-			if state == nil || state.transferring || !ok || state.lastTick >= tick {
+			if state == nil || state.retiring || state.transferring || state.lastTick >= tick {
+				h.players.mu.Unlock()
 				return
 			}
 			state.lastTick = tick
-			h.reconcilePlayerLocked(e.(*player.Player), instance, state, true)
+			h.players.mu.Unlock()
+			h.reconcilePlayer(e.(*player.Player), true)
 		})); err != nil && !errors.Is(err, world.ErrEntityClosed) {
 			return err
 		}
@@ -159,26 +200,38 @@ func (h *Host) PollPlayers(ctx context.Context, tick uint64) error {
 	return nil
 }
 
-// reconcilePlayerLocked records the transaction's current location and any unsampled world change.
-// Callers hold players.mu. Disconnects update position without adding a separate move observation.
-func (h *Host) reconcilePlayerLocked(p *player.Player, instance worldInstance, state *playerState, movement bool) {
+// reconcilePlayer routes native pointer changes through admission and coalesces ordinary movement.
+// It runs in the player's transaction without holding the observation registry across transport callbacks.
+func (h *Host) reconcilePlayer(p *player.Player, movement bool) {
+	instance, ok := h.worlds.of(p.Tx().World())
+	if !ok {
+		return
+	}
+	h.players.mu.Lock()
+	state := h.players.items[p.H()]
+	if state == nil || state.transferring && !state.retiring {
+		h.players.mu.Unlock()
+		return
+	}
+	if state.w != p.Tx().World() {
+		h.players.mu.Unlock()
+		if err := h.changeWorld(p.H(), cinnabarext.NativeChange, func(admit func(*player.Player), _ *PlayerLocation) error { admit(p); return nil }); err != nil {
+			h.log.Error("native world admission failed", "error", err)
+		}
+		return
+	}
+	if !movement {
+		h.players.mu.Unlock()
+		return
+	}
 	before := state.location
 	after := before
 	after.Position = positionOf(p.Position())
-	after.World = instance.handle
-	kind := "move"
-	if before.World != after.World {
-		if after.Epoch == math.MaxUint64 {
-			return
-		}
-		after.Epoch++
-		kind = "world_change"
-		h.flushFocus(p.UUID())
+	state.location = after
+	if before != after {
+		h.observeLocked(p, instance, PlayerEvent{Type: "move", Before: &before, After: &after})
 	}
-	state.location, state.w = after, p.Tx().World()
-	if before != after && (movement || kind == "world_change") {
-		h.observeLocked(p, instance, PlayerEvent{Type: kind, Before: &before, After: &after})
-	}
+	h.players.mu.Unlock()
 }
 
 // runPlayerTicks is the clock edge for position sampling; domain tests supply tick numbers directly.

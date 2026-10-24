@@ -54,8 +54,10 @@ type Host struct {
 	// before its commit. It is a test seam.
 	afterCall func()
 
-	// closed stops admission: once set, hooks queue nothing.
-	closed atomic.Bool
+	// closed stops normal admission; tracked sessions may still queue their final leave.
+	closed     atomic.Bool
+	admission  sync.RWMutex
+	shutdownMu sync.Mutex
 	// stop is closed by Close, which ends Run.
 	stop chan struct{}
 	// workers counts the running workers.
@@ -66,7 +68,7 @@ type Host struct {
 	// resume is closed while the Host runs and open while it is paused.
 	resume chan struct{}
 	// running is set by Run, and closing by Close.
-	running, closing bool
+	running, closing, stopping bool
 }
 
 // dispatcher is the queue and supervisor of one Experience.
@@ -104,6 +106,7 @@ type neighborTick struct {
 // event is one hook's callback, queued for its Experience's worker. A client message's or an
 // epoch's event has no world until its snapshot finds the actor's.
 type event struct {
+	barrier  chan struct{}
 	epoch    uint64
 	w        *world.World
 	instance worldInstance
@@ -172,7 +175,7 @@ func (h *Host) Run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	h.mu.Lock()
-	if h.running || h.closing {
+	if h.running || h.closing || h.stopping {
 		h.mu.Unlock()
 		return
 	}
@@ -220,16 +223,17 @@ func (h *Host) Reload(id string) error {
 // Close stops admitting events, cancels the workers and waits for them, uninstalls the Host's
 // hooks, flushes the store and closes every supervisor. Calls after the first return nil.
 func (h *Host) Close() error {
+	h.shutdownMu.Lock()
+	defer h.shutdownMu.Unlock()
 	h.mu.Lock()
 	if h.closing {
 		h.mu.Unlock()
 		return nil
 	}
 	h.closing = true
-	h.closed.Store(true)
-	close(h.stop)
 	h.mu.Unlock()
-	h.workers.Wait()
+	h.stopAdmission()
+	h.stopWorkers()
 	installedHooks.CompareAndSwap(h.holder, nil)
 
 	var errs []error
@@ -402,6 +406,8 @@ func (h *Host) admitNeighbor(d *dispatcher, tx *world.Tx, pos cube.Pos) bool {
 
 // enqueue queues ev for the Experience exp without blocking, dropping it when the queue is full.
 func (h *Host) enqueue(exp string, ev event) {
+	h.admission.RLock()
+	defer h.admission.RUnlock()
 	d, ok := h.dispatchers[exp]
 	if !ok || h.closed.Load() {
 		return
@@ -428,6 +434,10 @@ func (h *Host) work(ctx context.Context, d *dispatcher) {
 		case <-ctx.Done():
 			return
 		case ev := <-d.events:
+			if ev.barrier != nil {
+				close(ev.barrier)
+				continue
+			}
 			h.dispatch(ctx, d, ev)
 		}
 	}
@@ -463,7 +473,7 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 	if ev.call.Interact != nil {
 		d.recordFocus(ev, snap)
 	}
-	outcome, err := d.sup.Call(snap.req)
+	outcome, err := d.sup.call(ctx, snap.req)
 	switch {
 	case errors.Is(err, errQuarantined):
 		// Quarantined between the check above and the call.
@@ -548,6 +558,7 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	}
 	found := false
 	task := ev.actor.Do(func(tx *world.Tx, actor world.Entity) {
+		h.reconcilePlayer(actor.(*player.Player), false)
 		if !h.playerCurrent(*ev) {
 			return
 		}
@@ -561,6 +572,9 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 		return snapshot{}, fmt.Errorf("finding the actor of a player's callback: %w", err)
 	}
 	if !found {
+		if !h.playerCurrent(*ev) {
+			return snapshot{}, errStale
+		}
 		return snapshot{}, errors.New("the actor of a player's callback is in an unbound world instance")
 	}
 	return snap, nil

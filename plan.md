@@ -874,6 +874,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   staged server movement and metadata, seats, steering and ordered entity events. Actor and
   seat state are process-local; unload releases their chunk leases. The shared-ID ship sample,
   live seat positions/link acceptance and mixed-client rendering remain incomplete.
+  Coordinator moves, native teleports, sampled world swaps and reconnect placement use one admission path.
+  Its session-pinned transport fences old input and sends; same-instance transfers explicitly
+  synchronize position. Client-part activation shares that session's preparation and acknowledgment
+  fence, which is retired on disconnect. Player saves resolve stable instance identities with a
+  default-spawn fallback. Shutdown
+  drains leave callbacks before store flush and world closure; leave writes need no live world.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and

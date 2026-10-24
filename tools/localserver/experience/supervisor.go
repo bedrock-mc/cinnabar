@@ -2,6 +2,7 @@ package experience
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -74,7 +75,7 @@ func startSupervisor(binary, dir string, log *slog.Logger, opts startOptions) (*
 	}
 	s := &Supervisor{binary: binary, dir: dir, opts: opts}
 	s.log.Store(log.With("dir", dir))
-	proc, loaded, err := s.spawn()
+	proc, loaded, err := s.spawn(context.Background())
 	if err != nil {
 		return nil, Loaded{}, fmt.Errorf("starting the experience in %s: %w", dir, err)
 	}
@@ -90,10 +91,18 @@ func startSupervisor(binary, dir string, log *slog.Logger, opts startOptions) (*
 // failure is counted without IPC or a restart. A quarantined Experience returns errQuarantined
 // without IPC.
 func (s *Supervisor) Call(req CallbackRequest) (Outcome, error) {
+	return s.call(context.Background(), req)
+}
+
+// call cancels callback I/O and helper recovery when the host stops its worker.
+func (s *Supervisor) call(ctx context.Context, req CallbackRequest) (Outcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return Outcome{}, errClosed
+	}
+	if err := ctx.Err(); err != nil {
+		return Outcome{}, err
 	}
 	if s.quarantined.Load() {
 		return Outcome{}, errQuarantined
@@ -108,16 +117,16 @@ func (s *Supervisor) Call(req CallbackRequest) (Outcome, error) {
 	}
 	if s.proc == nil {
 		// The last restart failed; this call retries it.
-		if err := s.restart(); err != nil {
+		if err := s.restart(ctx); err != nil {
 			return Outcome{}, err
 		}
 	}
-	resp, err := s.proc.roundTrip(body, resultDeadline)
+	resp, err := s.proc.roundTrip(ctx, body, resultDeadline)
 	if err == nil {
 		err = checkResult(resp, req.Seq)
 	}
 	if err != nil {
-		s.fault(err)
+		s.fault(ctx, err)
 		return Outcome{}, fmt.Errorf("%w: %v", errHelperFault, err)
 	}
 	outcome := resp.Result.Outcome
@@ -150,7 +159,7 @@ func (s *Supervisor) Reload() error {
 	}
 	s.stopHelper()
 	s.strikes, s.restarts = nil, nil
-	proc, loaded, err := s.respawn()
+	proc, loaded, err := s.respawn(context.Background())
 	if err != nil {
 		s.quarantine(fmt.Sprintf("reload failed: %v", err))
 		return fmt.Errorf("reloading experience %s: %w", s.registered.ID, err)
@@ -186,7 +195,7 @@ func (s *Supervisor) logger() *slog.Logger {
 }
 
 // spawn starts a helper and loads the artifact, killing the helper again if the load fails.
-func (s *Supervisor) spawn() (*helper, Loaded, error) {
+func (s *Supervisor) spawn(ctx context.Context) (*helper, Loaded, error) {
 	h, err := startHelper(s.binary, append(helperEnv(), s.opts.env...), &s.log)
 	if err != nil {
 		return nil, Loaded{}, err
@@ -194,7 +203,7 @@ func (s *Supervisor) spawn() (*helper, Loaded, error) {
 	if s.opts.spawned != nil {
 		s.opts.spawned(h)
 	}
-	loaded, err := h.load(s.dir)
+	loaded, err := h.load(ctx, s.dir)
 	if err != nil {
 		h.kill()
 		return nil, Loaded{}, err
@@ -205,8 +214,8 @@ func (s *Supervisor) spawn() (*helper, Loaded, error) {
 // respawn spawns a helper that must load the registered artifact: the same id, blocks and items
 // in the same order. Only the version may change, so that a reload can ship fixed code. A
 // helper whose load fails or differs is killed.
-func (s *Supervisor) respawn() (*helper, Loaded, error) {
-	h, loaded, err := s.spawn()
+func (s *Supervisor) respawn(ctx context.Context) (*helper, Loaded, error) {
+	h, loaded, err := s.spawn(ctx)
 	if err != nil {
 		return nil, Loaded{}, err
 	}
@@ -219,27 +228,27 @@ func (s *Supervisor) respawn() (*helper, Loaded, error) {
 
 // fault handles a helper fault: the helper is killed and reaped, the fault counts as a strike,
 // and unless that quarantines the Experience the helper restarts.
-func (s *Supervisor) fault(cause error) {
+func (s *Supervisor) fault(ctx context.Context, cause error) {
 	s.logger().Warn("helper fault", "err", cause)
 	s.proc.kill()
 	s.proc = nil
-	if !s.strike() {
+	if !s.strike() && ctx.Err() == nil {
 		// A failed restart is logged and counted inside.
-		s.restart()
+		s.restart(ctx)
 	}
 }
 
 // restart starts a fresh helper with the registered artifact (see respawn). The restart that
 // makes more than maxRestarts within restartWindow quarantines the Experience instead. A failed
 // or differing load is a fault: a strike, with no helper running until the next Call retries.
-func (s *Supervisor) restart() error {
+func (s *Supervisor) restart(ctx context.Context) error {
 	now := s.opts.now()
 	s.restarts = append(after(s.restarts, now.Add(-restartWindow)), now)
 	if len(s.restarts) > maxRestarts {
 		s.quarantine(fmt.Sprintf("%d restarts within %v", len(s.restarts), restartWindow))
 		return errQuarantined
 	}
-	proc, loaded, err := s.respawn()
+	proc, loaded, err := s.respawn(ctx)
 	if err != nil {
 		s.logger().Warn("helper restart failed", "err", err)
 		if s.strike() {
@@ -452,12 +461,12 @@ func forwardStderr(stderr *os.File, log *atomic.Pointer[slog.Logger]) {
 
 // load sends the load request and waits loadDeadline for loaded, which must speak
 // protocolVersion.
-func (h *helper) load(dir string) (Loaded, error) {
+func (h *helper) load(ctx context.Context, dir string) (Loaded, error) {
 	body, err := encodeFrame(Request{Load: &LoadRequest{Dir: dir, Items: serverItems(), Recipes: serverRecipes()}})
 	if err != nil {
 		return Loaded{}, err
 	}
-	resp, err := h.roundTrip(body, loadDeadline)
+	resp, err := h.roundTrip(ctx, body, loadDeadline)
 	switch {
 	case err != nil:
 		return Loaded{}, fmt.Errorf("load: %w", err)
@@ -473,7 +482,7 @@ func (h *helper) load(dir string) (Loaded, error) {
 
 // roundTrip writes body as one frame and reads the answer, both within deadline. After an error
 // the helper is unusable and the caller kills it, which ends the goroutines left blocked here.
-func (h *helper) roundTrip(body []byte, deadline time.Duration) (Response, error) {
+func (h *helper) roundTrip(ctx context.Context, body []byte, deadline time.Duration) (Response, error) {
 	written := make(chan error, 1)
 	go func() { written <- writeFrame(h.stdin, body) }()
 	type answer struct {
@@ -500,6 +509,8 @@ func (h *helper) roundTrip(body []byte, deadline time.Duration) (Response, error
 				return Response{}, a.err
 			}
 			resp = &a.resp
+		case <-ctx.Done():
+			return Response{}, ctx.Err()
 		case <-timer.C:
 			return Response{}, fmt.Errorf("no answer within %v", deadline)
 		}

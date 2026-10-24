@@ -147,7 +147,7 @@ func newConn(t *testing.T, change func(*Config)) *connFixture {
 	s, clock := testServer(t, change)
 	f := &connFixture{t: t, s: s, clock: clock, player: uuid.NewSHA1(uuid.NameSpaceOID, []byte(t.Name()))}
 	f.manifest = goldenBundle(t).Manifest
-	s.OnClientMessage(func(player uuid.UUID, exp, channel string, schema uint16, payload []Scalar) {
+	s.OnClientMessage(func(player uuid.UUID, source PlayerSession, exp, channel string, schema uint16, payload []Scalar) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.received = append(f.received, clientMessage{player, exp, channel, schema, describe(payload)})

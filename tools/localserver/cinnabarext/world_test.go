@@ -30,7 +30,7 @@ func (f *connFixture) lastWorldNotice() Control {
 func TestNativeEpochCannotAcknowledgeServerWorldNotice(t *testing.T) {
 	f, accept := readyFixture(t)
 	epochs := 0
-	f.s.OnEpoch(func(uuid.UUID, string) { epochs++ })
+	f.s.OnEpoch(func(uuid.UUID, PlayerSession, string) { epochs++ })
 	if !f.s.WorldChanged(f.player, "sample:destination") {
 		t.Fatal("world notice rejected")
 	}
@@ -195,7 +195,7 @@ func TestWorldChangesCoalesceUntilTheOutstandingNoticeIsAcknowledged(t *testing.
 			f, accept := readyFixture(t)
 			var desired WorldID
 			var notified []WorldID
-			f.s.OnEpoch(func(uuid.UUID, string) { notified = append(notified, desired) })
+			f.s.OnEpoch(func(uuid.UUID, PlayerSession, string) { notified = append(notified, desired) })
 			before := len(f.carrier())
 			for _, world := range test.worlds {
 				desired = world
