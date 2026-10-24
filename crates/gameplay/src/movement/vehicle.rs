@@ -97,6 +97,8 @@ struct Session {
 pub(super) struct VehiclePrediction {
     session: Option<Session>,
     pending: Option<BoatState>,
+    /// The pending step began a new session, so it does not continue the previous pose.
+    pending_restarted: bool,
     /// Xorshift state for the wave's big-wave draws.
     wave_seed: u32,
 }
@@ -113,6 +115,7 @@ impl VehiclePrediction {
         world: &impl CollisionWorld,
     ) -> Result<Option<[f32; 3]>, WorldQueryError> {
         self.pending = None;
+        self.pending_restarted = false;
         let Some(vehicle) = vehicle else {
             self.session = None;
             return Ok(None);
@@ -131,18 +134,21 @@ impl VehiclePrediction {
                 }
                 session
             }
-            slot => slot.insert(Session {
-                owner,
-                seat: vehicle.seat,
-                state: BoatState {
-                    velocity: vehicle.velocity,
-                    ..BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw)
-                },
-                motion_revision: vehicle.revision.motion,
-                previous_yaw: vehicle.yaw,
-                previous_position: vehicle.position,
-                stale_through: None,
-            }),
+            slot => {
+                self.pending_restarted = true;
+                slot.insert(Session {
+                    owner,
+                    seat: vehicle.seat,
+                    state: BoatState {
+                        velocity: vehicle.velocity,
+                        ..BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw)
+                    },
+                    motion_revision: vehicle.revision.motion,
+                    previous_yaw: vehicle.yaw,
+                    previous_position: vehicle.position,
+                    stale_through: None,
+                })
+            }
         };
         session.seat = vehicle.seat;
         session.state.body = vehicle.body;
@@ -179,6 +185,12 @@ impl VehiclePrediction {
     /// Whether this tick stepped a predicted boat.
     pub(super) const fn stepped(&self) -> bool {
         self.pending.is_some()
+    }
+
+    /// Whether this tick stepped a predicted boat on from its previous pose, rather than
+    /// starting it at a new one.
+    pub(super) const fn continued(&self) -> bool {
+        self.pending.is_some() && !self.pending_restarted
     }
 
     /// Discards a stepped boat whose player tick failed.

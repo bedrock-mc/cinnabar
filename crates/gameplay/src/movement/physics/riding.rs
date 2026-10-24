@@ -40,16 +40,37 @@ pub(super) fn seat_rider(
     })
 }
 
-/// Where the rider renders from this tick. On a boat the client predicts, that is where it
-/// was before this tick seated it, so it eases along with the boat and a failed tick returns
-/// it there. On a streamed mount it is the seat itself, which the mount's own rendering
-/// already reached.
-pub(super) fn before_seat(position: Vec3, ride_delta: Option<[f32; 3]>, predicted: bool) -> Vec3 {
-    ride_delta
-        .filter(|_| predicted)
-        .map_or(position, |[x, y, z]| {
-            position - Vec3::new(f64::from(x), f64::from(y), f64::from(z))
-        })
+/// Where a failed tick leaves the rider: on a predicted boat, where it was before this tick
+/// seated it, off the uncommitted seat, as the boat's step is discarded; on a streamed mount,
+/// at its seat.
+pub(super) fn unseated(
+    position: Vec3,
+    ride_delta: Option<[f32; 3]>,
+    vehicle: &VehiclePrediction,
+) -> Vec3 {
+    if vehicle.stepped() {
+        lifted(position, ride_delta)
+    } else {
+        position
+    }
+}
+
+fn lifted(position: Vec3, ride_delta: Option<[f32; 3]>) -> Vec3 {
+    ride_delta.map_or(position, |[x, y, z]| {
+        position - Vec3::new(f64::from(x), f64::from(y), f64::from(z))
+    })
+}
+
+/// Where the rider renders from this tick. On a boat the client goes on predicting, that is
+/// where it was before this tick seated it, so it eases along with the boat. On a streamed
+/// mount, or a boat whose prediction restarted at a new pose such as a teleport, it is the
+/// seat itself.
+pub(super) fn before_seat(position: Vec3, ride_delta: Option<[f32; 3]>, eased: bool) -> Vec3 {
+    if eased {
+        lifted(position, ride_delta)
+    } else {
+        position
+    }
 }
 
 impl super::LocalPhysicsController {
@@ -256,6 +277,48 @@ mod tests {
             vehicle.position = [feed.position[0], feed.position[1] + 0.375, feed.position[2]];
         }
         panic!("the boat never reached the unloaded terrain");
+    }
+
+    /// A boat teleported by the server restarts its prediction at the new pose, and its rider
+    /// renders there at once rather than easing across the jump.
+    #[test]
+    fn a_teleported_boat_s_rider_renders_at_the_new_seat() {
+        let mut physics = super::super::LocalPhysicsController::default();
+        physics.reanchor_network_position([0.5, protocol::PLAYER_NETWORK_OFFSET, 0.5], 100, true);
+        let boat = |x: f32, pose: u64| SteeredVehicle {
+            runtime_id: 7,
+            unique_id: -7,
+            body: sim::BoatBody {
+                width: 1.4,
+                height: 0.455,
+                height_offset: 0.375,
+            },
+            position: [x, 0.375, 0.5],
+            yaw: 0.0,
+            velocity: [0.0; 3],
+            seat: [0.0, 0.0, 0.0],
+            revision: client_world::VehicleRevision { pose, motion: 0 },
+        };
+        for vehicle in [boat(0.5, 0), boat(0.5, 0), boat(20.5, 1)] {
+            let ride = crate::movement::PhysicsSampleContext {
+                mode_intent: ModeIntent {
+                    ride: Some(crate::movement::RideKind::Boat),
+                    vehicle: Some(vehicle),
+                    ..ModeIntent::default()
+                },
+                ..Default::default()
+            };
+            let frame = physics.advance_with_context(
+                std::time::Duration::from_millis(50),
+                MovementInput::default(),
+                ride,
+                &Ground,
+            );
+            assert_eq!(frame.completed_ticks, 1);
+        }
+        assert_eq!(physics.tick_alpha(), 0.0);
+        let feet = physics.render_feet_position().unwrap();
+        assert!((feet[0] - 20.5).abs() < 0.1, "{feet:?}");
     }
 
     #[test]

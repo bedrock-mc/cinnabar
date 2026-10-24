@@ -684,7 +684,7 @@ impl LocalPhysicsController {
             {
                 state.velocity = overlay.velocity;
             }
-            let before = riding::before_seat(state.position, ride_delta, self.vehicle.stepped());
+            let before = riding::before_seat(state.position, ride_delta, self.vehicle.continued());
             // The liquid probe uses the prior tick's pose-adjusted eye anchor.
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
@@ -867,7 +867,7 @@ impl LocalPhysicsController {
                 }
                 Err(error) => {
                     self.modes = previous_modes;
-                    state.position = before; // Off the uncommitted seat, like the boat.
+                    state.position = riding::unseated(state.position, ride_delta, &self.vehicle);
                     self.vehicle.discard_pending();
                     let retryable_collision_blocked = matches!(
                         &error,
