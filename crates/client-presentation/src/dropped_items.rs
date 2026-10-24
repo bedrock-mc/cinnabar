@@ -120,6 +120,12 @@ fn item_block_id(
             assets::facts::block_render_fact(identifier).kind,
             assets::facts::BlockRenderKind::Lantern
                 | assets::facts::BlockRenderKind::Chain
+                | assets::facts::BlockRenderKind::Bamboo
+                | assets::facts::BlockRenderKind::CoralFan
+                | assets::facts::BlockRenderKind::DefaultRail
+                | assets::facts::BlockRenderKind::LeafLitter
+                | assets::facts::BlockRenderKind::ResinClump
+                | assets::facts::BlockRenderKind::TripwireHook
                 | assets::facts::BlockRenderKind::Ladder
                 | assets::facts::BlockRenderKind::LilyPad
                 | assets::facts::BlockRenderKind::SeaPickle
