@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 
 /** Makes an unexpected exit visible on the next launch without needing USB debugging. */
 final class StartupDiagnostics {
-    private static final int LOG_TAIL_BYTES = 32768;
+    static final int LOG_TAIL_BYTES = 32768;
     private static final String GENERIC_EXIT = "Android stopped @PRODUCT_NAME@ for an unknown reason.";
     private static final Pattern LOG_TIMESTAMP = Pattern.compile(
             "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s+");

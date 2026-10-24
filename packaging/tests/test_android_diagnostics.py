@@ -102,12 +102,12 @@ public final class DiagnosticsFixture {
         if (!expectedLog.equals(compact)) throw new AssertionError(compact);
         String shortRuns = new String(new char[6000]).replace("\\0", "a\\na\\nb\\n");
         Files.write(log.toPath(), shortRuns.getBytes(StandardCharsets.UTF_8));
-        if (StartupDiagnostics.logTail(log).getBytes(StandardCharsets.UTF_8).length > 32768)
+        if (StartupDiagnostics.logTail(log).getBytes(StandardCharsets.UTF_8).length > StartupDiagnostics.LOG_TAIL_BYTES)
             throw new AssertionError("repeat annotations exceeded the byte bound");
         String unicode = new String(new char[20000]).replace("\\0", "\\u20ac") + "end-marker";
         Files.write(log.toPath(), unicode.getBytes(StandardCharsets.UTF_8));
         tail = StartupDiagnostics.logTail(log);
-        if (tail.getBytes(StandardCharsets.UTF_8).length > 32768 || tail.contains("\\ufffd")
+        if (tail.getBytes(StandardCharsets.UTF_8).length > StartupDiagnostics.LOG_TAIL_BYTES || tail.contains("\\ufffd")
                 || !tail.endsWith("end-marker")) throw new AssertionError("UTF-8 tail was damaged");
         Files.write(log.toPath(), "same\\nsame\\nother\\nsame".getBytes(StandardCharsets.UTF_8));
         if (!"same (repeated 2 times)\\nother\\nsame".equals(StartupDiagnostics.logTail(log)))
