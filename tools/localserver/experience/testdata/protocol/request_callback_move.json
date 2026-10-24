@@ -1,0 +1,98 @@
+{
+  "type": "callback",
+  "seq": 1,
+  "info": {
+    "context": {
+      "current": {
+        "id": "probe:one",
+        "generation": 7
+      },
+      "player": {
+        "world": {
+          "id": "probe:one",
+          "generation": 7
+        },
+        "epoch": 11,
+        "position": {
+          "x": 1.25,
+          "y": 70.5,
+          "z": 3.75
+        }
+      },
+      "instances": [
+        {
+          "id": "probe:one",
+          "generation": 7
+        }
+      ],
+      "stores": [
+        {
+          "key": {
+            "scope": "player",
+            "schema": 2
+          },
+          "revision": 5,
+          "data": "abcd"
+        },
+        {
+          "key": {
+            "scope": "instance",
+            "schema": 2
+          },
+          "revision": 5,
+          "data": "abcd"
+        },
+        {
+          "key": {
+            "scope": "mod",
+            "schema": 2
+          },
+          "revision": 5,
+          "data": "abcd"
+        }
+      ]
+    },
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 3,
+    "event_sequence": 4
+  },
+  "actor": null,
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 1024,
+  "snapshot": [],
+  "network": null,
+  "inventory": null,
+  "call": {
+    "type": "player",
+    "player": "11111111-1111-1111-1111-111111111111",
+    "event": {
+      "type": "move",
+      "before": {
+        "world": {
+          "id": "probe:one",
+          "generation": 7
+        },
+        "epoch": 11,
+        "position": {
+          "x": 1.25,
+          "y": 70.5,
+          "z": 3.75
+        }
+      },
+      "after": {
+        "world": {
+          "id": "probe:one",
+          "generation": 7
+        },
+        "epoch": 12,
+        "position": {
+          "x": 1.25,
+          "y": 70.5,
+          "z": 3.75
+        }
+      }
+    }
+  }
+}

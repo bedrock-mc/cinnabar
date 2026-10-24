@@ -109,6 +109,8 @@ pub(super) struct MotionState {
     /// Fish animation phase survives geometry/controller resets for this actor lifetime.
     fish_phase: [f32; 2],
     pub(super) horse: super::horse::AnimationState,
+    /// Shulker lid-open fraction, stepped each tick toward the synced peek target.
+    pub(super) shulker_peek: f32,
 }
 
 impl MotionState {

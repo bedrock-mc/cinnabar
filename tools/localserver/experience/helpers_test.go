@@ -243,7 +243,7 @@ func probeInteract(x int32) CallbackRequest {
 	}
 	actor := probeActor
 	return CallbackRequest{
-		Info:       Info{WorldID: "world", DimensionID: "overworld", Tick: 1, EventSequence: 1},
+		Info:       newInfo("world", "overworld", 1, 1),
 		Actor:      &actor,
 		WorldMinY:  -64,
 		WorldMaxY:  319,

@@ -79,6 +79,7 @@ mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
 mod replay;
 mod server_animation;
+mod shulker;
 pub use server_animation::ServerAnimationCompiler;
 mod schedule;
 mod skin;

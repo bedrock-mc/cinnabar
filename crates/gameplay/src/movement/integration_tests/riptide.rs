@@ -303,3 +303,204 @@ fn riptide_release_slowdown_ends_inside_a_two_tick_frame() {
     assert_eq!(frame.samples[0].move_vector, using.move_vector);
     assert_eq!(frame.samples[1].move_vector, idle.move_vector);
 }
+
+/// A snap that cancels an unsent release also ends the spin its predicted
+/// launch started, since the release and its start action never reach the
+/// server; a snap otherwise keeps the spin.
+#[test]
+fn a_snap_ends_the_spin_of_a_cancelled_unsent_launch() {
+    let origin = [0.0, 65.620_01, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let advance = |physics: &mut LocalPhysicsController| {
+        physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &VersionedFloor(1),
+            )
+            .samples
+            .remove(0)
+    };
+    let facing = advance(&mut physics);
+    ticker.enqueue_completed_physics(facing).unwrap();
+    ticker.hold_release_after_tick(101, vec![protocol::stop_sleeping_packet(42)]);
+    ticker.request_riptide(&mut physics, 3, [0.0; 2]);
+    let launch = advance(&mut physics);
+    assert!(launch.processed.spin_started);
+    ticker.enqueue_completed_physics(launch).unwrap();
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        origin,
+        102,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(!ticker.has_held_release());
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    assert_eq!(
+        physics.prediction_sync_size(),
+        Some([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]),
+    );
+}
+
+/// A cancelled launch's spin ends with its snap only while it is still that
+/// launch's spin: a later server spin survives, and the launch is tracked even
+/// after its input leaves a short rewind window.
+#[test]
+fn a_snap_ends_only_the_cancelled_launch_spin() {
+    for (history, server_restart) in [(12, true), (1, false)] {
+        let origin = [0.0, 65.620_01, 0.0];
+        let mut physics = LocalPhysicsController::default();
+        physics.set_rewind_history_size(history);
+        physics.reanchor_network_position(origin, 100, false);
+        let mut ticker = MovementTicker::default();
+        ticker.reset(7, 100, origin);
+        ticker.set_source(MovementSource::Physics);
+        let advance = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+            let sample = physics
+                .advance(
+                    simulation_clock::TICK_DURATION,
+                    MovementInput::default(),
+                    &VersionedFloor(1),
+                )
+                .samples
+                .remove(0);
+            ticker.enqueue_completed_physics(sample).unwrap();
+        };
+        advance(&mut physics, &mut ticker);
+        ticker.hold_release_after_tick(101, vec![protocol::stop_sleeping_packet(42)]);
+        ticker.request_riptide(&mut physics, 3, [0.0; 2]);
+        advance(&mut physics, &mut ticker);
+        let spin = |value| client_world::MovementFlagUpdate {
+            spinning: Some(value),
+            ..Default::default()
+        };
+        if server_restart {
+            physics.apply_server_movement_flags(0, spin(false));
+            advance(&mut physics, &mut ticker);
+            physics.apply_server_movement_flags(0, spin(true));
+        } else {
+            advance(&mut physics, &mut ticker);
+        }
+        let tick = physics.state().unwrap().tick;
+        reconcile_candidate_physics_correction(
+            &mut ticker,
+            &mut physics,
+            origin,
+            tick,
+            false,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1),
+        )
+        .unwrap();
+        assert_eq!(
+            physics.state().unwrap().spin_attack_ticks.is_some(),
+            server_restart,
+            "history {history}"
+        );
+    }
+}
+
+/// A launch the simulator rejects, as for a spectator, does not claim an
+/// active server spin, so a snap cancelling its unsent release keeps the spin.
+#[test]
+fn a_rejected_launch_does_not_claim_a_server_spin() {
+    let origin = [0.0, 65.620_01, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let advance =
+        |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker, spectator: bool| {
+            let context = PhysicsSampleContext {
+                mode_intent: super::super::ModeIntent {
+                    spectator,
+                    ..Default::default()
+                },
+                ..PhysicsSampleContext::default()
+            };
+            let sample = physics
+                .advance_with_context(
+                    simulation_clock::TICK_DURATION,
+                    MovementInput::default(),
+                    context,
+                    &VersionedFloor(1),
+                )
+                .samples
+                .remove(0);
+            ticker.enqueue_completed_physics(sample).unwrap();
+        };
+    advance(&mut physics, &mut ticker, false);
+    let spin = client_world::MovementFlagUpdate {
+        spinning: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(0, spin);
+    ticker.hold_release_after_tick(101, vec![protocol::stop_sleeping_packet(42)]);
+    ticker.request_riptide(&mut physics, 3, [0.0; 2]);
+    advance(&mut physics, &mut ticker, true);
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+    let tick = physics.state().unwrap().tick;
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        origin,
+        tick,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+}
+
+/// A retained server spin start that matches the live spin still makes the
+/// spin the server's, so a snap cancelling an unsent launch keeps it.
+#[test]
+fn a_retained_server_spin_that_matches_live_survives_a_cancelling_snap() {
+    let origin = [0.0, 65.620_01, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let advance = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+        let sample = physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &VersionedFloor(1),
+            )
+            .samples
+            .remove(0);
+        ticker.enqueue_completed_physics(sample).unwrap();
+    };
+    advance(&mut physics, &mut ticker);
+    ticker.hold_release_after_tick(101, vec![protocol::stop_sleeping_packet(42)]);
+    ticker.request_riptide(&mut physics, 3, [0.0; 2]);
+    advance(&mut physics, &mut ticker);
+    let spin = client_world::MovementFlagUpdate {
+        spinning: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(101, spin);
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        origin,
+        102,
+        false,
+        PhysicsCorrectionMode::Snap,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+}

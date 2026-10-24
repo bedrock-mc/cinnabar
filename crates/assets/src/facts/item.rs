@@ -32,6 +32,41 @@ pub const TORCH_ITEM_IDENTIFIERS: [&str; 4] = [
     "minecraft:copper_torch",
 ];
 
+/// Flower-bed items whose dropped form uses their carried sprite.
+pub const FLOWER_BED_ITEM_IDENTIFIERS: [&str; 2] =
+    ["minecraft:pink_petals", "minecraft:wildflowers"];
+/// Candle items whose dropped form uses their carried sprite.
+pub const CANDLE_ITEM_IDENTIFIERS: [&str; 17] = [
+    "minecraft:candle",
+    "minecraft:white_candle",
+    "minecraft:orange_candle",
+    "minecraft:magenta_candle",
+    "minecraft:light_blue_candle",
+    "minecraft:yellow_candle",
+    "minecraft:lime_candle",
+    "minecraft:pink_candle",
+    "minecraft:gray_candle",
+    "minecraft:light_gray_candle",
+    "minecraft:cyan_candle",
+    "minecraft:purple_candle",
+    "minecraft:blue_candle",
+    "minecraft:brown_candle",
+    "minecraft:green_candle",
+    "minecraft:red_candle",
+    "minecraft:black_candle",
+];
+/// Metal bar items whose dropped form uses their carried sprite.
+pub const METAL_BAR_ITEM_IDENTIFIERS: [&str; 9] = [
+    "minecraft:iron_bars",
+    "minecraft:copper_bars",
+    "minecraft:exposed_copper_bars",
+    "minecraft:weathered_copper_bars",
+    "minecraft:oxidized_copper_bars",
+    "minecraft:waxed_copper_bars",
+    "minecraft:waxed_exposed_copper_bars",
+    "minecraft:waxed_weathered_copper_bars",
+    "minecraft:waxed_oxidized_copper_bars",
+];
 /// Native filled-map identity used for session admission outside the retail census.
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
