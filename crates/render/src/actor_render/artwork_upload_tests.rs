@@ -275,8 +275,24 @@ fn channel_write_and_equal_depth_spans_are_retained_by_native_drawing() {
     .enumerate()
     {
         let mut frame = publication(generation as u64 + 1, &[55], 1);
-        Arc::make_mut(&mut frame.rig.instances)[0].material =
-            EntityRenderMaterial::Default.word(Some(state));
+        let material = EntityRenderMaterial::Default.word(Some(state));
+        Arc::make_mut(&mut frame.rig.instances)[0].material = material;
+        draw_frame(&mut app, &frame);
+        // The fixture compiles the default pipeline; this assertion draws another contract.
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        let pipeline = world
+            .resource::<ActorPipeline>()
+            .draw_variant(Msaa::Off, false, false, material)
+            .expect("admitted material was prewarmed");
+        world
+            .resource_mut::<PipelineCache>()
+            .block_on_render_pipeline(pipeline);
+        assert!(
+            world
+                .resource::<PipelineCache>()
+                .get_render_pipeline(pipeline)
+                .is_some()
+        );
         assert_eq!(draw_frame(&mut app, &frame).len(), 1);
         let world = app.sub_app(RenderApp).world();
         let gpu = world.resource::<ActorGpu>();
