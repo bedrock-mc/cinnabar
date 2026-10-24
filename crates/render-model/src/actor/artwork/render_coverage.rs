@@ -4,6 +4,12 @@ use assets::{
 };
 use std::collections::BTreeSet;
 
+use super::ActorArtworkPages;
+use crate::EntityRigId;
+
+#[path = "render_coverage/fixture.rs"]
+mod fixture;
+
 // These missing body routes stay explicit until their models can be rendered.
 const INCOMPLETE: &[&str] = &[
     "minecraft:agent",
@@ -19,7 +25,6 @@ const INCOMPLETE: &[&str] = &[
 ];
 
 /// Reads local carrier fixtures without replacing unavailable assets with diagnostic artwork.
-#[expect(clippy::print_stderr, reason = "names unavailable carrier fixtures")]
 fn fixture(variable: &str) -> Option<Vec<u8>> {
     let Some(path) = std::env::var_os(variable) else {
         eprintln!("missing fixture {variable}: skipping entity render coverage");
@@ -35,10 +40,10 @@ fn fixture(variable: &str) -> Option<Vec<u8>> {
     }
 }
 
-/// Checks all linked geometry and texture choices, including conditional overlay layers.
+/// Checks drawable geometry and runtime artwork lookups, including conditional overlay layers.
 fn has_body_route(
     entities: &RuntimeEntityAssets,
-    artwork: &RuntimeActorCatalog,
+    artwork: &ActorArtworkPages,
     identifier: &str,
     parents: &[Option<usize>],
 ) -> bool {
@@ -62,10 +67,11 @@ fn has_body_route(
                 .any(|bone| !bone.cubes.is_empty() || !bone.texture_meshes.is_empty())
         })
     };
-    if !entities.rig_geometries()[rig.first_geometry as usize..][..usize::from(rig.geometry_count)]
-        .iter()
-        .all(|candidate| drawable(candidate.geometry as usize))
-    {
+    let rig_candidates = rig.first_geometry..rig.first_geometry + u32::from(rig.geometry_count);
+    if !rig_candidates.clone().all(|candidate| {
+        drawable(entities.rig_geometries()[candidate as usize].geometry as usize)
+            && artwork.route(EntityRigId(candidate)).is_some()
+    }) {
         return false;
     }
     let layers = entities.render_layers(binding);
@@ -86,7 +92,14 @@ fn has_body_route(
                                 [..usize::from(slot.candidate_count)]
                                 .iter()
                                 .all(|candidate| {
-                                    artwork.texture_of_source(candidate.source).is_some()
+                                    rig_candidates.clone().all(|geometry| {
+                                        artwork
+                                            .variant_location(
+                                                EntityRigId(geometry),
+                                                candidate.source,
+                                            )
+                                            .is_some()
+                                    })
                                 })
                     })
         })
@@ -112,6 +125,38 @@ fn incomplete_entity_routes_cannot_outlive_the_native_registry() {
 }
 
 #[test]
+fn removing_one_artwork_binding_fails_body_coverage_with_textures_intact() {
+    let (entity_bytes, textures, bindings) = fixture::carrier();
+    let entities = RuntimeEntityAssets::decode(&entity_bytes).unwrap();
+    let parents = assets::validate_entity_geometry_inheritance(entities.geometries()).unwrap();
+    let actor_bytes = assets::encode_actor_catalog(&entity_bytes, &textures, &bindings).unwrap();
+    let complete = RuntimeActorCatalog::decode(&actor_bytes, &entities).unwrap();
+    assert!(has_body_route(
+        &entities,
+        &ActorArtworkPages::new(&complete),
+        "test:coverage",
+        &parents
+    ));
+    for removed in 0..bindings.len() {
+        let mut incomplete = bindings.clone();
+        incomplete.remove(removed);
+        let actor_bytes =
+            assets::encode_actor_catalog(&entity_bytes, &textures, &incomplete).unwrap();
+        let artwork = RuntimeActorCatalog::decode(&actor_bytes, &entities).unwrap();
+        assert_eq!(artwork.textures(), complete.textures());
+        assert!(
+            !has_body_route(
+                &entities,
+                &ActorArtworkPages::new(&artwork),
+                "test:coverage",
+                &parents
+            ),
+            "missing binding for geometry candidate {removed} must fail coverage"
+        );
+    }
+}
+
+#[test]
 fn native_entities_resolve_complete_render_resources() {
     let Some(entity_bytes) = fixture("CINNABAR_ENTITY_CARRIER") else {
         return;
@@ -122,6 +167,7 @@ fn native_entities_resolve_complete_render_resources() {
     let entities = RuntimeEntityAssets::decode(&entity_bytes).expect("valid entity carrier");
     let artwork =
         RuntimeActorCatalog::decode(&actor_bytes, &entities).expect("matching actor carrier");
+    let artwork = ActorArtworkPages::new(&artwork);
     let parents = assets::validate_entity_geometry_inheritance(entities.geometries())
         .expect("valid geometry inheritance");
     let mut failures = Vec::new();

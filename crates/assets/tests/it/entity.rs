@@ -15,8 +15,6 @@ mod material_states;
 mod molang_programs;
 #[path = "entity/mount.rs"]
 mod mount;
-#[path = "entity/render_coverage.rs"]
-mod render_coverage;
 #[path = "entity/review_regressions.rs"]
 mod review_regressions;
 #[path = "entity/runtime_admission.rs"]
