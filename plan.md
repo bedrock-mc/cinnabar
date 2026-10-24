@@ -170,6 +170,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
   faults from geometry; do not mask them with speculative renderer changes.
+  Slab templates reverse north/east U and underside V while preserving height crops
+  and boundary culling. Their registry-wide geometry guard does not close visual acceptance.
 - [ ] Close vine attachment-mask, neighbour, connectivity and texture/UV acceptance.
   Adjudicate glow lichen and sculk vein separately rather than assuming identical rules.
 - [ ] Close the exhaustive residual-family inventory for the pinned target. Every
@@ -303,14 +305,33 @@ Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
 
-Correction-sync acceptance still includes predicted flag coverage, scaled/horizontal
-poses and bounds, history loss, replay authority, send phase and live-server behavior.
+Correction sync retains individual accepted flag writes, cached passenger movement,
+explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
+independently of simulation admission. Unsupported attribute models leave reporting
+with the actor's current value. Retained corrections arm its idle countdown;
+bare snaps do not. A completed local pose tick replaces earlier accepted pose writes.
+Sparse dimension writes preserve the untouched accepted component, including local
+pose sizes. Dimensions enter gameplay with ordered metadata controls, and correction
+replay retains their order alongside flag writes. Network and synthetic local actors
+share arrival-ordered authority lifetimes. Rendering uses a separate nonzero lifetime,
+including for the initial synthetic local body and first-person hand.
+Received local spawns, removals and dimension resets publish complete replacement
+authority through the same ordered controls. Synthetic creation keeps that lifetime
+and its already accepted updates and effects. Replacement retires cached flags, pose
+comparisons, dimensions, item use and movement attributes. Replay retains ordered
+actor and controller writes independently of the replaced actor state. Unknown passenger identities
+defer controller selection until their arrival order can be resolved.
+Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
+block-climber flags, custom collision definitions, transition-tick packet ordering
+and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
+Sneaking box height, pose fit and crouch eye follow StartGame's base game version
+(standing height before 1.20.10), including server resizes after prediction resets.
 Near-contact collision fixes do not establish complete collision-engine parity.
 Remote player presentation interpolates received positions along straight segments,
 which can cross a block corner between clear endpoints. Teleports discard that
@@ -374,12 +395,13 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
-  Dropped crossed plants and lanterns use their carried sprites; falling blocks retain their world models.
+  Dropped crossed plants, lanterns and chains use their carried sprites; falling blocks retain their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
+  Framed filled maps wait for image data without displaying their inventory icon.
   Native pixel comparisons, custom-paper transparency, narrow-aspect placement, decorations, explorer overlays,
   nondefault inventory icon variants and third-person map presentation remain incomplete.
   inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
@@ -390,6 +412,7 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
+  Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand; their dropped presentation remains incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
@@ -418,7 +441,9 @@ and rendered qualification remain incomplete.
   without one. Copper golem statue previews use the standing pack geometry, oxidation
   artwork and eye layer; item pose metadata remains incomplete. Variant indices of
   1.26.50 legacy icon rows (poplar boats, cushions) follow the atlas order but are not
-  confirmed against that client.
+  confirmed against that client. Registry blocks without a named item (nether reactor
+  core, double slabs, wall signs) draw their implicit block item from the first canonical
+  state; vanilla uses the block's default state, which is not yet compared per block.
 
 Continuous cosmetic cloth uses shared vertices, fixed-step constraints, world-space
 inertia and contacts derived from the drawn body and worn armor. Cloth pins and
@@ -465,6 +490,11 @@ label height. Tag eligibility uses always-show metadata or the shared crosshair 
 Camera distance controls server render limits and score range; passenger mounts keep
 their name without a score line. Depth testing honors sneaking and the nameplate flag.
 Matched rendered-frame qualification remains open.
+
+Modern lingering effect clouds draw the potion emitter for non-dragon profiles and
+carry their packed effect color into its RGBA variables. Potion clouds emit every two
+ticks; dragon breath retains its five-tick emitter. Legacy emission and matched
+rendered-frame qualification remain open.
 
 Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
 lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity
@@ -547,7 +577,22 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Malformed item entries never match, and conditions the client reads as zero keep
   the base value; item-tag filters compile during session preparation for
   allocation-free evaluation, and an unsupported filter matches no item.
-  Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
+  Mining uncertainty leaves known physics and local placement prediction usable.
+  Mining states use separate storage and admission, preserving the physical state budget.
+  Complex Molang conditions, item-tag scripts and live custom-block mining acceptance
+  remain incomplete.
+  Server items' `minecraft:digger` speeds replace tool speed and harvest for blocks
+  matched by name or tag query. Native block tags other than the pickaxe, axe, shovel
+  and hoe destructible tags are not carried yet. Serialized state restrictions compare
+  the target's prepared values in both palette modes. Unknown native tags and unsupported
+  queries stay unresolved, including under negation, and fall back to hand mining.
+  Custom tag sets stay unresolved when decoding drops entries. The decoder's 256-tag
+  and 256-byte tag limits are implementation bounds; removing them remains incomplete
+  parity work.
+  Complex legacy aliases, full native tags and general Molang remain incomplete.
+  Digger tag programs are prepared off the frame thread at bootstrap and registry
+  replacement; replacements retain only active queries and session retirement drops
+  pending preparations before a new login.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Server-requested local swings retain their source and echo after inventory authority
@@ -991,9 +1036,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   to validated naga modules, with calls ordered after forward declarations and generated
   helpers. Compatibility rewriting accepts empty top-level declarations, defers square roots
   of negative float literals, separates shared-memory array declarations, sizes unsized
-  arrays from their constructors and folds typed scalar constants in array bounds. Missing vertex
+  arrays from their constructors and folds typed scalar constants in array bounds.
+  Function-local variables named after a struct type (`Face Face = ...;`) are renamed for the
+  rest of the scope in which they hide that type. Missing vertex
   varying locations receive zero outputs. Unresolved vertex variables receive numeric
   declarations from used fragment inputs, with zero initialization at user main entry.
+  `sampler2D` uniforms Iris does not bind read texture unit 0 as in Iris: `colortex0` in
+  full-screen and compute passes, the block atlas in geometry passes. Geometry texture
+  image overrides share one binding across `tex`, `texture`, `gtexture` and `u_MainSampler`,
+  including reads through unbound sampler names. Sampler resolution normalizes legacy
+  names, then selects exact custom images, exact raw directives, plain unit overrides,
+  built-in textures and finally the unit-zero fallback. Images and raw textures keep
+  distinct reflected keys. Raw directives match the normalized name and shape, leaving
+  other samplers on their original texture. Earlier stage flips release plain buffer
+  overrides without releasing exact image or raw bindings.
   Iris preprocessing recovers empty expanded conditions, malformed conditional macro
   directives and unclosed groups at end of source. Settings properties keep their directive
   diagnostics. Compiler results carry shader modules without duplicate validation data;

@@ -120,7 +120,7 @@ func TestEntityGalleryRejectsStaleAppearancesAndFiltersBeforePaging(t *testing.T
 func TestEntityGalleryReplacementClearsActorsAndLabels(t *testing.T) {
 	ordinary := &packet.CommandRequest{CommandLine: "/give stone"}
 	inner := &cameraFixtureConn{read: []packet.Packet{&packet.CommandRequest{CommandLine: "/entitygallery sheep"}, &packet.CommandRequest{CommandLine: "/entitygallery clear"}, ordinary}}
-	conn := &entityGalleryConn{Conn: inner, gallery: []entityAppearance{{Identifier: "minecraft:sheep"}}}
+	conn := &entityGalleryPacketConn{Conn: inner, gallery: []entityAppearance{{Identifier: "minecraft:sheep"}}}
 	if got, err := conn.ReadPacket(); err != nil || got != ordinary {
 		t.Fatal("ordinary command was intercepted")
 	}
@@ -130,6 +130,24 @@ func TestEntityGalleryReplacementClearsActorsAndLabels(t *testing.T) {
 	for i, pk := range inner.written[2:] {
 		if pk.(*packet.RemoveActor).EntityUniqueID != int64(entityGalleryFirstID+i) {
 			t.Fatal("removed another fixture's actor")
+		}
+	}
+}
+
+func TestEntityCloudAppearancePreservesMetadataTypes(t *testing.T) {
+	appearance := entityAppearance{Identifier: "minecraft:area_effect_cloud", Cloud: &entityCloudAppearance{
+		Radius: 3.5, Duration: -1, Particle: 32, Color: -1,
+	}}
+	metadata := appearance.metadata()
+	for key, expected := range map[uint32]any{
+		protocol.EntityDataKeyDataRadius:     float32(3.5),
+		protocol.EntityDataKeyDataDuration:   int32(-1),
+		protocol.EntityDataKeyDataParticle:   int32(32),
+		protocol.EntityDataKeyEffectColor:    int32(-1),
+		protocol.EntityDataKeyDataChangeRate: float32(0),
+	} {
+		if metadata[key] != expected {
+			t.Errorf("cloud metadata %d = %#v, want %#v", key, metadata[key], expected)
 		}
 	}
 }

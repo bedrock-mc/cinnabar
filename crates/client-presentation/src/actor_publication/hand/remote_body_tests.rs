@@ -799,7 +799,12 @@ fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
         placement.key,
         super::super::CosmeticEmitterKey {
             runtime_id: 2,
-            spawn_revision,
+            spawn_revision: stream
+                .authority()
+                .actor(2)
+                .unwrap()
+                .render_spawn_revision
+                .get(),
             item: glowing,
             emitter: 0,
         }

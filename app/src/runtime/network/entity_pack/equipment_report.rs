@@ -35,7 +35,7 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 2,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,

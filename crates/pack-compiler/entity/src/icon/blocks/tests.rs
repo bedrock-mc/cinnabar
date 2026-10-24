@@ -90,6 +90,101 @@ fn candles_keep_their_carried_icons_without_world_model_geometry() {
     }
 }
 
+#[test]
+fn hooks_and_flowers_keep_their_carried_sprite_for_every_state() {
+    let names = [
+        "minecraft:tripwire_hook",
+        "minecraft:open_eyeblossom",
+        "minecraft:closed_eyeblossom",
+        "minecraft:pitcher_plant",
+    ];
+    let catalog: serde_json::Map<_, _> = names
+        .iter()
+        .map(|name| {
+            (
+                name.strip_prefix("minecraft:").unwrap().into(),
+                serde_json::json!({"textures":"placed","carried_textures":"carried"}),
+            )
+        })
+        .collect();
+    let root = tempfile::tempdir().unwrap();
+    write_pack(
+        root.path(),
+        &serde_json::Value::Object(catalog).to_string(),
+        r#"{"texture_data":{
+            "placed":{"textures":"textures/blocks/placed"},
+            "carried":{"textures":"textures/items/carried"}
+        }}"#,
+        "[]",
+    );
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let world = RuntimeAssets::diagnostic();
+    let states: Vec<_> = blocks
+        .records
+        .iter()
+        .filter(|record| names.contains(&record.name.as_ref()))
+        .collect();
+    for name in names {
+        assert!(
+            states.iter().any(|record| record.name.as_ref() == name),
+            "{name}"
+        );
+    }
+    let modeled: Vec<_> = states
+        .iter()
+        .filter(|record| !blocks.is_flat(&world, BlockVisualId(record.sequential_id)))
+        .map(|record| (&record.name, &record.canonical_state))
+        .collect();
+    assert!(
+        modeled.is_empty(),
+        "carried sprite states selected a model: {modeled:?}"
+    );
+    for record in states {
+        assert_eq!(
+            blocks
+                .texture_path(BlockVisualId(record.sequential_id))
+                .as_deref(),
+            Some("textures/items/carried"),
+            "{} {}",
+            record.name,
+            record.canonical_state,
+        );
+    }
+}
+
+#[test]
+fn hook_icons_select_the_hook_face_instead_of_the_wooden_base() {
+    let root = tempfile::tempdir().unwrap();
+    write_pack(
+        root.path(),
+        r#"{"tripwire_hook":{"textures":{"down":"base","north":"hook","side":"wire"}}}"#,
+        r#"{"texture_data":{
+            "base":{"textures":"textures/blocks/wood"},
+            "hook":{"textures":"textures/blocks/hook"},
+            "wire":{"textures":"textures/blocks/wire"}
+        }}"#,
+        "[]",
+    );
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let mut states = 0;
+    for record in blocks
+        .records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:tripwire_hook")
+    {
+        states += 1;
+        assert_eq!(
+            blocks
+                .texture_path(BlockVisualId(record.sequential_id))
+                .as_deref(),
+            Some("textures/blocks/hook"),
+            "{}",
+            record.canonical_state
+        );
+    }
+    assert!(states > 0);
+}
+
 /// Barrier declares world textures, while light blocks declare only carried ones; both items
 /// draw that texture flat.
 #[test]

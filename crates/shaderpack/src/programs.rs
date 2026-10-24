@@ -82,6 +82,14 @@ impl ProgramGroup {
             ProgramGroup::Composite | ProgramGroup::Final => "composite",
         }
     }
+
+    /// Draws world geometry (`gbuffers_*`, `shadow*`, `dh_*`) rather than full-screen passes.
+    pub fn draws_geometry(self) -> bool {
+        matches!(
+            self,
+            ProgramGroup::Shadow | ProgramGroup::Gbuffers | ProgramGroup::DistantHorizons
+        )
+    }
 }
 
 /// Whether a program is a draw (vertex + fragment, optional geometry/tessellation) or a

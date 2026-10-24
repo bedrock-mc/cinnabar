@@ -115,6 +115,11 @@ impl crate::observations::PhysicsObservation for JumpPhysics {
         self.1
     }
 
+    /// The fixture uses the current sneaking dimensions.
+    fn sneak_profile(&self) -> sim::SneakProfile {
+        sim::SneakProfile::Current
+    }
+
     fn fall_fly_ticks(&self) -> u32 {
         0
     }
@@ -995,7 +1000,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 42,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,
