@@ -46,6 +46,36 @@ fn use_frame(tick: u64, held: bool) -> UseFrame {
 /// Sends a retained echo through the app's real world-control consumer, then reconciles use.
 fn check_stamped_echo(current_use: bool) {
     let (mut app, _) = fixture_app();
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(
+            1,
+            WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 1,
+                runtime_id: 42,
+                kind: protocol::ActorKind::Player {
+                    uuid: [1; 16],
+                    username: "Player".into(),
+                },
+                position: [0.0, 70.0, 0.0],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: Arc::from([]),
+                properties: Arc::from([]),
+                attributes: Arc::from([]),
+                links: Arc::from([]),
+            })),
+        )
+        .unwrap();
+    app.update();
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position([0.0, 70.0, 0.0], 100, false);
     physics.write_local_using_item(!current_use);
@@ -82,7 +112,7 @@ fn check_stamped_echo(current_use: bool) {
         .as_mut()
         .unwrap()
         .submit(
-            1,
+            2,
             WorldEvent::Actor(protocol::ActorEvent::Metadata(
                 protocol::ActorMetadataUpdateEvent {
                     dimension: 0,
@@ -113,7 +143,7 @@ fn check_stamped_echo(current_use: bool) {
         .stream
         .as_ref()
         .unwrap();
-    assert_eq!(stream.committed_sequence(), 1);
+    assert_eq!(stream.committed_sequence(), 2);
     assert_eq!(
         stream.authority().actor(42).unwrap().is_using_item(),
         !current_use,
