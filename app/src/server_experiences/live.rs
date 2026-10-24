@@ -454,6 +454,13 @@ impl<H: Worker> Live<H> {
         self.screens_built = Some(built);
         self.screens.clear();
         'instances: for (index, instance) in self.instances.values_mut().enumerate() {
+            if instance.presentation.scene().is_empty() {
+                continue;
+            }
+            let ledger = instance
+                .presentation
+                .ledger(instance.capabilities.scope.gpu_bytes)
+                .clone();
             for (id, object) in instance.presentation.scene() {
                 if self.screens.len() == render_scene::MAX_MEDIA_SCREENS {
                     break 'instances;
@@ -464,12 +471,7 @@ impl<H: Worker> Live<H> {
                     continue;
                 };
                 if let Some(frame) = self.media.frame(&instance.owner.bundle, texture) {
-                    screen.ledger = Some(
-                        instance
-                            .presentation
-                            .ledger(instance.capabilities.scope.gpu_bytes)
-                            .clone(),
-                    );
+                    screen.ledger = Some(ledger.clone());
                     screen.frame = frame;
                     self.screens.push(screen);
                 }
