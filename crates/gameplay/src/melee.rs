@@ -478,14 +478,23 @@ pub fn resolve_and_send(
     }
 }
 
+/// Click-drop reason for an attack press made while an item is in use.
+pub const USING_ITEM: &str = "using_item";
+
+/// Whether the attack button may act this frame. Like vanilla, an item in use (eating,
+/// drinking, drawing a bow or charging a crossbow) ignores the attack button: no swing,
+/// attack or destroy starts until the use ends.
 pub fn press_admission(
     gameplay_screen: bool,
     game_mode: Option<PlayerGameMode>,
+    using_item: bool,
 ) -> Result<(), &'static str> {
     if !gameplay_screen {
         Err("screen_open")
     } else if game_mode == Some(PlayerGameMode::Spectator) {
         Err("spectator")
+    } else if using_item {
+        Err(USING_ITEM)
     } else {
         Ok(())
     }

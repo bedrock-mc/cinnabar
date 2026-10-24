@@ -78,7 +78,7 @@ pub(crate) struct MeleeContext<'w, 's> {
 }
 
 /// Publishes frame inputs and resolves presses through the single published-frame pick.
-/// Open screens and spectator mode cancel the press.
+/// Open screens, spectator mode and an item in use cancel the press.
 pub(crate) fn prepare_melee(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: MeleeContext,
@@ -86,6 +86,7 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
+    mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
 ) {
     let ordered = context
         .input
@@ -148,9 +149,15 @@ pub(crate) fn prepare_melee(
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
+    // A same-frame slot change ends the old item's use before Attack is judged, as the later
+    // item-use producer and the ordered hotbar path would.
+    if let Some(slot) = player_runtime.selected_hotbar_slot() {
+        item_use.retire_reselected_use(slot);
+    }
     if let Err(reason) = press_admission(
         focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),
+        item_use.is_using(),
     ) {
         drop(reason);
         runtime.cancel();
@@ -278,7 +285,10 @@ fn maintain_attacks(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let input = context.input.snapshot();
     let active = gameplay::survival_mining::mining_active(caps, focused, input.is_some());
+    // An item in use ignores a held Attack as it ignores a press, so no held mining starts or
+    // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
+        && !item_use.is_using()
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,

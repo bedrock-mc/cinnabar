@@ -40,7 +40,13 @@ pub(crate) fn press(
     mut swings: ResMut<SwingTracker>,
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+    item_use: Res<client_interaction::item_use::ItemUseRuntime>,
 ) {
+    // An earlier use edge in this batch may have started eating or drawing.
+    if item_use.is_using() {
+        gameplay::movement::note_click_drop("attack", gameplay::melee::USING_ITEM);
+        return;
+    }
     let Some(selection) = hand_interaction_selection(&player) else {
         return;
     };

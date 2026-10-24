@@ -313,10 +313,29 @@ fn only_a_screen_or_spectator_stops_the_attack_button() {
         Some(Adventure),
         Some(Unknown),
     ] {
-        assert_eq!(press_admission(true, mode), Ok(()), "{mode:?}");
+        assert_eq!(press_admission(true, mode, false), Ok(()), "{mode:?}");
     }
-    assert_eq!(press_admission(true, Some(Spectator)), Err("spectator"));
-    assert_eq!(press_admission(false, Some(Survival)), Err("screen_open"));
+    assert_eq!(
+        press_admission(true, Some(Spectator), false),
+        Err("spectator")
+    );
+    assert_eq!(
+        press_admission(false, Some(Survival), false),
+        Err("screen_open")
+    );
+}
+
+/// Eating, drinking or drawing a bow ignores the attack button in every game mode.
+#[test]
+fn an_item_in_use_ignores_the_attack_button() {
+    use protocol::PlayerGameMode::{Adventure, Creative, Survival};
+    for mode in [None, Some(Survival), Some(Creative), Some(Adventure)] {
+        assert_eq!(
+            press_admission(true, mode, true),
+            Err(super::USING_ITEM),
+            "{mode:?}"
+        );
+    }
 }
 
 /// A press into the air swings and reports MissedSwing on its tick.
