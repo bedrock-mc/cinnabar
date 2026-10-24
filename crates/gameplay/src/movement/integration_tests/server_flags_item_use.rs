@@ -61,7 +61,10 @@ fn a_same_stamp_clear_compares_with_the_frame_capture() {
             flags.using_item = Some(value);
         })
     };
-    assert_eq!(physics.apply_server_movement_flags(101, set(true)), None);
+    assert_eq!(
+        physics.apply_server_movement_flags(101, set(true)),
+        Some(101)
+    );
     assert_eq!(physics.apply_server_movement_flags(101, set(false)), None);
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.mode(), sim::MovementMode::Gliding);
@@ -99,7 +102,7 @@ fn one_update_compares_every_flag_with_the_same_base() {
         flags.using_item = Some(true);
         flags.gliding = Some(true);
     });
-    assert_eq!(physics.apply_server_movement_flags(101, update), None);
+    assert_eq!(physics.apply_server_movement_flags(101, update), Some(101));
 }
 
 /// An item-only stamped write replays like other flags, so once applied a
@@ -111,7 +114,10 @@ fn an_item_only_stamped_write_settles_through_replay() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let using = |value| flags(|flags| flags.using_item = Some(value));
-    assert_eq!(physics.apply_server_movement_flags(101, using(true)), None);
+    assert_eq!(
+        physics.apply_server_movement_flags(101, using(true)),
+        Some(101)
+    );
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.take_server_using_item(), Some(true));
     physics.apply_server_movement_flags(101, using(false));
@@ -151,10 +157,16 @@ fn replay_carries_a_corrected_item_use_into_later_captures() {
         tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
     }
     let using = |value| flags(|flags| flags.using_item = Some(value));
-    assert_eq!(physics.apply_server_movement_flags(101, using(true)), None);
+    assert_eq!(
+        physics.apply_server_movement_flags(101, using(true)),
+        Some(101)
+    );
     reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
     assert_eq!(physics.take_server_using_item(), Some(true));
-    assert_eq!(physics.apply_server_movement_flags(102, using(false)), None);
+    assert_eq!(
+        physics.apply_server_movement_flags(102, using(false)),
+        Some(102)
+    );
     assert_eq!(physics.take_server_using_item(), Some(false));
 }
 
