@@ -448,8 +448,10 @@ their completion time. Temporary culling never changes retained mask membership:
 the renderer matches current coverage against the selected actor incarnation.
 The helper enforces `MAX_DRAWS` at drawing imports, combining retained instances
 and immediate primitives under the same ceiling the application rechecks.
-The application checks legacy scene objects, retained instances and immediate
-primitives together after every completion, including scene-only changes.
+Legacy scene objects, retained instances and immediate primitives travel in one
+immutable presentation snapshot. The application checks their combined costs and
+publishes them together after the complete snapshot arrives. Later callbacks cannot
+change the legacy objects belonging to an older snapshot still in transfer.
 The combined scene admits immediate primitives once within the shared limits and
 tags their allocation owners. GPU reservations partition that admitted list.
 Anchor availability is rebuilt from all current contributors every frame, including

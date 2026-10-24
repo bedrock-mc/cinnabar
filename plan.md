@@ -808,8 +808,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   stopping the bundle. Declared bundle files are packaged once across screen,
   texture and drawing asset lists. Guest
   drawing imports share the receiver's per-bundle draw ceiling. Legacy scene objects,
-  retained placements and immediate primitives share draw and triangle limits at
-  every completion, including scene-only transactions. Immediate
+  retained placements and immediate primitives share one immutable presentation
+  snapshot and combined draw and triangle limits. Scene-only changes stream through
+  that same atomic publication boundary. Immediate
   primitives share one admitted list whose allocation ranges survive layer merging.
   One frame publisher rebuilds anchor availability from all current contributors,
   including server-only configurations. One allocation ledger per bundle

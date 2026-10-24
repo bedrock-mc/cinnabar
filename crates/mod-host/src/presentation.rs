@@ -26,6 +26,7 @@ pub struct Pass {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Output {
+    pub scene: BTreeMap<u32, server_experience::runtime::SceneObject>,
     pub drawing: Snapshot,
     pub primitives: mod_render::Primitives,
     pub passes: Vec<Pass>,
@@ -85,6 +86,7 @@ impl Context {
 /// Maps helper-owned tokens into the application's common renderer namespace.
 #[derive(Default)]
 pub struct Receiver {
+    scene: server_experience::runtime::Contributions,
     owners: BTreeMap<u64, u64>,
     assembly: transfer::Assembly,
     output: RenderOutput,
@@ -105,6 +107,7 @@ impl Receiver {
 
     /// Clears old-world presentation while outstanding storage keeps its bundle ledger.
     pub fn clear(&mut self) {
+        self.scene = Default::default();
         self.owners.clear();
         self.assembly = Default::default();
         self.output = Default::default();
@@ -118,12 +121,9 @@ impl Receiver {
         (&self.output, self.revision)
     }
 
-    /// Rechecks the active drawing and legacy scene after either contribution changes.
-    pub fn check_scene_budget(
-        &self,
-        contributions: &server_experience::runtime::Contributions,
-    ) -> Result<()> {
-        check_scene_budget(&self.output, contributions)
+    /// Returns legacy objects from the same fully admitted snapshot as the active drawing.
+    pub fn scene(&self) -> &BTreeMap<u32, server_experience::runtime::SceneObject> {
+        &self.scene.scene
     }
 
     /// Assembles a committed scene within its reservation and publishes it atomically.
@@ -131,19 +131,36 @@ impl Receiver {
     pub fn receive(
         &mut self,
         chunk: Chunk,
-        permissions: DrawingPermissions,
+        capabilities: &server_experience::runtime::Capabilities,
         context: &Context,
         memory_bytes: u64,
         gpu_bytes: u64,
         valid: impl Fn(mod_render::retained::EntityKey) -> bool,
     ) -> Result<()> {
         if let Some(output) = self.assembly.receive(chunk, context, memory_bytes)? {
-            self.apply(output, permissions, context, gpu_bytes, valid)?;
+            let scene = server_experience::runtime::Contributions {
+                scene: output.scene.clone(),
+                ..Default::default()
+            };
+            for (&id, object) in &scene.scene {
+                capabilities.validate(&server_experience::runtime::Command::Scene {
+                    id,
+                    object: Some(object.clone()),
+                })?;
+            }
+            self.apply_output(
+                output,
+                crate::server::drawing_grants(capabilities).drawing_permissions(),
+                context,
+                gpu_bytes,
+                valid,
+                scene,
+            )?;
         }
         Ok(())
     }
 
-    /// Rechecks permissions and reservations before publishing any helper output.
+    /// Admits native drawing without legacy objects; bundle snapshots use `receive`.
     /// `valid` must check the actor incarnation against the current native actor store.
     pub fn apply(
         &mut self,
@@ -152,6 +169,27 @@ impl Receiver {
         context: &Context,
         gpu_bytes: u64,
         valid: impl Fn(mod_render::retained::EntityKey) -> bool,
+    ) -> Result<()> {
+        ensure!(input.scene.is_empty(), "legacy scene admission required");
+        self.apply_output(
+            input,
+            permissions,
+            context,
+            gpu_bytes,
+            valid,
+            Default::default(),
+        )
+    }
+
+    /// Admits one coherent scene before replacing any of its published output.
+    fn apply_output(
+        &mut self,
+        input: Output,
+        permissions: DrawingPermissions,
+        context: &Context,
+        gpu_bytes: u64,
+        valid: impl Fn(mod_render::retained::EntityKey) -> bool,
+        scene: server_experience::runtime::Contributions,
     ) -> Result<()> {
         ensure!(
             permissions.world_draw
@@ -334,7 +372,7 @@ impl Receiver {
                 .unwrap_or_else(|| Arc::new(resources));
             output.retained.push(retained);
         }
-        check_scene_budget(&output, &Default::default())?;
+        check_scene_budget(&output, &scene)?;
         owners.retain(|_, local| {
             output.retained.iter().any(|resources| {
                 resources
@@ -354,6 +392,7 @@ impl Receiver {
         });
         self.owners = owners;
         self.output = output;
+        self.scene = scene;
         self.revision = mod_render::next_owner();
         self.time = input.time;
         self.weather = input.weather;

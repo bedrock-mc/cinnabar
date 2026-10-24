@@ -285,6 +285,13 @@ impl<H> Instance<H> {
         valid: impl Fn(mod_render::retained::EntityKey) -> bool,
         modal_order: &mut u64,
     ) -> Result<Vec<Command>> {
+        ensure!(
+            !transaction
+                .commands
+                .iter()
+                .any(|command| matches!(command, Command::Scene { .. })),
+            "legacy objects require a presentation snapshot"
+        );
         self.contributions
             .apply(&transaction, &self.owner, self.epoch, &self.capabilities)?;
         if transaction.epoch == epoch && Some(self.pending_drawing_context.fence()) == fence {
@@ -292,7 +299,7 @@ impl<H> Instance<H> {
             if let Some(presentation) = presentation {
                 self.presentation.receive(
                     *presentation,
-                    mod_host::server::drawing_grants(&self.capabilities).drawing_permissions(),
+                    &self.capabilities,
                     &self.drawing_context,
                     self.capabilities.scope.memory_bytes,
                     self.capabilities.scope.gpu_bytes,
@@ -300,7 +307,6 @@ impl<H> Instance<H> {
                 )?;
             }
         }
-        self.presentation.check_scene_budget(&self.contributions)?;
         modal::note_opened(self, &transaction, modal_order);
         Ok(transaction.commands)
     }

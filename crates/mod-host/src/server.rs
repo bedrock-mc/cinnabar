@@ -29,6 +29,8 @@ wasmtime::component::bindgen!({
 
 struct State {
     presentation: crate::runtime::State,
+    scene: server_experience::runtime::Contributions,
+    scene_revision: u64,
     /// The session's items as the client last sent them; empty until it does.
     session: Arc<SessionData>,
     limits: StoreLimits,
@@ -45,6 +47,26 @@ struct State {
 }
 
 impl State {
+    /// Commits bounded legacy objects only after the guest callback succeeds.
+    fn commit_scene(&mut self) -> Result<()> {
+        let mut candidate = self.scene.clone();
+        for command in &self.commands {
+            if let Command::Scene { id, object } = command {
+                if let Some(object) = object {
+                    candidate.scene.insert(*id, object.clone());
+                } else {
+                    candidate.scene.remove(id);
+                }
+            }
+        }
+        candidate.check_scene_budget(0, 0)?;
+        if candidate.scene != self.scene.scene {
+            self.scene = candidate;
+            self.scene_revision = mod_render::next_owner();
+        }
+        Ok(())
+    }
+
     /// Reserves the serialized owner, epoch and empty command array before guest output.
     fn begin_output(&mut self) -> Result<()> {
         self.commands.clear();
@@ -347,6 +369,13 @@ impl Exports {
     }
 }
 
+/// Identifies the drawing and legacy objects captured by one immutable snapshot.
+#[derive(Clone, Copy, PartialEq)]
+struct PresentationRevision {
+    drawing: (u64, Option<u32>, Option<[f32; 2]>),
+    scene: u64,
+}
+
 pub struct BundleHost {
     store: Store<State>,
     exports: Exports,
@@ -356,7 +385,7 @@ pub struct BundleHost {
     active: bool,
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
-    presentation_sent: Option<(u64, Option<u32>, Option<[f32; 2]>)>,
+    presentation_sent: Option<PresentationRevision>,
     presentation_pending: Option<crate::presentation::Pending>,
     drawing_context: crate::presentation::Context,
     _ticker: crate::execution::EpochTicker,
@@ -504,6 +533,8 @@ impl BundleHost {
     ) -> Result<(Store<State>, Exports)> {
         drawing.check(epoch)?;
         let mut state = State {
+            scene: Default::default(),
+            scene_revision: mod_render::next_owner(),
             presentation: crate::runtime::State::new(
                 drawing_grants(&capabilities),
                 String::new(),
@@ -542,6 +573,7 @@ impl BundleHost {
         let init = init.typed::<(), ()>(&store)?;
         init.call(&mut store, ())?;
         init.post_return(&mut store)?;
+        store.data_mut().commit_scene()?;
         store.data_mut().presentation.commit_presentation();
         Ok((store, exports))
     }
@@ -561,7 +593,9 @@ impl BundleHost {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
         drawing.check(epoch)?;
-        if self.drawing_context.fence() != drawing.fence() || matches!(event, Event::Epoch) {
+        let rebound =
+            self.drawing_context.fence() != drawing.fence() || matches!(event, Event::Epoch);
+        if rebound {
             self.presentation_pending = None;
             self.presentation_sent = None;
         }
@@ -584,15 +618,19 @@ impl BundleHost {
             Event::Action { id, .. } | Event::SecondaryAction { id, .. } => Some(id.clone()),
             _ => None,
         };
-        if state.epoch != epoch || matches!(event, Event::Epoch) {
+        if rebound {
             state.presentation.reset_presentation();
+            state.scene.scene.clear();
+            state.scene_revision = mod_render::next_owner();
         }
         state.presentation.bind_presentation(drawing)?;
         state.epoch = epoch;
         state.begin_output()?;
         state.presentation.begin_presentation();
         crate::execution::arm(&mut self.store, CALLBACK_FUEL, false)?;
-        let called = self.call(event);
+        let called = self
+            .call(event)
+            .and_then(|()| self.store.data_mut().commit_scene());
         self.last_fuel = self.fuel_used();
         if let Err(error) = called {
             self.store.data_mut().commands.clear();
@@ -753,7 +791,7 @@ impl BundleHost {
             .collect()
     }
 
-    /// Returns changed drawing only; bundles without drawing authority publish no presentation.
+    /// Streams changed legacy objects and drawing as one immutable scene revision.
     pub(crate) fn take_presentation(
         &mut self,
         byte_allowance: usize,
@@ -761,14 +799,24 @@ impl BundleHost {
         let state = self.store.data();
         if !(state.presentation.grants.world_draw
             || state.presentation.grants.render_post
-            || state.presentation.grants.entity_highlight)
+            || state.presentation.grants.entity_highlight
+            || state
+                .capabilities
+                .scope
+                .permissions
+                .contains(&Permission::Scene))
         {
             return Ok(None);
         }
-        let key = state.presentation.presentation_key();
+        let key = PresentationRevision {
+            drawing: state.presentation.presentation_key(),
+            scene: state.scene_revision,
+        };
         if self.presentation_pending.is_none() && self.presentation_sent != Some(key) {
+            let mut output = state.presentation.presentation_output();
+            output.scene = state.scene.scene.clone();
             self.presentation_pending = Some(crate::presentation::Pending::new(
-                &state.presentation.presentation_output(),
+                &output,
                 state.capabilities.scope.memory_bytes,
             )?);
             self.presentation_sent = Some(key);
@@ -783,13 +831,16 @@ impl BundleHost {
         Ok(chunk)
     }
 
-    /// Takes only successfully returned initialization or callback output.
+    /// Takes successful nonvisual commands; legacy objects travel only in scene snapshots.
     pub fn take_transaction(&mut self) -> Transaction {
         let state = self.store.data_mut();
         Transaction {
             owner: state.owner.clone(),
             epoch: state.epoch,
-            commands: std::mem::take(&mut state.commands),
+            commands: std::mem::take(&mut state.commands)
+                .into_iter()
+                .filter(|command| !matches!(command, Command::Scene { .. }))
+                .collect(),
         }
     }
 }

@@ -454,7 +454,7 @@ impl<H: Worker> Live<H> {
         self.screens_built = Some(built);
         self.screens.clear();
         'instances: for (index, instance) in self.instances.values_mut().enumerate() {
-            for (id, object) in &instance.contributions.scene {
+            for (id, object) in instance.presentation.scene() {
                 if self.screens.len() == render_scene::MAX_MEDIA_SCREENS {
                     break 'instances;
                 }

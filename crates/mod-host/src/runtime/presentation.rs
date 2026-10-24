@@ -129,6 +129,7 @@ impl State {
             masks: output.masks.to_vec(),
             time: self.time_override,
             weather: self.presentation_key().2,
+            scene: Default::default(),
         }
     }
 }

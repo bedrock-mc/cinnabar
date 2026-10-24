@@ -14,6 +14,8 @@ fn drawing_context(epoch: u64) -> crate::presentation::Context {
 /// Creates the host import state with worst-case serialized identity and epoch fields.
 fn state() -> State {
     let mut state = State {
+        scene: Default::default(),
+        scene_revision: mod_render::next_owner(),
         presentation: crate::runtime::State::new(
             Default::default(),
             String::new(),
@@ -1121,3 +1123,4 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
 }
 
 mod binding;
+mod scene;

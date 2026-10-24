@@ -1029,6 +1029,33 @@ fn media_quad(x: f32) -> server_experience::runtime::SceneObject {
     }
 }
 
+/// Publishes one verified media quad through the same snapshot boundary as drawing.
+fn publish_media_quad(live: &mut Live<FakeWorker>, id: &str, x: f32) {
+    grant_media(live, id);
+    let instance = live.instances.get_mut(id).unwrap();
+    let output = mod_host::presentation::Output {
+        scene: BTreeMap::from([(1, media_quad(x))]),
+        ..Default::default()
+    };
+    let bytes = serde_json::to_vec(&output).unwrap();
+    instance
+        .presentation
+        .receive(
+            mod_host::presentation::Chunk {
+                revision: 1,
+                offset: 0,
+                total: bytes.len() as u32,
+                bytes,
+            },
+            &instance.capabilities,
+            &instance.drawing_context,
+            MAX_GUEST_MEMORY,
+            instance.capabilities.scope.gpu_bytes,
+            |_| true,
+        )
+        .unwrap();
+}
+
 #[test]
 fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
     let mut live = fixture(1);
@@ -1063,10 +1090,7 @@ fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
 fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_screen() {
     let mut live = fixture(2);
     for id in ["bundle0", "bundle1"] {
-        let contributions = &mut live.instances.get_mut(id).unwrap().contributions;
-        contributions
-            .scene
-            .insert(1, media_quad(if id == "bundle0" { 5.0 } else { 9.0 }));
+        publish_media_quad(&mut live, id, if id == "bundle0" { 5.0 } else { 9.0 });
     }
     assert!(
         live.changed_screens().unwrap().is_empty(),
@@ -1090,12 +1114,7 @@ fn only_a_bundles_own_quad_textured_by_its_playing_media_becomes_a_textured_scre
 #[test]
 fn an_unchanged_media_scene_is_presented_without_rebuilding() {
     let mut live = fixture(1);
-    live.instances
-        .get_mut("bundle0")
-        .unwrap()
-        .contributions
-        .scene
-        .insert(1, media_quad(5.0));
+    publish_media_quad(&mut live, "bundle0", 5.0);
     let frame = render_scene::MediaFrame {
         serial: 3,
         width: 2,

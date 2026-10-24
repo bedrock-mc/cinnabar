@@ -53,6 +53,66 @@ fn context() -> Context {
     }
 }
 
+/// Grants the developer presentation adapters for bounded snapshot-transfer fixtures.
+fn capabilities() -> server_experience::runtime::Capabilities {
+    server_experience::runtime::Capabilities {
+        scope: server_experience::manifest::Scope {
+            permissions: server_experience::manifest::developer_permissions(),
+            origins: Default::default(),
+            memory_bytes: server_experience::policy::MAX_GUEST_MEMORY,
+            gpu_bytes: server_experience::policy::MAX_GPU_BYTES,
+            personal_mods: Default::default(),
+        },
+        assets: Default::default(),
+        templates: Default::default(),
+        channels: Default::default(),
+        actions: Default::default(),
+        max_message_bytes: server_experience::policy::MAX_MESSAGE_BYTES as u32,
+    }
+}
+
+#[test]
+fn legacy_snapshot_objects_require_scene_authority_and_owned_assets() {
+    let input = Output {
+        scene: BTreeMap::from([(
+            1,
+            server_experience::runtime::SceneObject::Quad {
+                texture: "legacy".into(),
+                transform: [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.],
+                size: [1.; 2],
+            },
+        )]),
+        ..Default::default()
+    };
+    for (granted, owned) in [(false, true), (true, false), (true, true)] {
+        let mut capabilities = capabilities();
+        if !granted {
+            capabilities
+                .scope
+                .permissions
+                .remove(&server_experience::manifest::Permission::Scene);
+        }
+        if owned {
+            capabilities.assets.insert("legacy".into());
+        }
+        let mut receiver = Receiver::default();
+        let mut pending =
+            Pending::new(&input, server_experience::policy::MAX_GUEST_MEMORY).unwrap();
+        let result = receiver.receive(
+            pending.take(4096).unwrap(),
+            &capabilities,
+            &context(),
+            server_experience::policy::MAX_GUEST_MEMORY,
+            0,
+            |_| true,
+        );
+        assert_eq!(result.is_ok(), granted && owned);
+        assert_eq!(receiver.scene().len(), usize::from(granted && owned));
+        receiver.clear();
+        assert!(receiver.scene().is_empty());
+    }
+}
+
 #[test]
 fn receiver_keeps_one_gpu_reservation_for_all_remapped_mask_owners() {
     let mut input = planet();
@@ -336,7 +396,7 @@ fn large_scenes_stream_within_callback_limits_and_publish_only_when_complete() {
         receiver
             .receive(
                 chunk,
-                DrawingPermissions::ALL,
+                &capabilities(),
                 &context(),
                 server_experience::policy::MAX_GUEST_MEMORY,
                 u64::MAX,
@@ -373,21 +433,16 @@ fn partial_transfers_deny_overflow_and_release_their_memory_on_teardown() {
     };
     assert!(
         receiver
-            .receive(
-                excessive,
-                DrawingPermissions::ALL,
-                &context(),
-                16,
-                u64::MAX,
-                |_| true
-            )
+            .receive(excessive, &capabilities(), &context(), 16, u64::MAX, |_| {
+                true
+            })
             .is_err()
     );
     let mut pending = Pending::new(&planet(), server_experience::policy::MAX_GUEST_MEMORY).unwrap();
     receiver
         .receive(
             pending.take(32).unwrap(),
-            DrawingPermissions::ALL,
+            &capabilities(),
             &context(),
             server_experience::policy::MAX_GUEST_MEMORY,
             u64::MAX,
@@ -400,7 +455,7 @@ fn partial_transfers_deny_overflow_and_release_their_memory_on_teardown() {
         receiver
             .receive(
                 out_of_order,
-                DrawingPermissions::ALL,
+                &capabilities(),
                 &context(),
                 server_experience::policy::MAX_GUEST_MEMORY,
                 u64::MAX,

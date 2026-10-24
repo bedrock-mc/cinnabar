@@ -33,8 +33,9 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
 /// the helper exiting; 3 the session items a dispatch carries; 4 verified drawing assets,
 /// native drawing context and typed presentation output; 5 requires that context at startup
-/// and before every callback; 6 reports held actor references independently of drawing chunks.
-const HELPER_PROTOCOL: u32 = 6;
+/// and before every callback; 6 reports held actor references independently of drawing chunks;
+/// 7 publishes legacy scene objects in the same snapshot as drawing.
+const HELPER_PROTOCOL: u32 = 7;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
