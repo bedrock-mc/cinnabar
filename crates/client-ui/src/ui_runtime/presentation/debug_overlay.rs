@@ -24,7 +24,6 @@ use {
 const STRIP_COLOR: [u8; 4] = [80, 80, 80, 144];
 const INSET: f64 = 2.0;
 const STRIP_PADDING: f64 = 1.0;
-const TEXT_OFFSET_Y: f64 = 1.0;
 const COLUMN_GAP: f64 = 8.0;
 const MAX_LINES_PER_COLUMN: usize = 40;
 /// Protect the position column when an unusually long GPU or driver name needs
@@ -285,8 +284,10 @@ fn row(column: usize, index: usize) -> Value {
             "controls": [
                 {"strip": {"type": "image", "size": ["100%", "100%"],
                     "color": STRIP_COLOR.map(|channel| f64::from(channel) / 255.0)}},
-                {"line": {"type": "label", "size": [format!("100% - {}px", 2.0 * STRIP_PADDING), format!("100% - {TEXT_OFFSET_Y}px")],
-                    "anchor_from": "top_left", "anchor_to": "top_left", "offset": [STRIP_PADDING, TEXT_OFFSET_Y],
+                // Labels already start one GUI pixel down, so the row's eight glyph rows,
+                // descenders included, end on its bottom edge.
+                {"line": {"type": "label", "size": [format!("100% - {}px", 2.0 * STRIP_PADDING), "100%"],
+                    "anchor_from": "top_left", "anchor_to": "top_left", "offset": [STRIP_PADDING, 0],
                     "text": binding, "color": [1, 1, 1], "shadow": false,
                     "localize": false, "hide_hyphen": true,
                     "text_alignment": if right { "right" } else { "left" },

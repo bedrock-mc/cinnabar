@@ -128,6 +128,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   until exact face-coverage behavior is verified separately. Inventory fences draw the
   native two-post shape. Walls now use the custom carried two-post shape, and vanilla
   gate item meshes turn into the custom carried axis. Native wall/gate inventory parity
+  and fresh integrated-frame acceptance remain unverified. World bamboo fences stretch the
+  native post and slat texture regions; their inventory icon still uses ordinary fence UVs,
+  bamboo fence gates still use ordinary gate UVs instead of native `_trySetFenceGateTexture`
+  regions, and world fence rails still omit the outer end faces native tessellation draws.
   and fresh integrated-frame acceptance remain unverified; bamboo fence slats are also open, and
   world fence rails still omit the outer end faces native tessellation draws.
   World walls preserve the central post outside postless straight pairs, merge those pairs
@@ -396,6 +400,12 @@ and rendered qualification remain incomplete.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
   Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
+  Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
+  hooks, ladders, lily pads and sea pickles use their carried sprites; falling blocks retain
+  their world models.
+  Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
+  resin clumps, hooks, ladders, lily pads and sea pickles use their carried sprites; falling
+  blocks retain their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
@@ -412,7 +422,8 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
-  Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand; their dropped presentation remains incomplete.
+  Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand;
+  dropped eyeblossoms and pitcher plants remain incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
@@ -508,6 +519,16 @@ transforms cannot separate their depth surfaces. Paired dissolve materials retai
 generated states to held and worn presentations remains incomplete.
 Each rig geometry routes to the texture its own selection draws, else the
 default branch. The samples omit the iron golem's body controller; it is completed from
+lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity
+materials but do not define them, so all but the verified kinds in `registry-policy.json`
+are provisional with that rounding; their definitions (alpha test, blend, emissive) remain
+unverified. Rounding is wrong where alpha is an emissive weight: blaze, magma cube and glow
+squid bodies stay invisible, and spider, enderman and phantom eyes draw clear. Each rig geometry routes to the texture its own selection draws, else the
+default branch. Whole-model material arrays and ternaries retain one controller layer and evaluate
+each material decision once, after activation and before authored part visibility. Render-controller
+expressions share frame dependency analysis, keeping camera-driven choices live between ticks.
+Dynamic per-bone material rules, selector admission
+and in-world qualification remain incomplete. The samples omit the iron golem's body controller; it is completed from
 the pack's default controller until a pinned pack defines it.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
@@ -685,7 +706,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Cinnangles Sans font without a typeface selector; font sizing applies directly and
   obsolete saved typeface values are ignored. Chat and mention colors apply to decoded
   message labels without changing server pack inputs. Mention tokens preserve surrounding
-  formatting; local-player target matching and full mention acceptance remain incomplete.
+  formatting and match the current local display name or the all-player mention. Full
+  live mention acceptance remains incomplete.
   Emote filtering and narration remain unavailable and store preferences only.
   Offline rendered fixtures cover the panel, values, palettes and reset confirmation;
   live input acceptance remains incomplete. Font size 5–20/default 10 and spacing
@@ -905,7 +927,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
-  chosen documents into app cache storage before importing them; device acceptance and skin
+  chosen documents into app cache storage before importing them. Mod installation uses a
+  no-overwrite rename instead of a hard link, which Android forbids; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
