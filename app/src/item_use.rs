@@ -103,7 +103,6 @@ pub(crate) fn adopt_server_item_use(
     }) {
         return;
     }
-    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     take_server_item_use(&mut runtime, context.physics.as_deref_mut());
     let ticks = context.physics.as_deref().is_some_and(|physics| {
         gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
@@ -215,7 +214,6 @@ fn produce_use(
         runtime.cancel_for_respawn();
         return;
     }
-    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     // The latest server write waits in the owner, where a local start or end
     // supersedes it before the next movement tick reconciles.
     take_server_item_use(&mut runtime, context.physics.as_deref_mut());
@@ -319,12 +317,13 @@ fn produce_use(
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
 }
 
-/// Hands movement's ordered server item-use events to item use: a game-mode
-/// stop first, then the latest server value written after it.
+/// Publishes local starts and stops before importing server events that they supersede.
+/// A game-mode stop then precedes the latest server value written after it.
 fn take_server_item_use(
     runtime: &mut ItemUseRuntime,
-    physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
+    mut physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
 ) {
+    publish_local_using_item(runtime, physics.as_deref_mut());
     let Some(physics) = physics else {
         return;
     };
