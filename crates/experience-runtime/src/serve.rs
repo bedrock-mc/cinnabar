@@ -115,6 +115,7 @@ fn answer_loaded(
     worlds: Option<crate::protocol::WorldRegistration>,
 ) -> io::Result<bool> {
     let response = Response::Loaded {
+        simulation: manifest.api == crate::host::Api::V0_9.api(),
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),
         version: manifest.version.clone(),
@@ -193,6 +194,8 @@ fn write_or(
 /// The `type` of `call` in the protocol.
 fn call_kind(call: &Call) -> &'static str {
     match call {
+        Call::Tick { .. } => "tick",
+        Call::Timer { .. } => "timer",
         Call::Player { .. } => "player",
         Call::Place { .. } => "place",
         Call::Break { .. } => "break",

@@ -665,6 +665,7 @@ pub fn callback(anchor: BlockPos, call: Call) -> Request {
         seq: 1,
         info: Info {
             context: None,
+            simulation: None,
             world_id: "world".to_owned(),
             dimension_id: "overworld".to_owned(),
             tick: 1,
@@ -793,4 +794,20 @@ fn v0_6_artifact(control: bool) -> TempDir {
         "{guest}(func (export \"on-scheduled-update\") (param i32 i32 i32 i32) (result i32) (call $drop (local.get 0)) (i32.const 0)))"
     );
     wat_dir(&guest, SERVER_WIT_0_6)
+}
+
+/// A frozen 0.8 component with empty world registration and the older callback contract.
+pub fn v0_8_dir() -> TempDir {
+    let guest = V0_5_GUEST
+        .replace("@0.5.0", "@0.8.0")
+        .replace("v0.5", "v0.8");
+    let guest = guest.trim_end().strip_suffix(')').unwrap();
+    let guest = format!(
+        r#"{guest}
+      (func (export "world-definitions") (result i32) (i32.const 32))
+      (func (export "on-player") (param i32) (result i32) (i32.const 0))
+      (func (export "on-scheduled-update") (param i32 i32 i32 i32) (result i32)
+          (call $drop (local.get 0)) (i32.const 0)))"#
+    );
+    wat_dir(&guest, include_str!("../../../wit/0.8/server.wit"))
 }

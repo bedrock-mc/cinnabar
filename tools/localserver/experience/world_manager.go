@@ -191,6 +191,9 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 		}
 		result = h.worlds.unload(handle)
 		unbound = result == nil
+		if unbound {
+			h.forgetSimulation(handle)
+		}
 		if unbound && h.manager.afterUnbind != nil {
 			h.manager.afterUnbind()
 		}
@@ -245,6 +248,7 @@ func (h *Host) releaseWorld(handle WorldHandle, owned *ownedWorld) error {
 	owned.release.Do(func() {
 		if handle.Generation != 0 {
 			_ = h.worlds.unbind(handle)
+			h.forgetSimulation(handle)
 			delete(h.manager.owned, handle)
 		}
 		if h.manager.lifecycle != nil {

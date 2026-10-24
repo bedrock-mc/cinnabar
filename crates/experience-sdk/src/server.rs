@@ -39,10 +39,10 @@ pub use bindings::cinnabar::experience_server::{
         ChangeCause, Condition, Crafted, DimensionType, Face, Flipbook, Generator, GuestError,
         Inventory, ItemDef, ItemKey, ItemStack, LogLevel, Material, Mining, Network, NewStack,
         Permutation, Pixel, PixelBox, PlacementStates, PlayerEvent, PlayerId, PlayerLocation,
-        PlayerTransition, Position, QuarterTurns, Registration, RenderMethod, Scalar, StateDef,
-        StateTest, StateValue, StateValues, StoreKey, StoreScope, TextureBinding, ValueNode,
-        Visual, WorldDefinition, WorldDefinitionId, WorldError, WorldHandle, WorldInstance,
-        WorldInstanceId, WorldRegistration, WorldSettings,
+        PlayerTransition, Position, QuarterTurns, Registration, RenderMethod, Scalar,
+        ScheduleHandle, SimulationStep, StateDef, StateTest, StateValue, StateValues, StoreKey,
+        StoreScope, TextureBinding, ValueNode, Visual, WorldDefinition, WorldDefinitionId,
+        WorldError, WorldHandle, WorldInstance, WorldInstanceId, WorldRegistration, WorldSettings,
     },
     world_access::Callback,
 };
@@ -69,6 +69,19 @@ pub fn cube(def: BlockDef) -> BlockType {
 /// Implement [`Experience::registration`], or [`Experience::register`] for plain cube blocks
 /// alone; the callbacks default to `Ok(())`, which accepts the event without staging anything.
 pub trait Experience {
+    /// Receives one admitted fixed-step callback for each live world instance.
+    fn on_tick(_ctx: &Callback, _step: SimulationStep) -> Result<(), GuestError> {
+        Ok(())
+    }
+    /// Receives a scheduled callback; repeating handles remain cancellable.
+    fn on_timer(
+        _ctx: &Callback,
+        _handle: ScheduleHandle,
+        _step: SimulationStep,
+    ) -> Result<(), GuestError> {
+        Ok(())
+    }
+
     /// Declares world definitions and instances to open before admitting players.
     fn world_definitions() -> Result<WorldRegistration, GuestError> {
         Ok(WorldRegistration {
@@ -170,6 +183,13 @@ pub trait Experience {
 macro_rules! export_experience {
     ($ty:ident) => {
         impl $crate::server::bindings::Guest for $ty {
+            fn on_tick(ctx: &$crate::server::Callback, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_tick(ctx, step)
+            }
+            fn on_timer(ctx: &$crate::server::Callback, handle: $crate::server::ScheduleHandle, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_timer(ctx, handle, step)
+            }
+
             fn world_definitions() -> ::core::result::Result<$crate::server::WorldRegistration, $crate::server::GuestError> {
                 <$ty as $crate::server::Experience>::world_definitions()
             }

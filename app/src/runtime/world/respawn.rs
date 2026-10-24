@@ -25,6 +25,11 @@ impl RespawnLifecycle {
         }
     }
 
+    /// Whether a committed death or searching respawn still waits for its ready phase.
+    pub(crate) const fn awaiting_respawn(&self) -> bool {
+        self.searching
+    }
+
     /// Input remains withheld until the native completion precedes it in the queue.
     pub(crate) fn input_held(&self) -> bool {
         self.searching

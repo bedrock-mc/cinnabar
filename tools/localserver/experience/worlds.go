@@ -170,7 +170,12 @@ func (h *Host) UnbindWorld(ctx context.Context, handle WorldHandle) error {
 		return err
 	}
 	var result error
-	if err := await(ctx, w.Do(func(*world.Tx) { result = h.worlds.unload(handle) })); err != nil {
+	if err := await(ctx, w.Do(func(*world.Tx) {
+		result = h.worlds.unload(handle)
+		if result == nil {
+			h.forgetSimulation(handle)
+		}
+	})); err != nil {
 		return err
 	}
 	return result

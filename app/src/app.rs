@@ -563,12 +563,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         data_root: renderer_data_root,
         video_override: saved_settings.graphics_api(),
         graphics_api_revision: saved_settings.graphics_api_revision(),
-        shader_pack: crate::render_mode::startup_render_mode(
-            args.render_mode,
-            std::env::var_os(crate::render_mode::RENDER_MODE_ENV).as_deref(),
-            crate::render_mode::load_render_mode(&menu.graphics_file()),
-            diagnostics_enabled,
-        ) == ui::RenderMode::ShaderPack,
     };
     let plugins = DefaultPlugins
         .set(WindowPlugin {

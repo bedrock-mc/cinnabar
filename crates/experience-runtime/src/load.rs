@@ -142,16 +142,28 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
     let registration = register(engine, &pre, &manifest.id)?;
     let (blocks, items) = validate_registration(dir, &manifest, registration)?;
-    let worlds = if let Pre::V0_8(component) = &pre {
-        let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
-        let declared = component
-            .instantiate(&mut store)?
-            .call_world_definitions(&mut store)?
-            .map_err(|error| anyhow!("world definitions failed: {error:?}"))?;
-        Some(worlds::validate(&manifest.id, declared)?)
-    } else {
-        None
+    let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+    let declared = match &pre {
+        Pre::V0_8(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
+        Pre::V0_9(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
+        _ => None,
     };
+    let worlds = declared
+        .map(|result| {
+            worlds::validate(
+                &manifest.id,
+                result.map_err(|error| anyhow!("world definitions failed: {error:?}"))?,
+            )
+        })
+        .transpose()?;
     let catalog = Catalog {
         blocks: blocks
             .iter()

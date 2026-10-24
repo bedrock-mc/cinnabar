@@ -9,6 +9,7 @@ pub(super) struct HeldInput {
     sneaking: bool,
     sprinting: bool,
     mode: sim::MovementMode,
+    pose_flags: Option<super::PoseFlags>,
 }
 
 impl From<&PhysicsMovementSample> for HeldInput {
@@ -18,6 +19,7 @@ impl From<&PhysicsMovementSample> for HeldInput {
             sneaking: sample.processed.sneaking,
             sprinting: sample.processed.sprinting,
             mode: sample.processed.mode,
+            pose_flags: sample.processed.pose_flags,
         }
     }
 }
@@ -37,7 +39,9 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
     if sample.processed.spin_started {
         flags |= PlayerInputFlags::START_SPIN_ATTACK;
     }
-    if !sample.processed.spinning && (previous.spinning || sample.processed.spin_started) {
+    // Server flag changes are not actions: compare with the state they left.
+    let previous_spinning = sample.input.server_spinning.unwrap_or(previous.spinning);
+    if !sample.processed.spinning && (previous_spinning || sample.processed.spin_started) {
         flags |= PlayerInputFlags::STOP_SPIN_ATTACK;
     }
 
@@ -117,6 +121,16 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
     use sim::MovementMode::{Crawling, Flying, Gliding, Swimming};
     let mut flags = PlayerInputFlags::NONE;
     let current = sample.processed.mode;
+    let previous_mode = sample.input.server_mode.unwrap_or(previous.mode);
+    let current_poses = sample
+        .processed
+        .pose_flags
+        .unwrap_or_else(|| super::PoseFlags::from_mode(current));
+    let previous_poses = sample
+        .input
+        .server_pose_flags
+        .or(previous.pose_flags)
+        .unwrap_or_else(|| super::PoseFlags::from_mode(previous_mode));
     for (mode, start, stop) in [
         (
             Swimming,
@@ -134,7 +148,7 @@ fn mode_flags(sample: &PhysicsMovementSample, previous: HeldInput) -> PlayerInpu
             PlayerInputFlags::STOP_CRAWLING,
         ),
     ] {
-        match (current == mode, previous.mode == mode) {
+        match (current_poses.has(mode), previous_poses.has(mode)) {
             (true, false) => flags |= start,
             (false, true) => flags |= stop,
             _ => {}

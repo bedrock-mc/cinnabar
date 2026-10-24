@@ -23,6 +23,7 @@ pub(crate) mod v0_3;
 pub(crate) mod v0_4;
 pub(crate) mod v0_5;
 pub(crate) mod v0_6;
+pub(crate) mod v0_8;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -58,12 +59,14 @@ pub(crate) enum Api {
     V0_5,
     /// Crafting recipes and scheduled updates.
     V0_6,
-    /// The current world, with world and player operations.
+    /// World and player operations.
     V0_8,
+    /// Simulation ticks and cancellable callbacks.
+    V0_9,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 7] = [
+    pub(crate) const ALL: [Api; 8] = [
         Api::V0_1,
         Api::V0_2,
         Api::V0_3,
@@ -71,13 +74,14 @@ impl Api {
         Api::V0_5,
         Api::V0_6,
         Api::V0_8,
+        Api::V0_9,
     ];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_8 => true,
+            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_8 | Api::V0_9 => true,
         }
     }
 
@@ -95,7 +99,8 @@ impl Api {
             Api::V0_4 => v0_4::WIT,
             Api::V0_5 => v0_5::WIT,
             Api::V0_6 => v0_6::WIT,
-            Api::V0_8 => WIT,
+            Api::V0_8 => v0_8::WIT,
+            Api::V0_9 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -120,7 +125,8 @@ pub(crate) enum Pre {
     V0_4(v0_4::ServerPre<HostState>),
     V0_5(v0_5::ServerPre<HostState>),
     V0_6(v0_6::ServerPre<HostState>),
-    V0_8(ServerPre<HostState>),
+    V0_8(v0_8::ServerPre<HostState>),
+    V0_9(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -152,8 +158,12 @@ impl Pre {
                 Self::V0_6(v0_6::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_8 => {
+                v0_8::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_8(v0_8::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_9 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_8(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_9(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -196,6 +206,10 @@ impl Pre {
                 .with_context(instantiating)?
                 .call_register(store),
             Self::V0_8(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_9(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -422,6 +436,31 @@ impl world_access::Host for HostState {}
 impl world_access::HostCallback for HostState {
     fn info(&mut self, ctx: Resource<CallbackRes>) -> Result<CallbackInfo> {
         self.table.get_mut(&ctx)?.info()
+    }
+
+    /// Reads the instance simulation time from the callback snapshot.
+    fn simulation(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+    ) -> Result<Result<wit::SimulationStep, WorldError>> {
+        self.table.get_mut(&ctx)?.simulation()
+    }
+    /// Stages a callback without running guest work on a world thread.
+    fn schedule(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        after: u32,
+        period: u32,
+    ) -> Result<Result<wit::ScheduleHandle, WorldError>> {
+        self.table.get_mut(&ctx)?.schedule(after, period)
+    }
+    /// Cancels a handle belonging to the current instance opening.
+    fn cancel_schedule(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        handle: wit::ScheduleHandle,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.cancel_schedule(handle)
     }
 
     fn world(&mut self, ctx: Resource<CallbackRes>) -> Result<wit::WorldHandle> {

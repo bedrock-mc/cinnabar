@@ -72,6 +72,7 @@ func newLifecycleMatrix(t *testing.T, lifecycle ...WorldLifecycle) *lifecycleMat
 	f := newRuntimeFixture(t, lifecycle...)
 	sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
 	sup.registered.Worlds = f.d.sup.registered.Worlds
+	sup.registered.Simulation = true
 	rescript(t, sup, "leave_write", sup.registered)
 	f.d.sup = sup
 	base, err := playerdb.NewProvider(filepath.Join(t.TempDir(), "players"))
@@ -314,6 +315,8 @@ func (m *lifecycleMatrix) step(name string) {
 			f.t.Fatalf("optional publication failure blocked relocation: %v", err)
 		}
 		m.fenced = true
+	case "tick", "timer", "cancel_timer":
+		m.simulationStep(name)
 	case "unload":
 		handle, ok := f.h.worlds.handle("probe:one")
 		if ok {
@@ -394,7 +397,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "cancel_unload", "metadata_interrupt", "crash_reopen", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "cancel_unload", "metadata_interrupt", "crash_reopen", "tick", "timer", "cancel_timer", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {
@@ -460,4 +463,34 @@ func TestLifecycleAdmissionScenarios(t *testing.T) {
 			m.drain()
 		})
 	}
+}
+
+// simulationStep admits world callbacks without granting any player's session authority.
+func (m *lifecycleMatrix) simulationStep(name string) {
+	f := m.f
+	handle, ok := f.h.worlds.handle("probe:one")
+	if !ok {
+		return
+	}
+	if name != "tick" {
+		w, _ := f.h.ResolveWorld(handle)
+		instance, _ := f.h.worlds.of(w)
+		ev := event{w: w, instance: instance, call: Call{Tick: &TickCall{Step: SimulationStep{DurationNanos: uint64(tickDuration)}}}}
+		f.d.seq++
+		snap, err := f.h.snapshot(f.t.Context(), f.d, &ev)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		timer := ScheduleHandle{World: handle, Sequence: snap.req.Info.Simulation.Sequence}
+		ops := []Op{{Schedule: &ScheduleOp{timer, 1, 0}}}
+		if name == "cancel_timer" {
+			ops = append(ops, Op{CancelSchedule: &CancelScheduleOp{timer}})
+		}
+		f.do(w, func(tx *world.Tx) {
+			if _, err := f.h.apply(tx, f.d.id, ev, snap, ops); err != nil {
+				f.t.Fatal(err)
+			}
+		})
+	}
+	f.h.AdmitSimulationTick()
 }

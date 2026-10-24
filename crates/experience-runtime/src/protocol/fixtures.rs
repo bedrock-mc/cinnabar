@@ -10,6 +10,7 @@ use super::*;
 /// protocol's.
 #[derive(Serialize)]
 struct Limits {
+    simulation_step_nanos: u64,
     max_frame_bytes: usize,
     protocol: u32,
     max_block_data_bytes: usize,
@@ -96,6 +97,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         seq,
         info: Info {
             context: None,
+            simulation: None,
             world_id: "world".to_owned(),
             dimension_id: "overworld".to_owned(),
             tick: 48_213,
@@ -371,6 +373,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "response_loaded",
             pretty(&Response::Loaded {
+                simulation: false,
                 protocol: PROTOCOL_VERSION,
                 id: "benergistics".to_owned(),
                 version: "0.1.0".to_owned(),
@@ -570,6 +573,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "limits",
             pretty(&Limits {
+                simulation_step_nanos: crate::limits::SIMULATION_STEP_NANOS,
                 max_frame_bytes: MAX_FRAME_BYTES,
                 protocol: PROTOCOL_VERSION,
                 max_block_data_bytes: MAX_BLOCK_DATA_BYTES,
@@ -638,6 +642,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         ),
     ];
     fixtures.extend(super::fixtures_worlds::fixtures());
+    fixtures.extend(super::simulation::fixtures());
     fixtures
 }
 

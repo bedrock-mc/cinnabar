@@ -567,3 +567,19 @@ fn v0_6_control_artifact_loads_and_retains_replies() {
         }
     );
 }
+
+/// Frozen world artifacts keep their original exports without simulation callbacks.
+#[test]
+fn v0_8_artifact_loads_and_runs_without_simulation_exports() {
+    let dir = common::v0_8_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.8");
+    assert!(loaded.worlds.as_ref().unwrap().definitions.is_empty());
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.8")]
+        }
+    );
+}

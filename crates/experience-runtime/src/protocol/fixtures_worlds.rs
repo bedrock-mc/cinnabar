@@ -79,6 +79,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             seq: 1,
             info: Info {
                 context: Some(context.clone()),
+                simulation: None,
                 world_id: "world".into(),
                 dimension_id: "overworld".into(),
                 tick: 3,
@@ -99,6 +100,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         out.push((name, serde_json::to_string_pretty(&request).unwrap() + "\n"));
     }
     let response = Response::Loaded {
+        simulation: false,
         protocol: PROTOCOL_VERSION,
         id: "probe".into(),
         version: "0.1.0".into(),

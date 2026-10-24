@@ -158,7 +158,7 @@ func (m *reference) apply(e event) (notices []Notice, err bool) {
 		}
 	case "disconnect":
 		*m = reference{status: "disconnected"}
-	case "envelope":
+	case "envelope", "tick", "timer":
 	default:
 		panic(e.kind)
 	}
@@ -206,7 +206,7 @@ func (c *comparison) step(t *testing.T, e event) {
 		c.fence.Disable()
 	case "disconnect":
 		c.fence.Disconnect()
-	case "envelope":
+	case "envelope", "tick", "timer":
 		if got, want := c.fence.Accepts(e.epoch), c.model.allows() && e.epoch == c.model.epoch; got != want {
 			t.Fatalf("envelope accepted=%t want=%t after %+v", got, want, c.trace)
 		}
@@ -289,6 +289,10 @@ func (c *comparison) selectEvent(kind int, value uint64) event {
 		e.kind = "disable"
 	case 14:
 		e.kind = "disconnect"
+	case 15:
+		e.kind, e.epoch = "tick", value%(m.epoch+2)
+	case 16:
+		e.kind, e.epoch = "timer", value%(m.epoch+2)
 	}
 	return e
 }
@@ -299,9 +303,12 @@ func TestFenceRandomSequences(t *testing.T) {
 		t.Run(fmt.Sprint(sequence), func(t *testing.T) {
 			c := comparison{model: reference{status: "pending"}}
 			for step := range 96 {
-				kind := rng.IntN(13)
+				kind := rng.IntN(15)
+				if kind >= 13 {
+					kind += 2
+				}
 				if step >= 72 {
-					kind = rng.IntN(15)
+					kind = rng.IntN(17)
 				}
 				e := c.selectEvent(kind, rng.Uint64())
 				if (e.kind == "abort" || e.kind == "commit") && rng.IntN(4) == 0 {
@@ -318,12 +325,16 @@ func TestFenceRandomSequences(t *testing.T) {
 
 func TestFenceAllShortSequences(t *testing.T) {
 	// Enumerate every length-four sequence over the core lifecycle events.
-	for sequence := range 13 * 13 * 13 * 13 {
+	for sequence := range 15 * 15 * 15 * 15 {
 		c := comparison{model: reference{status: "pending"}}
 		choices := sequence
 		for range 4 {
-			e := c.selectEvent(choices%13, 1)
-			choices /= 13
+			kind := choices % 15
+			if kind >= 13 {
+				kind += 2
+			}
+			e := c.selectEvent(kind, 1)
+			choices /= 15
 			c.step(t, e)
 		}
 	}

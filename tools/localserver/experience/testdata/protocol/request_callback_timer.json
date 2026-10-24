@@ -1,0 +1,63 @@
+{
+  "type": "callback",
+  "seq": 2,
+  "info": {
+    "context": {
+      "current": {
+        "id": "probe:clock",
+        "generation": 9
+      },
+      "player": null,
+      "instances": [
+        {
+          "id": "probe:clock",
+          "generation": 9
+        }
+      ],
+      "stores": []
+    },
+    "simulation": {
+      "step": {
+        "tick": 3,
+        "duration_nanos": 50000000
+      },
+      "sequence": 2,
+      "schedules": [
+        {
+          "world": {
+            "id": "probe:clock",
+            "generation": 9
+          },
+          "sequence": 1,
+          "slot": 0
+        }
+      ]
+    },
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 3,
+    "event_sequence": 2
+  },
+  "actor": null,
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 1024,
+  "snapshot": [],
+  "network": null,
+  "inventory": null,
+  "call": {
+    "type": "timer",
+    "handle": {
+      "world": {
+        "id": "probe:clock",
+        "generation": 9
+      },
+      "sequence": 1,
+      "slot": 0
+    },
+    "step": {
+      "tick": 3,
+      "duration_nanos": 50000000
+    }
+  }
+}

@@ -3,6 +3,34 @@ use crate::dropped_items::DroppedItemPublisher;
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 use render_model::{DroppedItemCube, DroppedItemSprite};
 
+#[test]
+fn prepared_carried_models_replace_pixels_and_retire_with_their_source() {
+    let (first, _) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
+    let (second, _) = crate::presentation::equipment::PreparedBlockItems::narrow_box(80);
+    let mut cache = ModelCache::default();
+    let pose = DroppedItemSpawnPose::new([0.0; 3], Some(([0.0; 3], 30.0)));
+    cache.spawn_poses.insert((7, 1), pose);
+    for (source, seed) in [(&first, 20), (&second, 80)] {
+        cache.sync_prepared_blocks(Some(source));
+        cache.begin_frame();
+        cache.request(&ModelKey::PreparedBlock { id: 1 });
+        cache.finish_demand();
+        let model = cache
+            .prepared_block(1)
+            .expect("carried geometry must be available");
+        assert!(matches!(
+            &cache.models[model as usize],
+            DroppedItemModel::Block(block) if block.materials[0].0.rgba8[..4] == [seed, 40, 60, 255]
+        ));
+        cache.sync_prepared_blocks(Some(source));
+        assert_eq!(cache.prepared_block(1), Some(model));
+        assert_eq!(cache.spawn_poses.get(&(7, 1)), Some(&pose));
+    }
+    cache.sync_prepared_blocks(None);
+    assert!(cache.prepared_block(1).is_none());
+    assert_eq!(cache.spawn_poses.get(&(7, 1)), Some(&pose));
+}
+
 /// Creates a one-layer model without local carriers.
 fn sprite() -> DroppedItemModel {
     DroppedItemModel::Sprite(DroppedItemSprite {

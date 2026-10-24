@@ -30,6 +30,7 @@ pub(crate) struct DroppedItemFrame<'a> {
     pub(crate) partial_tick: f32,
     pub(crate) fishing_line_anchors:
         &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+    pub(crate) prepared_blocks: Option<&'a Arc<crate::presentation::equipment::PreparedBlockItems>>,
 }
 
 mod dials;
@@ -143,6 +144,24 @@ fn item_block_id(
     assets
         .is_none_or(|assets| assets.resolve(block.0, block.1).kind() != VisualKind::Cross)
         .then_some(block)
+}
+
+/// Selects stock carried geometry only when this item has no admitted session sprite.
+fn prepared_block_visual(
+    icons: &UiPresentationRuntime,
+    identifier: &str,
+    metadata: u32,
+    block: Option<(NetworkIdMode, u32)>,
+    assets: Option<&RuntimeAssets>,
+) -> Option<u32> {
+    if icons.session_item_icon(identifier, metadata).is_some() {
+        return None;
+    }
+    let ((mode, id), assets) = block.zip(assets)?;
+    match mode {
+        NetworkIdMode::Sequential => Some(id),
+        NetworkIdMode::Hashed => assets.sequential_id_for_hash(id),
+    }
 }
 
 fn entity_block_id(
@@ -434,6 +453,7 @@ impl DroppedItemPublisher<'_, '_> {
         let DroppedItemFrame {
             partial_tick,
             fishing_line_anchors,
+            prepared_blocks,
         } = frame;
         let (camera, cull_view) = camera;
         let frustum = self.culling_view(cull_view);
@@ -460,10 +480,11 @@ impl DroppedItemPublisher<'_, '_> {
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
-        let assets = self
-            .textures
-            .as_ref()
-            .map(|textures| textures.assets().as_ref());
+        let world = self.textures.as_ref().map(|textures| textures.assets());
+        cache.sync_prepared_blocks(
+            prepared_blocks.filter(|source| world.is_some_and(|world| source.matches(world))),
+        );
+        let assets = world.map(Arc::as_ref);
         let held_models = self
             .block_entities
             .as_ref()
@@ -491,6 +512,17 @@ impl DroppedItemPublisher<'_, '_> {
                 view.item.identifier.as_deref(),
                 assets,
             ) {
+                if let Some(visual) = view.item.identifier.as_deref().and_then(|identifier| {
+                    prepared_block_visual(
+                        icons,
+                        identifier,
+                        view.item.identity.metadata,
+                        Some((mode, id)),
+                        assets,
+                    )
+                }) {
+                    cache.request(&ModelKey::PreparedBlock { id: visual });
+                }
                 let hashed = mode == NetworkIdMode::Hashed;
                 cache.request(&ModelKey::CarriedBlock { hashed, id });
                 cache.request(&ModelKey::Block { hashed, id });
@@ -591,13 +623,25 @@ impl DroppedItemPublisher<'_, '_> {
                     )
                 })
             });
-            let cube = held.or_else(|| {
+            let stock_visual = prepared_block_visual(
+                icons,
+                identifier,
+                view.item.identity.metadata,
+                block_id,
+                assets,
+            );
+            let carried_model = held.or_else(|| {
+                let visual = stock_visual?;
+                preparation.model(
+                    cache,
+                    &ModelKey::PreparedBlock { id: visual },
+                    DroppedItemShape::Cube,
+                    |cache| cache.prepared_block(visual),
+                )
+            });
+            let cube = carried_model.or_else(|| {
                 block_id
-                    .filter(|_| {
-                        icons
-                            .session_item_icon(identifier, view.item.identity.metadata)
-                            .is_none()
-                    })
+                    .filter(|_| stock_visual.is_some())
                     .zip(assets)
                     .and_then(|((mode, id), assets)| {
                         let hashed = mode == NetworkIdMode::Hashed;

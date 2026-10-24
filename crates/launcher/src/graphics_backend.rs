@@ -75,14 +75,6 @@ impl Platform {
             Self::Macos => &[Backend::Metal],
         }
     }
-
-    /// Orders automatic APIs for this launch, preferring Vulkan for Windows shader packs.
-    pub const fn session_backends(self, shader_pack: bool) -> &'static [Backend] {
-        match (self, shader_pack) {
-            (Self::Windows, true) => &[Backend::Vulkan, Backend::Dx12],
-            _ => self.backends(),
-        }
-    }
 }
 
 /// Adapter identity and driver details recorded before device creation.

@@ -10,11 +10,15 @@ const ITEM: &str = "minecraft:stone";
 
 /// Creates original one-pixel base artwork and an ordinary dropped stack.
 fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
-    fixture_item(ITEM, metadata)
+    fixture_item(ITEM, metadata, 0)
 }
 
-/// Creates one named dropped stack with original base artwork.
-fn fixture_item(identifier: &str, metadata: u32) -> (UiPresentationRuntime, WorldStream) {
+/// Supplies original artwork and a stack with the requested retained block runtime ID.
+fn fixture_item(
+    identifier: &str,
+    metadata: u32,
+    block_runtime_id: i32,
+) -> (UiPresentationRuntime, WorldStream) {
     let catalog = assets::RuntimeIconCatalog::decode(
         &assets::encode_icon_catalog(
             [5; 32],
@@ -63,6 +67,7 @@ fn fixture_item(identifier: &str, metadata: u32) -> (UiPresentationRuntime, Worl
                 held_item: protocol::NetworkItemStack {
                     network_id: id,
                     metadata,
+                    block_runtime_id,
                     count: 1,
                     ..Default::default()
                 },
@@ -74,6 +79,54 @@ fn fixture_item(identifier: &str, metadata: u32) -> (UiPresentationRuntime, Worl
         )
         .unwrap();
     (icons, stream)
+}
+
+#[test]
+fn drops_use_matching_carried_models_and_preserve_session_sprite_overrides() {
+    let (source, terrain) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
+    let (replacement_source, replacement) =
+        crate::presentation::equipment::PreparedBlockItems::narrow_box(80);
+    let (mut icons, stream) = fixture_item(ITEM, 0, 1);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    world.insert_resource(ChunkTextureAssets::new(Arc::clone(&terrain)));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    for (terrain, carried, session, expected) in [
+        (&terrain, Some(&source), None, 20),
+        (&replacement, Some(&source), None, 5),
+        (&replacement, Some(&replacement_source), None, 80),
+        (&terrain, Some(&source), Some(90), 90),
+        (&terrain, None, None, 5),
+        (&terrain, Some(&source), None, 20),
+    ] {
+        world.insert_resource(ChunkTextureAssets::new(Arc::clone(terrain)));
+        install(&mut icons, session, false, 0);
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            DroppedItemFrame {
+                prepared_blocks: carried,
+                ..Default::default()
+            },
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        assert_eq!(scene.instances.len(), 1);
+        let model = &scene.models[scene.instances[0].model as usize];
+        if session.is_some() {
+            let DroppedItemModel::NativeSprite(sprite) = model else {
+                panic!("an admitted session sprite must replace stock carried geometry");
+            };
+            assert_eq!(sprite.rgba8[0], expected);
+        } else {
+            let DroppedItemModel::Block(block) = model else {
+                panic!("the available block source must supply geometry");
+            };
+            assert_eq!(block.materials[0].0.rgba8[0], expected);
+        }
+    }
 }
 
 /// Installs pack artwork through the same UI build boundary used by the client.
@@ -267,7 +320,7 @@ fn chest_artwork(world: &mut World, color: Option<u8>) {
 #[test]
 fn dedicated_drops_use_current_models_and_preserve_session_artwork_and_fallbacks() {
     let identifier = "minecraft:chest";
-    let (mut icons, stream) = fixture_item(identifier, 0);
+    let (mut icons, stream) = fixture_item(identifier, 0, 0);
     let mut world = World::new();
     world.init_resource::<DroppedItemScene>();
     chest_artwork(&mut world, Some(30));
