@@ -172,10 +172,11 @@ pub(super) fn advance_motion(
             .horse
             .advance(query::actor_flag(actor, ActorFlag::Standing.wire_value()));
     }
-    // Arrow orientation is entirely in animation.arrow.move's body bone. It is not
-    // a mob: its interpolated body yaw is 0, while
-    // query.target_y_rotation reads the actor's absolute rotation.
-    if query::is_arrow(actor) {
+    super::shulker::advance_peek(&mut motion.shulker_peek, actor);
+    // Arrow orientation is entirely in animation.arrow.move's body bone, and a shulker's
+    // attach face orients its model, so both keep a zero body yaw while
+    // query.target_y_rotation still reads the actor's rotation.
+    if query::has_zero_body_yaw(actor) {
         motion.body_yaw = 0.0;
         motion.previous_body_yaw = 0.0;
     }
@@ -309,7 +310,7 @@ pub(super) fn seed_presentation_input(
         position: actor.position(),
         velocity: actor.velocity(),
         on_ground: actor.on_ground(),
-        body_yaw: if query::is_arrow(actor) {
+        body_yaw: if query::has_zero_body_yaw(actor) {
             0.0
         } else {
             state.motion.body_yaw
@@ -879,6 +880,7 @@ pub(super) fn apply_engine_variables(
             truth(super::horse::mouth_open(actor)),
         );
     }
+    super::shulker::publish(engine, variables, actor, context, motion);
     for &(slot, offset, axis) in &engine.dragon_history {
         if let Some(frame) = actor.dragon_historical_frame(offset) {
             variables.set(Some(slot), frame[axis]);
