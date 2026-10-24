@@ -200,7 +200,8 @@ fn matching_sneak_keeps_horizontal_transitions_independent() {
         3,
         sneak | (1 << ActorFlag::DamageNearbyMobs.wire_value()),
     );
-    assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, 0.7]);
+    // The accepted spin owns the horizontal pose independently of Sneaking.
+    assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, WIDTH]);
     tick_sneak(&world, &mut physics, true);
     assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, WIDTH]);
     write_dimensions(&mut world, 4, &[(ActorDataKey::Height, 0.9)]);
