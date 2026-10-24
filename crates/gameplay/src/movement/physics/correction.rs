@@ -234,6 +234,7 @@ impl LocalPhysicsController {
         let mut sync_state = anchor_controller.sync_state;
         let deferred_corrections = self.deferred_corrections.clone();
         let boosts = self.boosts.clone();
+        let pending_climber = self.pending_climber.clone();
         let mut effective_climber = anchor_controller.climber;
         let (replay, replayed_ticks) = self
             .history
@@ -270,6 +271,9 @@ impl LocalPhysicsController {
                         .iter_mut()
                         .find(|frame| frame.tick == next_tick)
                         .expect("controller and prediction histories retain the same ticks");
+                    frame
+                        .climber_write
+                        .merge(pending_climber.for_replay(next_tick));
                     effective_climber = frame.climber_write.apply_flags(effective_climber);
                     if let Some(climber) = effective_climber {
                         climber.apply(state, ClimberFlags::mask());
@@ -429,6 +433,10 @@ impl LocalPhysicsController {
         } else {
             controller_frames.back().and_then(|frame| frame.climber)
         };
+        self.pending_climber.complete_replay(
+            tick,
+            controller_frames.back().map_or(tick, |frame| frame.tick),
+        );
         self.controller_history = controller_frames;
         sync_state.replay_server(&self.sync_pending);
         self.sync_state = sync_state;

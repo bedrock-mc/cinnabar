@@ -41,6 +41,78 @@ impl ClimberWrite {
     }
 }
 
+/// An accepted write awaiting its first successful live or corrected input.
+#[derive(Debug, Clone, Copy)]
+struct PendingClimberWrite {
+    replay_tick: Option<u64>,
+    write: ClimberWrite,
+}
+
+/// Arrival-ordered writes stay pending until an input successfully consumes them.
+#[derive(Debug, Clone, Default)]
+pub(super) struct PendingClimberWrites(Vec<PendingClimberWrite>);
+
+impl PendingClimberWrites {
+    /// Queues changed bits, optionally offering them to a retained historical input first.
+    fn push(&mut self, replay_tick: Option<u64>, write: ClimberWrite) {
+        if write.mask != 0 {
+            self.0.push(PendingClimberWrite { replay_tick, write });
+        }
+    }
+
+    /// Transfers all still-pending writes to the successful live input that consumed them.
+    pub(super) fn consume_live(&mut self) -> ClimberWrite {
+        let mut consumed = ClimberWrite::default();
+        for pending in self.0.drain(..) {
+            consumed.merge(pending.write);
+        }
+        consumed
+    }
+
+    /// Offers historical writes to this replay input without committing their consumption.
+    pub(super) fn for_replay(&self, tick: u64) -> ClimberWrite {
+        let mut consumed = ClimberWrite::default();
+        for pending in &self.0 {
+            if pending.replay_tick == Some(tick) {
+                consumed.merge(pending.write);
+            }
+        }
+        consumed
+    }
+
+    /// Retires successfully replayed writes and any older pending bits they superseded.
+    pub(super) fn complete_replay(&mut self, anchor: u64, through: u64) {
+        let mut consumed_mask = 0;
+        for pending in self.0.iter_mut().rev() {
+            if pending
+                .replay_tick
+                .is_some_and(|tick| tick > anchor && tick <= through)
+            {
+                consumed_mask |= pending.write.mask;
+                pending.write.mask = 0;
+            } else {
+                pending.write.supersede(consumed_mask);
+            }
+        }
+        self.0.retain(|pending| pending.write.mask != 0);
+    }
+
+    /// Restores unconsumed server bits over the last completed contact report.
+    pub(super) fn apply_flags(&self, mut flags: Option<ClimberFlags>) -> Option<ClimberFlags> {
+        for pending in &self.0 {
+            flags = pending.write.apply_flags(flags);
+        }
+        flags
+    }
+
+    /// Restores the same unconsumed bits to the simulator after a replay.
+    pub(super) fn apply(&self, state: &mut PlayerState) {
+        for pending in &self.0 {
+            pending.write.apply(state);
+        }
+    }
+}
+
 impl LocalPhysicsController {
     /// Replaces live contact and unconsumed writes when ordered authority starts a new actor.
     pub(super) fn replace_climber_authority(&mut self, flags: client_world::MovementFlagUpdate) {
@@ -50,7 +122,8 @@ impl LocalPhysicsController {
             mask: ClimberFlags::mask(),
         };
         self.live_climber = Some(ClimberFlags::from_word(word));
-        self.pending_climber = write;
+        self.pending_climber = Default::default();
+        self.pending_climber.push(None, write);
         if let Some(state) = self.state.as_mut() {
             write.apply(state);
         }
@@ -62,15 +135,15 @@ impl LocalPhysicsController {
         let live = self.live_climber.unwrap_or_default().word();
         let oldest = self.history.oldest_tick().unwrap_or(state.tick);
         let anchor = stamp.max(oldest);
-        let consumed = if stamp != 0 && anchor < state.tick {
+        let historical = if stamp != 0 && anchor < state.tick {
             self.controller_history
-                .iter_mut()
+                .iter()
                 .find(|frame| frame.tick == anchor.saturating_add(1))
         } else {
             None
         };
         // Completed inputs compare with their original live entry, including accepted writes.
-        let baseline = consumed
+        let baseline = historical
             .as_ref()
             .map_or(live, |frame| frame.entry_climber.unwrap_or_default().word());
         let mask = (baseline ^ word) & ClimberFlags::mask();
@@ -78,13 +151,8 @@ impl LocalPhysicsController {
         self.live_climber = Some(flags);
         flags.apply(state, mask);
         let write = ClimberWrite { word, mask };
-        if let Some(frame) = consumed {
-            frame.climber_write.merge(write);
-            self.pending_climber.supersede(mask);
-            (mask != 0).then_some(anchor)
-        } else {
-            self.pending_climber.merge(write);
-            None
-        }
+        self.pending_climber
+            .push(historical.map(|frame| frame.tick), write);
+        (historical.is_some() && mask != 0).then_some(anchor)
     }
 }

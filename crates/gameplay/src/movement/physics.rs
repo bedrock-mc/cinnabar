@@ -277,7 +277,7 @@ pub struct LocalPhysicsController {
     sample_history: VecDeque<PhysicsMovementSample>,
     controller_history: VecDeque<ControllerFrame>,
     live_climber: Option<ClimberFlags>,
-    pending_climber: climber_authority::ClimberWrite,
+    pending_climber: climber_authority::PendingClimberWrites,
     motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
     motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.

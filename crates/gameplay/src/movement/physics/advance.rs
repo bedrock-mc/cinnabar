@@ -252,7 +252,7 @@ impl LocalPhysicsController {
                         modes: self.modes,
                         environment: result.environment,
                         entry_climber: previous,
-                        climber_write: std::mem::take(&mut self.pending_climber),
+                        climber_write: self.pending_climber.consume_live(),
                         climber,
                     };
                     controller.finish_eye(&mut self.eye_offset, state);

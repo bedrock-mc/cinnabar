@@ -123,6 +123,58 @@ fn clearing_a_consumed_climber_write_uses_the_immutable_live_capture() {
     }
 }
 
+/// Missing terrain rejects a replay before it can consume any input.
+pub(super) struct MissingTerrain;
+
+impl sim::CollisionWorld for MissingTerrain {
+    /// Refuses movement queries while the retained input's terrain is unavailable.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Err(sim::WorldQueryError::CoordinateOutOfRange)
+    }
+}
+
+#[test]
+fn a_failed_historical_replay_leaves_the_write_for_its_first_successful_live_input() {
+    let mut physics = due_physics();
+    let tick = simulation_clock::TICK_DURATION;
+    physics.advance(tick * 3, sim::MovementInput::default(), &OpenWorld);
+    let word = 1 << (ActorFlag::OverDescendingBlock.wire_value() % 64);
+    assert_eq!(
+        physics.apply_server_movement_flags(
+            101,
+            client_world::MovementFlagUpdate {
+                extended_flags: Some(word),
+                ..Default::default()
+            },
+        ),
+        Some(101)
+    );
+    assert!(physics.replay_retained_from(101, &MissingTerrain).is_err());
+    let live = physics.advance(
+        tick,
+        sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    assert_eq!(live.samples[0].tick, 104);
+    assert_eq!(live.samples[0].movement[1], -0.15_f32);
+    let flags = reported(&physics);
+    for anchor in [101, 102, 103] {
+        let mut replay = physics.clone();
+        let plan = replay.replay_retained_from(anchor, &OpenWorld).unwrap();
+        assert_eq!(
+            plan.replayed_samples.last().unwrap().movement,
+            live.samples[0].movement
+        );
+        assert_eq!(reported(&replay), flags);
+    }
+}
+
 #[test]
 fn consumed_climber_edits_match_live_processing_from_every_replay_anchor() {
     let flags = [

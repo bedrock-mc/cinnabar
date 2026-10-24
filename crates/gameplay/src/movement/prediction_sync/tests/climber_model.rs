@@ -45,7 +45,7 @@ impl sim::CollisionWorld for ContactWorld {
                 flags: if hash.rotate_right(13) & 1 == 0 {
                     sim::BlockPhysicsFlags::SCAFFOLDING
                 } else {
-                    sim::BlockPhysicsFlags::AIR
+                    sim::BlockPhysicsFlags::PASSABLE
                 },
                 surface_response: sim::SurfaceResponse::None,
             }]),
@@ -205,6 +205,28 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                 if let Some(anchor) = rewind {
                     check_replay(&mut physics, anchor, &ticks, &pending, &world, seed);
                 }
+            }
+            if current > 101 && random.next() & 3 == 0 {
+                let stamp = 101 + random.next() % (current - 101);
+                let word = random.next() & ClimberFlags::mask();
+                let mask = (ticks[(stamp - 100) as usize].entry ^ word) & ClimberFlags::mask();
+                let rewind = physics.apply_server_movement_flags(
+                    stamp,
+                    client_world::MovementFlagUpdate {
+                        extended_flags: Some(word),
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(rewind, (mask != 0).then_some(stamp));
+                if let Some(anchor) = rewind {
+                    assert!(
+                        physics
+                            .replay_retained_from(anchor, &super::climber_replay::MissingTerrain)
+                            .is_err()
+                    );
+                }
+                // A rejected rewind leaves this write for the next live input instead.
+                pending.push(Edit { mask, word });
             }
             let input = sim::MovementInput {
                 sneaking: random.next() & 1 != 0,
