@@ -471,68 +471,177 @@ fn body_sampling_retains_render_layers_under_the_same_frame_budget() {
 
 #[test]
 fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
-    for active in [false, true] {
-        let mut compiled = compiled_fixture(180.0);
-        let frame_alpha = compiled
+    use assets::EntityRenderMaterialSelection as Node;
+    let mut compiled = compiled_fixture(180.0);
+    let frame_alpha = compiled
+        .molang_symbols
+        .iter()
+        .position(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
+        .unwrap() as u32;
+    let choice = expression(&mut compiled, &[MolangOp::LoadQuery(frame_alpha)], 1);
+    compiled.render.material_selections = vec![
+        Node::Branch {
+            condition: choice,
+            yes: 1,
+            no: 2,
+        },
+        Node::Raster {
+            material: assets::EntityRenderMaterial::Default,
+            state: None,
+        },
+        Node::Raster {
+            material: assets::EntityRenderMaterial::Dragon,
+            state: None,
+        },
+    ]
+    .into();
+    compiled.render.layers[0].material_selection = Some(0);
+    let (store, actors) = fixture_with(compiled, 0.0, Default::default());
+    for (alpha, expected) in [
+        (0.0, assets::EntityRenderMaterial::Dragon),
+        (1.0, assets::EntityRenderMaterial::Default),
+    ] {
+        let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let layers = store
+            .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+            .unwrap();
+        assert_eq!(layers.render.len(), 1);
+        assert_eq!(
+            layers
+                .render
+                .iter()
+                .find(|layer| layer.texture_slot == 0)
+                .unwrap()
+                .material,
+            expected
+        );
+    }
+}
+
+#[test]
+fn material_decisions_preserve_one_controller_execution_with_script_effects() {
+    use assets::EntityRenderMaterialSelection as Node;
+    let mut compiled = compiled_fixture(180.0);
+    let names = [
+        "variable.activation_calls",
+        "variable.material_choice",
+        "variable.visibility_calls",
+    ];
+    for name in names {
+        symbol(&mut compiled, MolangSymbolKind::Variable, name);
+    }
+    let [calls, choice, visible] = names.map(|name| {
+        compiled
             .molang_symbols
             .iter()
-            .position(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
-            .unwrap() as u32;
-        let early = expression(
-            &mut compiled,
-            &[MolangOp::LoadQuery(frame_alpha), MolangOp::Not],
-            1,
-        );
-        let late = expression(&mut compiled, &[MolangOp::LoadQuery(frame_alpha)], 1);
-        let activation = expression(
-            &mut compiled,
-            &[MolangOp::Push(crate::test_support::scalar(f32::from(
-                active,
-            )))],
-            1,
-        );
-        let mut first = compiled.render.layers[0];
-        first.material = assets::EntityRenderMaterial::Dragon;
-        first.condition = Some(activation);
-        first.material_condition = Some(early);
-        let second = assets::EntityRenderLayer {
+            .position(|symbol| symbol.identifier.as_ref() == name)
+            .unwrap() as u32
+    });
+    let zero = MolangOp::Push(crate::test_support::scalar(0.0));
+    let one = MolangOp::Push(crate::test_support::scalar(1.0));
+    let reset = expression(
+        &mut compiled,
+        &[
+            zero,
+            MolangOp::StoreVariable(calls),
+            zero,
+            MolangOp::StoreVariable(choice),
+            zero,
+            MolangOp::StoreVariable(visible),
+            zero,
+        ],
+        1,
+    );
+    compiled.rig_bindings[0].pre_animation = Some(reset);
+    let activation = expression(
+        &mut compiled,
+        &[
+            MolangOp::LoadVariable(calls),
+            one,
+            MolangOp::Add,
+            MolangOp::StoreVariable(calls),
+            one,
+            MolangOp::Return,
+        ],
+        2,
+    );
+    let select = expression(&mut compiled, &[MolangOp::LoadVariable(choice)], 1);
+    let visibility = expression(
+        &mut compiled,
+        &[
+            one,
+            MolangOp::StoreVariable(choice),
+            MolangOp::LoadVariable(visible),
+            one,
+            MolangOp::Add,
+            MolangOp::StoreVariable(visible),
+            one,
+            MolangOp::Return,
+        ],
+        2,
+    );
+    let read_calls = expression(&mut compiled, &[MolangOp::LoadVariable(calls)], 1);
+    let read_visible = expression(&mut compiled, &[MolangOp::LoadVariable(visible)], 1);
+    let read_choice = expression(&mut compiled, &[MolangOp::LoadVariable(choice)], 1);
+    let alpha = expression(&mut compiled, &[one], 1);
+    compiled.render.material_selections = vec![
+        Node::Branch {
+            condition: select,
+            yes: 1,
+            no: 2,
+        },
+        Node::Raster {
             material: assets::EntityRenderMaterial::Default,
-            material_condition: Some(late),
-            first_slot: 1,
-            ..first
-        };
-        compiled.render.layers = vec![first, second].into();
-        let slot = compiled.render.slots[0];
-        compiled.render.slots = vec![
-            slot,
-            assets::EntityRenderSlot {
-                first_candidate: 1,
-                ..slot
-            },
-        ]
-        .into();
-        compiled.render.candidates = compiled.render.candidates.repeat(2).into();
-        let (store, actors) = fixture_with(compiled, 0.0, Default::default());
-        for (alpha, expected) in [
-            (0.0, assets::EntityRenderMaterial::Dragon),
-            (1.0, assets::EntityRenderMaterial::Default),
-        ] {
-            let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
-            let layers = store
-                .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
-                .unwrap();
-            assert_eq!(layers.render.len(), usize::from(active));
-            if active {
-                assert_eq!(
-                    layers
-                        .render
-                        .iter()
-                        .find(|layer| layer.texture_slot == 0)
-                        .unwrap()
-                        .material,
-                    expected
-                );
-            }
-        }
+            state: None,
+        },
+        Node::Raster {
+            material: assets::EntityRenderMaterial::Dragon,
+            state: None,
+        },
+    ]
+    .into();
+    let mut body = compiled.render.layers[0];
+    body.condition = Some(activation);
+    body.material_selection = Some(0);
+    body.visibility_count = 1;
+    let witness = assets::EntityRenderLayer {
+        material: assets::EntityRenderMaterial::Glint,
+        condition: None,
+        material_selection: None,
+        first_slot: 1,
+        first_visibility: 1,
+        visibility_count: 0,
+        color: Some([read_calls, read_visible, read_choice, alpha]),
+        ..body
+    };
+    compiled.render.layers = vec![body, witness].into();
+    compiled.render.visibility = vec![assets::EntityRenderVisibility {
+        pattern: "*".into(),
+        condition: visibility,
+    }]
+    .into();
+    let slot = compiled.render.slots[0];
+    compiled.render.slots = vec![
+        slot,
+        assets::EntityRenderSlot {
+            first_candidate: 1,
+            ..slot
+        },
+    ]
+    .into();
+    compiled.render.candidates = compiled.render.candidates.repeat(2).into();
+    let (store, actors) = fixture_with(compiled, 0.0, Default::default());
+    let assert_layers = |layers: &[RenderTextureLayer]| {
+        assert_eq!(layers.len(), 2);
+        assert_eq!(layers[0].material, assets::EntityRenderMaterial::Dragon);
+        assert_eq!(layers[1].color, [1.0; 4]);
+    };
+    assert_layers(store.get(1).unwrap().render);
+    for alpha in [0.0, 0.5, 1.0] {
+        let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+        let layers = store
+            .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+            .unwrap();
+        assert_layers(&layers.render);
     }
 }

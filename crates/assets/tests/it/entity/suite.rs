@@ -685,13 +685,14 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
         }]
         .into_boxed_slice(),
         render: entity::EntityRenderData {
+            material_selections: Box::new([]),
             layers: Box::new([entity::EntityRenderLayer {
                 material: Default::default(),
                 material_state: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
-                material_condition: None,
+                material_selection: None,
                 first_slot: 0,
                 slot_count: 1,
                 unresolved_textures: false,
@@ -1091,14 +1092,26 @@ fn render_layers_round_trip_and_reject_invalid_indices() {
 }
 
 #[test]
-fn material_choice_condition_is_optional_and_validated() {
+fn material_selection_graph_is_optional_and_validated() {
     let mut compiled = carrier_v4_fixture();
     let serialized = serde_json::to_value(compiled.render.layers[0]).unwrap();
-    assert!(serialized.get("material_condition").is_none());
+    assert!(serialized.get("material_selection").is_none());
     let layer: entity::EntityRenderLayer = serde_json::from_value(serialized).unwrap();
-    assert_eq!(layer.material_condition, None);
-    compiled.render.layers[0].material_condition = Some(u32::MAX);
+    assert_eq!(layer.material_selection, None);
+    compiled.render.layers[0].material_selection = Some(u32::MAX);
     assert!(compiled.validate().is_err());
-    compiled.render.layers[0].material_condition = Some(0);
+    compiled.render.material_selections = vec![entity::EntityRenderMaterialSelection::Raster {
+        material: entity::EntityRenderMaterial::Default,
+        state: None,
+    }]
+    .into();
+    compiled.render.layers[0].material_selection = Some(0);
     assert!(compiled.validate().is_ok());
+    compiled.render.material_selections = vec![entity::EntityRenderMaterialSelection::Branch {
+        condition: 0,
+        yes: 0,
+        no: 0,
+    }]
+    .into();
+    assert!(compiled.validate().is_err());
 }

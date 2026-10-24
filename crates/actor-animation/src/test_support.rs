@@ -194,13 +194,14 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
         render: EntityRenderData {
+            material_selections: Box::new([]),
             layers: vec![EntityRenderLayer {
                 material: Default::default(),
                 material_state: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
-                material_condition: None,
+                material_selection: None,
                 first_slot: 0,
                 slot_count: 1,
                 unresolved_textures: false,

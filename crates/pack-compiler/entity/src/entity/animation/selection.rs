@@ -50,47 +50,79 @@ pub(super) struct Selector<'a, T> {
     pub resolve: &'a dyn Fn(&str) -> Option<T>,
 }
 
+/// One selector decision, retaining each condition or array index as a single evaluation.
+pub(super) enum Selection<T> {
+    Empty,
+    Leaf(T),
+    Branch(String, Box<Self>, Box<Self>),
+    Array(String, Vec<Self>),
+}
+
+impl<T> Selection<T> {
+    /// Moves leaves into their selecting paths for the existing texture and geometry carriers.
+    fn collect(self, path: &mut Vec<Step>, output: &mut Vec<(Vec<Step>, T)>) {
+        match self {
+            Self::Empty => {}
+            Self::Leaf(leaf) => output.push((path.clone(), leaf)),
+            Self::Branch(condition, yes, no) => {
+                path.push(Step::Branch(condition.clone(), true));
+                yes.collect(path, output);
+                path.pop();
+                path.push(Step::Branch(condition, false));
+                no.collect(path, output);
+                path.pop();
+            }
+            Self::Array(index, members) => {
+                let count = members.len();
+                for (element, member) in members.into_iter().enumerate() {
+                    path.push(Step::Element(index.clone(), count, element));
+                    member.collect(path, output);
+                    path.pop();
+                }
+            }
+        }
+    }
+}
+
 impl<T> Selector<'_, T> {
-    /// Every leaf the expression can select, with the path selecting each; `None` when the
-    /// expression uses a form the selector does not understand.
+    /// Expands resolvable leaves into the conditions selecting them.
     pub fn leaves(&self, expression: &str) -> Option<Vec<(Vec<Step>, T)>> {
         let mut output = Vec::new();
-        self.expand(expression, &mut Vec::new(), &mut output, 0)?;
+        self.tree(expression)?.collect(&mut Vec::new(), &mut output);
         Some(output)
     }
 
-    fn expand(
-        &self,
-        expression: &str,
-        path: &mut Vec<Step>,
-        output: &mut Vec<(Vec<Step>, T)>,
-        depth: usize,
-    ) -> Option<()> {
+    /// Retains the decision tree so material selectors evaluate each decision exactly once.
+    pub fn tree(&self, expression: &str) -> Option<Selection<T>> {
+        self.expand(expression, &mut 0, 0)
+    }
+
+    /// Parses one selector under the shared leaf and nesting admission rules.
+    fn expand(&self, expression: &str, leaves: &mut usize, depth: usize) -> Option<Selection<T>> {
         if depth > MAX_DEPTH {
             return None;
         }
         let expression = strip_outer_parentheses(expression.trim());
-        if let Some((condition, then_branch, else_branch)) = split_ternary(expression) {
-            let else_branch = else_branch?;
-            path.push(Step::Branch(condition.to_owned(), true));
-            let then_result = self.expand(then_branch, path, output, depth + 1);
-            path.pop();
-            path.push(Step::Branch(condition.to_owned(), false));
-            let else_result = self.expand(else_branch, path, output, depth + 1);
-            path.pop();
-            return (then_result.is_some() && else_result.is_some()).then_some(());
+        if let Some((condition, yes, no)) = split_ternary(expression) {
+            return Some(Selection::Branch(
+                condition.to_owned(),
+                Box::new(self.expand(yes, leaves, depth + 1)?),
+                Box::new(self.expand(no?, leaves, depth + 1)?),
+            ));
         }
         let lower = expression.to_ascii_lowercase();
         if let Some(alias) = lower.strip_prefix(self.prefix) {
-            if let Some(leaf) = (self.resolve)(alias) {
-                if output.len() >= MAX_SELECTOR_LEAVES {
-                    return None;
+            return match (self.resolve)(alias) {
+                None => Some(Selection::Empty),
+                Some(leaf) => {
+                    if *leaves >= MAX_SELECTOR_LEAVES {
+                        return None;
+                    }
+                    *leaves += 1;
+                    Some(Selection::Leaf(leaf))
                 }
-                output.push((path.clone(), leaf));
-            }
-            return Some(());
+            };
         }
-        // Runtime string textures have no catalog leaf; static siblings keep their conditions.
         if self.prefix == "texture."
             && lower.strip_prefix("variable.").is_some_and(|name| {
                 !name.is_empty()
@@ -103,17 +135,17 @@ impl<T> Selector<'_, T> {
                     })
             })
         {
-            return Some(());
+            return Some(Selection::Empty);
         }
         let (name, index) = split_index(expression)?;
         let members = self.arrays.get(&name.to_ascii_lowercase())?;
-        for (element, member) in members.iter().enumerate() {
-            path.push(Step::Element(index.to_owned(), members.len(), element));
-            let result = self.expand(member, path, output, depth + 1);
-            path.pop();
-            result?;
-        }
-        Some(())
+        Some(Selection::Array(
+            index.to_owned(),
+            members
+                .iter()
+                .map(|member| self.expand(member, leaves, depth + 1))
+                .collect::<Option<Vec<_>>>()?,
+        ))
     }
 }
 

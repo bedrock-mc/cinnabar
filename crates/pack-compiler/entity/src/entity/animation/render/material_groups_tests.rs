@@ -2,13 +2,7 @@ use super::*;
 use serde_json::json;
 
 /// Compiles material groups and authored visibility for a two-bone controller fixture.
-fn compile(
-    controller: Value,
-) -> (
-    Vec<EntityRenderLayer>,
-    Vec<EntityRenderVisibility>,
-    MolangCompiler,
-) {
+fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
     let description =
         json!({"materials": {"solid": "entity_alphatest", "blend": "entity_alphablend"}});
     let geometry: EntityGeometry = serde_json::from_value(json!({
@@ -52,10 +46,12 @@ fn compile(
     }))
     .unwrap();
     let mut layers = Vec::new();
+    let mut selections = Vec::new();
     append(
         base,
         groups,
         Records {
+            selections: &mut selections,
             layers: &mut layers,
             slots: &mut Vec::new(),
             candidates: &mut Vec::new(),
@@ -65,7 +61,15 @@ fn compile(
         &mut molang,
     )
     .unwrap();
-    (layers, visibility, molang)
+    (
+        assets::EntityRenderData {
+            layers: layers.into(),
+            visibility: visibility.into(),
+            material_selections: selections.into(),
+            ..Default::default()
+        },
+        molang,
+    )
 }
 
 /// Reads expected raster words from the material policy shared by all compiler consumers.
@@ -75,43 +79,45 @@ fn material_word(name: &str) -> u32 {
 }
 
 /// Resolves the raster words that actually draw one named bone for a fixture query value.
-fn drawn(
-    fixture: &(
-        Vec<EntityRenderLayer>,
-        Vec<EntityRenderVisibility>,
-        MolangCompiler,
-    ),
-    bone: &str,
-    value: f32,
-) -> Vec<u32> {
-    let (layers, visibility, molang) = fixture;
-    layers
+fn drawn(fixture: &(assets::EntityRenderData, MolangCompiler), bone: &str, value: f32) -> Vec<u32> {
+    use assets::EntityRenderMaterialSelection as Node;
+    let (data, molang) = fixture;
+    let read = |index| {
+        molang
+            .evaluate_query(index, "query.is_invisible", value)
+            .unwrap()
+    };
+    data.layers
         .iter()
+        .filter(|layer| layer.condition.is_none_or(|index| read(index) != 0.0))
         .filter(|layer| {
-            [layer.condition, layer.material_condition]
-                .into_iter()
-                .flatten()
-                .all(|index| {
-                    molang
-                        .evaluate_query(index, "query.is_invisible", value)
-                        .unwrap()
-                        != 0.0
-                })
-        })
-        .filter(|layer| {
-            visibility[layer.first_visibility as usize
+            data.visibility[layer.first_visibility as usize
                 ..layer.first_visibility as usize + usize::from(layer.visibility_count)]
                 .iter()
                 .filter(|rule| entity_render_pattern_matches(&rule.pattern, bone))
                 .next_back()
-                .is_none_or(|rule| {
-                    molang
-                        .evaluate_query(rule.condition, "query.is_invisible", value)
-                        .unwrap()
-                        != 0.0
-                })
+                .is_none_or(|rule| read(rule.condition) != 0.0)
         })
-        .map(|layer| layer.material.word(layer.material_state))
+        .map(|layer| {
+            let Some(mut selected) = layer.material_selection else {
+                return layer.material.word(layer.material_state);
+            };
+            loop {
+                selected = match &data.material_selections[selected as usize] {
+                    Node::Raster { material, state } => return material.word(*state),
+                    Node::Branch { condition, yes, no } => {
+                        if read(*condition) != 0.0 {
+                            *yes
+                        } else {
+                            *no
+                        }
+                    }
+                    Node::Array { index, choices } => {
+                        choices[(read(*index).max(0.0) as usize) % choices.len()]
+                    }
+                };
+            }
+        })
         .collect()
 }
 
@@ -184,7 +190,13 @@ fn material_choices_preserve_admitted_visibility_scripts() {
             "materials": [{"*": "query.is_invisible ? Material.blend : Material.solid"}],
             "part_visibility": [{"*": text}]
         }));
-        assert!(fixture.0.iter().all(|layer| layer.visibility_count == 1));
+        assert!(
+            fixture
+                .0
+                .layers
+                .iter()
+                .all(|layer| layer.visibility_count == 1)
+        );
     }
 }
 

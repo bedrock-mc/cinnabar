@@ -490,8 +490,8 @@ materials but do not define them, so all but the verified kinds in `registry-pol
 are provisional with that rounding; their definitions (alpha test, blend, emissive) remain
 unverified. Rounding is wrong where alpha is an emissive weight: blaze, magma cube and glow
 squid bodies stay invisible, and spider, enderman and phantom eyes draw clear. Each rig geometry routes to the texture its own selection draws, else the
-default branch. Whole-model material arrays and ternaries compile into gated layers and retain
-authored controller activation and part visibility. Dynamic per-bone material rules
+default branch. Whole-model material arrays and ternaries retain one controller layer and evaluate
+each material decision once, after activation and before authored part visibility. Dynamic per-bone material rules
 and complete in-world selector qualification remain incomplete. The samples omit the iron golem's body controller; it is completed from
 the pack's default controller until a pinned pack defines it.
 

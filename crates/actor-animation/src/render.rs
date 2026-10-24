@@ -389,17 +389,14 @@ fn evaluate_layer_into(
     let render = assets.render_data();
     let mut unresolved_artwork = false;
     budget.charge_work()?;
-    for condition in [layer.condition, layer.material_condition]
-        .into_iter()
-        .flatten()
-    {
-        if !evaluator
+    if let Some(condition) = layer.condition
+        && !evaluator
             .run(condition as usize, variables, 0.0, budget)?
             .truthy()
-        {
-            return Ok(unresolved_artwork);
-        }
+    {
+        return Ok(unresolved_artwork);
     }
+    let (material, material_state) = selected_material(evaluator, variables, layer, budget)?;
     let choices = render
         .geometries
         .get(
@@ -526,8 +523,8 @@ fn evaluate_layer_into(
     };
     for (texture_slot, &source) in selected_sources.iter().take(count).enumerate() {
         output.push(RenderTextureLayer {
-            material: layer.material,
-            material_state: layer.material_state,
+            material,
+            material_state,
             source,
             texture_slot: texture_slot as u16,
             multitexture: grouped,
@@ -544,4 +541,47 @@ fn evaluate_layer_into(
         });
     }
     Ok(unresolved_artwork)
+}
+
+/// Evaluates one whole-model material decision before executing the controller body once.
+fn selected_material(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    layer: &assets::EntityRenderLayer,
+    budget: &mut EvalBudget<'_>,
+) -> Result<
+    (
+        assets::EntityRenderMaterial,
+        Option<assets::EntityRenderMaterialState>,
+    ),
+    EvalError,
+> {
+    use assets::EntityRenderMaterialSelection as Node;
+    let Some(mut selected) = layer.material_selection else {
+        return Ok((layer.material, layer.material_state));
+    };
+    let nodes = &evaluator.assets.render_data().material_selections;
+    loop {
+        budget.charge_work()?;
+        selected = match nodes.get(selected as usize).ok_or(EvalError::Invalid)? {
+            Node::Raster { material, state } => return Ok((*material, *state)),
+            Node::Branch { condition, yes, no } => {
+                if evaluator
+                    .run(*condition as usize, variables, 0.0, budget)?
+                    .truthy()
+                {
+                    *yes
+                } else {
+                    *no
+                }
+            }
+            Node::Array { index, choices } => {
+                if choices.is_empty() {
+                    return Err(EvalError::Invalid);
+                }
+                let index = evaluator.number(*index as usize, variables, 0.0, budget)?;
+                choices[super::evaluation::collection_index(index, choices.len())]
+            }
+        };
+    }
 }

@@ -9,7 +9,7 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
-use super::materials::MaterialStates;
+use super::{super::selection::Selection, materials::MaterialStates};
 use crate::entity::{invalid, molang::MolangCompiler};
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -21,7 +21,7 @@ struct Raster {
 pub(super) struct Group {
     raster: Raster,
     hidden: Vec<Box<str>>,
-    selection: Option<String>,
+    selection: Option<Selection<Raster>>,
 }
 
 fn raster(target: Option<&str>, materials: &MaterialStates) -> Raster {
@@ -41,8 +41,12 @@ pub(super) fn resolve(
     selected: impl IntoIterator<Item = u32>,
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
-    if let Some(groups) = uniform_selection(description, controller, materials) {
-        return Ok(groups);
+    if let Some(selection) = uniform_selection(description, controller, materials) {
+        return Ok(vec![Group {
+            raster: Raster::default(),
+            hidden: Vec::new(),
+            selection: Some(selection),
+        }]);
     }
     let aliases = super::lowercase_map(description.get("materials"));
     let rules: Vec<_> = controller
@@ -159,8 +163,8 @@ fn uniform_selection(
     description: &Map<String, Value>,
     controller: &Map<String, Value>,
     materials: &MaterialStates,
-) -> Option<Vec<Group>> {
-    use super::super::selection::{Selector, selection_condition};
+) -> Option<Selection<Raster>> {
+    use super::super::selection::Selector;
     let [rule] = controller.get("materials")?.as_array()?.as_slice() else {
         return None;
     };
@@ -197,26 +201,14 @@ fn uniform_selection(
             .collect(),
         resolve: &resolve_alias,
     };
-    let mut validator = MolangCompiler::default();
-    let groups = selector
-        .leaves(expression)?
-        .into_iter()
-        .map(|(path, raster)| {
-            let selection = selection_condition(&path);
-            if let Some(text) = &selection {
-                validator.compile(text).ok()?;
-            }
-            Some(Group {
-                raster,
-                selection,
-                hidden: Vec::new(),
-            })
-        })
-        .collect::<Option<Vec<_>>>()?;
-    (!groups.is_empty()).then_some(groups)
+    match selector.tree(expression)? {
+        selection @ (Selection::Branch(..) | Selection::Array(..)) => Some(selection),
+        Selection::Leaf(_) | Selection::Empty => None,
+    }
 }
 
 pub(super) struct Records<'a> {
+    pub selections: &'a mut Vec<assets::EntityRenderMaterialSelection>,
     pub layers: &'a mut Vec<EntityRenderLayer>,
     pub slots: &'a mut Vec<EntityRenderSlot>,
     pub candidates: &'a mut Vec<EntityRenderCandidate>,
@@ -231,6 +223,7 @@ pub(super) fn append(
     molang: &mut MolangCompiler,
 ) -> Result<(), AssetError> {
     let Records {
+        selections,
         layers,
         slots,
         candidates,
@@ -259,14 +252,13 @@ pub(super) fn append(
         ));
     }
     if groups.len() == 1 {
+        let group = groups.into_iter().next().expect("one group");
         layers.push(EntityRenderLayer {
-            material: groups[0].raster.material,
-            material_state: groups[0].raster.state,
-            material_condition: groups[0]
+            material: group.raster.material,
+            material_state: group.raster.state,
+            material_selection: group
                 .selection
-                .as_deref()
-                .map(|text| molang.compile(text))
-                .transpose()?,
+                .and_then(|selection| retain_selection(selection, selections, molang)),
             ..base
         });
         return Ok(());
@@ -315,14 +307,69 @@ pub(super) fn append(
         layer.visibility_count = (visibility.len() - layer.first_visibility as usize) as u16;
         layer.material = group.raster.material;
         layer.material_state = group.raster.state;
-        layer.material_condition = group
+        layer.material_selection = group
             .selection
-            .as_deref()
-            .map(|text| molang.compile(text))
-            .transpose()?;
+            .and_then(|selection| retain_selection(selection, selections, molang));
         layers.push(layer);
     }
     Ok(())
+}
+
+/// Drops an unsupported selection without leaving partial nodes or Molang programs behind.
+fn retain_selection(
+    selection: Selection<Raster>,
+    nodes: &mut Vec<assets::EntityRenderMaterialSelection>,
+    molang: &mut MolangCompiler,
+) -> Option<u32> {
+    let start = nodes.len();
+    let mark = molang.mark();
+    match compile_selection(selection, nodes, molang) {
+        Ok(root) => Some(root),
+        Err(_) => {
+            nodes.truncate(start);
+            molang.rollback(mark);
+            None
+        }
+    }
+}
+
+/// Lowers one decision tree without cloning the authored controller or repeating its scripts.
+fn compile_selection(
+    selection: Selection<Raster>,
+    nodes: &mut Vec<assets::EntityRenderMaterialSelection>,
+    molang: &mut MolangCompiler,
+) -> Result<u32, AssetError> {
+    use assets::EntityRenderMaterialSelection as Node;
+    let root = nodes.len();
+    nodes.push(Node::Raster {
+        material: EntityRenderMaterial::Default,
+        state: None,
+    });
+    let node = match selection {
+        Selection::Empty => Node::Raster {
+            material: EntityRenderMaterial::Default,
+            state: None,
+        },
+        Selection::Leaf(raster) => Node::Raster {
+            material: raster.material,
+            state: raster.state,
+        },
+        Selection::Branch(condition, yes, no) => Node::Branch {
+            condition: molang.compile(&condition)?,
+            yes: compile_selection(*yes, nodes, molang)?,
+            no: compile_selection(*no, nodes, molang)?,
+        },
+        Selection::Array(index, choices) if !choices.is_empty() => Node::Array {
+            index: molang.compile(&index)?,
+            choices: choices
+                .into_iter()
+                .map(|choice| compile_selection(choice, nodes, molang))
+                .collect::<Result<_, _>>()?,
+        },
+        Selection::Array(..) => return Err(invalid("empty material selector array")),
+    };
+    nodes[root] = node;
+    Ok(root as u32)
 }
 
 #[cfg(test)]

@@ -173,9 +173,9 @@ pub struct EntityRenderLayer {
     pub rig: u32,
     /// The entity's activation expression for this controller; absent means always.
     pub condition: Option<u32>,
-    /// Whole-model material choice, evaluated after controller activation.
+    /// Root of a whole-model material decision, evaluated once after controller activation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub material_condition: Option<u32>,
+    pub material_selection: Option<u32>,
     pub first_slot: u32,
     pub slot_count: u16,
     /// Authored texture references could not resolve; activation still controls fallback.
@@ -273,6 +273,8 @@ pub fn entity_render_pattern_matches(pattern: &str, name: &str) -> bool {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EntityRenderData {
+    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    pub material_selections: Box<[EntityRenderMaterialSelection]>,
     pub layers: Box<[EntityRenderLayer]>,
     pub slots: Box<[EntityRenderSlot]>,
     pub candidates: Box<[EntityRenderCandidate]>,
@@ -283,6 +285,7 @@ pub struct EntityRenderData {
 
 pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
     let render = &compiled.render;
+    material_selection::validate(render, compiled.molang_expressions.len())?;
     if render.layers.len() > MAX_ENTITY_RENDER_LAYERS
         || render.slots.len() > MAX_ENTITY_RENDER_SLOTS
         || render.candidates.len() > MAX_ENTITY_RENDER_CANDIDATES
@@ -305,8 +308,8 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             || layer.rig as usize >= compiled.rig_bindings.len()
             || layer.condition.is_some_and(|index| !expression(index))
             || layer
-                .material_condition
-                .is_some_and(|index| !expression(index))
+                .material_selection
+                .is_some_and(|index| index as usize >= render.material_selections.len())
             || !range_in_bounds(
                 layer.first_slot,
                 u32::from(layer.slot_count),
@@ -414,3 +417,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         "render candidate",
     )
 }
+
+#[path = "render/material_selection.rs"]
+mod material_selection;
+pub use material_selection::EntityRenderMaterialSelection;
