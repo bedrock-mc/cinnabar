@@ -13,7 +13,7 @@ import (
 // modEntityData remains owned by its framework handle across transactions.
 type modEntityData struct {
 	state    EntityState
-	instance WorldHandle
+	instance worldInstance
 	revision uint64
 	loader   *world.Loader
 	closed   bool
@@ -30,7 +30,7 @@ type modEntity struct {
 // entityConfig initializes state without replacing the framework's spawn options.
 type entityConfig struct {
 	state    EntityState
-	instance WorldHandle
+	instance worldInstance
 }
 
 // Apply retains the typed identity alongside the framework's position and rotation.
@@ -97,7 +97,7 @@ func (h *Host) entitySnapshot(tx *world.Tx, owner string) []EntitySnapshot {
 		return out
 	}
 	for entity := range tx.Entities() {
-		if e, ok := entity.(*modEntity); ok && e.typ.owner == owner && !e.stateData().closed && e.stateData().instance == instance.handle {
+		if e, ok := entity.(*modEntity); ok && e.typ.owner == owner && !e.stateData().closed && e.stateData().instance.handle == instance.handle {
 			out = append(out, e.snapshot())
 		}
 	}
@@ -120,7 +120,7 @@ func (h *Host) findEntity(tx *world.Tx, owner string, handle EntityHandle) (*mod
 		return nil, false
 	}
 	for entity := range tx.Entities() {
-		if e, ok := entity.(*modEntity); ok && e.typ.owner == owner && e.stateData().state.Handle == handle && e.stateData().instance == instance.handle && !e.stateData().closed {
+		if e, ok := entity.(*modEntity); ok && e.typ.owner == owner && e.stateData().state.Handle == handle && e.stateData().instance.handle == instance.handle && !e.stateData().closed {
 			return e, true
 		}
 	}
@@ -134,7 +134,7 @@ func (e *modEntity) Tick(tx *world.Tx, _ int64) {
 		return
 	}
 	instance, ok := e.typ.host.worlds.of(tx.World())
-	if !ok || instance.handle != d.instance {
+	if !ok || instance.handle != d.instance.handle {
 		_ = e.Close()
 		return
 	}
@@ -217,8 +217,11 @@ func (e *modEntity) emit(actor *world.EntityHandle, observation EntityEvent) {
 		return
 	}
 	instance, ok := h.worlds.of(e.tx.World())
-	if !ok {
-		return
+	if !ok || instance.handle != e.stateData().instance.handle {
+		if observation.Type != "despawned" {
+			return
+		}
+		instance = e.stateData().instance
 	}
 	h.enqueue(e.typ.owner, event{w: e.tx.World(), instance: instance, actor: actor, call: Call{Entity: &EntityCall{Handle: e.stateData().state.Handle, Event: observation}}})
 }
@@ -240,4 +243,10 @@ func (h *Host) EntityInteraction(p *player.Player, target world.Entity, attacked
 		kind = "attacked"
 	}
 	e.emit(p.H(), EntityEvent{Type: kind, Player: p.UUID().String(), Hand: "main", Item: stack})
+}
+
+// entityDespawnSnapshot retains the removal observation after its world closes, with no live actor authority.
+func (h *Host) entityDespawnSnapshot(d *dispatcher, ev event) snapshot {
+	context := &WorldContext{Current: ev.instance.handle, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(ev.instance.handle.ID, nil))}
+	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context}, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
 }

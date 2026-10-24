@@ -1,6 +1,6 @@
 # Server Experiences
 
-A server Experience is a WebAssembly guest that registers blocks, items and world definitions in
+A server Experience is a WebAssembly guest that registers blocks, items, entity types and world definitions in
 the local Dragonfly server (`tools/localserver`) and reacts to block and player events. Each
 Experience runs in its own `experience-runtime` helper process, off the world goroutine; the Go
 adapter in `tools/localserver/experience` validates what the guest asks for and commits it.
@@ -144,7 +144,7 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.8.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.9.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
 `on-break`, `on-interact` and `on-neighbor-changed`, `client-message`, `epoch` and
 `on-scheduled-update`. Every world
@@ -611,8 +611,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.8; 0.7, 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
-| IPC protocol | 8 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.9; 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 9 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
@@ -672,7 +672,57 @@ most one queued occurrence; missed periods are counted and skipped, without catc
 Callbacks receive their admitted tick, even if execution happens later. Scheduling inside a
 late callback remains relative to commit, rather than replaying elapsed simulation.
 
-Migration: rebuild SDK guests with `api = "0.8"` and deploy the matching IPC protocol 8
-adapter and helper. Frozen server WIT 0.1–0.7 artifacts retain their earlier exports and do
+Simulation callbacks are available in server WIT 0.8 and later. Frozen server WIT 0.1–0.7 artifacts retain their earlier exports and do
 not receive simulation callbacks. Existing 0.7 world and private-state APIs are unchanged.
 The probe's `probe:clock` conformance instance shows scheduling and self-cancellation.
+
+## Entities and seats
+
+Server WIT 0.9 adds `Experience::entity_definitions` and `Experience::on_entity`.
+Definitions have typed `EntityTypeId` records, a collision box, optional seats, and declared
+floating-point properties. Use identities from the project's generated shared module when
+building a mod. Definition identifiers belong to the installing mod's namespace and freeze at
+startup; a helper restart must return the same registration.
+
+An appearance either reuses a known `minecraft:` renderer or names a geometry, PNG texture
+and render controller under the artifact's indexed `assets/` directory. Custom geometries
+and controllers belong to the mod's namespace. Registration validates these resources before
+Dragonfly builds its resource and behaviour packs. The same entity identity enters its world
+registry, actor list and spawn packets. Client parts remain subject to their separate consent.
+
+`Callback::entities` reads this mod's actors in the current instance. `spawn_entity` returns
+an `EntityHandle` with an ID and the instance opening's generation. `update_entity` replaces
+position, rotation, velocity, name tag, scale, variant and declared properties; its teleport
+flag selects immediate movement. Otherwise motion includes interpolation velocity, in blocks
+per tick. Movement is server driven: setting velocity alone does not add a second physics
+simulation. `despawn_entity` removes the actor. These calls stage changes in the existing
+whole-result transaction, with revision checks before any writes. Stale handles and handles
+from another mod or world do not grant access.
+
+Guest actors are process-local. Each holds its current chunk resident while its instance is
+loaded. Despawn, instance unload and server shutdown release actors, seats and chunk leases;
+terrain saves exclude them. Recreate durable gameplay actors from the mod's scoped store.
+Player travel leaves actors in their owning world and dismounts departing riders.
+
+Each seat has a position in blocks relative to the vehicle, an optional yaw rotation limit,
+and a steering flag. At most one seat steers. `mount_entity(handle, seat)` and
+`dismount_entity()` act only on the callback's live player. Occupied seats reject boarding.
+Mount and dismount use ordinary entity links, and late viewers receive links after both actors
+are introduced. Server movement updates rider positions. Input delivers sideways and forward
+intent, look angles, jump and sneak; it does not accept client vehicle coordinates as authority.
+Sneaking dismounts through the framework.
+
+`on_entity` observes interactions and attacks with the hand and held item, mounted and
+dismounted riders, steering input, and despawn. These use the existing per-mod FIFO, callback
+budgets, overflow counters and player/world epoch fences. A callback queued before a player
+transfer cannot commit into the destination. Removal observations retain the removed opening
+after unload, with no live player or entity snapshot. Entity operations share `MAX_STAGED_OPS` and
+`MAX_HOST_CALLS`. Registration and snapshots also apply the extension policy limits
+`MAX_ENTITY_TYPES`, `MAX_ENTITY_SEATS`, `MAX_ENTITY_PROPERTIES` and `MAX_ENTITIES`; these are
+mod execution policy rather than limits on ordinary server content.
+
+Migration: rebuild SDK guests with `api = "0.9"` and deploy IPC protocol 9 in both the adapter
+and helper. Previously compiled 0.1–0.8 guests keep their frozen contracts. The probe's
+`probe:entities` conformance instance covers spawning and movement, and its entity callback
+covers boarding and steering. Mixed-client rendering, seat placement and riding acceptance
+remain open until exercised with live clients.

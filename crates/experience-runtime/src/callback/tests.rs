@@ -1184,4 +1184,5 @@ fn malformed_inventories_are_refused() {
 
 mod worlds;
 
+mod entities;
 mod simulation;

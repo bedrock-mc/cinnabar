@@ -107,7 +107,7 @@ pub(super) fn event(v: p::EntityEvent) -> Result<wit::EntityEvent, String> {
                     metadata: s.metadata,
                     count: s.count,
                     max_count: s.max_count,
-                    data: decode(s.data.as_deref())?,
+                    data: decode(s.data.as_deref()).map_err(|e| e.to_string())?,
                     plain: s.plain,
                 })
             })

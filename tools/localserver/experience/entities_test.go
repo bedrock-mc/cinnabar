@@ -1,7 +1,10 @@
 package experience
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -55,16 +58,21 @@ type entityViewer struct {
 	adds, moves, removes int
 }
 
+// ViewEntity records guest actors introduced through normal world visibility.
 func (v *entityViewer) ViewEntity(e world.Entity) {
 	if _, ok := e.(*modEntity); ok {
 		v.adds++
 	}
 }
+
+// ViewEntityMovement records authoritative guest actor movement.
 func (v *entityViewer) ViewEntityMovement(e world.Entity, _ mgl64.Vec3, _ cube.Rotation, _ bool) {
 	if _, ok := e.(*modEntity); ok {
 		v.moves++
 	}
 }
+
+// HideEntity records guest actors removed from this viewer.
 func (v *entityViewer) HideEntity(e world.Entity) {
 	if _, ok := e.(*modEntity); ok {
 		v.removes++
@@ -211,5 +219,100 @@ func TestEntityWorldUnloadClosesHandlesAndLeases(t *testing.T) {
 	}
 	if !native.Closed() {
 		t.Fatal("unloaded world retained an entity handle")
+	}
+	var despawn *event
+	for len(f.d.events) > 0 {
+		ev := <-f.d.events
+		if ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned" {
+			copy := ev
+			despawn = &copy
+		}
+	}
+	if despawn == nil {
+		t.Fatal("unload omitted despawn observation")
+	}
+	snap, err := f.h.snapshot(t.Context(), f.d, despawn)
+	if err != nil || snap.req.Actor != nil || snap.req.Info.Context.Current != worldHandle {
+		t.Fatalf("removal observation lost its opening fence: %v", err)
+	}
+}
+
+func TestEntityRegistrationBuildsResourcesAndPreservesFrameworkFactories(t *testing.T) {
+	dir := t.TempDir()
+	visual, err := visualExperience(dir, "probe", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := filepath.Join(dir, "ship.render.json")
+	if err := os.WriteFile(controller, []byte(`{"render_controllers":{"controller.render.probe.ship":{"geometry":"Geometry.default","textures":["Texture.default"],"materials":[{"*":"Material.default"}]}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	def := entityDefinition()
+	def.Appearance = EntityAppearance{Type: "custom", Art: &EntityArt{Geometry: *visual.Blocks[0].Visual.Geometry, Texture: visual.Blocks[0].Visual.Materials[0].Path, RenderController: controller}}
+	typ, err := newModEntityType("probe", def, newAssetCache())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := (&Registry{entityTypes: map[string]*modEntityType{def.ID: typ}}).EntityRegistry()
+	if found, ok := registry.Lookup(def.ID); !ok || found != typ {
+		t.Fatal("entity missing from framework registry")
+	}
+	if registry.Config().Item == nil || registry.Config().Arrow == nil {
+		t.Fatal("built-in factories lost")
+	}
+	resources := typ.Resources()
+	var client struct {
+		Entity struct {
+			Description struct {
+				Identifier string `json:"identifier"`
+			} `json:"description"`
+		} `json:"minecraft:client_entity"`
+	}
+	if json.Unmarshal(resources.ClientEntity, &client) != nil || client.Entity.Description.Identifier != def.ID {
+		t.Fatal("wrong client entity identity")
+	}
+	var behaviour struct {
+		Entity struct {
+			Description struct {
+				Identifier string `json:"identifier"`
+			} `json:"description"`
+		} `json:"minecraft:entity"`
+	}
+	if json.Unmarshal(resources.Definition, &behaviour) != nil || behaviour.Entity.Description.Identifier != def.ID {
+		t.Fatal("wrong behaviour identity")
+	}
+	for _, name := range []string{"models/entity/probe/ship.geo.json", "textures/entity/probe/ship.png", "render_controllers/probe/ship.json"} {
+		if len(resources.Assets[name]) == 0 {
+			t.Errorf("missing resource %s", name)
+		}
+	}
+	schema := typ.EntityPropertyDefinitions()
+	properties := schema["properties"].([]any)
+	if len(properties) != 1 || properties[0].(map[string]any)["name"] != def.Properties[0].ID {
+		t.Fatal("property schema differs from registration")
+	}
+}
+
+func TestEntityInvalidBatchPublishesNothing(t *testing.T) {
+	f := newEntityFixture(t)
+	handle := f.spawnEntity()
+	f.d.seq++
+	ev, snap := f.request()
+	recorder := &tellRecorder{}
+	f.h.tell = recorder
+	invalid := snap.req.Info.Context.Entities[0].State
+	invalid.Scale = -1
+	f.do(ev.w, func(tx *world.Tx) {
+		ops := []Op{{Tell: &TellOp{Player: f.actor.UUID().String(), Text: "must not commit"}}, {Entity: &EntityCommand{Action: EntityOp{Type: "update", State: &invalid}}}}
+		if _, err := f.h.apply(tx, "probe", ev, snap, ops); !errors.Is(err, errInvalid) {
+			t.Fatalf("invalid state accepted: %v", err)
+		}
+		e, _ := f.h.findEntity(tx, "probe", handle)
+		if e.Scale() != 1 {
+			t.Fatal("invalid state changed actor")
+		}
+	})
+	if len(recorder.all()) != 0 {
+		t.Fatal("batch partially published")
 	}
 }

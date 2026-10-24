@@ -155,8 +155,10 @@ func NewHost(
 		}
 	}
 	h.holder = &sinkHolder{h}
-	for _, t := range reg.entityTypes {
-		t.host = h
+	if reg != nil {
+		for _, t := range reg.entityTypes {
+			t.host = h
+		}
 	}
 	installedHooks.Store(h.holder)
 	return h
@@ -516,6 +518,9 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	var snap snapshot
 	if ev.call.Player != nil {
 		return h.observationSnapshot(d, *ev), nil
+	}
+	if ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned" {
+		return h.entityDespawnSnapshot(d, *ev), nil
 	}
 	if !h.playerCurrent(*ev) {
 		return snapshot{}, errStale

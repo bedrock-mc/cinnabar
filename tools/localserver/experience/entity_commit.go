@@ -163,7 +163,7 @@ func (h *Host) applyEntities(tx *world.Tx, owner string, ev event, actor world.E
 			state := *action.State
 			state.Properties = slices.Clone(state.Properties)
 			typ := h.reg.entityTypes[state.Kind]
-			handle := (world.EntitySpawnOpts{Position: state.Position.vec(), Rotation: cube.Rotation{state.Rotation.Yaw, state.Rotation.Pitch}, Velocity: state.Velocity.vec()}).New(typ, entityConfig{state: state, instance: ev.instance.handle})
+			handle := (world.EntitySpawnOpts{Position: state.Position.vec(), Rotation: cube.Rotation{state.Rotation.Yaw, state.Rotation.Pitch}, Velocity: state.Velocity.vec()}).New(typ, entityConfig{state: state, instance: ev.instance})
 			tx.AddEntity(handle).(*modEntity).pin()
 		case "update":
 			if e, ok := h.findEntity(tx, owner, action.State.Handle); ok {
