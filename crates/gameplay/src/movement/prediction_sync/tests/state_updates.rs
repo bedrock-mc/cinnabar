@@ -279,7 +279,7 @@ fn replacement_dimensions_have_a_new_lifetime() {
 
 /// A new actor starts with its own defaults and still accepts a genuine local pose resize.
 #[test]
-fn replacement_size_restarts_pose_ownership() {
+fn replacement_size_yields_to_a_changed_local_pose() {
     let mut world = local_actor_authority();
     let mut physics = due_physics();
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, 1.8]);
@@ -304,7 +304,7 @@ fn replacement_size_restarts_pose_ownership() {
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.8, 1.8]);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
-        crouch,
+        sim::MovementInput::default(),
         crate::movement::PhysicsSampleContext {
             mode_intent: crate::movement::ModeIntent {
                 explicit_dimensions: world.actor(7).unwrap().explicit_dimensions,
@@ -314,11 +314,17 @@ fn replacement_size_restarts_pose_ownership() {
         },
         &OpenWorld,
     );
-    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [1.0, 0.6, sim::PLAYER_HEIGHT as f32]
+    );
     write_dimensions(
         &mut world,
         4,
         &[(ActorDataKey::Width, 0.6), (ActorDataKey::Scale, 2.0)],
     );
-    assert_eq!(reported_box(&mut physics, &world), [2.0, 0.6, height]);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [2.0, 0.6, sim::PLAYER_HEIGHT as f32]
+    );
 }
