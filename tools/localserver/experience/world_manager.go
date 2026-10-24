@@ -23,10 +23,16 @@ type worldManager struct {
 	root        string
 	synchronous bool
 	definitions map[WorldDefinitionID]WorldDefinition
-	owned       map[WorldHandle]*world.World
+	owned       map[WorldHandle]ownedWorld
 	lifecycle   WorldLifecycle
 	// admit is a test seam for a failure after detach but before destination admission.
 	admit func() error
+}
+
+// ownedWorld keeps the terrain and its storage policy together for every close path.
+type ownedWorld struct {
+	w          *world.World
+	persistent bool
 }
 
 // WorldLifecycle applies local world settings and tracks simulation ownership.
@@ -96,7 +102,7 @@ func (h *Host) ConfigureWorlds(ctx context.Context, root string, lifecycle ...Wo
 			return errors.New("startup definition unavailable")
 		}
 	}
-	h.manager.root, h.manager.definitions, h.manager.owned = root, definitions, make(map[WorldHandle]*world.World)
+	h.manager.root, h.manager.definitions, h.manager.owned = root, definitions, make(map[WorldHandle]ownedWorld)
 	if len(lifecycle) == 1 {
 		h.manager.lifecycle = lifecycle[0]
 	}
@@ -146,25 +152,20 @@ func (h *Host) createWorld(ctx context.Context, owner string, instance WorldInst
 	if def.Settings.Generator == GeneratorFlat {
 		conf.Generator = generator.NewFlatWithRegistry(biome.Plains{}, []world.Block{block.Grass{}, block.Dirt{}, block.Bedrock{}}, world.DefaultBlockRegistry)
 	}
-	conf.Provider, err = h.instanceProvider(owner, instance, def)
+	conf.Provider, err = h.instanceProvider(owner, instance, def, conf.Generator.DefaultSpawn(dim))
 	if err != nil {
 		return WorldHandle{}, err
 	}
-	if !def.Settings.Persistent {
-		conf.Provider.Settings().Spawn = conf.Generator.DefaultSpawn(dim)
-	}
 	w := conf.New()
+	owned := ownedWorld{w: w, persistent: def.Settings.Persistent}
 	if h.manager.lifecycle != nil {
 		h.manager.lifecycle.WorldOpened(w)
 	}
 	handle, err := h.BindWorld(instance.ID, w)
 	if err != nil {
-		if h.manager.lifecycle != nil {
-			h.manager.lifecycle.WorldClosed(w)
-		}
-		return WorldHandle{}, errors.Join(err, w.Close())
+		return WorldHandle{}, errors.Join(err, h.releaseWorld(WorldHandle{ID: instance.ID}, owned))
 	}
-	h.manager.owned[handle] = w
+	h.manager.owned[handle] = owned
 	return handle, nil
 }
 
@@ -173,28 +174,23 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 	if !ownedWorldName(string(handle.ID), owner) {
 		return errors.New("world authority denied")
 	}
-	w, ok := h.manager.owned[handle]
+	owned, ok := h.manager.owned[handle]
 	if !ok {
 		return ErrStaleWorld
 	}
 	var result error
-	if err := await(ctx, w.Do(func(tx *world.Tx) {
+	if err := await(ctx, owned.w.Do(func(tx *world.Tx) {
 		for range tx.Players() {
 			result = errors.New("world has players")
 			return
 		}
-		result = h.worlds.unbind(handle)
 	})); err != nil {
 		return err
 	}
 	if result != nil {
 		return result
 	}
-	delete(h.manager.owned, handle)
-	if h.manager.lifecycle != nil {
-		h.manager.lifecycle.WorldClosed(w)
-	}
-	return w.Close()
+	return h.releaseWorld(handle, owned)
 }
 
 // handle returns the current opening for a stable instance ID.
@@ -227,15 +223,27 @@ func (h *Host) closeWorlds() error {
 	h.manager.mu.Lock()
 	defer h.manager.mu.Unlock()
 	var errs []error
-	for handle, w := range h.manager.owned {
-		_ = h.worlds.unbind(handle)
-		if h.manager.lifecycle != nil {
-			h.manager.lifecycle.WorldClosed(w)
-		}
-		if err := w.Close(); err != nil {
+	for handle, owned := range h.manager.owned {
+		if err := h.releaseWorld(handle, owned); err != nil {
 			errs = append(errs, fmt.Errorf("close instance %s: %w", handle.ID, err))
 		}
-		delete(h.manager.owned, handle)
 	}
 	return errors.Join(errs...)
+}
+
+// releaseWorld invalidates an opening and releases every resource after transactions have drained.
+// A zero generation denotes a world whose binding failed during creation. Callers hold manager.mu.
+func (h *Host) releaseWorld(handle WorldHandle, owned ownedWorld) error {
+	if handle.Generation != 0 {
+		_ = h.worlds.unbind(handle)
+		delete(h.manager.owned, handle)
+	}
+	if h.manager.lifecycle != nil {
+		h.manager.lifecycle.WorldClosed(owned.w)
+	}
+	err := owned.w.Close()
+	if !owned.persistent {
+		h.store.discardPlacements(handle.ID)
+	}
+	return err
 }

@@ -161,7 +161,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return srv.Player(id)
 		})
 	}
-	srv = conf.New()
+	var closeUnstarted func() error
+	srv, closeUnstarted = newLocalServer(conf)
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	pauses := &pauseState{settings: cfg}
 	for _, w := range worlds {
@@ -180,10 +181,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		}
 		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
 		if err := host.BindDefaultWorlds(worlds...); err != nil {
-			return errors.Join(err, srv.Close(), host.Close())
+			return errors.Join(err, closeUnstarted(), host.Close())
 		}
 		if err := host.ConfigureWorlds(ctx, filepath.Join(cfg.dir, "experience-worlds"), pauses); err != nil {
-			return errors.Join(err, srv.Close(), host.Close())
+			return errors.Join(err, closeUnstarted(), host.Close())
 		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
 		// without them: each loads again with them.

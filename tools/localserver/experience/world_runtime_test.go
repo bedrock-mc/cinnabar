@@ -89,8 +89,8 @@ func (f *runtimeFixture) countLocations() int {
 	f.t.Helper()
 	count := 0
 	worlds := []*world.World{f.source}
-	for _, w := range f.h.manager.owned {
-		worlds = append(worlds, w)
+	for _, owned := range f.h.manager.owned {
+		worlds = append(worlds, owned.w)
 	}
 	for _, w := range worlds {
 		f.do(w, func(tx *world.Tx) {
