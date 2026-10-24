@@ -120,7 +120,7 @@ pub fn publish_screen_overlays(
     let Some(mut scene) = scene else {
         return;
     };
-    if let Some(textures) = textures {
+    if let Some(textures) = textures.filter(|textures| !textures.assets().is_diagnostic()) {
         let identity = textures.identity();
         if fire_source
             .as_ref()

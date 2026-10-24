@@ -7,7 +7,7 @@ use super::particles::{instance_light, particle_quads};
 use super::settings::ParticleOrdering;
 use super::stars::{JavaRandom, STAR_QUADS};
 use super::vertices::{FULL_BRIGHT, Mesh};
-use super::weather::{rain_columns, weather_quads};
+use super::weather::{RAIN_SHEET_SIZE, rain_columns, rain_sheet, weather_quads};
 use super::*;
 use crate::shaderpack::draws::{DrawKind, resolve_program};
 use crate::shaderpack::geometry::IRIS_VERTEX_STRIDE;
@@ -111,7 +111,8 @@ fn every_effect_falls_back_along_iris_chains() {
     assert_eq!(resolve(Effect::Moon, &bsl), Some("gbuffers_skytextured"));
     assert_eq!(resolve(Effect::Stars, &bsl), Some("gbuffers_skybasic"));
     assert_eq!(resolve(Effect::Clouds, &bsl), Some("gbuffers_clouds"));
-    assert_eq!(resolve(Effect::Weather, &bsl), Some("gbuffers_weather"));
+    assert_eq!(resolve(Effect::Rain, &bsl), Some("gbuffers_weather"));
+    assert_eq!(resolve(Effect::Snow, &bsl), Some("gbuffers_weather"));
     assert_eq!(
         resolve(Effect::DamagedBlock, &bsl),
         Some("gbuffers_damagedblock")
@@ -178,21 +179,26 @@ fn effect_state_follows_iris_shader_keys() {
     assert_eq!(Effect::Stars.render_stage(), 6);
     assert_eq!(Effect::Particles.render_stage(), 19);
     assert_eq!(Effect::Clouds.render_stage(), 20);
-    assert_eq!(Effect::Weather.render_stage(), 21);
+    assert_eq!(Effect::Rain.render_stage(), 21);
+    assert_eq!(Effect::Snow.render_stage(), 21);
     assert_eq!(Effect::Sun.default_alpha_test(), None);
-    assert_eq!(Effect::Weather.default_alpha_test(), Some(ONE_TENTH_ALPHA));
+    assert_eq!(Effect::Rain.default_alpha_test(), Some(ONE_TENTH_ALPHA));
+    assert_eq!(Effect::Snow.default_alpha_test(), Some(ONE_TENTH_ALPHA));
     assert_eq!(Effect::Clouds.default_alpha_test(), Some(ONE_TENTH_ALPHA));
     assert_eq!(Effect::Outline.default_alpha_test(), None);
     assert_eq!(Effect::Particles.default_blend(), BlendMode::Off);
-    assert_eq!(Effect::Weather.default_blend(), TRANSLUCENT_BLEND);
+    assert_eq!(Effect::Rain.default_blend(), TRANSLUCENT_BLEND);
+    assert_eq!(Effect::Snow.default_blend(), TRANSLUCENT_BLEND);
     assert_eq!(Effect::Sun.default_blend(), CELESTIAL_BLEND);
     assert!(
         !DrawKind::Effect(Effect::Moon).depth(),
         "sky effects skip depth"
     );
-    assert!(DrawKind::Effect(Effect::Weather).depth());
-    assert!(!Effect::Weather.depth_write(false));
-    assert!(Effect::Weather.depth_write(true), "rain.depth writes depth");
+    for weather in [Effect::Rain, Effect::Snow] {
+        assert!(DrawKind::Effect(weather).depth());
+        assert!(!weather.depth_write(false));
+        assert!(weather.depth_write(true), "rain.depth writes depth");
+    }
     assert!(DrawKind::Effect(Effect::Clouds).culls());
     assert!(DrawKind::Effect(Effect::Particles).lightmap_matrix());
 }
@@ -239,7 +245,8 @@ fn directives_select_effects_and_particle_order() {
         Effect::Sun,
         Effect::Moon,
         Effect::Stars,
-        Effect::Weather,
+        Effect::Rain,
+        Effect::Snow,
     ] {
         assert!(!off.draws(effect), "{effect:?}");
         assert!(!DrawKind::Effect(effect).drawn_by(&off));
@@ -494,38 +501,74 @@ fn snow_streaks_stop_at_the_column_surface() {
 }
 
 #[test]
-fn rain_columns_preserve_the_selected_sprite_u_coordinates() {
+fn rain_columns_span_the_rain_sheet_across_each_column() {
     let mut grid = OcclusionGrid::default();
     grid.origin = [-32, -32];
     grid.heights.fill(render_model::OCCLUSION_OPEN);
-    for sheet in [
-        render_model::RAIN_PARAMS.uv_rect,
-        [0.5, 0.125, 0.125, 0.5],
-        [0.625, 0.125, -0.125, 0.5],
-    ] {
-        let mut mesh = Mesh::default();
-        rain_columns(
-            &mut mesh,
-            &grid,
-            sheet,
-            Vec3::new(0.5, 70.5, 0.5),
-            1.0,
-            37.25,
-        );
-        assert!(!mesh.indices.is_empty());
-        for quad in uvs(&mesh).as_chunks::<4>().0 {
-            for (uv, u) in
-                quad.iter()
-                    .zip([sheet[0], sheet[0] + sheet[2], sheet[0] + sheet[2], sheet[0]])
-            {
-                assert!((uv[0] - u).abs() < 1e-4, "{uv:?} must sample U {u}");
-            }
-        }
-        for vertex in mesh.words.as_chunks::<WORDS>().0 {
-            let mid_u = (vertex[5] & 0xffff) as f32 / 65535.0;
-            assert!((mid_u - (sheet[0] + 0.5 * sheet[2])).abs() < 1e-4);
+    let mut mesh = Mesh::default();
+    rain_columns(&mut mesh, &grid, Vec3::new(0.5, 70.5, 0.5), 1.0, 37.25);
+    assert!(!mesh.indices.is_empty());
+    // As `rain.png`: `u` crosses the whole sheet over one column's width.
+    for quad in uvs(&mesh).as_chunks::<4>().0 {
+        for (uv, u) in quad.iter().zip([0.0, 1.0, 1.0, 0.0]) {
+            assert!((uv[0] - u).abs() < 1e-4, "{uv:?} must sample U {u}");
+            assert!((-1e-4..=1.0 + 1e-4).contains(&uv[1]), "{uv:?}");
         }
     }
+    for vertex in mesh.words.as_chunks::<WORDS>().0 {
+        let mid = [vertex[5] & 0xffff, vertex[5] >> 16].map(|v| v as f32 / 65535.0);
+        assert!(mid.iter().all(|m| (m - 0.5).abs() < 1e-4), "{mid:?}");
+    }
+}
+
+/// A Bedrock-style weather sheet: a white snow row, then eight 4×16 rain cells each holding
+/// a one-texel streak, then an opaque row below.
+fn bedrock_weather_sheet() -> Vec<u8> {
+    let mut rgba = vec![0; 32 * 32 * 4];
+    for (index, texel) in rgba.chunks_exact_mut(4).enumerate() {
+        let (x, y) = (index % 32, index / 32);
+        if y < 4 || y >= 20 {
+            texel.copy_from_slice(&[255; 4]);
+        } else if x % 4 == 1 && (6..18).contains(&y) {
+            texel.copy_from_slice(&[70, 103, 195, 200]);
+        }
+    }
+    rgba
+}
+
+#[test]
+fn rain_sheet_scatters_thin_streaks_as_rain_png_does() {
+    let source = bedrock_weather_sheet();
+    let sheet = rain_sheet([32, 32], &source, render_model::RAIN_PARAMS.uv_rect);
+    let [width, height] = RAIN_SHEET_SIZE.map(|side| side as usize);
+    assert_eq!(sheet.len(), width * height * 4);
+    let opaque: Vec<_> = sheet
+        .chunks_exact(4)
+        .enumerate()
+        .filter(|(_, texel)| texel[3] > 0)
+        .collect();
+    assert!(
+        opaque
+            .iter()
+            .all(|(_, texel)| *texel == [70, 103, 195, 200]),
+        "only rain cells are copied"
+    );
+    // `rain.png` covers about 2.5% of its texels with streaks.
+    let coverage = opaque.len() as f32 / (width * height) as f32;
+    assert!((0.01..=0.05).contains(&coverage), "{coverage}");
+    // A column crosses the sheet's width, so no row may hold a band: a whole Bedrock cell
+    // spread over a column covered a quarter of it.
+    for row in sheet.chunks_exact(width * 4) {
+        let lit = row.chunks_exact(4).filter(|texel| texel[3] > 0).count();
+        assert!(lit * 8 <= width, "{lit} of {width} texels in one row");
+    }
+    assert_eq!(
+        sheet,
+        rain_sheet([32, 32], &source, render_model::RAIN_PARAMS.uv_rect),
+        "the same sheet every build"
+    );
+    let empty = rain_sheet([32, 32], &source, [0.0, 0.125, 0.0, 0.5]);
+    assert!(empty.iter().all(|byte| *byte == 0), "no cells, no streaks");
 }
 
 #[test]
@@ -535,14 +578,7 @@ fn rain_columns_keep_non_degenerate_repeats_at_large_camera_heights() {
     grid.heights.fill(render_model::OCCLUSION_OPEN);
     for height in [134_217_728.0, -134_217_728.0] {
         let mut mesh = Mesh::default();
-        rain_columns(
-            &mut mesh,
-            &grid,
-            render_model::RAIN_PARAMS.uv_rect,
-            Vec3::new(0.5, height, 0.5),
-            1.0,
-            37.25,
-        );
+        rain_columns(&mut mesh, &grid, Vec3::new(0.5, height, 0.5), 1.0, 37.25);
         let corners = positions(&mesh);
         assert!(!corners.is_empty());
         let lowest = corners.iter().map(|p| p.y).fold(f32::MAX, f32::min);
@@ -558,7 +594,6 @@ fn rain_columns_keep_non_degenerate_repeats_at_large_camera_heights() {
 
 #[test]
 fn rain_falls_in_javas_columns_down_to_the_surface() {
-    let sheet = [0.0, 0.125, 0.125, 0.5];
     let grid = |height: i32| {
         let mut grid = OcclusionGrid::default();
         grid.origin = [-32, -32];
@@ -570,7 +605,6 @@ fn rain_falls_in_javas_columns_down_to_the_surface() {
     rain_columns(
         &mut blocked,
         &grid(render_model::OCCLUSION_BLOCKED),
-        sheet,
         camera,
         1.0,
         37.25,
@@ -580,11 +614,11 @@ fn rain_falls_in_javas_columns_down_to_the_surface() {
         "no rain where the biome has none"
     );
     let mut dry = Mesh::default();
-    rain_columns(&mut dry, &grid(64), sheet, camera, 0.0, 37.25);
+    rain_columns(&mut dry, &grid(64), camera, 0.0, 37.25);
     assert!(dry.indices.is_empty(), "no rain at rain level 0");
 
     let mut mesh = Mesh::default();
-    rain_columns(&mut mesh, &grid(64), sheet, camera, 1.0, 37.25);
+    rain_columns(&mut mesh, &grid(64), camera, 1.0, 37.25);
     let corners = positions(&mesh);
     let uv = uvs(&mesh);
     assert!(!corners.is_empty());
@@ -608,11 +642,8 @@ fn rain_falls_in_javas_columns_down_to_the_surface() {
     }
     assert_eq!(columns.len(), 21 * 21 - 1);
     assert!(!columns.contains(&(0, 0)));
-    // The sheet repeats every four blocks; each piece stays inside the rain cell.
-    assert!(
-        uv.iter()
-            .all(|t| (0.125 - 1e-4..=0.625 + 1e-4).contains(&t[1]))
-    );
+    // The sheet repeats every four blocks; each piece stays inside one repeat.
+    assert!(uv.iter().all(|t| (-1e-4..=1.0 + 1e-4).contains(&t[1])));
     for quad in corners.chunks(4) {
         assert!(quad[0].y - quad[3].y <= 4.0 + 1e-3);
     }

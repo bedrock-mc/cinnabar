@@ -50,6 +50,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             drive_sign_editor.run_if(client_extensions::server_experiences::input::ordinary_input),
             drive_server_form_input
                 .run_if(client_extensions::server_experiences::input::ordinary_input),
+            // Runs while consent owns input too, to drain the ordered events it must not replay.
+            crate::ui_runtime::data_driven::drive_data_driven_input,
             crate::ui_runtime::emotes::drive_emote_input,
             drive_chat_ui_actions
                 .run_if(client_extensions::server_experiences::input::ordinary_input),
@@ -88,6 +90,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         reconcile_world_stream_before_physics
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(receive_network_events)
             .before(drain_committed_ui_before_authority)
             .before(ClientFrameSet::UiAuthority)
@@ -96,6 +103,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         advance_dimension_transfer
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(reconcile_world_stream_before_physics)
             .after(ClientFrameSet::UiAuthority)
             .before(ClientFrameSet::SemanticFinalize),
@@ -103,7 +115,17 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         drain_committed_ui_before_authority
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(reconcile_world_stream_before_physics)
             .before(ClientFrameSet::UiAuthority),
+    )
+    .add_systems(
+        Update,
+        crate::ui_runtime::data_driven::publish_host_screens
+            .before(drain_committed_ui_before_authority),
     );
 }

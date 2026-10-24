@@ -50,5 +50,8 @@ sadness-generator = "0.7"
 tempfile = "3"
 test-time = { path = "../test-time" }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"
+
 [lints]
 workspace = true

@@ -125,7 +125,7 @@ impl EffectSettings {
             Effect::Moon => self.moon,
             Effect::Stars => self.stars,
             Effect::Clouds => self.clouds != CloudSetting::Off,
-            Effect::Weather => self.weather,
+            Effect::Rain | Effect::Snow => self.weather,
             _ => true,
         }
     }
@@ -137,7 +137,7 @@ impl EffectSettings {
             Effect::ParticlesTranslucent | Effect::ParticlesAdditive => {
                 self.particles != ParticleOrdering::Before
             }
-            Effect::Clouds | Effect::Weather => true,
+            Effect::Clouds | Effect::Rain | Effect::Snow => true,
             _ => false,
         }
     }

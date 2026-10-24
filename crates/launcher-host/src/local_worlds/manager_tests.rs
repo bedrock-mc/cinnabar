@@ -2,11 +2,13 @@ use std::time::Duration;
 
 use launcher::local_worlds::world::{Generator, UnavailableReason};
 
-use super::*;
+use super::{report::target_for, *};
 use crate::local_worlds::{
     provision::Platform,
     test_support::{FakeInstance, FakeRunner, scratch},
 };
+use bridge::{LocalWorld, Transport};
+use launcher::local_worlds::world::WorldStatus;
 
 const MAC: Platform = Platform {
     os: "darwin",
@@ -1080,3 +1082,6 @@ fn world_options_reopen_reloads_rules_after_the_previous_server_saves() {
 
 #[path = "manager_host_tests.rs"]
 mod host;
+#[cfg(unix)]
+#[path = "manager_standby_tests.rs"]
+mod standby;

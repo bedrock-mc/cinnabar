@@ -7,6 +7,7 @@ use {
 
 fn art(page: u16) -> IconRef {
     IconRef {
+        color_mask: None,
         page,
         uv: [0, 0, 16, 16],
         glint: false,

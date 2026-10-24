@@ -36,7 +36,12 @@ impl UiRuntime {
     }
 
     pub fn player_list_held(&self) -> bool {
-        self.player_list_held
+        self.player_list_held || self.touch_player_list
+    }
+
+    /// Latches the player list for touch input independently of the held keyboard action.
+    pub fn toggle_touch_player_list(&mut self) {
+        self.touch_player_list = !self.touch_player_list;
     }
 
     /// Resolves a form label against the allowance shared by its entire form build.

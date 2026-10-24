@@ -13,6 +13,22 @@ const COMPUTE: StageMask = StageMask {
 };
 
 #[test]
+fn compatibility_shared_arrays_keep_each_declarators_element_type() {
+    let translated = ShaderPack::new(PackSource::from_files([(
+        "begin.csh",
+        "#version 430
+        layout(local_size_x=4) in;
+        shared float a[4], b[4], c[4];
+        layout(std430, binding=0) buffer Result { vec4 value; } result;
+        vec3 read(int i) { return vec3(a[i], b[i], c[i]); }
+        void main() { uint i = gl_LocalInvocationID.x; a[i] = 1.0; b[i] = 2.0; c[i] = 3.0;
+        barrier(); if (i == 0u) result.value = vec4(read(0), 1.0); }",
+    )]))
+    .translate(&TranslateConfig::default());
+    reflection(program(&translated, "begin"));
+}
+
+#[test]
 fn fixed_work_groups_and_a_properties_image_format() {
     let Some(pack) = open_fixture("compute") else {
         return;

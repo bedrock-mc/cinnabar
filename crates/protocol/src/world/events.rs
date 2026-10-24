@@ -170,11 +170,13 @@ pub struct BlockEntityUpdateEvent {
 /// Side of a map image in pixels.
 pub const MAP_IMAGE_SIDE: u32 = 128;
 
-/// A pixel rectangle of a map image from `ClientboundMapItemData`; pixels are packed RGBA with
-/// red in the low byte.
+/// A received map image rectangle, with RGBA pixels and red in the low byte. An empty rectangle
+/// announces saved map data without changing any pixels.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapDataEvent {
     pub map_id: i64,
+    /// Primary and enclosing maps whose saved data this packet initializes.
+    pub initialized_ids: Arc<[i64]>,
     pub start_x: u32,
     pub start_y: u32,
     pub width: u32,

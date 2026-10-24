@@ -11,7 +11,8 @@ pub(super) fn enable_placement(value: &mut serde_json::Value) {
             let control = object
                 .get("$control")
                 .and_then(serde_json::Value::as_str)
-                .is_some_and(|name| name.starts_with("cinnabar.touch."));
+                .and_then(|name| control_id(Some(name)))
+                .is_some_and(placeable_control);
             let joystick = object.get("button_mappings").is_some_and(|mappings| {
                 mappings.as_array().is_some_and(|items| {
                     items
@@ -98,7 +99,7 @@ impl UiPresentationRuntime {
                 .iter()
                 .filter_map(|hit| {
                     let id = control_id(hit.pressed.as_deref())?;
-                    if id == touch::LOOK_SURFACE {
+                    if !placeable_control(id) {
                         return None;
                     }
                     let name = hit.pressed.as_deref()?.strip_prefix("cinnabar.touch.")?;
@@ -115,7 +116,7 @@ impl UiPresentationRuntime {
                             "joystick" => "Joystick",
                             "menu" => "Pause",
                             "chat" => "Chat",
-                            "emote" => "Emotes",
+                            "utilities" => "Menu",
                             "jump" => "Jump",
                             "sprint" => "Sprint",
                             "sneak" => "Sneak",

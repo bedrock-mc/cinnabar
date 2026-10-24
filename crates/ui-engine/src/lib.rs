@@ -10,6 +10,7 @@ pub mod frame;
 pub mod menu_scroll;
 pub mod pages;
 pub mod prepared;
+mod revision;
 pub mod scroll;
 pub mod sources;
 pub mod text_metrics;

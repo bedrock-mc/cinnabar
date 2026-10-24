@@ -21,6 +21,7 @@ pub(in crate::runtime::network) struct BlockOverlay {
     model_quads: Vec<ModelQuad>,
     animations: Vec<Animation>,
     animation_frames: Vec<TextureRef>,
+    base_texture_pages: u32,
     textures: Vec<TextureArray>,
     texture_source_sizes: Vec<[u16; 2]>,
     texture_source_grids: Vec<u8>,

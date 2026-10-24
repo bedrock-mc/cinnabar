@@ -65,7 +65,7 @@ pub struct CaveVisibilityWork {
     pub rebuilt: bool,
 }
 
-/// Reusable traversal state, retained while graph additions preserve existing paths.
+/// Reusable traversal state, retained while graph changes preserve existing paths.
 #[derive(Default)]
 pub struct CaveVisibilityScratch {
     visited: Vec<u8>,
@@ -83,12 +83,50 @@ pub struct CaveVisibilityScratch {
     outward_only: bool,
     /// The rule the retained traversal was built with.
     built_outward_only: bool,
+    /// Updates since the traversal became a superset of the exact one, while it is one.
+    superset_updates: Option<u32>,
 }
 
 impl CaveVisibilityScratch {
     /// Work counters exclude unchanged frames skipped by the caller.
     pub fn work(&self) -> CaveVisibilityWork {
         self.work
+    }
+
+    /// Whether the latest visible set equals a full traversal of the current graph. Otherwise
+    /// removals or lost connections left a superset, which later updates replace with the
+    /// exact set within a bounded number of calls, so callers keep updating until it is exact.
+    pub fn is_exact(&self) -> bool {
+        self.superset_updates.is_none()
+    }
+
+    /// Keeps the retained reach, a superset once removals or lost connections shrink the graph.
+    fn mark_superset(&mut self) {
+        self.superset_updates.get_or_insert(0);
+    }
+
+    /// Clears a removed key's state so whichever key next takes its slot starts unreached.
+    fn forget(&mut self, grid: &ConnectivityGrid, key: SubChunkKey, cell: Option<u32>) {
+        match cell {
+            Some(cell) => self.visited[cell as usize] = 0,
+            None => {
+                if let Some(id) = self.overflow_ids.remove(&key) {
+                    self.overflow_visited[id as usize - grid.cell_count()] = 0;
+                }
+            }
+        }
+    }
+
+    /// Moves an overflow key's state into the home cell it was promoted to.
+    fn promote(&mut self, grid: &ConnectivityGrid, key: SubChunkKey, cell: u32) {
+        let state = self.overflow_ids.remove(&key).map_or(0, |id| {
+            std::mem::take(&mut self.overflow_visited[id as usize - grid.cell_count()])
+        });
+        self.visited[cell as usize] = state;
+        if state != 0 {
+            // A full rebuild clears only touched cells.
+            self.touched.push(cell);
+        }
     }
 
     /// Selects Sodium's rule, which shader-pack cameras use to draw what Java Iris draws:
@@ -183,6 +221,7 @@ pub(crate) fn fill_visible(
     scratch.built_outward_only = scratch.outward_only;
     scratch.checkpoint = grid.checkpoint();
     scratch.camera_present = grid.contains_key(&camera);
+    scratch.superset_updates = None;
     scratch.work = CaveVisibilityWork {
         rebuilt: true,
         ..Default::default()

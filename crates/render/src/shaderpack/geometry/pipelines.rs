@@ -167,7 +167,24 @@ pub(crate) fn output_layout() -> BindGroupLayoutDescriptor {
 
 /// Storage buffers one kernel binds per stage, checked against the device before use.
 pub(crate) fn storage_buffers_per_stage(kind: JobKind) -> u32 {
-    source_bindings(kind).len() as u32 + 3
+    pipeline_layout(kind)
+        .iter()
+        .map(|layout| crate::device_settings::storage_buffers(layout, ShaderStages::COMPUTE))
+        .sum()
+}
+
+/// Both groups used by one terrain expansion kernel.
+fn pipeline_layout(kind: JobKind) -> [BindGroupLayoutDescriptor; 2] {
+    [source_layout(kind), output_layout()]
+}
+
+/// The largest per-stage storage budget used by a terrain expansion kernel.
+pub(crate) fn required_storage_buffers() -> u32 {
+    super::jobs::JOB_KINDS
+        .into_iter()
+        .map(storage_buffers_per_stage)
+        .max()
+        .unwrap_or_default()
 }
 
 /// The three cached expansion pipelines, indexed by [`JobKind`].
@@ -199,7 +216,7 @@ impl FromWorld for ExpansionPipelines {
             };
             cache.queue_compute_pipeline(ComputePipelineDescriptor {
                 label: Some(label.into()),
-                layout: vec![source_layout(kind), output_layout()],
+                layout: pipeline_layout(kind).to_vec(),
                 shader,
                 entry_point: Some(entry.into()),
                 ..default()

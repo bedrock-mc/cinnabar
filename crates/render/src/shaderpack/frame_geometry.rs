@@ -546,7 +546,8 @@ pub(crate) fn record_translucent(
         Effect::ParticlesTranslucent,
         Effect::ParticlesAdditive,
         Effect::Clouds,
-        Effect::Weather,
+        Effect::Rain,
+        Effect::Snow,
     ]
     .into_iter()
     .filter(|effect| DrawKind::Effect(*effect).after_deferred(&pack.effects));

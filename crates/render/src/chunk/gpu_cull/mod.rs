@@ -14,6 +14,8 @@ pub(in crate::chunk) mod direct;
 mod direct_tests;
 mod feedback;
 pub(in crate::chunk) mod kernels;
+#[cfg(test)]
+mod limits_tests;
 pub(in crate::chunk) mod model;
 mod node;
 pub(in crate::chunk) mod occlusion;
@@ -21,9 +23,12 @@ mod prepare;
 mod queue;
 pub(in crate::chunk) use queue::GpuCullQueue;
 mod slots;
+pub(in crate::chunk) mod storage;
 #[cfg(test)]
 mod tests;
 pub(in crate::chunk) mod unit_mask;
+#[cfg(test)]
+mod vendor_tests;
 mod visibility_admission;
 
 use bevy::{
@@ -40,10 +45,27 @@ use model::STREAM_COUNT;
 pub(crate) use node::GpuCullLateLabel;
 pub(in crate::chunk) use node::{DrawGpuCulledCommands, draw_function_ids, install_commands};
 pub(in crate::chunk) use prepare::ChunkHiddenEntities;
-use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull};
+use prepare::{GpuCull, extract_hidden_chunks, prepare_gpu_cull, upload_gpu_cull};
 
 /// Forces the CPU culling path for A/B measurement.
 const CPU_CULLING_ENV: &str = "CINNABAR_CPU_CULLING";
+/// ARM's PCI vendor ID, reported by Mali adapters.
+const ARM_MALI_VENDOR_ID: u32 = 0x13B5;
+/// Imagination Technologies' PCI vendor ID, reported by PowerVR adapters.
+const POWERVR_VENDOR_ID: u32 = 0x1010;
+
+/// Keeps drivers with terrain compute faults from compiling either culling path.
+fn gpu_cull_unstable(vendor: u32) -> bool {
+    matches!(vendor, ARM_MALI_VENDOR_ID | POWERVR_VENDOR_ID)
+}
+
+/// Keeps terrain on CPU culling when its driver, override or storage budget requires it.
+fn cpu_culling_required(vendor: u32, forced_cpu: bool, limits: &wgpu::Limits) -> bool {
+    gpu_cull_unstable(vendor)
+        || forced_cpu
+        || limits.max_storage_buffers_per_shader_stage < required_vertex_storage_buffers()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::chunk) enum GpuCullSubmission {
     Count,
@@ -63,8 +85,10 @@ pub(in crate::chunk) fn gpu_cull_submission(
     features: WgpuFeatures,
     downlevel: DownlevelFlags,
     forced_cpu: bool,
+    limits: &wgpu::Limits,
 ) -> Option<GpuCullSubmission> {
-    if forced_cpu
+    if model::cull_workgroup(limits).is_none()
+        || forced_cpu
         || draw_mode != ChunkDrawMode::MultiDrawIndirect
         || !features.contains(WgpuFeatures::INDIRECT_FIRST_INSTANCE)
         || !downlevel.contains(DownlevelFlags::COMPUTE_SHADERS)
@@ -84,8 +108,9 @@ pub(in crate::chunk) fn gpu_cull_supported(
     features: WgpuFeatures,
     downlevel: DownlevelFlags,
     forced_cpu: bool,
+    limits: &wgpu::Limits,
 ) -> bool {
-    gpu_cull_submission(draw_mode, features, downlevel, forced_cpu).is_some()
+    gpu_cull_submission(draw_mode, features, downlevel, forced_cpu, limits).is_some()
 }
 
 /// The view queued for GPU culling this frame, with the pipelines its late pass reuses.
@@ -103,7 +128,6 @@ pub(in crate::chunk) struct GpuCullFrame {
 }
 
 pub(in crate::chunk) fn install(app: &mut App) {
-    let forced_cpu = env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0");
     let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
         return;
     };
@@ -113,29 +137,39 @@ pub(in crate::chunk) fn install(app: &mut App) {
     ) else {
         return;
     };
+    let info = adapter.get_info();
+    let unstable = gpu_cull_unstable(info.vendor);
+    let forced_cpu = cpu_culling_required(
+        info.vendor,
+        env_compat::var_os(CPU_CULLING_ENV).is_some_and(|value| value != "0"),
+        &device.limits(),
+    );
     let draw_mode = select_chunk_draw_mode(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
-        Backends::from(adapter.get_info().backend),
-        apple_gpu(&adapter.get_info()),
+        Backends::from(info.backend),
+        apple_gpu(&info),
     );
     let submission = gpu_cull_submission(
         draw_mode,
         device.features(),
         adapter.get_downlevel_capabilities().flags,
         forced_cpu,
+        &device.limits(),
     );
     let support = GpuCullSupport(submission.is_some());
     let direct = DirectOcclusionSupport(direct_occlusion_supported(
         draw_mode,
         adapter.get_downlevel_capabilities().flags,
         forced_cpu,
+        &device.limits(),
     ));
     bevy::log::info!(
         ?draw_mode,
         gpu_cull = ?submission,
         direct_occlusion = direct.0,
         forced_cpu,
+        gpu_cull_unstable = unstable,
         "terrain draw path"
     );
     render_app
@@ -155,18 +189,29 @@ pub(in crate::chunk) fn install(app: &mut App) {
     let Some(submission) = submission else {
         return;
     };
+    let worker_device = device.clone();
+    crate::deferred_resource::install(render_app, move || GpuCull::new(&worker_device, submission));
     render_app
-        .insert_resource(GpuCull::new(&device, submission))
         .init_resource::<feedback::GpuCullFeedback>()
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, extract_hidden_chunks)
         .add_systems(
             Render,
-            feedback::submit_feedback.in_set(crate::device_poll::FrameSubmissions),
+            feedback::submit_feedback
+                .run_if(bevy::prelude::resource_exists::<GpuCull>)
+                .in_set(crate::device_poll::FrameSubmissions),
+        )
+        .add_systems(
+            Render,
+            upload_gpu_cull
+                .run_if(bevy::prelude::resource_exists::<GpuCull>)
+                .after(super::plugin::publication_schedule::ChunkPublicationStage::ModelSort)
+                .before(RenderSystems::Queue),
         )
         .add_systems(
             Render,
             prepare_gpu_cull
+                .run_if(bevy::prelude::resource_exists::<GpuCull>)
                 .in_set(RenderSystems::PrepareResources)
                 .after(prepare_gpu_chunks)
                 .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),

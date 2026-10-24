@@ -8,7 +8,7 @@ use crate::presentation::equipment::tests::held_animation_tests::{owner, owner_r
 use crate::presentation::equipment::tests::{pack_catalog, player_body, startup_runtime};
 use crate::presentation::equipment::{FirstPersonHand, runtime::*};
 use actor_animation::AttachableAnimationInput;
-use render_model::equipment::{attach_to_bone, held_sprite_display};
+use render_model::equipment::{attach_to_bone, held_sprite_display_for_hand};
 
 #[path = "native_geometry_tests.rs"]
 mod geometry;
@@ -151,6 +151,7 @@ fn item(identifier: &str) -> WornItem {
         identifier: identifier.into(),
         metadata: 0,
         damage: None,
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::resolve_item_use(
             &assets::item_use::diagnostic_profile(identifier),
@@ -601,7 +602,7 @@ fn spears_and_tridents_keep_native_hands_in_both_views_and_reload_cleanly() {
                         ),
                     )
                 } else {
-                    held_sprite_display(item.grip.upright().unwrap_or(false))
+                    held_sprite_display_for_hand(item.grip.upright().unwrap_or(false), off_hand)
                 };
                 let expected = attach_to_bone(body.input.current_bones[hand], display).unwrap();
                 assert_eq!(

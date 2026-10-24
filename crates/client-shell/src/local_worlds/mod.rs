@@ -93,7 +93,7 @@ impl LocalWorlds {
         self.playing = false;
         self.menu = WorldsMenu::default();
         self.input(Input::Refresh);
-        self.dispatch(vec![Effect::LoadPrefs]);
+        self.dispatch(vec![Effect::LoadPrefs, Effect::Prestart]);
         Ok(())
     }
 
@@ -191,11 +191,12 @@ impl LocalWorlds {
         self.dispatch(vec![Effect::Prepare]);
     }
 
-    /// Leaves the local world: its server saves and stops.
+    /// Leaves the local world: its server saves and stops, or briefly keeps running where
+    /// starts are slow.
     pub fn leave_world(&mut self) {
         self.playing = false;
         self.paused = false;
-        self.dispatch(vec![Effect::Close]);
+        self.dispatch(vec![Effect::Leave]);
         if self.client.is_some() {
             self.input(Input::Refresh);
         }

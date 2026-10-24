@@ -505,6 +505,12 @@ allowed_dependencies = ["experience-sdk"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "dragonfly-extension-client"
+path = "examples/dragonfly-extension/client"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "ui"
 path = "crates/ui"
 allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input", "test-alloc"]
@@ -561,7 +567,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["crash-report", "diagnostics", "workspace-declarations"]
+allowed_dependencies = ["render-api", "crash-report", "diagnostics", "test-time", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.
@@ -1369,6 +1375,16 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/startup.rs"
+literal = "mesa"
+reason = "Directory for the Mesa driver's isolated shader cache, independent of biome identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/oreui/src/settings/localization.rs"
+literal = "fr"
+reason = "French locale prefix used to select settings translations, not a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/assets/src/sound_events.rs"

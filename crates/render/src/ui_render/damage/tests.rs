@@ -150,7 +150,7 @@ fn depth_style_uv_color_and_material_edits_damage_existing_triangle_bounds() {
         let vertex = &mut Arc::make_mut(&mut next.vertices)[1];
         match change {
             0 => vertex.clip_z = 0.5,
-            1 => vertex.style_flags = render_model::UI_STYLE_ALPHA_TEST,
+            1 => vertex.style_flags = render_api::UI_STYLE_ALPHA_TEST,
             2 => vertex.uv[0] = 0.5,
             3 => vertex.color[0] = 128,
             4 => vertex.alpha_cutoff = 0.25,

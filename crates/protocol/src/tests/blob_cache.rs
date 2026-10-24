@@ -749,7 +749,7 @@ fn blob_status_splits_4096_wire_hashes_at_4095_ids_without_omission() {
 }
 
 #[test]
-fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips() {
+fn unrequested_only_and_conflicting_miss_responses_are_atomic_skips() {
     let wanted = b"wanted";
     let wanted_hash = client_blob_hash(wanted);
 
@@ -810,11 +810,12 @@ fn unsolicited_conflicting_and_partially_valid_miss_responses_are_atomic_skips()
         exercise(
             vec![
                 (wanted_hash, wanted.to_vec()),
+                (wanted_hash, b"poison".to_vec()),
                 (client_blob_hash(unsolicited), unsolicited.to_vec()),
             ],
             0,
         ),
-        0
+        3
     );
 }
 

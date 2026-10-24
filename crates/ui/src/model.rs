@@ -5,11 +5,13 @@ use std::{
     sync::Arc,
 };
 
-use crate::{TextLayout, UiAction, UiLimits, UiPoint, UiRect, UiScale};
+use crate::{UiAction, UiLimits, UiPoint, UiRect, UiScale};
 
 mod budget;
 mod draw;
 mod mesh;
+mod visual;
+pub use visual::{TextShadow, UiVisual};
 mod painted_bounds;
 mod projection;
 mod repeat;
@@ -53,98 +55,6 @@ pub enum UiBlendMode {
     Invert,
     Backdrop,
     Filter,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum UiVisual {
-    #[default]
-    None,
-    /// Direct geometry at this control's authored draw position; depth-using materials get private depth.
-    Mesh(Arc<UiMesh>),
-    /// Shared geometry with a uniform replacement color, without copying the retained vertices.
-    TintedMesh {
-        mesh: Arc<UiMesh>,
-        color: [u8; 4],
-    },
-    Solid {
-        texture_page: u16,
-        color: [u8; 4],
-    },
-    Sprite {
-        texture_page: u16,
-        uv: [u16; 4],
-        color: [u8; 4],
-    },
-    /// A nearest-neighbour sprite rotated around the centre of its node.
-    ///
-    /// This is used by first-person viewmodel surfaces whose 2-D fallback
-    /// still needs the small inward tilt of the native hand/item path.
-    RotatedSprite {
-        texture_page: u16,
-        uv: [u16; 4],
-        color: [u8; 4],
-        angle_radians: f32,
-    },
-    /// A sprite with the animated enchantment glint over its opaque texels.
-    GlintSprite {
-        texture_page: u16,
-        uv: [u16; 4],
-        color: [u8; 4],
-    },
-    /// A sprite retaining fractional texel edges, optionally carrying
-    /// [`UI_STYLE_GRAYSCALE`]/[`UI_STYLE_BILINEAR`].
-    StyledSprite {
-        texture_page: u16,
-        uv: [f32; 4],
-        color: [u8; 4],
-        style: u8,
-    },
-    /// A source region addressed by tile coordinates, with no geometry per repeat.
-    RepeatedSprite {
-        texture_page: u16,
-        tile_uv: [f32; 4],
-        source: [f32; 4],
-        color: [u8; 4],
-        style: u16,
-    },
-    /// A solid rect blending `colors[0]` into `colors[1]` top to bottom (or left
-    /// to right when `horizontal`).
-    Gradient {
-        texture_page: u16,
-        colors: [[u8; 4]; 2],
-        horizontal: bool,
-    },
-    /// A sprite drawn with the invert blend instead of alpha compositing.
-    InvertedSprite {
-        texture_page: u16,
-        uv: [u16; 4],
-    },
-    Text {
-        layout: Arc<TextLayout>,
-        color: [u8; 4],
-        /// Draws the whole run once offset down-right in a darkened copy of
-        /// each glyph's colour before drawing the run itself, the way Mojang's
-        /// client shadows HUD and chat text. This is a property of the draw
-        /// rather than of a span: a `§` colour code changes the hue, never
-        /// whether the run is shadowed.
-        shadow: TextShadow,
-    },
-    /// A text run rotated around the centre of its node (the title splash).
-    RotatedText {
-        layout: Arc<TextLayout>,
-        color: [u8; 4],
-        shadow: TextShadow,
-        angle_radians: f32,
-    },
-}
-
-/// A Java-style 1-design-pixel drop shadow.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum TextShadow {
-    #[default]
-    None,
-    /// Offset in unscaled 1/64 pixels, applied on both axes.
-    Offset64(u32),
 }
 
 /// A paint-time 2-D affine map of one node's own visual, in that node's coordinates:
@@ -396,10 +306,17 @@ pub struct UiVertex {
     pub model_light: f32,
     /// Entity overlay RGB and mix amount, or the coverage paint's packed constant colors.
     pub overlay_color: [f32; 4],
-    pub style_flags: u16,
-    pub alpha_test: bool,
+    pub style_flags: u32,
     /// Sampled-texture cutoff (negative disables it).
     pub alpha_cutoff: f32,
+}
+
+impl UiVertex {
+    /// Whether the vertex requests the default sampled-alpha test.
+    #[must_use]
+    pub const fn alpha_test(&self) -> bool {
+        self.style_flags & render_api::UI_STYLE_ALPHA_TEST != 0
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

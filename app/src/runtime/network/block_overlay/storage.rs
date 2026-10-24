@@ -214,8 +214,11 @@ impl Builder<'_> {
             self.upload_bytes += placement.upload_bytes;
             for (offset, frame) in physical_frames.by_ref().take(placement.count).enumerate() {
                 references.push(
-                    TextureRef::new(placement.shard as u32 + 1, placement.layer + offset as u32)
-                        .expect("bounded shard layer"),
+                    TextureRef::new(
+                        placement.shard as u32 + self.overlay.base_texture_pages,
+                        placement.layer + offset as u32,
+                    )
+                    .expect("bounded shard layer"),
                 );
                 self.sources.push((
                     if grid == 0 {
