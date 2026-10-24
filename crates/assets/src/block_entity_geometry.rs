@@ -127,7 +127,13 @@ pub const POT_BODY_HALF: f32 = 7.0;
 pub const POT_BODY_HEIGHT: f32 = 16.0;
 /// Artwork between the side texture's two transparent border columns.
 pub const POT_SIDE_TEXELS: [f32; 4] = [1.0, 0.0, 14.0, 16.0];
-pub const POT_NECK: ModelBox = ([-4.0, 14.0, -4.0], [8.0, 3.0, 8.0], [0.0, 0.0]);
+/// The neck sits on the one-pixel lip above the body, so the pot stands 20 pixels tall. Both
+/// authored boxes are turned half a revolution about X around their part pivots.
+pub const POT_NECK: ModelBox = (
+    [-4.0, POT_BODY_HEIGHT + 1.0, -4.0],
+    [8.0, 3.0, 8.0],
+    [0.0, 0.0],
+);
 pub const POT_LIP: ModelBox = ([-3.0, POT_BODY_HEIGHT, -3.0], [6.0, 1.0, 6.0], [0.0, 5.0]);
 pub const POT_NECK_INFLATE: f32 = -0.1;
 pub const POT_LIP_INFLATE: f32 = 0.2;
