@@ -69,6 +69,69 @@ fn changed_fraction_evaluates_only_its_dependent_layer() {
     assert_eq!(work[3], 1);
 }
 
+#[test]
+fn render_only_swing_retains_both_completed_body_poses() {
+    let actor = TestActor::default();
+    let mut compiled = crate::test_support::counting_random_compiled("minecraft:test");
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.insert(
+        7,
+        assets::MolangSymbol {
+            kind: assets::MolangSymbolKind::Variable,
+            identifier: "variable.attack_time".into(),
+        },
+    );
+    compiled.molang_symbols = symbols.into();
+    let mut expressions = compiled.molang_expressions.into_vec();
+    let expression = expressions.len() as u32;
+    expressions.push(assets::CompiledMolangExpression {
+        first_op: compiled.molang_ops.len() as u32,
+        op_count: 1,
+        max_stack: 1,
+    });
+    compiled.molang_expressions = expressions.into();
+    let mut ops = compiled.molang_ops.into_vec();
+    for op in &mut ops {
+        if let MolangOp::LoadVariable(symbol) | MolangOp::StoreVariable(symbol) = op
+            && *symbol >= 7
+        {
+            *symbol += 1;
+        }
+    }
+    ops.push(MolangOp::LoadVariable(7));
+    compiled.molang_ops = ops.into();
+    compiled.render.layers[0].color = Some([expression; 4]);
+    let assets = Arc::new(
+        RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap(),
+    );
+    let mut store = ActorAnimationStore::with_assets(assets);
+    store.insert(1, 0, &actor);
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let progress = LocalSwingProgress {
+        bedrock: [0.25, 0.75],
+        java: [0.25, 0.75],
+        frame_alpha: None,
+    };
+    store.sync_local_swing(actor.runtime_id, progress);
+    for _ in 0..2 {
+        store.advance_tick(&actors, None, None, true, false, |_| Default::default());
+    }
+    let rig = store.get(actor.runtime_id).unwrap();
+    let completed = &rig.render[0];
+    assert_ne!(rig.previous, rig.current);
+    let authored = authored_state(&store);
+    for alpha in [0.25, 0.75, 0.25] {
+        let layers = sample(&store, &actor, alpha);
+        assert_eq!(layers[0].color, [progress.bedrock_progress(alpha); 4]);
+        assert!(Arc::ptr_eq(
+            &layers[0].previous_pose,
+            &completed.previous_pose
+        ));
+        assert!(Arc::ptr_eq(&layers[0].pose, &completed.pose));
+        assert_eq!(authored_state(&store), authored);
+    }
+}
+
 /// Walk and attack queries feed separate axes while the layer reads the current frame fraction.
 fn moving_fixture() -> (ActorAnimationStore, HashMap<u64, TestActor>) {
     let actor = TestActor {

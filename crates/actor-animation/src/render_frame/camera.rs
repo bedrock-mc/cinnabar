@@ -101,7 +101,12 @@ fn needs_pose_sampling(
     let samples_clip = |clip: usize| {
         include_clips && camera_clip_with_layers(assets, layout, rig_binding, clip, swing)
     };
-    if super::sampling::render_expressions(assets, rig_binding)
+    let expressions = if include_clips {
+        super::sampling::render_expressions(assets, rig_binding)
+    } else {
+        super::sampling::rig_expressions(assets, rig_binding)
+    };
+    if expressions
         .into_iter()
         .any(|expression| camera_expression(layout, expression as usize, swing))
     {
