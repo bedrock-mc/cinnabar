@@ -399,6 +399,7 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
+  Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
   hooks, ladders, lily pads and sea pickles use their carried sprites; falling blocks retain
   their world models.
@@ -507,28 +508,26 @@ ticks; dragon breath retains its five-tick emitter. Legacy emission and matched
 rendered-frame qualification remain open.
 
 Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
-lights by it; otherwise alpha rounds at 0.5. Generated declaration states cover the pinned entity material vocabulary except cushion.
-They preserve emissive body and invisible-eye alpha, culling, blending, depth comparison
-and target-channel writes. These states are provisional (older declaration, current
-behaviour unverified); current shader and rendered-frame qualification remain open.
-Cushion retains provisional rounding until its declaration is available.
-Render-controller material arrays and ternaries remain incomplete.
-Frames with Equal-depth actor overlays keep actors on native rendering so pack vertex
-transforms cannot separate their depth surfaces. Paired dissolve materials retain their dedicated renderer contracts; applying their
-generated states to held and worn presentations remains incomplete.
-Each rig geometry routes to the texture its own selection draws, else the
-default branch. The samples omit the iron golem's body controller; it is completed from
-lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity
-materials but do not define them, so all but the verified kinds in `registry-policy.json`
-are provisional with that rounding; their definitions (alpha test, blend, emissive) remain
-unverified. Rounding is wrong where alpha is an emissive weight: blaze, magma cube and glow
-squid bodies stay invisible, and spider, enderman and phantom eyes draw clear. Each rig geometry routes to the texture its own selection draws, else the
-default branch. Whole-model material arrays and ternaries retain one controller layer and evaluate
-each material decision once, after activation and before authored part visibility. Render-controller
-expressions share frame dependency analysis, keeping camera-driven choices live between ticks.
-Dynamic per-bone material rules, selector admission
-and in-world qualification remain incomplete. The samples omit the iron golem's body controller; it is completed from
-the pack's default controller until a pinned pack defines it.
+lights by it; otherwise alpha rounds at 0.5. Generated declaration states cover the
+pinned entity material vocabulary except cushion. They preserve emissive body and
+invisible-eye alpha, culling, blending, depth comparison and target-channel writes.
+These states are provisional (older declaration, current behaviour unverified);
+current shader and rendered-frame qualification remain open. Cushion retains
+provisional rounding until its declaration is available. Invisible body and eye
+layers require the actor's render-when-invisible flag; material flags do not bypass
+that visibility gate.
+Frames with Equal-depth actor overlays keep actors on native rendering so pack
+vertex transforms cannot separate their depth surfaces. Paired dissolve materials
+retain their dedicated renderer contracts; applying their generated states to held
+and worn presentations remains incomplete.
+Each rig geometry routes to the texture its own selection draws, else the default
+branch. Whole-model material arrays and ternaries retain one controller layer and
+evaluate each material decision once, after activation and before authored part
+visibility. Render-controller expressions share frame dependency analysis, keeping
+camera-driven choices live between ticks. Dynamic per-bone material rules, selector
+admission and in-world qualification remain incomplete. The samples omit the iron
+golem's body controller; it is completed from the pack's default controller until a
+pinned pack defines it.
 
 Remaining qualification includes attachables and custom item models, action/use timing,
 projectile interpolation and shake, sleep/mount poses, name tags (including over
@@ -829,10 +828,10 @@ offers no NetherNet route, so the join fails with an explanation instead of conn
 Startup logs report milestone elapsed times and child-process CPU time when available.
 Native and translated BDS startup overlaps host-profile loading and confirms any changed
 operator grant before reporting running; container servers still resolve it before launch.
-Translated BDS starts the most recently played world in the background once the menu is up.
-A left world's server keeps running for five minutes; both stay hidden until opened, and other
-opens, edits, deletes and exits stop them first. Emulator APK acceptance of the hidden start,
-physical-phone battery cost, startup profiling and the ten-second join target remain open.
+Saved BDS worlds start only on an explicit open. Leaving requests a save and stop immediately;
+reopening waits for the previous server's save and cleanup. Android setup still prepares reusable
+startup code in an isolated temporary world. Full APK and physical-phone lifecycle acceptance,
+battery cost, startup profiling and the ten-second join target remain open.
 
 See [local worlds](docs/local-worlds.md).
 
