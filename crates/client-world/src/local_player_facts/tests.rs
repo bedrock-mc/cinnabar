@@ -230,3 +230,27 @@ fn gravity_defaults_on_and_follows_only_explicit_flag_words() {
     assert!(facts.has_gravity() && !facts.uses_uniform_air_drag());
     assert_eq!(facts.air_drag_modifier(), None);
 }
+
+/// Actor replacement clears movement facts without resetting the active session.
+#[test]
+fn replacement_clears_actor_movement_authority() {
+    let mut facts = LocalPlayerFacts::new(4);
+    facts.apply_local_movement_flags(
+        4,
+        crate::MovementFlagUpdate {
+            immobile: Some(true),
+            has_gravity: Some(false),
+            uniform_air_drag: Some(true),
+            ..Default::default()
+        },
+    );
+    facts.apply_air_drag_modifier(4, 2.0);
+    facts.clear_actor_movement_authority(3);
+    assert!(facts.is_immobile());
+    facts.clear_actor_movement_authority(4);
+    assert_eq!(facts.session_id(), 4);
+    assert!(!facts.is_immobile());
+    assert!(facts.has_gravity());
+    assert!(!facts.uses_uniform_air_drag());
+    assert_eq!(facts.air_drag_modifier(), None);
+}

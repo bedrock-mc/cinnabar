@@ -47,6 +47,7 @@ mod commits;
 mod contracts;
 mod dimension_ranges;
 mod dimension_transfer;
+mod local_actor_lifetime;
 #[cfg(test)]
 mod local_movement_flags_tests;
 #[cfg(test)]
@@ -252,7 +253,7 @@ impl WorldAuthority {
         self.current_dimension = dimension;
         self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
-        self.local_movement_speed = None;
+        self.publish_local_actor_replacement(sequence);
         self.publish_local_mount_change(sequence, previous_mount);
     }
     /// Returns the mount retained for an actor's current lifetime.

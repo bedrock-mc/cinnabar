@@ -367,7 +367,11 @@ impl ActorSnapshot {
         // Retain the visible-name default until the server replaces it.
         snapshot.metadata.insert(
             ActorDataKey::Flags.wire_value(),
-            ActorMetadataValue::Flags(1 << ActorFlag::ShowName.wire_value()),
+            ActorMetadataValue::Flags(
+                (1 << ActorFlag::ShowName.wire_value())
+                    | (1 << ActorFlag::HasGravity.wire_value())
+                    | (1 << ActorFlag::HasCollision.wire_value()),
+            ),
         );
         snapshot.apply_local_flags(feed);
         snapshot

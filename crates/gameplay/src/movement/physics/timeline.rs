@@ -388,7 +388,7 @@ impl LocalPhysicsController {
     }
 
     /// Adopts present control flags after retained local transitions have been reconciled.
-    fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
+    pub(super) fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
         for (flag, mode) in [
             (flags.gliding, sim::MovementMode::Gliding),
             (flags.swimming, sim::MovementMode::Swimming),

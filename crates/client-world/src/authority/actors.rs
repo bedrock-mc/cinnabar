@@ -230,11 +230,15 @@ impl WorldAuthority {
     /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
     /// third-person body and first-person hand read a driven rig instead of a static fallback.
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
+        let missing = self.actors.get(self.local_player_runtime_id).is_none();
         self.actors.sync_local_player(
             self.local_player_runtime_id,
             self.local_player_unique_id,
             feed,
         );
+        if missing && let Some(actor) = self.actors.get(self.local_player_runtime_id) {
+            self.publish_local_actor_replacement(actor.spawn_revision);
+        }
     }
 
     /// Replaces the local appearance while preserving the server's roster identity.

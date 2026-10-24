@@ -215,6 +215,16 @@ impl LocalPlayerFacts {
         self.mount_unique_id
     }
 
+    /// Retires actor-owned movement facts while retaining session permissions and abilities.
+    pub fn clear_actor_movement_authority(&mut self, session_id: u64) {
+        if self.session_id == session_id {
+            self.immobile = false;
+            self.gravity_cleared = false;
+            self.uniform_air_drag = false;
+            self.air_drag_modifier = None;
+        }
+    }
+
     /// Applies FIFO-committed local flags for this session; omitted fields retain their state.
     pub fn apply_local_movement_flags(
         &mut self,

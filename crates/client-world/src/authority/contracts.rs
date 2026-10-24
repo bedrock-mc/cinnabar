@@ -112,6 +112,8 @@ pub enum CommittedControlEvent {
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
         flags: crate::MovementFlagUpdate,
+        /// Clears the preceding actor lifetime before applying this complete state.
+        replacement: bool,
         /// Accepted sparse size writes, or the dimensions of a replacement actor.
         dimensions: Option<crate::ExplicitDimensions>,
     },

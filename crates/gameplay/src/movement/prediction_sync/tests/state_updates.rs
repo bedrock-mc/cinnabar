@@ -84,6 +84,7 @@ fn sync_sparse_width_preserves_pose_owned_height() {
         for previous_height in [None, Some(1.5)] {
             let mut world = local_actor_authority();
             let mut physics = due_physics();
+            apply_controls(&mut world, &mut physics);
             if let Some(previous_height) = previous_height {
                 write_dimensions(
                     &mut world,
@@ -332,22 +333,16 @@ fn replacement_size_yields_to_a_changed_local_pose() {
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.8, 1.8]);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
-        sim::MovementInput::default(),
+        crouch,
         crate::movement::PhysicsSampleContext::default(),
         &OpenWorld,
     );
-    assert_eq!(
-        reported_box(&mut physics, &world),
-        [1.0, 0.6, sim::PLAYER_HEIGHT as f32]
-    );
+    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
     write_dimensions(
         &mut world,
         &mut physics,
         4,
         &[(ActorDataKey::Width, 0.6), (ActorDataKey::Scale, 2.0)],
     );
-    assert_eq!(
-        reported_box(&mut physics, &world),
-        [2.0, 0.6, sim::PLAYER_HEIGHT as f32]
-    );
+    assert_eq!(reported_box(&mut physics, &world), [2.0, 0.6, height]);
 }

@@ -6,7 +6,7 @@ use super::*;
 const MOVING_FLAG_DISTANCE_SQUARED: f32 = 0.001;
 
 /// Accepted flag writes and size, independent of replay history and travel-mode selection.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(super) struct SyncState {
     pub flags: client_world::MovementFlagUpdate,
     pub size: Option<[f32; 2]>,
@@ -19,13 +19,37 @@ pub(super) struct SyncState {
 }
 
 /// One accepted server edit retained in arrival order between completed ticks.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum ServerWrite {
+    Replacement(
+        client_world::MovementFlagUpdate,
+        client_world::ExplicitDimensions,
+    ),
     Flags(client_world::MovementFlagUpdate),
     Dimensions(client_world::ExplicitDimensions),
 }
 
 impl SyncState {
+    /// Replaces every lifetime-owned field before accepting the new actor's state.
+    fn replace_actor(
+        &mut self,
+        flags: client_world::MovementFlagUpdate,
+        dimensions: client_world::ExplicitDimensions,
+    ) {
+        *self = Self {
+            flags,
+            size: None,
+            explicit_size: false,
+            dimensions: Default::default(),
+            last_pose: (false, false),
+            previous_mode: sim::MovementMode::Walking,
+            pending: Vec::new(),
+            local_spinning: false,
+        };
+        self.resize();
+        self.apply_dimensions(dimensions);
+    }
+
     /// Applies only supplied server bits, preserving independent pose flags.
     pub(super) fn server_flags(&mut self, update: client_world::MovementFlagUpdate) {
         if update == client_world::MovementFlagUpdate::default() {
@@ -123,6 +147,9 @@ impl SyncState {
     pub(super) fn replay_server(&mut self, writes: &[ServerWrite]) {
         for write in writes {
             match *write {
+                ServerWrite::Replacement(flags, dimensions) => {
+                    self.replace_actor(flags, dimensions)
+                }
                 ServerWrite::Flags(flags) => self.apply_flags(flags),
                 ServerWrite::Dimensions(dimensions) => {
                     self.apply_dimensions(dimensions);
@@ -181,6 +208,21 @@ impl SyncState {
 }
 
 impl LocalPhysicsController {
+    /// Starts accepted sync and control state for a replacement actor without rewinding old inputs.
+    pub(crate) fn replace_actor_authority(
+        &mut self,
+        flags: client_world::MovementFlagUpdate,
+        dimensions: client_world::ExplicitDimensions,
+    ) {
+        self.sync_state.replace_actor(flags, dimensions);
+        self.sync_state
+            .pending
+            .push(ServerWrite::Replacement(flags, dimensions));
+        self.live_posture = Default::default();
+        self.server_control_flags = None;
+        self.adopt_live_flags(flags);
+    }
+
     /// Returns effective flight independently of the current travel mode.
     pub(in crate::movement) fn prediction_sync_flying(&self) -> bool {
         self.modes.flying()
@@ -234,6 +276,34 @@ fn moving_between(before: Vec3, after: Vec3) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_resets_every_sync_field_and_replays_as_one_write() {
+        let flags = client_world::MovementFlagUpdate::default();
+        let dimensions = client_world::ExplicitDimensions::for_spawn(2);
+        let mut dirty = SyncState {
+            flags: client_world::MovementFlagUpdate {
+                moving: Some(true),
+                spinning: Some(true),
+                ..Default::default()
+            },
+            size: Some([0.9, 0.7]),
+            explicit_size: true,
+            dimensions: client_world::ExplicitDimensions::for_spawn(1),
+            last_pose: (true, true),
+            previous_mode: sim::MovementMode::Gliding,
+            pending: vec![ServerWrite::Flags(flags)],
+            local_spinning: true,
+        };
+        let mut fresh = SyncState::default();
+        fresh.replace_actor(flags, dimensions);
+        dirty.replay_server(&[ServerWrite::Replacement(flags, dimensions)]);
+        assert_eq!(dirty, fresh);
+        assert_eq!(
+            dirty.size,
+            Some([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+        );
+    }
 
     #[test]
     fn moving_threshold_keeps_the_small_vertical_and_horizontal_contributions() {

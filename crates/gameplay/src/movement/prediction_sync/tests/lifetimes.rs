@@ -144,8 +144,7 @@ fn sync_lifetime_network_dimensions_replace_a_synthetic_actor() {
         .unwrap();
     assert!(world.actor(7).is_none());
     world.sync_local_player_pose(&feed);
-    let synthetic = world.actor(7).unwrap().explicit_dimensions;
-    physics.note_server_dimensions(synthetic);
+    super::state_updates::apply_controls(&mut world, &mut physics);
     let anchor = physics
         .advance_with_context(
             simulation_clock::TICK_DURATION,
@@ -208,7 +207,6 @@ fn sync_lifetime_network_dimensions_replace_a_synthetic_actor() {
         Some([1.0, sim::PLAYER_WIDTH as f32, 0.7]),
         "replay must retain the accepted network lifetime"
     );
-    physics.note_server_dimensions(synthetic);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
@@ -239,4 +237,147 @@ fn sync_lifetime_later_server_use_wins_after_replacement() {
     write_use(&mut world, 3, true);
     apply_use_controls(&mut world, &mut runtime);
     assert_use(&world, &mut physics, &runtime, true);
+}
+
+/// Synthetic recreation retires explicit dimensions even without a local pose change.
+#[test]
+fn sync_lifetime_synthetic_recreation_clears_old_bounds() {
+    for dimension_reset in [false, true] {
+        let mut world = local_actor_authority();
+        let mut physics = due_physics();
+        super::state_updates::write_dimensions(
+            &mut world,
+            &mut physics,
+            2,
+            &[(ActorDataKey::Width, 0.9), (ActorDataKey::Height, 0.7)],
+        );
+        assert_eq!(
+            super::state_updates::reported_box(&mut physics, &world),
+            [1.0, 0.9, 0.7]
+        );
+        if dimension_reset {
+            world.reset_dimension(3, 1);
+            physics.reanchor_network_position([0.5, 72.0, 0.5], 101, false);
+        } else {
+            world
+                .apply_ordered_event(
+                    protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(
+                        protocol::ActorRemoveEvent {
+                            dimension: 0,
+                            unique_id: 70,
+                        },
+                    )),
+                    Some(3),
+                )
+                .unwrap();
+        }
+        world.sync_local_player_pose(&super::super::presentation_tests::feed());
+        super::state_updates::apply_controls(&mut world, &mut physics);
+        for _ in 0..2 {
+            assert_eq!(
+                super::state_updates::reported_box(&mut physics, &world),
+                [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32],
+                "dimension reset: {dimension_reset}"
+            );
+            physics.advance(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                &OpenWorld,
+            );
+        }
+    }
+}
+
+/// Controlled passengers report the replacement's Moving bit through correction replay.
+#[test]
+fn sync_lifetime_replacement_reseeds_controlled_mount_moving() {
+    for ride in [
+        crate::movement::RideKind::Boat,
+        crate::movement::RideKind::Horse,
+    ] {
+        for replacement_moving in [None, Some(false), Some(true)] {
+            let moving = replacement_moving.unwrap_or(false);
+            let mut world = local_actor_authority();
+            let mut physics = due_physics();
+            world.take_committed_controls();
+            physics.apply_server_movement_flags(
+                0,
+                client_world::MovementFlagUpdate {
+                    moving: Some(!moving),
+                    ..Default::default()
+                },
+            );
+            let context = crate::movement::PhysicsSampleContext {
+                mode_intent: crate::movement::ModeIntent {
+                    ride: Some(ride),
+                    vehicle_controlled_locally: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let anchor = physics
+                .advance_with_context(
+                    simulation_clock::TICK_DURATION,
+                    sim::MovementInput::default(),
+                    context,
+                    &OpenWorld,
+                )
+                .samples
+                .remove(0);
+            let mut replacement = local_actor_spawn(Vec::new());
+            replacement.metadata = replacement_moving
+                .into_iter()
+                .map(|moving| protocol::ActorMetadata {
+                    key: ActorDataKey::Flags.wire_value(),
+                    value: ActorMetadataValue::Flags(if moving {
+                        1 << ActorFlag::Moving.wire_value()
+                    } else {
+                        0
+                    }),
+                })
+                .collect();
+            replacement.links = Arc::from([protocol::ActorLinkEvent {
+                dimension: 0,
+                rider_unique_id: 70,
+                ridden_unique_id: 90,
+                link_type: protocol::ActorLinkType::Rider,
+                immediate: true,
+                rider_initiated: false,
+            }]);
+            world
+                .apply_ordered_event(
+                    protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
+                    Some(2),
+                )
+                .unwrap();
+            assert_eq!(world.ridden_unique_id(70), Some(90));
+            super::state_updates::apply_controls(&mut world, &mut physics);
+            physics.advance_with_context(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                context,
+                &OpenWorld,
+            );
+            physics
+                .apply_correction(
+                    crate::movement::PhysicsAnchor {
+                        network_position: anchor.position,
+                        tick: anchor.tick,
+                        on_ground: false,
+                        velocity: Some(anchor.velocity),
+                    },
+                    crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                    None,
+                    &OpenWorld,
+                )
+                .unwrap();
+            let packet = reported_packet(&world, &mut physics, &ItemUseRuntime::default());
+            let flags = protocol::test_support::packets::prediction_sync_flags(&packet).unwrap();
+            assert_eq!(
+                flag_set(&flags, ActorFlag::Moving),
+                moving,
+                "ride: {ride:?}"
+            );
+        }
+    }
 }

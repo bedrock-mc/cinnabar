@@ -349,9 +349,9 @@ fn replacement_size_uses_its_later_accepted_sneak() {
     }
 }
 
-/// Replacement dimensions preserve horizontal state until its producer changes.
+/// Replacement resets the old horizontal pose before a new spin write resizes it.
 #[test]
-fn replacement_dimensions_do_not_reset_horizontal_pose() {
+fn replacement_resets_horizontal_pose_before_new_server_writes() {
     let mut world = local_actor_authority();
     let mut physics = due_physics();
     apply_controls(&mut world, &mut physics);
@@ -362,12 +362,18 @@ fn replacement_dimensions_do_not_reset_horizontal_pose() {
     tick_sneak(&mut physics, true);
     assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, WIDTH]);
     replace_with_width(&mut world, &mut physics, 3);
-    write_flags(&mut world, &mut physics, 4, sneak | spin);
-    tick_sneak(&mut physics, true);
     assert_eq!(
         reported_box(&mut physics, &world),
         [1.0, 0.8, STANDING_HEIGHT]
     );
+    tick_sneak(&mut physics, false);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [1.0, 0.8, STANDING_HEIGHT]
+    );
+    write_flags(&mut world, &mut physics, 4, sneak | spin);
+    tick_sneak(&mut physics, true);
+    assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, WIDTH]);
     write_flags(&mut world, &mut physics, 5, sneak);
     tick_sneak(&mut physics, true);
     assert_eq!(

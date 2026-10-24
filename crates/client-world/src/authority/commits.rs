@@ -295,6 +295,7 @@ impl WorldAuthority {
                             sequence,
                             tick,
                             flags: flags.unwrap_or_default(),
+                            replacement: false,
                             dimensions,
                         });
                     }
@@ -362,41 +363,7 @@ impl WorldAuthority {
                 if life_accepted {
                     if let Some(attributes) = local_health_attributes {
                         if local_spawn {
-                            if let Some(actor) = self.actors.get(self.local_player_runtime_id) {
-                                let using_item = actor.is_using_item();
-                                let dimensions = actor.explicit_dimensions;
-                                self.push_committed_control(
-                                    CommittedControlEvent::LocalMovementFlags {
-                                        sequence,
-                                        tick: 0,
-                                        flags: crate::MovementFlagUpdate {
-                                            using_item: Some(using_item),
-                                            ..Default::default()
-                                        },
-                                        dimensions: Some(dimensions),
-                                    },
-                                );
-                            }
-                            let movement = self
-                                .actors
-                                .get(self.local_player_runtime_id)
-                                .and_then(|actor| {
-                                    actor.attributes.get(Attribute::Movement.wire_name())
-                                })
-                                .and_then(MovementSpeedAttribute::from_attribute);
-                            self.local_movement_speed = movement.map(|attribute| attribute.current);
-                            self.push_committed_control(
-                                CommittedControlEvent::LocalMovementSpeed {
-                                    sequence,
-                                    dimension: self.current_dimension,
-                                    movement,
-                                    movement_received: true,
-                                    underwater: None,
-                                    lava: None,
-                                    air_drag_modifier: None,
-                                    tick: 0,
-                                },
-                            );
+                            self.publish_local_actor_replacement(sequence);
                             mount_ui_committed = self.publish_spawn_health(sequence, &attributes);
                         }
                         self.publish_local_life(
