@@ -273,6 +273,13 @@ impl ServerFlagAuthority {
     pub(super) const fn launched_spin(&self) -> Option<u64> {
         self.launched_spin
     }
+
+    /// Drops writes that belong to discarded frames while preserving live item use.
+    pub(super) fn reset_history(&mut self) {
+        self.queued = None;
+        self.cleared_spin = None;
+        self.launched_spin = None;
+    }
 }
 
 /// Writes the live spin flag; a set restores a counter that a clear on the
