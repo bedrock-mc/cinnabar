@@ -4,6 +4,7 @@ use bevy::{
         ButtonState,
         keyboard::{Key, KeyboardInput},
     },
+    prelude::DetectChanges,
     time::Real,
 };
 use client_shell::{
@@ -249,6 +250,7 @@ fn continuing_gameplay_does_not_repeat_the_centre_reset() {
         .resource_mut::<AccumulatedMouseMotion>()
         .delta = delta;
 
+    app.world_mut().clear_trackers();
     app.update();
 
     assert_eq!(
@@ -258,6 +260,13 @@ fn continuing_gameplay_does_not_repeat_the_centre_reset() {
     assert_eq!(
         app.world().resource::<AccumulatedMouseMotion>().delta,
         delta
+    );
+    assert!(
+        !app.world()
+            .entity(window)
+            .get_ref::<CursorOptions>()
+            .unwrap()
+            .is_changed()
     );
 }
 
