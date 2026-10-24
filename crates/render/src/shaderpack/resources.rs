@@ -81,8 +81,8 @@ impl TextureSource {
 
 /// The atlas layer a geometry program's sampler name reads, as Iris binds them.
 fn atlas_layer(name: &str) -> Option<AtlasLayer> {
-    match name {
-        "gtexture" | "texture" | "tex" => Some(AtlasLayer::Color),
+    match shaderpack::canonical_sampler_name(name).as_str() {
+        "gtexture" => Some(AtlasLayer::Color),
         "normals" => Some(AtlasLayer::Normals),
         "specular" => Some(AtlasLayer::Specular),
         _ => None,

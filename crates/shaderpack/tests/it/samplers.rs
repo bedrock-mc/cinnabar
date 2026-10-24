@@ -195,6 +195,40 @@ fn unbound_samplers_read_the_texture_on_unit_zero() {
 }
 
 #[test]
+fn geometry_unit_zero_aliases_share_custom_texture_classes() {
+    for property in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        for uniform in ["albedo", "tex", "texture", "gtexture", "u_MainSampler"] {
+            let fragment = format!(
+                "#version 120\nuniform sampler2D {uniform}; void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)); }}"
+            );
+            let properties = format!("texture.gbuffers.{property} = custom.png\n");
+            let translated = pack(
+                "#version 120\nvoid main() { gl_FragData[0] = vec4(1.0); }",
+                &properties,
+                &[
+                    ("gbuffers_basic.vsh", VERTEX),
+                    ("gbuffers_basic.fsh", &fragment),
+                    ("custom.png.mcmeta", r#"{"texture":{"clamp":true}}"#),
+                ],
+            )
+            .translate(&TranslateConfig::default());
+            let geometry = program(&translated, "gbuffers_basic");
+            fragment_stage(geometry);
+            let classes: Vec<_> = reflection(geometry)
+                .samplers
+                .iter()
+                .filter_map(|sampler| sampler.class())
+                .collect();
+            assert_eq!(
+                classes,
+                [SamplerClass::ClampNearest],
+                "{property} overrides {uniform}"
+            );
+        }
+    }
+}
+
+#[test]
 fn custom_texture_classes_follow_the_program_stage_and_noise_override() {
     let fragment = "#version 120\n\
         uniform sampler2D colortex0;\n\
@@ -348,7 +382,14 @@ fn sampler_class_bindings_precede_textures_and_round_trip() {
         SamplerClass::for_name("noisetex"),
         SamplerClass::RepeatLinear
     );
-    for atlas in ["gtexture", "texture", "tex", "normals", "specular"] {
+    for atlas in [
+        "gtexture",
+        "texture",
+        "tex",
+        "u_MainSampler",
+        "normals",
+        "specular",
+    ] {
         assert_eq!(SamplerClass::for_name(atlas), SamplerClass::RepeatNearest);
     }
     assert_eq!(

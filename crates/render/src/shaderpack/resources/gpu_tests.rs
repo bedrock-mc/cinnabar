@@ -424,6 +424,63 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
 }
 
 #[test]
+fn geometry_unit_zero_aliases_bind_the_custom_texture() {
+    let Some(gpu) = gpu() else { return };
+    for property in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let properties = format!("texture.gbuffers.{property} = sample.png\n");
+        let (directory, _pack) = png_pack(&properties);
+        let shaders = directory.path().join("shaders");
+        std::fs::write(
+            shaders.join("gbuffers_basic.vsh"),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        for uniform in ["albedo", "tex", "texture", "gtexture", "u_MainSampler"] {
+            std::fs::write(
+                shaders.join("gbuffers_basic.fsh"),
+                format!(
+                    "#version 120\nuniform sampler2D {uniform}; void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)); }}"
+                ),
+            )
+            .unwrap();
+            let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+            let translation = pack.translate(&Default::default());
+            let program = translation
+                .programs
+                .iter()
+                .find(|program| program.program.name == "gbuffers_basic")
+                .unwrap();
+            assert!(program.is_ok(), "{property} overrides {uniform}");
+            let vanilla = VanillaTextures::default();
+            let mut builder =
+                ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+            let bindings = bindings::resolve_bindings(
+                &mut builder,
+                program.program.group,
+                program.reflection.as_ref().unwrap(),
+                &[None; MAX_COLOR_BUFFERS as usize],
+                0,
+                TextureFormat::R32Float,
+                &[],
+                &[],
+            )
+            .unwrap();
+            let [TextureSource::Constant { index, .. }] = bindings.textures.as_slice() else {
+                panic!(
+                    "{property} must override {uniform}: {:?}",
+                    bindings.textures
+                );
+            };
+            assert_eq!(
+                read_rows(&gpu, &builder.constant(*index).view),
+                [[255, 0, 0, 255], [0, 0, 255, 255]],
+                "{property} overrides {uniform}"
+            );
+        }
+    }
+}
+
+#[test]
 fn depth_placeholders_bind_with_the_requested_array_or_cube_shape() {
     let Some(gpu) = gpu() else { return };
     let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));

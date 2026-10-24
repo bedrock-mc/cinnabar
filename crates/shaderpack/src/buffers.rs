@@ -49,12 +49,12 @@ impl BufferId {
     }
 }
 
-/// Uses one key for buffer aliases and for the compatibility texture uniform.
+/// Uses one key for buffer aliases and geometry texture-unit-zero aliases.
 pub fn canonical_sampler_name(name: &str) -> String {
     match BufferId::parse(name) {
         Some(BufferId::Color(index)) => format!("colortex{index}"),
         Some(BufferId::ShadowColor(index)) => format!("shadowcolor{index}"),
-        None if name == "texture" => "gtexture".to_string(),
+        None if matches!(name, "tex" | "texture" | "u_MainSampler") => "gtexture".to_string(),
         None => name.to_string(),
     }
 }
@@ -85,10 +85,7 @@ pub(crate) fn unit_zero_texture(name: &str, geometry: bool) -> Option<&'static s
                 | "dhDepthTex0"
                 | "dhDepthTex1"
         );
-    let bound_in_geometry = matches!(
-        name,
-        "gtexture" | "tex" | "normals" | "specular" | "lightmap"
-    );
+    let bound_in_geometry = matches!(name, "gtexture" | "normals" | "specular" | "lightmap");
     if bound_everywhere || geometry && bound_in_geometry {
         return None;
     }
