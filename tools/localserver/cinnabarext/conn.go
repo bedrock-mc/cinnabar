@@ -96,6 +96,9 @@ type Conn struct {
 	epochChanged bool
 	// requestedEpoch retains the latest notice ID so retired acknowledgments are ignored.
 	requestedEpoch uint64
+	// controls retains the newest reply per route in this connection and epoch.
+	controls         map[Route]Record
+	retryingControls bool
 	// worldID is the latest desired world; requestedWorld is the world of the latest notice.
 	worldID        WorldID
 	requestedWorld WorldID
@@ -250,6 +253,7 @@ func (c *Conn) changeEpoch(msg Control) error {
 	case c.ingress.open():
 		return errors.New("epoch inside a fragmented message")
 	}
+	clear(c.controls)
 	c.epoch = e.WorldEpoch
 	if msg.WorldAck != nil {
 		c.worldNoticePending = false
@@ -421,21 +425,29 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.phase != active || c.worldNoticePending {
+	if len(c.controls) != 0 && !c.retryControlTick() {
 		return false
+	}
+	return c.sendLocked(exp, channel, schema, payload) == controlSent
+}
+
+// sendLocked validates and sends while the caller holds c.mu, distinguishing rate refusal.
+func (c *Conn) sendLocked(exp, channel string, schema uint16, payload []Scalar) controlResult {
+	if c.phase != active || c.worldNoticePending {
+		return controlRejected
 	}
 	now := c.s.now()
 	if uint64(now.Unix()) >= c.expires {
 		c.fallBack(errors.New("the grant expired"))
-		return false
+		return controlRejected
 	}
 	recipient, ok := c.grant.Recipients[exp]
 	if !ok || !recipient.Permissions.Has(PermissionMessaging) || c.sequence == ^uint64(0) {
-		return false
+		return controlRejected
 	}
 	i := slices.IndexFunc(recipient.Channels, func(ch Channel) bool { return ch.ID == channel && ch.Schema == schema })
 	if i < 0 || recipient.Channels[i].Validate(payload, ToClient, int(c.wire.Limits.MaxMessageBytes)) != nil {
-		return false
+		return controlRejected
 	}
 	messages, err := EncodeEnvelope(Envelope{
 		Version:    c.wire.Version,
@@ -451,23 +463,23 @@ func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
 		Payload:    payload,
 	}, c.wire)
 	if err != nil {
-		return false
+		return controlRejected
 	}
 	sizes := make([]int, len(messages))
 	for i, data := range messages {
 		sizes[i] = len(data)
 	}
 	if c.egress.ChargeAll(sizes, uint64(now.UnixMilli())) != nil {
-		return false
+		return controlDeferred
 	}
 	for _, data := range messages {
 		if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
 			c.fallBack(err)
-			return false
+			return controlRejected
 		}
 	}
 	c.sequence++
-	return true
+	return controlSent
 }
 
 // end falls back for reason unless no handshake started, which a vanilla connection never does.
@@ -495,6 +507,7 @@ func (c *Conn) fallBack(reason error) {
 	if c.phase == fallenBack {
 		return
 	}
+	clear(c.controls)
 	c.phase = fallenBack
 	c.grant, c.ingress = nil, nil
 	c.s.deactivate(c)

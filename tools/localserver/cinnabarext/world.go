@@ -54,6 +54,7 @@ func (c *Conn) requestWorldEpoch() error {
 		return errors.New("world epoch exhausted")
 	}
 	// Establish the fence before writing; acknowledgments take the same connection lock.
+	clear(c.controls)
 	c.requestedEpoch, c.requestedWorld, c.worldNoticePending = next, c.worldID, true
 	data, err := Encode(Control{Epoch: &Epoch{Session: c.session, WorldEpoch: next}})
 	if err != nil {
