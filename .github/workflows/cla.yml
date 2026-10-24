@@ -1,0 +1,41 @@
+name: CLA
+
+# Requires every pull request contributor to agree to CLA.md and records signatures on the
+# `cla-signatures` branch. Pull request code is never checked out or run.
+on:
+  # `edited` catches a base-branch change. Every edit runs in full: a skipped run would pass the required check.
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  actions: write # rerun the pull request check after a signing comment
+  contents: write # signature branch
+  issues: write # status comment
+  pull-requests: read
+
+jobs:
+  cla:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request && github.event.comment.user.type == 'User' &&
+       (contains(github.event.comment.body, 'Cinnabar CLA') || contains(github.event.comment.body, 'recheck')))
+    # One run per PR at a time; every run rescans all comments, so a replaced pending run loses nothing.
+    concurrency:
+      group: cla-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Base-branch script only, so this is safe under pull_request_target.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: .github/scripts/cla.js
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const run = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/cla.js`);
+            await run({ github, context, core });

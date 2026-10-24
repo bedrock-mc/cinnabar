@@ -98,6 +98,9 @@ cargo run -p devtool --locked -- verify-affected --base origin/dev
 
 Contributor rules are in [AGENTS.md](AGENTS.md) and [docs/agents/](docs/agents/).
 
+Contributors sign the [Contributor License Agreement](CLA.md) once; the bot on your first pull
+request explains how.
+
 ## Star history
 
 [![Star history chart](https://api.star-history.com/svg?repos=cinnabar-mc/cinnabar&type=Date)](https://star-history.com/#cinnabar-mc/cinnabar&Date)
