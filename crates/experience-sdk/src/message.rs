@@ -218,7 +218,7 @@ impl RegistryState {
         }
         if record != [Value::Text(registry.fingerprint.to_owned())] {
             *self = Self::Refused;
-            return Err("mod registry fingerprint mismatch; rebuild the client and server definitions together".into());
+            return Err(crate::REGISTRY_MISMATCH.into());
         }
         let first = *self != Self::Active;
         *self = Self::Active;

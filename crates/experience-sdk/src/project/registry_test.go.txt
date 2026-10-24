@@ -153,5 +153,17 @@ func TestRegistryRetry(t *testing.T) {
 		if err := os.WriteFile("confirmation.json", raw, 0600); err != nil {
 			t.Fatal(err)
 		}
+		before = len(inner.written)
+		deliver(cinnabarext.Envelope{Version: cinnabarext.WireVersion, Session: accept.Session, Connection: hello.Connection, Bundle: PackageID, Generation: cinnabarext.InitialBundleGeneration, Channel: RegistryRequestChannel, Schema: 1, Sequence: 2, WorldEpoch: 1, Payload: cinnabarext.Record{{Text: pointer(strings.Repeat("cd", len(RegistryFingerprint)/2))}}})
+		synctest.Wait()
+		if len(inner.written) != before+1 {
+			t.Fatalf("mismatched request got %d replies, want one", len(inner.written)-before)
+		}
+		if err := cinnabarext.Decode(inner.written[before], &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Channel != RegistryChannel || len(envelope.Payload) != 1 || envelope.Payload[0].Text == nil || *envelope.Payload[0].Text != RegistryFingerprint {
+			t.Fatalf("mismatch reply must carry server fingerprint: %+v", envelope)
+		}
 	})
 }

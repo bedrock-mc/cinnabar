@@ -202,3 +202,31 @@ fn early_replay_trap_preserves_later_events_for_fresh_confirmation() {
     }
     assert!(pending.is_empty());
 }
+
+/// An incompatible reply ends negotiation without restarting or running queued callbacks.
+#[test]
+fn registry_mismatch_quarantines_the_waiting_client() {
+    let mut host = waiting();
+    host.take_transaction();
+    let pending = on("demo.queued");
+    assert!(matches!(
+        host.dispatch(&pending, 1).unwrap(),
+        DispatchResult::NotReady(_)
+    ));
+    let error = host
+        .dispatch(
+            &Event::Message {
+                channel: "demo.registry".into(),
+                record: br#"[{"type":"text","value":"changed-server"}]"#.to_vec(),
+            },
+            1,
+        )
+        .unwrap_err();
+    let failure = crate::helper::CallFailure::of("demo", "dispatch", &error);
+    assert_eq!(failure.kind, crate::helper::FailureKind::RegistryMismatch);
+    assert_eq!(failure.reason, experience_sdk::REGISTRY_MISMATCH);
+    assert!(failure.reason.contains("rebuild"));
+    assert!(host.waiting_for().is_none());
+    assert!(host.take_transaction().commands.is_empty());
+    assert!(host.dispatch(&pending, 1).is_err());
+}

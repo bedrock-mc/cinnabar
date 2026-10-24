@@ -936,7 +936,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   feeds the existing local-server hosts, and `mod run` builds an isolated development loop.
   Each recipient retains messages, media, input and state in one callback queue during
   registry negotiation. Generated confirmations retry after send-budget refusal and
-  expire with their connection or world epoch. A shared Rust/Go rate contract charges
+  expire with their connection or world epoch. Incompatible registries receive the server
+  fingerprint and visibly stop the client part, clearing its queued callbacks.
+  A shared Rust/Go rate contract charges
   native epochs and encoded fragment sizes, rejects impossible control batches, and
   reserves acknowledgment exemptions for outstanding notices. Confirmation replays
   the latest queued state once, then all callback kinds follow FIFO order through a fair recipient scheduler;

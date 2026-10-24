@@ -84,8 +84,12 @@ func checkInstalledRegistry(t *testing.T, dir string) {
 	mismatch := "mismatched-definitions"
 	request.Call.ClientMessage.Payload = []cinnabarext.Scalar{{Text: &mismatch}}
 	outcome, err = sup.Call(request)
-	if err != nil || outcome.Rejected == nil {
-		t.Fatalf("mismatched registry accepted: %+v, %v", outcome, err)
+	if err != nil || outcome.Committed == nil || len(outcome.Committed.Ops) != 1 || outcome.Committed.Ops[0].SendClient == nil {
+		t.Fatalf("mismatched registry got no reply: %+v, %v", outcome, err)
+	}
+	send = outcome.Committed.Ops[0].SendClient
+	if !send.Control || send.Channel != "space.registry" || send.Schema != 1 || send.Player != player || len(send.Payload) != 1 || send.Payload[0].Text == nil || *send.Payload[0].Text != fingerprint {
+		t.Fatalf("registry failure must carry the server fingerprint: %+v", send)
 	}
 }
 

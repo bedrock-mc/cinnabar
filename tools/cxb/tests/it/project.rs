@@ -258,6 +258,23 @@ fn runtime_acceptance_child() {
         bundle: bundle.manifest.id.clone(),
         generation: INITIAL_BUNDLE_GENERATION,
     };
+    let mut incompatible = BundleHost::developer_in_process(
+        bundle.component().unwrap(),
+        owner.clone(),
+        capabilities.clone(),
+        0,
+    )
+    .unwrap();
+    incompatible.take_transaction();
+    let mismatch = Event::Message {
+        channel: "space.registry".into(),
+        record: serde_json::to_vec(&vec![Scalar::Text("changed-server".into())]).unwrap(),
+    };
+    let error = incompatible.dispatch(&mismatch, 1).unwrap_err();
+    assert_eq!(error.to_string(), experience_sdk::REGISTRY_MISMATCH);
+    assert!(incompatible.waiting_for().is_none());
+    assert!(incompatible.take_transaction().commands.is_empty());
+    assert!(incompatible.dispatch(&Event::Epoch, 1).is_err());
     let mut host =
         BundleHost::developer_in_process(bundle.component().unwrap(), owner, capabilities, 0)
             .unwrap();

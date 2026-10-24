@@ -203,9 +203,8 @@ macro_rules! export_experience {
                 if let Some(registry) = <$ty as $crate::server::Experience>::registry()
                     && channel == registry.request.id
                 {
-                    if schema != registry.request.schema || payload != [$crate::Value::Text(registry.fingerprint.into())] {
-                        return Err($crate::server::GuestError::Rejected("shared registry mismatch".into()));
-                    }
+                    // Always reply with our definitions, including when the client is stale.
+                    // The client refuses a different fingerprint before authored callbacks run.
                     return ctx.send_control(&player, registry.channel.id, registry.channel.schema,
                         &$crate::server::nodes(::std::vec![$crate::Value::Text(registry.fingerprint.into())]))
                         .map_err(|_| $crate::server::GuestError::Failed("registry confirmation unavailable".into()));

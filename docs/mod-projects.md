@@ -177,7 +177,9 @@ Each callback uses the normal fuel, output and aggregate budgets. A trap discard
 only that callback; later events wait for the fresh confirmation. The reliable queue
 uses the extension's count and byte budgets; overflow stops the part with a visible error.
 A pending request is sent again when its world epoch changes.
-A mismatch refuses initialization with a diagnostic; missing confirmation leaves
+Both server entry points reply with their own fingerprint even when the client has
+older definitions. A mismatch stops the client part, clears its queued callbacks,
+and shows and logs a diagnostic asking for a rebuild. Missing confirmation leaves
 it waiting. Duplicate matching confirmations do not initialize twice. Changes to
 fields, revisions, directions and typed IDs affect the digest. This check does not
 authenticate players or replace server-side validation.
