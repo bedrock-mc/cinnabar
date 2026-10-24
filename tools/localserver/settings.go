@@ -25,6 +25,7 @@ type settings struct {
 	containerTitleTest                      bool
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
+	entityGallery, entityGalleryAppearances string
 	terrainFixtureRadius                    int
 	opaqueOverdraw                          bool
 	holograms                               bool
@@ -64,6 +65,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.BoolVar(&s.totemTexture, "totem-texture", false, "offer an original totem icon replacement for activation testing")
 	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")
 	flags.BoolVar(&s.actorBurst, "actor-burst", false, "enable /actorburst N shared|skins|geometry|swing|strafe and /actorburst clear")
+	flags.StringVar(&s.entityGallery, "entity-gallery", "", "actor registry file; enable /entitygallery [filter] [page] and /entitygallery clear")
+	flags.StringVar(&s.entityGalleryAppearances, "entity-gallery-appearances", "", "optional JSON appearance cases for the entity gallery")
 	flags.BoolVar(&s.luckyBlock, "lucky-block", false, "register a server-defined lucky block; /lucky places three ahead")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.BoolVar(&s.holograms, "holograms", false, fmt.Sprintf("spawn %d formatted floating labels; /holograms, /holograms freeze, /holograms clear", hologramCount))
@@ -76,6 +79,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.extensionMediaAddr, "extension-media-addr", extension.DefaultMediaAddr, "IPv4 loopback ip:port of the -extension-media server")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
+	}
+	if s.entityGalleryAppearances != "" && s.entityGallery == "" {
+		return settings{}, errors.New("-entity-gallery-appearances requires -entity-gallery")
 	}
 	if s.actorBurstArtwork < 0 || s.actorBurstArtwork > actorBurstLimit {
 		return settings{}, fmt.Errorf("actor burst artwork must be 0..%d", actorBurstLimit)

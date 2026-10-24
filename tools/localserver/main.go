@@ -144,6 +144,15 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = actorBurstListener(listen, cfg.actorBurstArtwork)
 		}
 	}
+	if cfg.entityGallery != "" {
+		gallery, err := loadEntityGallery(cfg.entityGallery, cfg.entityGalleryAppearances)
+		if err != nil {
+			return fmt.Errorf("prepare entity gallery: %w", err)
+		}
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = entityGalleryListener(listen, gallery)
+		}
+	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
 	if cfg.holograms {
