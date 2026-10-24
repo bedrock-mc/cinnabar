@@ -749,7 +749,7 @@ fn sync_lifetime_multiple_replacements_keep_mode_end() {
                 .unwrap();
             super::state_updates::apply_controls(&mut world, &mut physics);
         }
-        assert_eq!(physics.mode(), sim::MovementMode::Walking);
+        assert_eq!(physics.mode(), sim::MovementMode::Gliding);
         if complete_replacement {
             physics.advance_with_context(
                 simulation_clock::TICK_DURATION,
@@ -771,7 +771,7 @@ fn sync_lifetime_multiple_replacements_keep_mode_end() {
                 &OpenWorld,
             )
             .unwrap();
-        assert_eq!(physics.mode(), sim::MovementMode::Walking);
+        assert_eq!(physics.mode(), sim::MovementMode::Gliding);
     }
 }
 
