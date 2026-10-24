@@ -25,6 +25,8 @@ pub struct MovementFlagUpdate {
     pub has_collision: Option<bool>,
     pub using_item: Option<bool>,
     pub spinning: Option<bool>,
+    /// Raw second-word input for the climber correction owner.
+    pub extended_flags: Option<u64>,
 }
 
 impl MovementFlagUpdate {
@@ -52,6 +54,7 @@ impl MovementFlagUpdate {
             has_collision: Some(flags.has_collision.unwrap_or(true)),
             using_item: Some(flags.using_item.unwrap_or(false)),
             spinning: Some(flags.spinning.unwrap_or(false)),
+            extended_flags: Some(words[1].unwrap_or(0)),
         }
     }
 
@@ -70,6 +73,7 @@ impl MovementFlagUpdate {
             has_collision: update.has_collision.or(self.has_collision),
             using_item: update.using_item.or(self.using_item),
             spinning: update.spinning.or(self.spinning),
+            extended_flags: update.extended_flags.or(self.extended_flags),
         };
     }
 
@@ -133,6 +137,7 @@ impl MovementFlagUpdate {
             has_collision: bit(ActorFlag::HasCollision.wire_value()),
             using_item: bit(ActorFlag::UsingItem.wire_value()),
             spinning: bit(ActorFlag::DamageNearbyMobs.wire_value()),
+            extended_flags: words[1],
         }
     }
 }
@@ -158,6 +163,7 @@ mod tests {
                 has_collision: Some(true),
                 using_item: Some(false),
                 spinning: Some(false),
+                extended_flags: Some(0),
             }
         );
     }

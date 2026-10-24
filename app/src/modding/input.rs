@@ -15,8 +15,9 @@ use bevy::{
         },
     },
     prelude::*,
-    window::{CursorGrabMode, CursorOptions, Ime, PrimaryWindow, WindowEvent},
+    window::{CursorOptions, Ime, PrimaryWindow, WindowEvent},
 };
+use client_shell::physical_input::set_cursor_capture;
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 #[cfg(test)]
 use client_ui::ui_runtime::{UiRuntime, presentation::UiPresentationRuntime};
@@ -470,8 +471,7 @@ pub(super) fn prepare_mod_input(
         }
         keys.reset(KeyCode::Escape);
         if restore {
-            cursor.grab_mode = CursorGrabMode::Locked;
-            cursor.visible = false;
+            set_cursor_capture(&mut cursor, true);
             if let Some(motion) = motion.as_mut() {
                 motion.delta = Vec2::ZERO;
             }
@@ -759,8 +759,7 @@ fn finish_capture(
             motion.delta = Vec2::ZERO;
         }
     } else if restore {
-        cursor.grab_mode = CursorGrabMode::Locked;
-        cursor.visible = false;
+        set_cursor_capture(cursor, true);
         if let Some(motion) = motion.as_mut() {
             motion.delta = Vec2::ZERO;
         }

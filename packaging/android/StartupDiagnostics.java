@@ -13,10 +13,14 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /** Makes an unexpected exit visible on the next launch without needing USB debugging. */
 final class StartupDiagnostics {
-    private static final int LOG_TAIL_BYTES = 32768;
+    static final int LOG_TAIL_BYTES = 32768;
+    private static final String GENERIC_EXIT = "Android stopped @PRODUCT_NAME@ for an unknown reason.";
+    private static final Pattern LOG_TIMESTAMP = Pattern.compile(
+            "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s+");
 
     /** Offers retry and copyable diagnostics once for each unexpected main-process exit. */
     static boolean showPreviousFailure(Activity activity, Runnable retry) {
@@ -35,6 +39,7 @@ final class StartupDiagnostics {
             String details = "@PRODUCT_NAME@ @VERSION_NAME@\n" + Build.MANUFACTURER + " "
                     + Build.MODEL + ", Android " + Build.VERSION.RELEASE + "\n\n"
                     + "Exit reason: " + exit.getReason() + ", status: " + exit.getStatus()
+                    + "\n" + exitCause(exit.getReason(), exit.getStatus())
                     + "\n" + exit.getDescription() + "\n"
                     + "Process: " + exit.getProcessName() + " (" + exit.getPid() + ")\n"
                     + "Exit timestamp: " + exit.getTimestamp() + "\n\n"
@@ -64,14 +69,32 @@ final class StartupDiagnostics {
         }
     }
 
-    /** Intentional activity teardown sends SIGKILL; it must not produce a crash dialog. */
+    /** Only exits with an identified unexpected cause need a recovery dialog. */
     static boolean unexpected(int reason, int status) {
-        return reason == ApplicationExitInfo.REASON_CRASH
-                || reason == ApplicationExitInfo.REASON_CRASH_NATIVE
-                || reason == ApplicationExitInfo.REASON_LOW_MEMORY
-                || reason == ApplicationExitInfo.REASON_ANR
-                || (reason == ApplicationExitInfo.REASON_EXIT_SELF && status != 0)
-                || (reason == ApplicationExitInfo.REASON_SIGNALED && status != android.system.OsConstants.SIGKILL);
+        return !GENERIC_EXIT.equals(exitCause(reason, status));
+    }
+
+    /** Names every admitted failure; intentional shutdown and unknown reasons use generic text. */
+    static String exitCause(int reason, int status) {
+        switch (reason) {
+            case ApplicationExitInfo.REASON_CRASH:
+                return "@PRODUCT_NAME@ stopped because of an application crash.";
+            case ApplicationExitInfo.REASON_CRASH_NATIVE:
+                return "@PRODUCT_NAME@ stopped because of a native crash.";
+            case ApplicationExitInfo.REASON_LOW_MEMORY:
+                return "Android closed @PRODUCT_NAME@ because the device ran low on memory.";
+            case ApplicationExitInfo.REASON_ANR:
+                return "Android closed @PRODUCT_NAME@ because it stopped responding.";
+            case ApplicationExitInfo.REASON_EXIT_SELF:
+                if (status != 0) return "@PRODUCT_NAME@ exited after an error.";
+                return GENERIC_EXIT;
+            case ApplicationExitInfo.REASON_SIGNALED:
+                if (status != android.system.OsConstants.SIGKILL)
+                    return "@PRODUCT_NAME@ stopped because it received a system signal.";
+                return GENERIC_EXIT;
+            default:
+                return GENERIC_EXIT;
+        }
     }
 
     /** Reads a bounded tail of the app's own log; absent logs never prevent a retry. */
@@ -81,9 +104,33 @@ final class StartupDiagnostics {
             source.seek(source.length() - count);
             byte[] bytes = new byte[count];
             source.readFully(bytes);
-            return new String(bytes, StandardCharsets.UTF_8);
+            return boundedTail(compactLog(boundedTail(bytes)).getBytes(StandardCharsets.UTF_8));
         } catch (IOException error) {
             return "No client log was written before the process stopped.";
         }
+    }
+
+    /** Collapses adjacent identical records while retaining the first timestamp and log order. */
+    private static String compactLog(String log) {
+        String[] lines = log.split("\\n", -1);
+        StringBuilder output = new StringBuilder();
+        for (int first = 0; first < lines.length; ) {
+            String key = LOG_TIMESTAMP.matcher(lines[first]).replaceFirst("");
+            int next = first + 1;
+            while (!key.isEmpty() && next < lines.length
+                    && key.equals(LOG_TIMESTAMP.matcher(lines[next]).replaceFirst(""))) next++;
+            output.append(lines[first]);
+            if (next - first > 1) output.append(" (repeated ").append(next - first).append(" times)");
+            if (next < lines.length) output.append('\n');
+            first = next;
+        }
+        return output.toString();
+    }
+
+    /** Keeps the newest bytes without starting inside a UTF-8 character. */
+    private static String boundedTail(byte[] bytes) {
+        int start = Math.max(0, bytes.length - LOG_TAIL_BYTES);
+        while (start < bytes.length && (bytes[start] & 0xc0) == 0x80) start++;
+        return new String(bytes, start, bytes.length - start, StandardCharsets.UTF_8);
     }
 }

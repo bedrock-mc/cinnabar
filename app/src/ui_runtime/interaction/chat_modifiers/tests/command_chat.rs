@@ -1,6 +1,7 @@
 //! The command shortcut opens the editor with its prefix and consumes the opening key.
 
 use super::*;
+use bevy::window::CursorGrabMode;
 
 #[test]
 fn slash_opens_chat_with_one_prefix_and_typing_continues_after_it() {

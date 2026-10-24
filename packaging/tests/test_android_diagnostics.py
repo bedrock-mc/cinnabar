@@ -67,12 +67,51 @@ public final class DiagnosticsFixture {
                 ApplicationExitInfo.REASON_USER_REQUESTED, ApplicationExitInfo.REASON_PACKAGE_UPDATED, -1}) {
             if (StartupDiagnostics.unexpected(reason, 0)) throw new AssertionError(reason);
         }
+        String generic = StartupDiagnostics.exitCause(-1, 0);
+        for (java.lang.reflect.Field field : ApplicationExitInfo.class.getFields()) {
+            if (!field.getName().startsWith("REASON_")) continue;
+            int reason = field.getInt(null);
+            for (int status : new int[] {0, 1, android.system.OsConstants.SIGKILL}) {
+                if (StartupDiagnostics.unexpected(reason, status)
+                        && generic.equals(StartupDiagnostics.exitCause(reason, status)))
+                    throw new AssertionError("missing cause for " + field.getName());
+            }
+        }
+        if (!StartupDiagnostics.exitCause(ApplicationExitInfo.REASON_LOW_MEMORY, 0)
+                .contains("ran low on memory")) throw new AssertionError("memory cause missing");
+        if (!StartupDiagnostics.unexpected(ApplicationExitInfo.REASON_SIGNALED, 1)
+                || StartupDiagnostics.unexpected(ApplicationExitInfo.REASON_SIGNALED,
+                        android.system.OsConstants.SIGKILL))
+            throw new AssertionError("signal exit classification changed");
         File log = new File(args[0]);
         String input = "discarded prefix" + new String(new char[100000]).replace('\\0', 'x') + "end-marker";
         Files.write(log.toPath(), input.getBytes(StandardCharsets.UTF_8));
         String tail = StartupDiagnostics.logTail(log);
         if (!tail.endsWith("end-marker") || tail.length() >= input.length())
             throw new AssertionError("log tail lost its end or was not bounded");
+        String records = "2026-10-24T10:00:00.001Z ERROR cursor: unavailable\\n"
+                + "2026-10-24T10:00:00.002Z ERROR cursor: unavailable\\n"
+                + "2026-10-24T10:00:00.003Z ERROR cursor: unavailable\\n"
+                + "2026-10-24T10:00:00.004Z INFO client: useful history\\n"
+                + "2026-10-24T10:00:00.005Z ERROR cursor: unavailable\\n";
+        Files.write(log.toPath(), records.getBytes(StandardCharsets.UTF_8));
+        String compact = StartupDiagnostics.logTail(log);
+        String expectedLog = "2026-10-24T10:00:00.001Z ERROR cursor: unavailable (repeated 3 times)\\n"
+                + "2026-10-24T10:00:00.004Z INFO client: useful history\\n"
+                + "2026-10-24T10:00:00.005Z ERROR cursor: unavailable\\n";
+        if (!expectedLog.equals(compact)) throw new AssertionError(compact);
+        String shortRuns = new String(new char[6000]).replace("\\0", "a\\na\\nb\\n");
+        Files.write(log.toPath(), shortRuns.getBytes(StandardCharsets.UTF_8));
+        if (StartupDiagnostics.logTail(log).getBytes(StandardCharsets.UTF_8).length > StartupDiagnostics.LOG_TAIL_BYTES)
+            throw new AssertionError("repeat annotations exceeded the byte bound");
+        String unicode = new String(new char[20000]).replace("\\0", "\\u20ac") + "end-marker";
+        Files.write(log.toPath(), unicode.getBytes(StandardCharsets.UTF_8));
+        tail = StartupDiagnostics.logTail(log);
+        if (tail.getBytes(StandardCharsets.UTF_8).length > StartupDiagnostics.LOG_TAIL_BYTES || tail.contains("\\ufffd")
+                || !tail.endsWith("end-marker")) throw new AssertionError("UTF-8 tail was damaged");
+        Files.write(log.toPath(), "same\\nsame\\nother\\nsame".getBytes(StandardCharsets.UTF_8));
+        if (!"same (repeated 2 times)\\nother\\nsame".equals(StartupDiagnostics.logTail(log)))
+            throw new AssertionError("untimestamped records or final line lost");
         log.delete();
         if (StartupDiagnostics.logTail(log).isEmpty())
             throw new AssertionError("missing log was not explained");

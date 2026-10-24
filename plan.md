@@ -308,6 +308,22 @@ Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
 
+The block climber rewrites its contact flags after each movement tick; the descent
+action reads the retained contact before movement. Prediction sync reports those values
+with newer accepted server flag edits, which retained corrections also apply before input
+on replay. Each input frame retains the server edits it consumed and its original live
+entry flags. Replay rebuilds contact without replacing that comparison capture. Per-bit
+edits survive unrelated replays before and after consumption, including unstamped and
+future-stamped edits. Powder snow uses the mover's contextual query,
+including step and sneak-edge checks: snow-standing wearers get the full block, and falls
+over 2.5 blocks get the 0.9 fall-into shape. Replay refreshes historical fall distance
+while preserving the live value through spatial copy-back and snaps. The next input
+retains any restored live value so later replays consume it at the same boundary.
+No-move ticks preserve it unless an action or contact
+clears it. Flight toggles, bubble columns, honey sliding and water entry clear it at their
+movement phases; lava halves the retained distance before the current drop, and slow glide
+uses its entry velocity. The missing touch descend control, first-tick terrain seeding,
+coordinate/query recovery and broader custom geometry remain inherited incomplete work.
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
 independently of simulation admission. Unsupported attribute models leave reporting

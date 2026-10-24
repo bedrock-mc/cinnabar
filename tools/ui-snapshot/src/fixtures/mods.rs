@@ -1,8 +1,66 @@
 //! A Mods tab library with and without self-declared component metadata.
 
-use super::{Arc, Fixture, settings};
+use super::{Arc, Fixture, GUI_SCALE, State, TALL_SIZE, settings};
 use launcher::mods::{ActiveMod, InstalledMod, Library, Permission, Snapshot, Status};
 use ui::mod_metadata::ModMetadata;
+
+/// Settings → Mods captures.
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "settings-mods",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: declared,
+    },
+    State {
+        name: "settings-mods-compact-library",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: compact_library,
+    },
+    State {
+        name: "settings-mods-undeclared",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: undeclared,
+    },
+    State {
+        name: "settings-mods-permissions-collapsed",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: collapsed,
+    },
+    State {
+        name: "settings-mods-permissions-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: consent,
+    },
+    State {
+        name: "settings-mods-permissions-requested",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: requested_only,
+    },
+    State {
+        name: "settings-mods-permissions-all",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: show_all,
+    },
+    State {
+        name: "settings-mods-permissions-narrow",
+        size: [360, 900],
+        gui_scale: GUI_SCALE,
+        fixture: show_all,
+    },
+    State {
+        name: "settings-mods-permissions-undeclared-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: undeclared_permissions,
+    },
+];
 
 /// Three components; `metadata` decides whether they describe themselves.
 fn view(metadata: bool) -> Fixture {

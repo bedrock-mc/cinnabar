@@ -402,7 +402,7 @@ impl LocalPhysicsController {
                 .iter_mut()
                 .find(|frame| frame.tick == current)
             {
-                frame.flag_correction = frame.flag_correction.then(correction);
+                frame.flags.pose_correction = frame.flags.pose_correction.then(correction);
             }
             // Its flag correction belongs to the completed frame, while the
             // accepted resize follows that frame and any pending dimensions.
@@ -437,11 +437,11 @@ impl LocalPhysicsController {
             return false;
         };
         let frame = &mut self.controller_history[index];
-        let correction = FlagCorrection::against(write, frame.entry_flags);
+        let correction = FlagCorrection::against(write, frame.flags.pose_entry);
         if correction.is_empty() {
             return false;
         }
-        frame.flag_correction = frame.flag_correction.then(correction);
+        frame.flags.pose_correction = frame.flags.pose_correction.then(correction);
         let write = self.correct_live(correction);
         self.controller_history[index]
             .sync_server

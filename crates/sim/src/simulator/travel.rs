@@ -55,6 +55,7 @@ pub(super) fn tick_without_travel(
         world,
         next.collision_box(next.hitbox_height(input)),
         &mut next.velocity,
+        &mut next.fall_distance,
         &input,
         &mut sampled,
         &mut identity,
@@ -88,6 +89,8 @@ pub(super) fn tick_mode(
     world: &impl CollisionWorld,
 ) -> Result<ControlledTickResult, SimulationError> {
     if input.mode == MovementMode::Riding {
+        // Vehicles reset their passengers' fall distance.
+        next.fall_distance = 0.0;
         next.velocity = Vec3::ZERO;
         next.movement = Vec3::ZERO;
         next.requested_movement = Vec3::ZERO;
@@ -163,6 +166,10 @@ pub(super) fn tick_mode(
             }
         }
         MovementMode::Gliding => {
+            // A slow glide keeps the fall distance at one block.
+            if next.velocity.y > -0.5 {
+                next.fall_distance = 1.0;
+            }
             next.velocity = glide_velocity(next.velocity, &input, next.previous_rotation);
         }
         _ => {}
@@ -170,7 +177,8 @@ pub(super) fn tick_mode(
 
     let height = next.hitbox_height(input);
     let collision_box = next.collision_box(height);
-    let view = ScaffoldingView::new(world, collision_box, sampled.descend_through);
+    let view = ScaffoldingView::new(world, collision_box, sampled.descend_through)
+        .with_powder_snow(next.fall_distance, input.can_stand_on_snow);
     let stuck = super::inside::stuck_multiplier(&sampled, &input);
     if let Some(multiplier) = stuck {
         super::inside::slow_request(&mut next.velocity, multiplier);
@@ -194,6 +202,14 @@ pub(super) fn tick_mode(
     } else {
         grounded_at_start && pre_collision_velocity.y == 0.0
     };
+    super::fall::check(
+        world,
+        &mut next,
+        input,
+        &mut sampled,
+        &mut identity,
+        motion.resolved.y,
+    )?;
     next.movement = motion.resolved;
     next.velocity = motion.resolved;
     if motion.stepped || motion.collisions.y {
@@ -207,10 +223,13 @@ pub(super) fn tick_mode(
     }
     if stuck.is_some() {
         next.velocity = Vec3::ZERO;
+        next.fall_distance = 0.0;
     }
 
     match input.mode {
         MovementMode::Flying => {
+            // Flight drag clears the fall distance.
+            next.fall_distance = 0.0;
             super::flight::apply_drag(
                 &mut next.velocity,
                 &input,
@@ -264,6 +283,7 @@ pub(super) fn tick_mode(
         world,
         motion.aabb,
         &mut next.velocity,
+        &mut next.fall_distance,
         &input,
         &mut sampled,
         &mut identity,

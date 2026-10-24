@@ -183,17 +183,83 @@ pub const TRANSLATED_GAMEPAD_BUTTONS: &[(u8, GamepadButton)] = &[
     (14, GamepadButton::DPadRight),
 ];
 
+/// Whether the window backend accepts cursor grab and release requests.
+pub const OS_CURSOR_GRAB: bool = !cfg!(target_os = "android");
+
+/// Updates OS capture only on supported platforms and only when its state changes.
+pub fn set_cursor_capture(cursor: &mut Mut<CursorOptions>, captured: bool) {
+    set_cursor_capture_supported(cursor, captured, OS_CURSOR_GRAB);
+}
+
+/// Leaves cursor options untouched when even an ungrab request is unsupported.
+fn set_cursor_capture_supported(cursor: &mut Mut<CursorOptions>, captured: bool, supported: bool) {
+    if !supported {
+        return;
+    }
+    let mode = if captured {
+        CursorGrabMode::Locked
+    } else {
+        CursorGrabMode::None
+    };
+    if cursor.grab_mode != mode || cursor.visible == captured {
+        cursor.grab_mode = mode;
+        cursor.visible = !captured;
+    }
+}
+
 /// Releases capture only when needed, avoiding Bevy's repeated OS grab notifications.
 pub fn release_cursor(cursor: &mut Mut<CursorOptions>) {
-    if cursor.grab_mode != CursorGrabMode::None || !cursor.visible {
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
-    }
+    set_cursor_capture(cursor, false);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Unsupported backends must never see a changed cursor, including release requests.
+    #[test]
+    fn unsupported_capture_transitions_do_not_notify_the_window_backend() {
+        use bevy::prelude::{DetectChanges, World};
+        let mut world = World::new();
+        let entity = world.spawn(CursorOptions::default()).id();
+        world.clear_trackers();
+        for captured in [false, true, true, false, true, false] {
+            let mut cursor = world.get_mut::<CursorOptions>(entity).unwrap();
+            set_cursor_capture_supported(&mut cursor, captured, false);
+            assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+            assert!(cursor.visible);
+            assert!(!cursor.is_changed());
+        }
+    }
+
+    /// Only a real capture transition should schedule another backend request.
+    #[test]
+    fn unchanged_capture_does_not_notify_the_window_backend() {
+        use bevy::prelude::{DetectChanges, World};
+        let mut world = World::new();
+        let entity = world.spawn(CursorOptions::default()).id();
+        for captured in [true, false] {
+            world.clear_trackers();
+            {
+                let mut cursor = world.get_mut::<CursorOptions>(entity).unwrap();
+                set_cursor_capture_supported(&mut cursor, captured, true);
+                assert!(cursor.is_changed());
+                assert_eq!(cursor.visible, !captured);
+                assert_eq!(
+                    cursor.grab_mode,
+                    if captured {
+                        CursorGrabMode::Locked
+                    } else {
+                        CursorGrabMode::None
+                    }
+                );
+            }
+            world.clear_trackers();
+            let mut cursor = world.get_mut::<CursorOptions>(entity).unwrap();
+            set_cursor_capture_supported(&mut cursor, captured, true);
+            assert!(!cursor.is_changed());
+        }
+    }
 
     /// Each Bevy key reports a distinct semantic key, and every keyed semantic variant has one.
     #[test]
