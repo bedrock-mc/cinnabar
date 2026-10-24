@@ -381,3 +381,185 @@ fn sync_lifetime_replacement_reseeds_controlled_mount_moving() {
         }
     }
 }
+
+/// Accepted packets while the actor is absent become the synthetic actor's authority.
+#[test]
+fn sync_lifetime_server_updates_survive_synthetic_recreation() {
+    for reset_dimension in [false, true] {
+        let mut world = local_actor_authority();
+        let mut physics = due_physics();
+        if reset_dimension {
+            world.reset_dimension(2, 1);
+        } else {
+            world
+                .apply_ordered_event(
+                    protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(
+                        protocol::ActorRemoveEvent {
+                            dimension: 0,
+                            unique_id: 70,
+                        },
+                    )),
+                    Some(2),
+                )
+                .unwrap();
+        }
+        let dimension = world.current_dimension();
+        world
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Attributes(
+                    protocol::ActorAttributesUpdateEvent {
+                        dimension,
+                        runtime_id: 7,
+                        tick: 0,
+                        attributes: [
+                            (Attribute::Movement, 0.2),
+                            (Attribute::UnderwaterMovement, 0.3),
+                            (Attribute::LavaMovement, 0.4),
+                            (Attribute::AirDragModifier, 1.7),
+                        ]
+                        .map(|(name, current)| protocol::ActorAttribute {
+                            name: name.wire_name().into(),
+                            min: 0.0,
+                            max: 10.0,
+                            current,
+                            default: Some(current),
+                            modifiers: Arc::from([]),
+                        })
+                        .into(),
+                    },
+                )),
+                Some(3),
+            )
+            .unwrap();
+        world
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                    protocol::ActorMetadataUpdateEvent {
+                        dimension,
+                        runtime_id: 7,
+                        tick: 0,
+                        metadata: Arc::from([
+                            protocol::ActorMetadata {
+                                key: ActorDataKey::Flags.wire_value(),
+                                value: ActorMetadataValue::Flags(
+                                    (1 << ActorFlag::NoAI.wire_value())
+                                        | (1 << ActorFlag::UsingItem.wire_value()),
+                                ),
+                            },
+                            protocol::ActorMetadata {
+                                key: ActorDataKey::Width.wire_value(),
+                                value: ActorMetadataValue::Float(0.8),
+                            },
+                        ]),
+                        properties: Arc::from([]),
+                    },
+                )),
+                Some(4),
+            )
+            .unwrap();
+        super::state_updates::apply_controls(&mut world, &mut physics);
+        world.sync_local_player_pose(&super::super::presentation_tests::feed());
+        super::state_updates::apply_controls(&mut world, &mut physics);
+        for (name, current) in [
+            (Attribute::Movement, 0.2),
+            (Attribute::UnderwaterMovement, 0.3),
+            (Attribute::LavaMovement, 0.4),
+            (Attribute::AirDragModifier, 1.7),
+        ] {
+            assert_eq!(
+                world
+                    .actor(7)
+                    .unwrap()
+                    .attributes
+                    .get(name.wire_name())
+                    .map(|a| a.current),
+                Some(current)
+            );
+        }
+        assert_eq!(physics.prediction_sync_flags().immobile, Some(true));
+        assert_eq!(physics.prediction_sync_flags().using_item, Some(true));
+        assert_eq!(
+            super::state_updates::reported_box(&mut physics, &world),
+            [1.0, 0.8, sim::PLAYER_HEIGHT as f32]
+        );
+    }
+}
+
+/// Completed and still-pending replacements end the old travel mode through correction replay.
+#[test]
+fn sync_lifetime_replacement_mode_clear_survives_replay() {
+    for complete_replacement in [true, false] {
+        let mut world = local_actor_authority();
+        let mut physics = due_physics();
+        super::state_updates::apply_controls(&mut world, &mut physics);
+        let context = crate::movement::PhysicsSampleContext {
+            mode_intent: crate::movement::ModeIntent {
+                elytra_ready: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let anchor = physics
+            .advance_with_context(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput {
+                    jumping: true,
+                    ..Default::default()
+                },
+                context,
+                &OpenWorld,
+            )
+            .samples
+            .remove(0);
+        assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            context,
+            &OpenWorld,
+        );
+        world
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(local_actor_spawn(
+                    Vec::new(),
+                ))),
+                Some(2),
+            )
+            .unwrap();
+        super::state_updates::apply_controls(&mut world, &mut physics);
+        assert_eq!(physics.mode(), sim::MovementMode::Walking);
+        if complete_replacement {
+            physics.advance_with_context(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                context,
+                &OpenWorld,
+            );
+        }
+        physics
+            .apply_correction(
+                crate::movement::PhysicsAnchor {
+                    network_position: anchor.position,
+                    tick: anchor.tick,
+                    on_ground: false,
+                    velocity: Some(anchor.velocity),
+                },
+                crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                None,
+                &OpenWorld,
+            )
+            .unwrap();
+        assert_eq!(
+            physics.mode(),
+            sim::MovementMode::Walking,
+            "completed: {complete_replacement}"
+        );
+        let packet = reported_packet(&world, &mut physics, &ItemUseRuntime::default());
+        let flags = protocol::test_support::packets::prediction_sync_flags(&packet).unwrap();
+        assert!(!flag_set(&flags, ActorFlag::Gliding));
+        assert_eq!(
+            super::state_updates::reported_box(&mut physics, &world),
+            [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]
+        );
+    }
+}

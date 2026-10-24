@@ -67,6 +67,7 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
             anchor_state.note_hard_anchor();

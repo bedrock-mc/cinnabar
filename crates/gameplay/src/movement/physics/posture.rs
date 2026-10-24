@@ -29,6 +29,24 @@ pub(super) enum ServerWrite {
     Dimensions(client_world::ExplicitDimensions),
 }
 
+/// Applies a replacement and its newer controls before preparing replayed movement.
+pub(super) fn replay_actor_modes(writes: &[ServerWrite], modes: &mut ModeTracker) {
+    let Some(start) = writes
+        .iter()
+        .position(|write| matches!(write, ServerWrite::Replacement(..)))
+    else {
+        return;
+    };
+    for write in &writes[start..] {
+        match write {
+            ServerWrite::Replacement(flags, _) | ServerWrite::Flags(flags) => {
+                modes.adopt_actor_flags(*flags);
+            }
+            ServerWrite::Dimensions(_) => {}
+        }
+    }
+}
+
 impl SyncState {
     /// Replaces every lifetime-owned field before accepting the new actor's state.
     fn replace_actor(
@@ -135,6 +153,11 @@ impl SyncState {
     /// Associates server writes with the next retained tick for correction replay.
     pub(super) fn take_pending(&mut self) -> Vec<ServerWrite> {
         std::mem::take(&mut self.pending)
+    }
+
+    /// Reapplies pending replacement controls after replaying older movement ticks.
+    pub(super) fn restore_pending_modes(&self, modes: &mut ModeTracker) {
+        replay_actor_modes(&self.pending, modes);
     }
 
     /// Reapplies server writes received after the last completed tick to a replay result.

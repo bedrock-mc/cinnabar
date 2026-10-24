@@ -151,6 +151,30 @@ pub(super) struct ModeTracker {
 }
 
 impl ModeTracker {
+    /// Adopts actor-owned modes and controls, preserving flight-descent input ownership.
+    pub(super) fn adopt_actor_flags(
+        &mut self,
+        mut flags: client_world::MovementFlagUpdate,
+    ) -> client_world::MovementFlagUpdate {
+        for (flag, mode) in [
+            (flags.gliding, MovementMode::Gliding),
+            (flags.swimming, MovementMode::Swimming),
+            (flags.crawling, MovementMode::Crawling),
+        ] {
+            if flag == Some(false) {
+                self.end(mode);
+            }
+        }
+        if self.mode() == MovementMode::Flying {
+            flags.sneaking = None;
+        }
+        self.restore_controls(
+            flags.sprinting.unwrap_or(self.sprinting()),
+            flags.sneaking.unwrap_or(self.sneaking()),
+        );
+        flags
+    }
+
     pub(super) fn reset(&mut self) {
         *self = Self::default();
     }

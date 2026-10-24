@@ -110,6 +110,7 @@ impl ActorStore {
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             pending_local_health: None,
+            pending_local_actor: None,
             local_server_swings: Vec::new(),
             pending_local_damage: None,
             local_health_skips: 0,
@@ -271,11 +272,11 @@ impl ActorStore {
         let mut actor = ActorSnapshot::local_player(
             unique_id,
             runtime_id,
-            self.latest_sequence,
-            revision,
+            (self.latest_sequence, revision),
             uuid,
             username,
             feed,
+            self.pending_local_actor.take(),
         );
         actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
@@ -375,6 +376,7 @@ impl ActorStore {
         self.player_game_mode_skips = 0;
         self.world_default_game_mode = None;
         self.actors.clear();
+        self.pending_local_actor = None;
         self.seat_bindings.clear();
         self.seat_bases.clear();
         self.effect_members = Default::default();
@@ -613,6 +615,10 @@ impl ActorStore {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
                     if self.remote_state_excluded_runtime_id == Some(update.runtime_id) {
                         self.merge_pending_local_death(&update.metadata);
+                        self.update_unspawned_local_actor(update.runtime_id, |actor, budget| {
+                            actor.apply_metadata(&update.metadata, sequence, budget);
+                            actor.apply_properties(&update.properties);
+                        });
                     }
                     return ActorApplyResult::MissingActor;
                 };
@@ -637,6 +643,10 @@ impl ActorStore {
             ActorEvent::Attributes(update) => {
                 self.retain_unspawned_local_health(update.runtime_id, &update.attributes);
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
+                    self.update_unspawned_local_actor(update.runtime_id, |actor, _| {
+                        actor.apply_attributes(&update.attributes);
+                        actor.sync_status_from_health();
+                    });
                     return ActorApplyResult::MissingActor;
                 };
                 let rejected = actor.apply_attributes(&update.attributes);

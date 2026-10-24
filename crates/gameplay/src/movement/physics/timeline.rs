@@ -389,25 +389,10 @@ impl LocalPhysicsController {
 
     /// Adopts present control flags after retained local transitions have been reconciled.
     pub(super) fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
-        for (flag, mode) in [
-            (flags.gliding, sim::MovementMode::Gliding),
-            (flags.swimming, sim::MovementMode::Swimming),
-            (flags.crawling, sim::MovementMode::Crawling),
-        ] {
-            if flag == Some(false) {
-                self.modes.end(mode);
-            }
-        }
-        if !pose_flag_controls_sneak(self.modes.mode()) {
-            flags.sneaking = None;
-        }
+        flags = self.modes.adopt_actor_flags(flags);
         if flags.sprinting.is_none() && flags.sneaking.is_none() {
             return;
         }
-        self.modes.restore_controls(
-            flags.sprinting.unwrap_or(self.modes.sprinting()),
-            flags.sneaking.unwrap_or(self.modes.sneaking()),
-        );
         self.sync_state
             .server_flags(client_world::MovementFlagUpdate {
                 sneaking: flags.sneaking,

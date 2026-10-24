@@ -314,11 +314,11 @@ impl ActorSnapshot {
     fn local_player(
         unique_id: i64,
         runtime_id: u64,
-        spawn_revision: u64,
-        movement_revision: u64,
+        (spawn_revision, movement_revision): (u64, u64),
         uuid: [u8; 16],
         username: std::sync::Arc<str>,
         feed: &LocalPlayerFeed,
+        authority: Option<Self>,
     ) -> Self {
         let pose = ActorPose {
             y_origin: PoseYOrigin::default(),
@@ -327,14 +327,17 @@ impl ActorSnapshot {
             yaw: feed.yaw,
             head_yaw: feed.head_yaw,
         };
-        let mut snapshot = Self {
+        let mut snapshot = authority.unwrap_or_else(|| Self {
             painting: None,
             unique_id,
             runtime_id,
             spawn_revision,
             movement_revision,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
-            kind: ActorKind::Player { uuid, username },
+            kind: ActorKind::Player {
+                uuid,
+                username: username.clone(),
+            },
             entity_fact: EntityFacts::pinned().player(),
             position: feed.position,
             velocity: feed.velocity,
@@ -363,16 +366,32 @@ impl ActorSnapshot {
             },
             dragon_animation: None,
             hitboxes: None,
-        };
+        });
+        snapshot.unique_id = unique_id;
+        snapshot.runtime_id = runtime_id;
+        snapshot.spawn_revision = spawn_revision;
+        snapshot.explicit_dimensions.spawn_revision = Some(spawn_revision);
+        snapshot.movement_revision = movement_revision;
+        snapshot.kind = ActorKind::Player { uuid, username };
+        snapshot.previous_pose = pose;
+        snapshot.received_pose = pose;
+        snapshot.set_current_pose(pose);
+        snapshot.body_yaw = feed.yaw;
+        snapshot.interpolation_ticks_remaining = 0;
+        snapshot.velocity = feed.velocity;
+        snapshot.status.native_velocity = feed.velocity;
+        snapshot.status.fall_fly_ticks = feed.fall_fly_ticks;
+        snapshot.on_ground = Some(feed.on_ground);
+        snapshot.teleported = feed.teleported;
         // Retain the visible-name default until the server replaces it.
-        snapshot.metadata.insert(
-            ActorDataKey::Flags.wire_value(),
-            ActorMetadataValue::Flags(
+        snapshot
+            .metadata
+            .entry(ActorDataKey::Flags.wire_value())
+            .or_insert(ActorMetadataValue::Flags(
                 (1 << ActorFlag::ShowName.wire_value())
                     | (1 << ActorFlag::HasGravity.wire_value())
                     | (1 << ActorFlag::HasCollision.wire_value()),
-            ),
-        );
+            ));
         snapshot.apply_local_flags(feed);
         snapshot
     }
@@ -732,6 +751,7 @@ pub(crate) struct ActorStore {
     remote_state_excluded_runtime_id: Option<u64>,
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
+    pending_local_actor: Option<ActorSnapshot>,
     /// Arm swings the server sent for the local player, waiting for its swing tracker.
     local_server_swings: Vec<Option<std::sync::Arc<str>>>,
     pending_local_damage: Option<local_health::PendingLocalDamage>,
@@ -816,6 +836,7 @@ mod lifecycle;
 pub use dimensions::{DimensionWrite, ExplicitDimensions};
 mod movement_flags;
 mod riding_control;
+mod unspawned_local;
 pub use movement_flags::MovementFlagUpdate;
 mod lightning;
 mod mount;

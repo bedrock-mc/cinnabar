@@ -391,6 +391,7 @@ impl LocalPhysicsController {
             replayed_samples.push(retained.clone());
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
+        self.sync_state.restore_pending_modes(&mut modes);
         self.modes = modes;
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;

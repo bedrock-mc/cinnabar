@@ -152,6 +152,8 @@ impl WorldAuthority {
                         && status.kind == protocol::ActorStatusKind::SpawnAlive);
                 let player_list_changed =
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
+                let local_removal = matches!(&event, ActorEvent::Remove(remove)
+                    if remove.unique_id == self.local_player_unique_id && remove.dimension == self.current_dimension);
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
                 if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
@@ -272,6 +274,16 @@ impl WorldAuthority {
                     _ => None,
                 };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if local_removal
+                    && matches!(
+                        result,
+                        crate::actor_store::ActorApplyResult::Removed
+                            | crate::actor_store::ActorApplyResult::MissingActor
+                    )
+                {
+                    self.actors.clear_unspawned_local_actor();
+                }
+
                 if let Some((tick, flags)) = local_metadata {
                     let dimensions = self
                         .actors
