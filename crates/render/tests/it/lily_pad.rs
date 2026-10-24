@@ -27,9 +27,12 @@ fn production_pad_hash_shader_is_valid() {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_pad_rotations_execute_for_positive_negative_and_wrapping_positions() {
-    let gpu = Gpu::new().expect("native GPU");
+    let Some(gpu) = Gpu::for_fixture(
+        "native_pad_rotations_execute_for_positive_negative_and_wrapping_positions",
+    ) else {
+        return;
+    };
     let source = shader();
     // Current position hash, including all four rotations and signed
     // coordinates. Fixed expected cases avoid duplicating the hash in Rust.

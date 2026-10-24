@@ -7,12 +7,23 @@ use render_scene::greedy_texture_uv;
 
 /// Compile the actual production functions, not a test-side UV implementation.
 fn shader() -> String {
-    let source = include_str!("../../src/chunk.wesl");
+    let source = crate::shader_source::preprocess(include_str!("../../src/chunk.wesl"), &[]);
     let corners = source.split_once("fn quad_corner(").unwrap().1;
     let corners = corners.split_once("\nfn face_normal(").unwrap().0;
     let uv = source.split_once("fn greedy_uv(").unwrap().1;
     let uv = uv.split_once("\n@vertex").unwrap().0;
     format!("fn quad_corner({corners}\nfn greedy_uv({uv}\n{FIXTURE}")
+}
+
+#[test]
+fn production_leaf_uv_shader_is_valid() {
+    let module = naga::front::wgsl::parse_str(&shader()).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
 }
 
 #[test]
@@ -55,9 +66,11 @@ fn native_cube_axes_are_applied_before_all_pack_rotations_and_reflections() {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn actual_gpu_uvs_follow_native_world_axes_for_every_face() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture("actual_gpu_uvs_follow_native_world_axes_for_every_face")
+    else {
+        return;
+    };
     let source = shader();
     for face in Face::ALL {
         let config = gpu.buffer(
@@ -102,9 +115,12 @@ fn actual_gpu_uvs_follow_native_world_axes_for_every_face() {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn actual_gpu_draws_mirror_opposing_leaf_alpha_masks_on_all_three_axes() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("actual_gpu_draws_mirror_opposing_leaf_alpha_masks_on_all_three_axes")
+    else {
+        return;
+    };
     // An authored asymmetric mask: only its upper-left texel is transparent.
     // Rendering the same plane twice leaves one quarter uncovered; rendering
     // native opposing faces closes that artificial straight-through opening.

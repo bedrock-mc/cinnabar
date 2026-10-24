@@ -226,9 +226,12 @@ fn skull_shader_validates_with_the_shared_native_lightmap() {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn placed_skull_pixels_match_native_day_night_torch_darkness_and_rotation() {
-    let gpu = Gpu::new().unwrap();
+    let Some(gpu) =
+        Gpu::for_fixture("placed_skull_pixels_match_native_day_night_torch_darkness_and_rotation")
+    else {
+        return;
+    };
     let texel = [128, 192, 64, 255];
     let assets = assets(texel);
     for (name, block, sky, sky_darken, brightness) in [
@@ -274,9 +277,12 @@ fn placed_skull_pixels_match_native_day_night_torch_darkness_and_rotation() {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn placed_skull_alpha_cutoff_and_legacy_linear_lighting_are_preserved() {
-    let gpu = Gpu::new().unwrap();
+    let Some(gpu) =
+        Gpu::for_fixture("placed_skull_alpha_cutoff_and_legacy_linear_lighting_are_preserved")
+    else {
+        return;
+    };
     let inputs = LightmapInputs {
         ambient_adjustment: true,
         ..Default::default()

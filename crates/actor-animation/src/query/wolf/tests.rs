@@ -105,13 +105,15 @@ fn incomplete_or_odd_health_keeps_a_finite_tail_until_authoritative_data_arrives
 }
 
 #[test]
-#[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to the pinned compiled entity carrier"]
 fn pinned_wolf_clips_rotate_the_existing_tail_for_wild_tame_angry_and_baby_actors() {
     use crate::{ActorAnimationStore, pose::quat_from_euler};
-    use assets::RuntimeEntityAssets;
 
-    let bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ENTITY_CARRIER",
+        "pinned_wolf_clips_rotate_the_existing_tail_for_wild_tame_angry_and_baby_actors",
+    ) else {
+        return;
+    };
     // This is the multiplier authored in the pinned wolf.tail_default clip. Its
     // slightly rounded degree conversion is pack behavior, not query behavior.
     const PACK_DEGREES_PER_RADIAN: f32 = 57.3;
