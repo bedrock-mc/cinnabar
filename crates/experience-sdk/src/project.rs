@@ -81,5 +81,7 @@ pub fn server_api() -> &'static str {
         .expect("server WIT has a versioned package")
 }
 
+#[cfg(all(test, feature = "client"))]
+mod registry_tests;
 #[cfg(test)]
 mod tests;

@@ -2,6 +2,9 @@
 
 #![no_std]
 
+/// Item descriptor auxiliary value that accepts any auxiliary value on the other item.
+pub const ITEM_AUXILIARY_WILDCARD: u16 = i16::MAX as u16;
+
 macro_rules! wire_ids {
     ($name:ident, $raw:ty, {$($variant:ident => $value:expr),* $(,)?}) => {
         /// Named values admitted by the pinned protocol contract.

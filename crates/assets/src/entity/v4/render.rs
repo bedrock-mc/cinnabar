@@ -37,6 +37,9 @@ pub struct EntityRenderMaterialState {
     /// Texture alpha weights world lighting; colored alpha-zero texels remain emissive.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub emissive: bool,
+    /// Keeps only texels whose emissive weight lies between the transparent and lit endpoints.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub only_emissive: bool,
     /// Enabled blending adds to the destination instead of weighting it by inverse alpha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub additive: bool,
@@ -51,6 +54,15 @@ pub struct EntityRenderMaterialState {
     /// geometry rendered before it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub depth_always: bool,
+    /// Draws only where the existing depth equals this layer.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub depth_equal: bool,
+    /// Preserves the target alpha while writing RGB.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub disable_alpha_write: bool,
+    /// Preserves target RGB and alpha while updating depth.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub disable_color_write: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -61,10 +73,14 @@ impl Default for EntityRenderMaterialState {
             blend: false,
             depth_write: true,
             emissive: false,
+            only_emissive: false,
             additive: false,
             additive_alpha: false,
             disable_overlay: false,
             depth_always: false,
+            depth_equal: false,
+            disable_alpha_write: false,
+            disable_color_write: false,
         }
     }
 }
@@ -81,6 +97,10 @@ impl EntityRenderMaterialState {
     pub const ADDITIVE_ALPHA: u32 = 1 << 15;
     pub const DISABLE_OVERLAY: u32 = 1 << 16;
     pub const DEPTH_ALWAYS: u32 = 1 << 17;
+    pub const ONLY_EMISSIVE: u32 = 1 << 18;
+    pub const DEPTH_EQUAL: u32 = 1 << 19;
+    pub const DISABLE_ALPHA_WRITE: u32 = 1 << 20;
+    pub const DISABLE_COLOR_WRITE: u32 = 1 << 21;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -89,10 +109,14 @@ impl EntityRenderMaterialState {
             blend: word & Self::BLEND != 0,
             depth_write: word & Self::DISABLE_DEPTH_WRITE == 0,
             emissive: word & Self::EMISSIVE != 0,
+            only_emissive: word & Self::ONLY_EMISSIVE != 0,
             additive: word & Self::ADDITIVE != 0,
             additive_alpha: word & Self::ADDITIVE_ALPHA != 0,
             disable_overlay: word & Self::DISABLE_OVERLAY != 0,
             depth_always: word & Self::DEPTH_ALWAYS != 0,
+            depth_equal: word & Self::DEPTH_EQUAL != 0,
+            disable_alpha_write: word & Self::DISABLE_ALPHA_WRITE != 0,
+            disable_color_write: word & Self::DISABLE_COLOR_WRITE != 0,
         })
     }
 }
@@ -130,6 +154,11 @@ impl EntityRenderMaterial {
                     } else {
                         0
                     }
+                    | if state.only_emissive {
+                        EntityRenderMaterialState::ONLY_EMISSIVE
+                    } else {
+                        0
+                    }
                     | if state.additive {
                         EntityRenderMaterialState::ADDITIVE
                     } else {
@@ -142,6 +171,21 @@ impl EntityRenderMaterial {
                     }
                     | if state.disable_overlay {
                         EntityRenderMaterialState::DISABLE_OVERLAY
+                    } else {
+                        0
+                    }
+                    | if state.depth_equal {
+                        EntityRenderMaterialState::DEPTH_EQUAL
+                    } else {
+                        0
+                    }
+                    | if state.disable_alpha_write {
+                        EntityRenderMaterialState::DISABLE_ALPHA_WRITE
+                    } else {
+                        0
+                    }
+                    | if state.disable_color_write {
+                        EntityRenderMaterialState::DISABLE_COLOR_WRITE
                     } else {
                         0
                     }

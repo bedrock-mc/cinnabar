@@ -14,7 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/resource"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // exportModPack validates a server artifact and exports Dragonfly's generated resource pack without listening.

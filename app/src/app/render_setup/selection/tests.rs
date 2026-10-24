@@ -91,20 +91,20 @@ fn device_rejections_continue_across_adapters_and_apis_until_success_or_exhausti
 }
 
 #[test]
-fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_ties() {
+fn discrete_vulkan_beats_integrated_or_software_dx12_and_dx12_breaks_ties_for_every_vendor() {
     for kind in [wgpu::DeviceType::IntegratedGpu, wgpu::DeviceType::Cpu] {
         let mut adapters = vec![
-            candidate(Backend::Vulkan, kind, 0),
-            candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, 0),
+            candidate(Backend::Dx12, kind, 0),
+            candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, 0),
         ];
         rank(
             &mut adapters,
             Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
-        assert_eq!(adapters[0].backend, Backend::Dx12);
+        assert_eq!(adapters[0].backend, Backend::Vulkan);
     }
-    for (vendor, preferred) in [(INTEL_PCI_VENDOR, Backend::Dx12), (0, Backend::Vulkan)] {
+    for vendor in [0x10de, 0x1002, INTEL_PCI_VENDOR] {
         let mut adapters = vec![
             candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, vendor),
             candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, vendor),
@@ -114,7 +114,7 @@ fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_tie
             Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
-        assert_eq!(adapters[0].backend, preferred);
+        assert_eq!(adapters[0].backend, Backend::Dx12, "{vendor:#x}");
     }
     let mut adapters: Vec<_> = [
         wgpu::DeviceType::Cpu,

@@ -151,7 +151,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 name = "meshing"
 path = "crates/meshing"
 test_support_features = ["benchmark-mimalloc"]
-allowed_dependencies = ["assets", "block-transform", "world"]
+allowed_dependencies = ["assets", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
@@ -515,6 +515,12 @@ allowed_dependencies = ["experience-sdk"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "dragonfly-extension-client"
+path = "examples/dragonfly-extension/client"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "ui"
 path = "crates/ui"
 allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input", "test-alloc"]
@@ -571,7 +577,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["cinnabar-cxb", "crash-report", "diagnostics", "workspace-declarations"]
+allowed_dependencies = ["cinnabar-cxb", "render-api", "crash-report", "diagnostics", "test-time", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.
@@ -1384,6 +1390,11 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/startup.rs"
+literal = "mesa"
+reason = "Directory for the Mesa driver's isolated shader cache, independent of biome identifiers."
 
 [[identifier_literal_exceptions]]
 path = "tools/cxb/src/project/local.rs"
@@ -2224,6 +2235,11 @@ reason = "Value in the pinned torch_facing_direction state domain."
 path = "crates/pack-compiler/entity/src/entity/materials.rs"
 literal = ".skinning"
 reason = "Material declaration grammar suffix for a skinning variant of the same base."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/item/components.rs"
+literal = "minecraft:digger"
+reason = "Item component key in a server registry entry; it shares its text with the native item tag but names the component, not tag membership."
 
 [[crates]]
 name = "cosmetics"

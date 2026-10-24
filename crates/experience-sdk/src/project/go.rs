@@ -8,12 +8,27 @@ use super::{FieldType, Project};
 
 const HELPER_MODULE: &str = "github.com/hashimthearab/rust-mcbe/tools/localserver";
 const HELPER_SOURCE: &str = "github.com/cinnabar-mc/cinnabar/tools/localserver";
-const HELPER_VERSION: &str = "v0.0.0-20261023202529-c66a1481fe2a";
+const HELPER_VERSION: &str = "v0.0.0-20261024060101-c630565e3f4d";
 
 /// Pins the public helper contract and its supported upstream Dragonfly dependency.
 pub fn module(id: &str) -> String {
     format!(
         "module cinnabar.local/{id}/messages\n\ngo 1.26.1\n\nrequire (\n {HELPER_MODULE} {HELPER_VERSION}\n github.com/df-mc/dragonfly v0.11.5\n)\n\nreplace {HELPER_MODULE} => {HELPER_SOURCE} {HELPER_VERSION}\n"
+    )
+}
+
+/// Builds generated-code unit tests against the helper source in this checkout.
+#[cfg(test)]
+pub(super) fn fixture_module(id: &str) -> String {
+    let helper = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/localserver");
+    format!(
+        "{}\nreplace {HELPER_MODULE} => {:?}\n",
+        module(id)
+            .lines()
+            .filter(|line| !line.starts_with("replace "))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        helper.canonicalize().expect("server helper checkout"),
     )
 }
 

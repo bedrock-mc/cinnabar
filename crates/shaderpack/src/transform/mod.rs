@@ -8,27 +8,33 @@
 mod assemble;
 mod body;
 mod builtins;
+mod constant_expr;
 mod declare;
 mod dot;
 mod interface;
 mod items;
 mod legacy;
+mod local_constants;
 mod math;
+mod missing;
 mod narrow;
+mod samplers;
 mod shared;
 mod specialize;
+mod type_shadow;
 
 use crate::preprocess::Preprocessed;
 use crate::programs::StageKind;
 use crate::reflection::{
-    LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, SamplerClass, TEXTURE_GROUP,
-    TextureDimension,
+    LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, TEXTURE_GROUP,
 };
 use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
 use body::{BodyContext, SamplerUse, convert_returns, return_type, rewrite_body, rewrite_params};
 pub(crate) use interface::ProgramInterface;
 use items::{Item, func_params, parse_decl, split_items};
+pub(crate) use missing::vertex_outputs;
+pub(crate) use samplers::SamplerClasses;
 use std::collections::{HashMap, HashSet};
 
 /// A transform failure at a 1-based line of the include-expanded source (0 if unknown).
@@ -74,15 +80,15 @@ pub(crate) struct StageDraft {
     pub resource_names: Vec<(u32, u32, String)>,
 }
 
-/// Sampler name and shape (`None` for any shape) → class, where the program's custom
-/// textures and images override [`SamplerClass::for_name`].
-pub(crate) type SamplerClasses = HashMap<(String, Option<TextureDimension>), SamplerClass>;
-
 /// Pack-level facts about resource names, from `shaders.properties`.
 pub(crate) struct ResourceNames<'a> {
     /// Image name → GLSL format qualifier from `image.<name>`.
     pub image_formats: &'a HashMap<String, String>,
     pub sampler_classes: &'a SamplerClasses,
+    /// This stage applies compatibility-profile sampler renames before raw directives.
+    pub normalize_legacy: bool,
+    /// The program draws world geometry, so texture unit 0 holds the atlas, not `colortex0`.
+    pub geometry: bool,
 }
 
 /// Transforms one preprocessed stage.
@@ -92,31 +98,8 @@ pub(crate) fn transform(
     iface: &mut ProgramInterface,
     names: &ResourceNames<'_>,
 ) -> Result<StageDraft, TransformError> {
-    let mut delimiters = Vec::new();
-    for token in &pp.tokens {
-        if token.is("(") || token.is("[") || token.is("{") {
-            delimiters.push(token);
-        } else if token.is(")") || token.is("]") || token.is("}") {
-            let expected = match token.text() {
-                ")" => "(",
-                "]" => "[",
-                _ => "{",
-            };
-            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
-                return Err(TransformError::new(
-                    "unmatched closing delimiter",
-                    token.line,
-                ));
-            }
-        }
-    }
-    if let Some(open) = delimiters.last() {
-        return Err(TransformError::new("unclosed delimiter", open.line));
-    }
-    let wide = narrow::lower(&pp.tokens);
-    let wide = wide.as_deref().unwrap_or(&pp.tokens);
-    let fused = dot::order(wide);
-    let lg = legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, pp.version)?;
+    validate_delimiters(&pp.tokens)?;
+    let lg = stage_tokens(&pp.tokens, stage, pp.version)?;
     let mut items: Vec<Item> = vec![];
     let mut user_funcs: HashSet<String> = HashSet::new();
     for it in split_items(&lg.toks) {
@@ -144,6 +127,7 @@ pub(crate) fn transform(
         }
     }
     math::defer_negative_sqrt(&mut items, &user_funcs, &lg.toks);
+    type_shadow::rename_struct_shadowing_locals(&mut items, &lg.toks);
     let items = shared::split_declarations(items);
     let items = specialize::specialize_opaque_params(items)?;
     let mut c = declare::collect(items, stage, iface, names)?;
@@ -270,6 +254,44 @@ pub(crate) fn transform(
         frag_outputs: c.frag_outputs,
         resource_names,
     })
+}
+
+/// Applies the type, expression and legacy-name rewrites shared by stage compilation and repair.
+fn stage_tokens(
+    tokens: &[Tok],
+    stage: StageKind,
+    version: u32,
+) -> Result<legacy::Legacy, TransformError> {
+    let wide = narrow::lower(tokens);
+    let wide = wide.as_deref().unwrap_or(tokens);
+    let fused = dot::order(wide);
+    legacy::rewrite(fused.as_deref().unwrap_or(wide), stage, version)
+}
+
+/// Rejects unbalanced token groups before a compatibility parser inspects their contents.
+fn validate_delimiters(tokens: &[Tok]) -> Result<(), TransformError> {
+    let mut delimiters = Vec::new();
+    for token in tokens {
+        if token.is("(") || token.is("[") || token.is("{") {
+            delimiters.push(token);
+        } else if token.is(")") || token.is("]") || token.is("}") {
+            let expected = match token.text() {
+                ")" => "(",
+                "]" => "[",
+                _ => "{",
+            };
+            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
+                return Err(TransformError::new(
+                    "unmatched closing delimiter",
+                    token.line,
+                ));
+            }
+        }
+    }
+    if let Some(open) = delimiters.last() {
+        return Err(TransformError::new("unclosed delimiter", open.line));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -30,7 +30,7 @@ pub use witness::{ActorMainWitness, ActorRuntimeWitness};
 pub struct ActorRenderSource {
     pub runtime_id: u64,
     pub unique_id: i64,
-    pub spawn_revision: u64,
+    pub spawn_revision: std::num::NonZeroU64,
     pub movement_revision: u64,
     pub previous_position: [f32; 3],
     pub previous_pitch_degrees: f32,
@@ -442,7 +442,7 @@ impl ActorRenderScene {
                     previous_bones: Arc::from(posed_bones),
                     current_bones: Arc::from(posed_bones),
                     completed_tick: source.movement_revision,
-                    reset_generation: source.spawn_revision.max(1),
+                    reset_generation: source.spawn_revision.get(),
                 },
                 world_from_actor: [
                     [cosine, 0.0, sine, pose.position[0]],

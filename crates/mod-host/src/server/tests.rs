@@ -32,6 +32,8 @@ fn state() -> State {
         commands: Vec::new(),
         bytes: 0,
         calls: 0,
+        initializing: false,
+        negotiation: None,
     };
     state.begin_output().unwrap();
     state
@@ -159,7 +161,7 @@ fn guest_1_1(template: &str) -> String {
         .replace("$TEMPLATE", template)
 }
 
-fn owner() -> Principal {
+pub(super) fn owner() -> Principal {
     Principal {
         session: "s".into(),
         bundle: "demo".into(),
@@ -167,7 +169,7 @@ fn owner() -> Principal {
     }
 }
 
-fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
+pub(super) fn screen_capabilities(permissions: &[Permission]) -> Capabilities {
     Capabilities {
         scope: Scope {
             permissions: permissions.iter().copied().collect(),
@@ -206,15 +208,27 @@ fn component_built_against_1_0_still_links_and_skips_newer_events() {
         channel: "demo.items".into(),
         record: b"[]".to_vec(),
     };
-    assert!(host.dispatch(&message, 1).unwrap().commands.is_empty());
-    let epoch = host.dispatch(&Event::Epoch, 2).unwrap();
+    assert!(
+        host.dispatch(&message, 1)
+            .unwrap()
+            .into_transaction()
+            .commands
+            .is_empty()
+    );
+    let epoch = host.dispatch(&Event::Epoch, 2).unwrap().into_transaction();
     assert_eq!(epoch.epoch, 2);
     assert!(epoch.commands.is_empty());
     let action = Event::Action {
         id: "demo.pick".into(),
         index: Some(1),
     };
-    assert!(host.dispatch(&action, 2).unwrap().commands.is_empty());
+    assert!(
+        host.dispatch(&action, 2)
+            .unwrap()
+            .into_transaction()
+            .commands
+            .is_empty()
+    );
 }
 
 #[test]
@@ -235,7 +249,13 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         channel: "demo.items".into(),
         record: rows,
     };
-    match host.dispatch(&message, 1).unwrap().commands.as_slice() {
+    match host
+        .dispatch(&message, 1)
+        .unwrap()
+        .into_transaction()
+        .commands
+        .as_slice()
+    {
         [Command::Collection { name, rows }] => {
             assert_eq!(name, "items");
             assert_eq!(rows[0]["#name"], text("Stone"));
@@ -247,7 +267,7 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         index: Some(3),
     };
     assert!(matches!(
-        host.dispatch(&pick, 1).unwrap().commands.as_slice(),
+        host.dispatch(&pick, 1).unwrap().into_transaction().commands.as_slice(),
         [Command::Value { name, value: screen::Value::Integer(3) }] if name == "#row"
     ));
     let undeclared = Event::Action {
@@ -255,7 +275,7 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         index: None,
     };
     assert!(host.dispatch(&undeclared, 1).is_err());
-    let epoch = host.dispatch(&Event::Epoch, 5).unwrap();
+    let epoch = host.dispatch(&Event::Epoch, 5).unwrap().into_transaction();
     assert_eq!(epoch.epoch, 5);
     assert!(matches!(
         epoch.commands.as_slice(),
@@ -267,13 +287,25 @@ fn modal_calls_and_callbacks_cross_the_1_1_component_boundary() {
         index: Some(1),
     };
     for event in [resized(320.0), typed("demo.pick", "iron"), secondary] {
-        assert!(host.dispatch(&event, 5).unwrap().commands.is_empty());
+        assert!(
+            host.dispatch(&event, 5)
+                .unwrap()
+                .into_transaction()
+                .commands
+                .is_empty()
+        );
     }
     let malformed = Event::Message {
         channel: "demo.items".into(),
         record: b"[{\"name\":1}]".to_vec(),
     };
-    assert!(host.dispatch(&malformed, 5).unwrap().commands.is_empty());
+    assert!(
+        host.dispatch(&malformed, 5)
+            .unwrap()
+            .into_transaction()
+            .commands
+            .is_empty()
+    );
 }
 
 #[test]
@@ -362,7 +394,13 @@ fn terminal_sized_list_record_dispatches_within_callback_fuel() {
         channel: "benergistics.items".into(),
         record: record.into_bytes(),
     };
-    match host.dispatch(&message, 1).unwrap().commands.as_slice() {
+    match host
+        .dispatch(&message, 1)
+        .unwrap()
+        .into_transaction()
+        .commands
+        .as_slice()
+    {
         [Command::Collection { name, rows }] => {
             assert_eq!(name, "items");
             assert_eq!(rows.len(), 144);
@@ -382,7 +420,7 @@ fn terminal() -> BundleHost {
 }
 
 /// An empty record on `channel`, which selects the terminal guest's behavior.
-fn on(channel: &str) -> Event {
+pub(super) fn on(channel: &str) -> Event {
     Event::Message {
         channel: channel.into(),
         record: b"[]".to_vec(),
@@ -394,6 +432,7 @@ fn count(host: &mut BundleHost) -> i64 {
     match host
         .dispatch(&on("terminal.count"), 1)
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -498,7 +537,7 @@ fn resized(width: f64) -> Event {
 }
 
 /// Typed text in the modal's edit box `control`.
-fn typed(control: &str, text: &str) -> Event {
+pub(super) fn typed(control: &str, text: &str) -> Event {
     Event::Text {
         control: control.into(),
         text: text.into(),
@@ -524,6 +563,7 @@ fn modal_resized_reports_the_size_modal_size_reads() {
     match host
         .dispatch(&resized(320.0), 1)
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -549,6 +589,7 @@ fn modal_resized_reports_the_size_modal_size_reads() {
     match host
         .dispatch(&on("terminal.size"), 1)
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -572,6 +613,7 @@ fn text_changed_reaches_the_guest_and_set_text_stages_text() {
     match host
         .dispatch(&typed("terminal.search", "iron"), 1)
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -598,6 +640,7 @@ fn secondary_presses_reach_secondary_action() {
     match host
         .dispatch(&press("terminal.search"), 1)
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -625,6 +668,7 @@ fn shift_changed_reaches_the_guest() {
     match host
         .dispatch(&Event::Shift { held: true }, 1)
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -662,6 +706,7 @@ fn scroll_changed_reaches_the_guest() {
     match host
         .dispatch(&scrolled("terminal.search", 36.0), 1)
         .unwrap()
+        .into_transaction()
         .commands
         .as_slice()
     {
@@ -699,7 +744,10 @@ fn scroll_changed_reaches_the_guest() {
     )
     .unwrap();
     old.take_transaction();
-    let skipped = old.dispatch(&scrolled("terminal.search", 0.0), 1).unwrap();
+    let skipped = old
+        .dispatch(&scrolled("terminal.search", 0.0), 1)
+        .unwrap()
+        .into_transaction();
     assert!(skipped.commands.is_empty());
 }
 

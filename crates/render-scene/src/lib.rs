@@ -37,6 +37,7 @@ pub mod screen_overlay_portal;
 pub mod shaderpack;
 pub mod skybox;
 pub mod startup_presentation;
+pub mod startup_timing;
 pub mod terrain_culling;
 pub mod terrain_publication;
 pub mod ui;
@@ -162,3 +163,5 @@ pub use native_sunlight::AtmosphereViewInputs;
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+pub mod startup_work;

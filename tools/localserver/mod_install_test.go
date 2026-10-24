@@ -12,8 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 	"github.com/df-mc/dragonfly/server/world"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
 )
 
 // TestInstalledModPackage exercises a real package produced by the Rust SDK integration test.
@@ -67,7 +68,7 @@ func checkInstalledRegistry(t *testing.T, dir string) {
 		Info:  experience.Info{WorldID: "mod-test", DimensionID: "overworld", Tick: 1, EventSequence: 1},
 		Actor: &player, WorldMinY: -64, WorldMaxY: 319,
 		Snapshot: []experience.Cell{},
-		Call:     experience.Call{ClientMessage: &experience.ClientMessageCall{Player: player, Channel: "space.registry_request", Schema: 1, Payload: []experience.Scalar{{Text: &fingerprint}}}},
+		Call:     experience.Call{ClientMessage: &experience.ClientMessageCall{Player: player, Channel: "space.registry_request", Schema: 1, Payload: []cinnabarext.Scalar{{Text: &fingerprint}}}},
 	}
 	outcome, err := sup.Call(request)
 	if err != nil {
@@ -81,7 +82,7 @@ func checkInstalledRegistry(t *testing.T, dir string) {
 		t.Fatalf("registry confirmation = %+v", send)
 	}
 	mismatch := "mismatched-definitions"
-	request.Call.ClientMessage.Payload = []experience.Scalar{{Text: &mismatch}}
+	request.Call.ClientMessage.Payload = []cinnabarext.Scalar{{Text: &mismatch}}
 	outcome, err = sup.Call(request)
 	if err != nil || outcome.Rejected == nil {
 		t.Fatalf("mismatched registry accepted: %+v, %v", outcome, err)

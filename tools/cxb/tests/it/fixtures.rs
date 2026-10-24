@@ -22,12 +22,12 @@ use {
     },
 };
 
-const REGENERATE: &str = "regenerate with `cargo run -p cinnabar-cxb --locked -- write-fixtures tools/localserver/extension/testdata`";
+const REGENERATE: &str = "regenerate with `cargo run -p cinnabar-cxb --locked -- write-fixtures tools/localserver/cinnabarext/testdata`";
 /// The server half writes `go/`: Go's own marker, Accept and envelope for the client's verifiers.
-const REGENERATE_GO: &str = "regenerate with `go test ./extension -run TestGoFixturesAreCurrent -update-go-fixtures` in tools/localserver";
+const REGENERATE_GO: &str = "regenerate with `go test ./cinnabarext -run TestGoFixturesAreCurrent -update-go-fixtures` in tools/localserver";
 
 fn fixture_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../localserver/extension/testdata")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../localserver/cinnabarext/testdata")
 }
 
 fn read(name: &str) -> Vec<u8> {
@@ -76,6 +76,76 @@ fn checked_in_fixtures_match() {
         checked_in, expected,
         "unexpected fixture files; {REGENERATE}"
     );
+}
+
+#[test]
+fn fixture_bytes_survive_crlf_checkouts() {
+    let checkout = tempfile::tempdir().unwrap();
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::fs::copy(
+        source.join(".gitattributes"),
+        checkout.path().join(".gitattributes"),
+    )
+    .unwrap();
+    let mut pending = vec![fixture_dir()];
+    let mut fixtures = Vec::new();
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            let path = entry.path();
+            let relative = path
+                .canonicalize()
+                .unwrap()
+                .strip_prefix(source.canonicalize().unwrap())
+                .unwrap()
+                .to_owned();
+            let target = checkout.path().join(&relative);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::copy(&path, target).unwrap();
+            fixtures.push((
+                relative.to_str().unwrap().to_owned(),
+                std::fs::read(path).unwrap(),
+            ));
+        }
+    }
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .current_dir(checkout.path())
+            .args(["-c", "core.autocrlf=true"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    git(&["init", "--quiet"]);
+    let mut args = vec!["check-attr", "text", "--"];
+    args.extend(fixtures.iter().map(|(path, _)| path.as_str()));
+    let attributes = git(&args);
+    assert_eq!(attributes.lines().count(), fixtures.len());
+    assert!(
+        attributes
+            .lines()
+            .all(|line| line.ends_with(": text: unset")),
+        "{attributes}"
+    );
+    git(&["add", "."]);
+    git(&["checkout-index", "--all", "--force"]);
+    for (path, bytes) in fixtures {
+        assert_eq!(
+            std::fs::read(checkout.path().join(&path)).unwrap(),
+            bytes,
+            "{path} changed in a CRLF checkout"
+        );
+    }
 }
 
 #[test]
@@ -439,6 +509,27 @@ fn go_server_half_passes_the_client_verifiers() {
     let large = ingress.pop(1, world_epoch).unwrap();
     assert_eq!(large.sequence, envelope.sequence + 1);
     assert_eq!(wire::encode(&large, &wire).unwrap(), messages[1..]);
+    assert_eq!(
+        ingress
+            .receive_epoch_request(
+                &protocol::ExperienceMessage::new(read("go/world_change_request.json")),
+                &grant,
+                0,
+            )
+            .unwrap(),
+        Some(world_epoch + 1)
+    );
+    let Control::WorldAck {
+        session,
+        world_epoch: acknowledged_epoch,
+        requested_epoch,
+    } = canonical("go/world_change_ack.json")
+    else {
+        panic!("world_change_ack.json is not a world acknowledgment");
+    };
+    assert_eq!(session, grant.session);
+    assert_eq!(requested_epoch, world_epoch + 1);
+    assert_eq!(acknowledged_epoch, requested_epoch + 1);
 }
 
 #[test]

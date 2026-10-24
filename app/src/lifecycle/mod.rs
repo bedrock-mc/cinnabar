@@ -25,6 +25,11 @@ pub(crate) fn launched_at() -> Instant {
     *LAUNCHED_AT.get_or_init(Instant::now)
 }
 
+/// Anchors launch timing before argument parsing and logging setup.
+pub fn record_launch() {
+    render_scene::startup_timing::StartupTiming::start(launched_at());
+}
+
 /// The `--first-run-setup` child process: logs as the client does, through the inherited
 /// stderr the client captures, then runs the setup window and returns its exit code.
 pub fn run_first_run_setup() -> i32 {
@@ -62,7 +67,7 @@ pub fn run_crash_monitor() -> i32 {
 /// `assets_overridden` skips asset preparation when the caller supplied its own carrier path.
 /// Returns `false` when the user quit first-time setup, so the client should exit quietly.
 pub fn before_run(assets_overridden: bool) -> Result<bool> {
-    launched_at();
+    record_launch();
     let layout = start_session()?;
     if !layout.is_installed() {
         return Ok(true);
@@ -95,6 +100,7 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
 /// [`before_run`] and [`crate::run`] to report. A retried setup reuses an earlier preload unless
 /// `rewritten` says setup has rewritten the carriers since.
 pub fn preload(rewritten: bool) {
+    record_launch();
     let Ok(layout) = start_session() else {
         return;
     };

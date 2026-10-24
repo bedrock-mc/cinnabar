@@ -7,7 +7,8 @@
 //! | sun | `textures/environment/sun.png` | `AtmosphereTextureAssets` |
 //! | moon | `textures/environment/moon_phases.png` | `AtmosphereTextureAssets` |
 //! | clouds | 1×1 white (source RGBA is baked into vertices) | |
-//! | weather | `textures/environment/weather.png` | `WeatherTextureAssets` |
+//! | rain | [`super::weather::rain_sheet`] built from `textures/environment/weather.png` | `WeatherTextureAssets` |
+//! | snow | `textures/environment/weather.png` | `WeatherTextureAssets` |
 //! | particles | the particle atlas and its dynamic tiles | `ParticleGpu` (a view) |
 //! | cracks | the block-entity atlas (destroy stages) | `BlockEntityGpu` (a view) |
 //! | stars, lightning, outline | 1×1 white | |
@@ -18,6 +19,7 @@ use super::super::plugin::{LoadedShaderPack, ShaderPackViews};
 use super::super::resources::ATLAS_FORMAT;
 use super::super::targets::AtlasViews;
 use super::Effect;
+use super::weather::{RAIN_SHEET_SIZE, rain_sheet};
 use crate::block_entity::BlockEntityGpu;
 use crate::particle_render::ParticleGpu;
 use crate::shaderpack::draws::DrawKind;
@@ -51,6 +53,8 @@ pub(crate) struct ShaderpackEffectTextures {
     moon: Option<Uploaded<[u8; 32]>>,
     /// Keyed by the sheet's allocation.
     weather: Option<Uploaded<usize>>,
+    /// The rain sheet built from the weather sheet, keyed by that sheet's allocation.
+    rain: Option<Uploaded<usize>>,
     particles: Option<Shared>,
     particle_side: u32,
     cracks: Option<Shared>,
@@ -231,7 +235,8 @@ impl ShaderpackEffectTextures {
             Effect::Sun => self.view(self.sun.as_ref().map(|s| &s.view)),
             Effect::Moon => self.view(self.moon.as_ref().map(|s| &s.view)),
             Effect::Clouds => Some(&constants[WHITE].1),
-            Effect::Weather => self.weather.as_ref().map(|s| &s.view),
+            Effect::Rain => self.rain.as_ref().map(|s| &s.view),
+            Effect::Snow => self.weather.as_ref().map(|s| &s.view),
             Effect::Particles | Effect::ParticlesTranslucent | Effect::ParticlesAdditive => {
                 self.view(self.particles.as_ref().map(|s| &s.view))
             }
@@ -347,18 +352,37 @@ pub(crate) fn prepare_effect_textures(
     }
     if let Some(sheets) = weather.as_ref().and_then(|w| w.textures()) {
         let image = &sheets.weather;
+        let key = Arc::as_ptr(sheets) as usize;
         changed |= upload(
             device,
             queue,
             &mut textures.weather,
-            Arc::as_ptr(sheets) as usize,
+            key,
             "shader pack weather",
             [image.width, image.height],
             image.height,
             &image.rgba8,
         );
-    } else if textures.weather.take().is_some() {
-        changed = true;
+        if textures.rain.as_ref().is_none_or(|rain| rain.key != key) {
+            let sheet = rain_sheet(
+                [image.width, image.height],
+                &image.rgba8,
+                render_model::RAIN_PARAMS.uv_rect,
+            );
+            changed |= upload(
+                device,
+                queue,
+                &mut textures.rain,
+                key,
+                "shader pack rain",
+                RAIN_SHEET_SIZE,
+                RAIN_SHEET_SIZE[1],
+                &sheet,
+            );
+        }
+    } else {
+        let released = [textures.weather.take(), textures.rain.take()];
+        changed |= released.iter().any(Option::is_some);
     }
     let particle_atlas = particles.as_ref().and_then(|gpu| gpu.atlas_texture());
     if share(
@@ -411,6 +435,7 @@ mod gpu_tests {
             textures.views(Effect::Clouds).unwrap().color,
             &textures.constants.as_ref().unwrap()[WHITE].1
         ));
-        assert!(textures.views(Effect::Weather).is_none());
+        assert!(textures.views(Effect::Rain).is_none());
+        assert!(textures.views(Effect::Snow).is_none());
     }
 }

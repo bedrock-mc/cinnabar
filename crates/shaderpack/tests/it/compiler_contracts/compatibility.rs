@@ -78,3 +78,381 @@ fn compatibility_negative_constant_sqrt_remains_a_runtime_operation() {
             )
     );
 }
+
+#[test]
+fn compatibility_missing_vertex_declarations_preserve_assigned_values() {
+    let translated = success(
+        "#version 330\nvoid main() { carry=vec2(0.25,0.75); gl_Position=vec4(0.0); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(carry,0.0,1.0); }",
+    );
+    let module = &program(&translated, "composite").stages[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    let carry = module
+        .global_variables
+        .iter()
+        .find(|(_, g)| g.name.as_deref() == Some("carry"))
+        .unwrap()
+        .0;
+    let main = module
+        .functions
+        .iter()
+        .find(|(_, f)| f.name.as_deref() == Some("iris_user_main"))
+        .unwrap()
+        .1;
+    let values: Vec<_> = main.body.iter().filter_map(|s| match s {
+        naga::Statement::Store { pointer, value }
+            if matches!(main.expressions[*pointer], naga::Expression::GlobalVariable(g) if g == carry) =>
+        {
+            Some(*value)
+        }
+        _ => None,
+    }).collect();
+    let value = *values.last().expect("the vertex keeps its assignment");
+    let naga::Expression::Compose { components, .. } = &main.expressions[value] else {
+        panic!("assigned vector survives");
+    };
+    let values: Vec<_> = components
+        .iter()
+        .map(|v| match main.expressions[*v] {
+            naga::Expression::Literal(naga::Literal::F32(value)) => value,
+            ref other => panic!("unexpected assigned component: {other:?}"),
+        })
+        .collect();
+    assert_eq!(values, [0.25, 0.75]);
+}
+
+#[test]
+fn compatibility_missing_vertex_declarations_copy_locations_and_qualifiers() {
+    let translated = success(
+        "#version 450\nvoid main() { carry=3; gl_Position=vec4(0.0); }",
+        "#version 450\nlayout(location=6) flat in int carry; out vec4 color; void main() { color=vec4(float(carry)); }",
+    );
+    let module = &program(&translated, "composite").stages[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    assert_eq!(interface_locations(module, true), [("carry", 6)]);
+}
+
+#[test]
+fn compatibility_unused_fragment_inputs_do_not_declare_unknown_vertex_names() {
+    for fragment in [
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(1.0); }",
+        "#version 330\nin vec2 carry; struct Data { vec2 carry; }; out vec4 color; void main() { Data d=Data(vec2(1.0)); color=vec4(d.carry,0.0,1.0); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { vec2 carry=vec2(1.0); color=vec4(carry,0.0,1.0); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { struct Data { vec2 carry; }; Data d=Data(vec2(1.0)); color=vec4(d.carry,0.0,1.0); }",
+    ] {
+        let translated = translate(
+            "#version 330\nvoid main() { carry=vec2(0.25); gl_Position=vec4(0.0); }",
+            fragment,
+        );
+        assert!(!program(&translated, "composite").is_ok());
+    }
+}
+
+#[test]
+fn compatibility_vertex_locals_and_parameters_do_not_create_outputs() {
+    for (helper, body) in [
+        ("", "vec2 uv=vec2(1.0); sourceUv=uv;"),
+        (
+            "vec2 readUv(vec2 uv) { return uv; }",
+            "sourceUv=readUv(vec2(1.0));",
+        ),
+        ("", "{ vec2 uv=vec2(1.0); sourceUv=uv; }"),
+        (
+            "",
+            "for (int uv=0; uv<2; uv++) { sourceUv=vec2(float(uv)); }",
+        ),
+    ] {
+        let translated = success(
+            &format!(
+                "#version 450\nlayout(location=0) out vec2 sourceUv; {helper} void main() {{ {body} gl_Position=vec4(0.0); }}"
+            ),
+            "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+        );
+        let module = &program(&translated, "composite").stages[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .module;
+        assert_eq!(interface_locations(module, true), [("sourceUv", 0)]);
+    }
+}
+
+#[test]
+fn compatibility_vertex_block_globals_do_not_create_outputs() {
+    for (declaration, value) in [
+        ("uniform Data { vec2 uv; };", "uv"),
+        ("uniform Data { vec2 value; } uv;", "uv.value"),
+        ("struct Data { vec2 value; } uv;", "uv.value"),
+    ] {
+        let translated = success(
+            &format!(
+                "#version 450\n{declaration} layout(location=0) out vec2 sourceUv; void main() {{ sourceUv={value}; gl_Position=vec4(0.0); }}"
+            ),
+            "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+        );
+        let module = &program(&translated, "composite").stages[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .module;
+        assert_eq!(interface_locations(module, true), [("sourceUv", 0)]);
+    }
+}
+
+#[test]
+fn compatibility_vertex_references_after_local_scope_still_create_outputs() {
+    success(
+        "#version 330\nvoid main() { { vec2 carry=vec2(1.0); gl_Position=vec4(carry,0.0,1.0); } carry=vec2(0.25,0.75); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(carry,0.0,1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_implicit_vertex_attributes_do_not_create_outputs() {
+    success(
+        "#version 330\nlayout(location=0) out vec2 sourceUv; void main() { sourceUv=vaUV0; gl_Position=vec4(0.0); }",
+        "#version 330\nlayout(location=0) in vec2 vaUV0; out vec4 color; void main() { color=vec4(vaUV0,0.0,1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_local_struct_fields_do_not_create_outputs() {
+    for name in ["uv", "Data"] {
+        success(
+            "#version 450\nlayout(location=0) out vec2 sourceUv; void main() { struct Data { vec2 uv; }; Data d=Data(vec2(1.0)); sourceUv=d.uv; gl_Position=vec4(0.0); }",
+            &format!(
+                "#version 450\nlayout(location=0) in vec2 {name}; out vec4 color; void main() {{ color=vec4({name},0.0,1.0); }}"
+            ),
+        );
+    }
+}
+
+#[test]
+fn compatibility_initializer_callees_do_not_create_outputs() {
+    success(
+        "#version 450\nvec2 uv() { return vec2(1.0); } vec2 value=uv(); layout(location=0) out vec2 sourceUv; void main() { sourceUv=value; gl_Position=vec4(0.0); }",
+        "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_repaired_outputs_initialize_at_user_main_entry() {
+    let translated = success(
+        "#version 330\nfloat initialize() { carry=vec2(0.25); return 1.0; } float value=initialize(); void main() { gl_Position=vec4(value); }",
+        "#version 330\nin vec2 carry; out vec4 color; void main() { color=vec4(carry,0.0,1.0); }",
+    );
+    let module = &program(&translated, "composite").stages[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .module;
+    let carry = module
+        .global_variables
+        .iter()
+        .find(|(_, g)| g.name.as_deref() == Some("carry"))
+        .unwrap()
+        .0;
+    let initialize = module
+        .functions
+        .iter()
+        .find(|(_, f)| f.name.as_deref() == Some("initialize"))
+        .unwrap()
+        .0;
+    let (main_handle, main) = module
+        .functions
+        .iter()
+        .find(|(_, f)| f.name.as_deref() == Some("iris_user_main"))
+        .unwrap();
+    let first_effect = main.body.iter().find(|statement| {
+        matches!(
+            statement,
+            naga::Statement::Store { .. } | naga::Statement::Call { .. }
+        )
+    });
+    assert!(
+        matches!(first_effect, Some(naga::Statement::Store { pointer, .. }) if matches!(main.expressions[*pointer], naga::Expression::GlobalVariable(g) if g == carry)),
+        "the repaired output is initialized at user main entry"
+    );
+    assert!(
+        module.functions.iter().any(|(_, function)| {
+            let initialize = function.body.iter().position(
+                |s| matches!(s, naga::Statement::Call { function, .. } if *function == initialize),
+            );
+            let main = function.body.iter().position(
+                |s| matches!(s, naga::Statement::Call { function, .. } if *function == main_handle),
+            );
+            matches!((initialize, main), (Some(initialize), Some(main)) if initialize < main)
+        }),
+        "global initializers still run before user main entry"
+    );
+}
+
+#[test]
+fn compatibility_binding_implicit_inputs_remain_attributes() {
+    for (name, ty, qualifier) in [
+        ("mc_chunkFade", "float", ""),
+        ("dhMaterialId", "int", "flat"),
+    ] {
+        let translated = success(
+            &format!(
+                "#version 450\nlayout(location=0) {qualifier} out {ty} sourceValue; void main() {{ sourceValue={name}; gl_Position=vec4(0.0); }}"
+            ),
+            &format!(
+                "#version 450\nlayout(location=0) {qualifier} in {ty} {name}; out vec4 color; void main() {{ color=vec4(float({name})); }}"
+            ),
+        );
+        let module = &program(&translated, "composite").stages[0]
+            .result
+            .as_ref()
+            .unwrap()
+            .module;
+        assert_eq!(interface_locations(module, true), [("sourceValue", 0)]);
+        assert!(
+            interface_locations(module, false)
+                .iter()
+                .any(|(input, _)| *input == name)
+        );
+    }
+}
+
+#[test]
+fn compatibility_binding_unbraced_locals_do_not_create_outputs() {
+    for body in [
+        "if (true) vec2 uv=vec2(1.0);",
+        "if (false) {} else vec2 uv=vec2(1.0);",
+        "while (false) vec2 uv=vec2(1.0);",
+        "for (int i=0; i<1; i++) vec2 uv=vec2(1.0);",
+        "do vec2 uv=vec2(1.0); while (false);",
+    ] {
+        success(
+            &format!(
+                "#version 450\nlayout(location=0) out vec2 sourceUv; void main() {{ {body} sourceUv=vec2(1.0); gl_Position=vec4(0.0); }}"
+            ),
+            "#version 450\nlayout(location=0) in vec2 uv; out vec4 color; void main() { color=vec4(uv,0.0,1.0); }",
+        );
+    }
+}
+
+#[test]
+fn compatibility_bare_condition_inputs_repair_missing_vertex_variables() {
+    success(
+        "#version 450\nvoid main() { carry=1; gl_Position=vec4(0.0); }",
+        "#version 450\nflat in int carry; out vec4 color; void main() { switch(carry) { case 1: color=vec4(1.0); break; default: color=vec4(0.0); } }",
+    );
+}
+
+#[test]
+fn compatibility_repair_preserves_other_bound_vertex_names() {
+    success(
+        "#version 450\nlayout(location=0) out vec2 sourceUv; void main() { vec2 uv=vec2(1.0); sourceUv=uv; carry=1; gl_Position=vec4(0.0); }",
+        "#version 450\nlayout(location=0) in vec2 uv; layout(location=1) flat in int carry; out vec4 color; void main() { color=vec4(uv,float(carry),1.0); }",
+    );
+}
+
+#[test]
+fn compatibility_missing_variables_use_resolved_fragment_reads() {
+    for (vertex, fragment) in [
+        (
+            "#version 330\nvoid main() { carry=vec2(0.25); gain=0.75; gl_Position=vec4(0.0); }",
+            "#version 330\nin vec2 carry; in float gain; out vec4 color; void main() { color=vec4(carry,gain,1.0); }",
+        ),
+        (
+            "#version 120\nvoid main() { texture=vec2(0.25); gl_Position=vec4(0.0); }",
+            "#version 120\nvarying vec2 texture; void main() { gl_FragColor=vec4(texture,0.0,1.0); }",
+        ),
+        (
+            "#version 330\nvoid main() { carry=mat2(1.0); gl_Position=vec4(0.0); }",
+            "#version 330\nin mat2 carry; out vec4 color; void main() { color=vec4(carry[0],carry[1]); }",
+        ),
+        (
+            "#version 330\nvoid main() { carry=vec2(0.25); gl_Position=vec4(0.0); }",
+            "#version 330\nin vec2 carry; vec2 readUnused() { return carry; } out vec4 color; void main() { color=vec4(1.0); }",
+        ),
+    ] {
+        success(vertex, fragment);
+    }
+}
+
+#[test]
+fn compatibility_locals_named_after_their_struct_type_hide_it_in_their_scope() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        Face load(float size) { return Face(vec3(0.5), size); }
+        vec4 shade(float size) {
+            Face Face = Face(vec3(1.0), size);
+            if (Face.size < 1e-6) return vec4(-1.0);
+            for (int i = 0; i < 2; i++) { Face.tint *= 0.5; }
+            return vec4(Face.tint, Face.size);
+        }
+        vec4 other() { Face face = load(2.0); return vec4(face.tint, 1.0); }
+        out vec4 color; void main() { color = shade(1.0) + other(); }",
+    );
+}
+
+#[test]
+fn compatibility_local_structs_keep_their_names_beside_a_hiding_local() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        vec4 shade() {
+            float Face = 0.5;
+            struct Pair { float Face; };
+            Pair pair = Pair(Face);
+            vec4 result = vec4(pair.Face);
+            {
+                struct Face { float x; };
+                Face inner = Face(0.25);
+                result.x += inner.x;
+            }
+            return result + vec4(Face);
+        }
+        out vec4 color; void main() { color = shade(); }",
+    );
+}
+
+#[test]
+fn compatibility_parameters_named_after_a_struct_type_hide_it_in_their_function() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        float scale(float Face) { return Face * 2.0; }
+        vec4 shade(Face face) { return vec4(face.tint, scale(face.size)); }
+        out vec4 color; void main() { color = shade(Face(vec3(0.5), 1.0)); }",
+    );
+}
+
+#[test]
+fn compatibility_unsized_array_declarations_take_sized_initializer_lengths() {
+    success(
+        VERTEX,
+        "#version 330\nuniform int index; out vec4 color;
+        void main() { const float[] weights = float[3](0.25, 0.5, 1.0); float scale[] = float[2](2.0, 3.0);
+        color = vec4(weights[index] * scale[index]); }",
+    );
+}
+
+#[test]
+fn compatibility_local_constants_size_arrays_in_their_scope() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Pick { int count; }; out vec4 color;
+        void main() {
+            const int count = 2; const int total = count + 1;
+            vec3[total] samples = vec3[total](vec3(0.1), vec3(0.2), vec3(0.3));
+            float weights[count]; weights[0] = 1.0; weights[1] = 0.5;
+            { const int count = 4; float inner[count]; inner[3] = 1.0; weights[0] += inner[3]; }
+            float outer[count]; outer[1] = 2.0;
+            Pick pick; pick.count = 1; weights[pick.count] += outer[1];
+            vec3 sum = vec3(0.0);
+            for (int i = 0; i < total; i++) { sum += samples[i] * weights[i / count]; }
+            color = vec4(sum, 1.0);
+        }",
+    );
+}

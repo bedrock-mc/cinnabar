@@ -145,19 +145,21 @@ fn generated_projects_compile_with_standard_and_go_names() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    fs::write(root.path().join("out/go.mod"), super::go_module("names")).unwrap();
-    let output = Command::new("go")
-        .args(["test", "-mod=mod", "./..."])
-        .env("GOWORK", "off")
-        .current_dir(root.path().join("out"))
-        .output()
-        .expect("Go is required for generated Go codec conformance");
-    assert!(
-        output.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    fs::write(root.path().join("out/go.mod"), go::fixture_module("names")).unwrap();
+    for command in ["vet", "test"] {
+        let output = Command::new("go")
+            .args([command, "-mod=mod", "./..."])
+            .env("GOWORK", "off")
+            .current_dir(root.path().join("out"))
+            .output()
+            .expect("Go is required for generated Go codec conformance");
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
 
 #[test]
@@ -184,7 +186,7 @@ fn asset_renames_remove_constants_and_collisions_fail() {
 fn go_messages_round_trip_rust_records_with_exact_integer_and_text_bounds() {
     let project = Project::parse(SOURCE).unwrap();
     let root = tempfile::tempdir().unwrap();
-    fs::write(root.path().join("go.mod"), super::go_module(&project.id)).unwrap();
+    fs::write(root.path().join("go.mod"), go::fixture_module(&project.id)).unwrap();
     fs::write(
         root.path().join("messages.go"),
         go::generate(&project).unwrap(),
@@ -230,18 +232,20 @@ func TestRustRecord(t *testing.T) {{
 "#
     );
     fs::write(root.path().join("messages_test.go"), test).unwrap();
-    let output = Command::new("go")
-        .args(["test", "-mod=mod", "./..."])
-        .env("GOWORK", "off")
-        .current_dir(root.path())
-        .output()
-        .expect("Go is required for message codec conformance");
-    assert!(
-        output.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    for command in ["vet", "test"] {
+        let output = Command::new("go")
+            .args([command, "-mod=mod", "./..."])
+            .env("GOWORK", "off")
+            .current_dir(root.path())
+            .output()
+            .expect("Go is required for message codec conformance");
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     let returned: Vec<Value> =
         serde_json::from_slice(&fs::read(root.path().join("go-record.json")).unwrap()).unwrap();
     assert_eq!(returned, record);

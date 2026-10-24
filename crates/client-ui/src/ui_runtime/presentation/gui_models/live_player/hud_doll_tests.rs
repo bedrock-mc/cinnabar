@@ -29,6 +29,7 @@ fn hud_doll_keeps_its_live_pose_while_the_inventory_shows_its_own_doll() {
     presentation.gui_models.enabled = true;
     presentation.set_player_preview_skin(Some(&[255; 64 * 64 * 4]), Default::default());
     let preview = IconRef {
+        color_mask: None,
         page: u16::MAX,
         uv: [0, 0, 96, 112],
         glint: false,

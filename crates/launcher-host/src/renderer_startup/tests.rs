@@ -33,18 +33,18 @@ fn crash_guard_accumulates_finite_failures_and_overrides_do_not_poison_auto() {
 fn successful_fallback_clears_the_sentinel_and_survives_relaunch() {
     let dir = tempfile::tempdir().unwrap();
     let mut first = StartupGuard::open(dir.path()).unwrap();
-    first.begin(attempt(Backend::Vulkan, false)).unwrap();
+    first.begin(attempt(Backend::Dx12, false)).unwrap();
     drop(first); // Release the OS lease as an exited process would.
     let mut second = StartupGuard::open(dir.path()).unwrap();
-    assert_eq!(second.interrupted, Some(attempt(Backend::Vulkan, false)));
-    assert_eq!(second.recovery.failed_backends(), [Backend::Vulkan]);
-    second.begin(attempt(Backend::Dx12, false)).unwrap();
+    assert_eq!(second.interrupted, Some(attempt(Backend::Dx12, false)));
+    assert_eq!(second.recovery.failed_backends(), [Backend::Dx12]);
+    second.begin(attempt(Backend::Vulkan, false)).unwrap();
     second.presented().unwrap();
     assert!(StartupGuard::pending(dir.path()).unwrap().is_none());
     let third = StartupGuard::open(dir.path()).unwrap();
     assert!(third.interrupted.is_none());
     assert_eq!(third.recovery.working.as_ref().unwrap().stage, Stage::Ready);
-    assert_eq!(third.recovery.failed_backends(), [Backend::Vulkan]);
+    assert_eq!(third.recovery.failed_backends(), [Backend::Dx12]);
     assert_eq!(
         launcher::graphics_backend::candidates(
             launcher::graphics_backend::Platform::Windows.backends(),
@@ -53,7 +53,7 @@ fn successful_fallback_clears_the_sentinel_and_survives_relaunch() {
             None,
             third.recovery.failed_backends()
         ),
-        [Backend::Dx12]
+        [Backend::Vulkan]
     );
 }
 

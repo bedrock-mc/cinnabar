@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 from constraints import render as render_constraints
+from rate import render as render_rate
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMA = Path(__file__).with_name('extension.json')
@@ -24,7 +25,7 @@ def go_type(typ):
         return '[]' + go_type(typ[4:-1])
     if typ.startswith('Box<'):
         return go_type(typ[4:-1])
-    return {'String': 'string', 'u8': 'uint8', 'u16': 'uint16', 'u32': 'uint32', 'u64': 'uint64', 'i64': 'int64', 'Scalar': 'experience.Scalar'}.get(typ, typ.split('::')[-1])
+    return {'String': 'string', 'u8': 'uint8', 'u16': 'uint16', 'u32': 'uint32', 'u64': 'uint64', 'i64': 'int64', 'Scalar': 'Scalar'}.get(typ, typ.split('::')[-1])
 
 
 def append_value(typ, value):
@@ -133,7 +134,7 @@ def go_control(enum):
     """Emit the adjacent-tag union without changing its pointer-based Go API."""
     out=['type Control struct {']
     for v in enum['variants']: out += [v['go']+' '+('*'+v.get('type',v['go']) if v['json']!='disabled' else 'bool')]
-    out += ['}', 'var controlFields=[]string{"kind","body"}', '// appendJSON encodes exactly one control variant.', 'func (c Control) appendJSON(b []byte)([]byte,error){ var kind string; var body Message; count:=0']
+    out += ['}', 'var controlFields=[]string{"kind","body"}', '// appendJSON encodes exactly one control variant.', 'func (c Control) appendJSON(b []byte)([]byte,error){ var kind string; var body CanonicalValue; count:=0']
     for v in enum['variants']:
         cond=f"c.{v['go']}" if v['json']=='disabled' else f"c.{v['go']}!=nil"
         value='nil' if v['json']=='disabled' else f"*c.{v['go']}"
@@ -169,34 +170,42 @@ def go_fields(enum):
 
 def go_scalars(enum):
     """Emit the adjacent-tag scalar codecs against the independent runtime value type."""
-    out=['var scalarFields=[]string{"type","value"}', '// appendScalar requires exactly one value and writes its schema tag.', 'func appendScalar(b []byte,s experience.Scalar)([]byte,error){count:=0']
+    out=['var scalarFields=[]string{"type","value"}', '// appendScalar requires exactly one value and writes its schema tag.', 'func appendScalar(b []byte,s Scalar)([]byte,error){count:=0']
     for v in enum['variants']: out += [f"if s.{v['go']}!=nil{{count++}}"]
     out += ['if count!=1{return nil,fmt.Errorf("a scalar holds %d values, not 1",count)}; o:=object{b:b,names:scalarFields}; switch {']
     for v in enum['variants']:
         out += [f"case s.{v['go']}!=nil:",f'o.str({json.dumps(v["json"])})',append_value(v['type'],'*s.'+v['go'])]
-    out += ['};return o.end()', '}', '// readScalar rejects undeclared tags and preserves the recursion budget.', 'func readScalar(r *reader)(experience.Scalar,error){kind,raw,err:=r.tagged("type");if err!=nil{return experience.Scalar{},err};var s experience.Scalar;err=within(raw,func(sub *reader)error{sub.depth=r.depth;return sub.fields(scalarFields,func(name string)(err error){if name=="type"{_,err=sub.str();return err};switch kind{']
+    out += ['};return o.end()', '}', '// readScalar rejects undeclared tags and preserves the recursion budget.', 'func readScalar(r *reader)(Scalar,error){kind,raw,err:=r.tagged("type");if err!=nil{return Scalar{},err};var s Scalar;err=within(raw,func(sub *reader)error{sub.depth=r.depth;return sub.fields(scalarFields,func(name string)(err error){if name=="type"{_,err=sub.str();return err};switch kind{']
     for v in enum['variants']:
         out += [f'case {json.dumps(v["json"])}:',f"var value {go_type(v['type'])}",read_value(v['type'],'value','sub')]
-        if v['type']=='Vec<Scalar>': out += ['if value==nil{value=[]experience.Scalar{}}']
+        if v['type']=='Vec<Scalar>': out += ['if value==nil{value=[]Scalar{}}']
         out += [f"s.{v['go']}=&value"]
-    out += ['default:return sub.errorf("unknown scalar type %q",kind)', '};return err})});if err!=nil{return experience.Scalar{},err};return s,nil','}']
+    out += ['default:return sub.errorf("unknown scalar type %q",kind)', '};return err})});if err!=nil{return Scalar{},err};return s,nil','}']
     return '\n'.join(out)+'\n'
 
 
 def outputs(schema):
     """Render every binding from the single ordered schema."""
     rust={}; go={}
+    record_names={record['name'] for record in schema['records']}
     for r in schema['records']:
         if r['module']: rust.setdefault(r['module'],[]).append(rust_record(r))
         module=r['module'] or 'session'
         go.setdefault(module,[]).append(go_record(r))
     for e in schema['enums']:
         rust.setdefault(e['module'],[]).append(rust_enum(e))
+        if e['name']=='Control':
+            for v in e['variants']:
+                if 'fields' in v and v['go'] not in record_names:
+                    go.setdefault(e['module'],[]).append(go_record({'name':v['go'],'fields':v['fields']}))
         render={'Field':go_fields,'Scalar':go_scalars,'Control':go_control}.get(e['name'],go_enum)
         go.setdefault(e['module'],[]).append(render(e))
     rules_rust,rules_go=render_constraints(schema)
     for module,text in rules_rust.items(): rust.setdefault(module,[]).append(text)
     for module,text in rules_go.items(): go.setdefault(module,[]).append(text)
+    rate_rust, rate_go = render_rate(schema)
+    rust.setdefault('rate_limit', []).append(rate_rust)
+    go.setdefault('rate', []).append(rate_go)
     constants=[]
     for c in schema['constants']:
         if c['module']: rust.setdefault(c['module'],[]).append(f"pub const {c['name']}: {c['type']} = {c['value']};\n")
@@ -207,8 +216,12 @@ def outputs(schema):
                 value=re.search(r'pub const '+c['external']['name']+r': [^=]+ = ([^;]+);',source).group(1)
             if value.startswith('b"'): value=value[1:]
             value=value.replace('\\0','\\x00')
+            value=re.sub(r' as (u64|usize)', '', value)
+            for dependency in schema['constants']:
+                if dependency.get('name') and dependency.get('go'):
+                    value=re.sub(r'\b'+dependency['name']+r'\b', dependency['go'], value)
             constants.append(f"{c['go']} = {value}")
-    result={Path('tools/localserver/extension/limits.go'):HEADER+'package extension\nconst(\n'+'\n'.join(constants)+f"\nmaxDepth={schema['json']['recursion_limit']}\n)\n"}
+    result={Path('tools/localserver/cinnabarext/limits.go'):HEADER+'package cinnabarext\nconst(\n'+'\n'.join(constants)+f"\nmaxDepth={schema['json']['recursion_limit']}\n)\n"}
     for module,parts in rust.items():
         path=Path('crates/server-experience/src')/f'{module}.rs'
         generated=HEADER+'\n'.join(parts)
@@ -222,8 +235,12 @@ def outputs(schema):
             before,after=source.split(f'include!("contract/{module}.rs");\n',1)
         result[path]=before+begin+generated+end+after
     for module,parts in go.items():
-        imports={'manifest':['fmt','slices','strings'], 'negotiation':[], 'crypto':[], 'session':['fmt'], 'wire':['errors','fmt','slices','strconv','github.com/hashimthearab/rust-mcbe/tools/localserver/experience']}[module]
-        result[Path(f'tools/localserver/extension/contract_{module}_generated.go')]=HEADER+'package extension\n'+('import('+''.join(json.dumps(i)+'\n' for i in imports)+')\n' if imports else '')+'\n'.join(parts)
+        imports={'manifest':['fmt','slices','strings'], 'negotiation':[], 'crypto':[], 'session':['fmt'], 'wire':['errors','fmt','slices','strconv'], 'rate':['errors']}[module]
+        result[Path(f'tools/localserver/cinnabarext/contract_{module}_generated.go')]=HEADER+'package cinnabarext\n'+('import('+''.join(json.dumps(i)+'\n' for i in imports)+')\n' if imports else '')+'\n'.join(parts)
+    control = next(enum for enum in schema['enums'] if enum['name'] == 'Control')
+    notices = dict(control, name='ExperienceControl', derive='Clone, Debug, Deserialize, Serialize, PartialEq, Eq',
+                   variants=[variant for variant in control['variants'] if variant['rust'] in ('Epoch', 'WorldAck')])
+    result[Path('crates/protocol/src/experience/control.rs')] = HEADER + 'use serde::{Deserialize, Serialize};\n' + rust_enum(notices)
     return result
 
 

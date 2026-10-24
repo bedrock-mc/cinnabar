@@ -110,6 +110,7 @@ fn items(record: &[Value]) {
     bind("items", &rows);
 }
 
+/// Serializes collection rows for the terminal fixture's UI.
 fn bind(collection: &str, rows: &[Map<String, serde_json::Value>]) {
     let rows = serde_json::to_vec(rows).expect("rows serialize");
     let _ = ui::set_collection(collection, &rows);

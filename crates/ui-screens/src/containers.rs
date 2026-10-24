@@ -604,6 +604,7 @@ impl Cells<'_> {
         let index = self.icons.len();
         // Empty cells reserve an entry but never address it: their binding is Null.
         self.icons.push(icon.unwrap_or(IconRef {
+            color_mask: None,
             page: 0,
             uv: [0; 4],
             glint: false,

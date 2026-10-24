@@ -82,7 +82,7 @@ impl TextureSource {
 /// The atlas layer a geometry program's sampler name reads, as Iris binds them.
 fn atlas_layer(name: &str) -> Option<AtlasLayer> {
     match name {
-        "gtexture" | "texture" | "tex" => Some(AtlasLayer::Color),
+        "gtexture" => Some(AtlasLayer::Color),
         "normals" => Some(AtlasLayer::Normals),
         "specular" => Some(AtlasLayer::Specular),
         _ => None,
@@ -136,7 +136,12 @@ pub(crate) struct ConstantTextures {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Key {
     Noise,
-    Custom(String, String, TextureDimension),
+    Custom {
+        stage: String,
+        binding: String,
+        dimension: TextureDimension,
+        unit_override: bool,
+    },
     ShadowDepth(u32),
     ShadowFloat(u32),
     ShadowColor(u32),
@@ -507,35 +512,40 @@ impl<'a> ConstantBuilder<'a> {
         Ok(texture)
     }
 
-    /// The stage's custom texture for sampler `name` declared with `dimension`: OptiFine binds
-    /// each shape on its own target of the unit, so `texture.composite.colortex0 = x.dat
+    /// The stage's custom texture for reflected binding `name` and `dimension`.
+    /// Plain overrides share texture-unit aliases; raw bindings keep their own name and shape.
+    /// OptiFine binds each shape on its own target of the unit, so
+    /// `texture.composite.colortex0 = x.dat
     /// TEXTURE_3D` replaces only a `sampler3D colortex0` and a `sampler2D colortex0` still
-    /// reads the buffer.
+    /// reads the buffer. Returns none when a flip has released the binding
+    /// ([`shaderpack::CustomTexture::released_by`] with the program's `released`).
     fn custom(
         &mut self,
         stage: &str,
         name: &str,
         dimension: TextureDimension,
+        released: u32,
     ) -> Option<(usize, TextureFormat)> {
-        let name = shaderpack::canonical_sampler_name(name);
-        let key = Key::Custom(stage.to_string(), name.clone(), dimension);
-        if let Some(found) = self.keys.get(&key) {
-            return Some(*found);
-        }
-        let source = self
+        let found = self
             .translation
             .properties
             .custom_textures
             .iter()
             .rev()
             .find(|t| {
-                t.stage == stage
-                    && shaderpack::canonical_sampler_name(t.uniform()) == name
-                    && t.source.dimension() == dimension
-            })?
-            .source
-            .clone();
-        let texture = self.decode(&source)?;
+                t.stage == stage && t.binding_name() == name && t.source.dimension() == dimension
+            })
+            .filter(|t| !t.released_by(released))?;
+        let key = Key::Custom {
+            stage: stage.to_string(),
+            binding: name.to_owned(),
+            dimension,
+            unit_override: found.is_unit_override(),
+        };
+        if let Some(found) = self.keys.get(&key) {
+            return Some(*found);
+        }
+        let texture = self.decode(&found.source)?;
         Some(self.push(key, texture))
     }
 

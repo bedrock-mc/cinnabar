@@ -54,6 +54,13 @@ impl Vocabulary {
             );
         }
         domains.insert(
+            "entity_material".into(),
+            domains["material"]
+                .iter()
+                .map(|name| name.strip_suffix(".skinning").unwrap_or(name).to_owned())
+                .collect(),
+        );
+        domains.insert(
             "item_tag".into(),
             include_str!("../../../protocol/data/item_tags_native.tsv")
                 .lines()
@@ -109,6 +116,12 @@ impl Vocabulary {
         }
         let registry_blocks = domains["registry_block"].clone();
         domains.get_mut("block").unwrap().extend(registry_blocks);
+        // Legacy aux routes name both current and pre-flattening block identities.
+        let any_block = domains["block"]
+            .union(&domains["legacy_block"])
+            .cloned()
+            .collect();
+        domains.insert("any_block".into(), any_block);
         Self { domains }
     }
 
@@ -155,6 +168,7 @@ fn add(refs: &mut BTreeSet<Reference>, file: &str, path: &str, domain: &str, ide
 /// Selects the registry namespace for a JSON table, failing when a new table has no policy.
 fn table_domain(file: &str) -> &'static str {
     match file {
+        "entity-material-states.json" => "entity_material",
         "entity-components-1.26.50.json" => "actor",
         "block-properties-v2193.json" => "property",
         "item-use-profiles.json"
@@ -191,7 +205,8 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     path,
                     "/entries" | "/frames" | "/equipment" | "/materials" | "/twins"
                 );
-                if state
+                if (file == "entity-material-states.json" && path.is_empty())
+                    || state
                     || identity_map
                     || key.starts_with("minecraft:")
                     || key == "cinnabar:reserved"
@@ -199,7 +214,9 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     let key_domain = if file == "registry-policy.json" {
                         match path {
                             "/pack_rules/egg_aliases" | "/pack_rules/superseded_eggs" => "actor",
-                            "/pack_rules/item_visuals" => "retail_item",
+                            "/pack_rules/item_visuals" | "/pack_rules/default_item_tints" => {
+                                "retail_item"
+                            }
                             _ => domain,
                         }
                     } else {
@@ -386,12 +403,16 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         | "block-components-v2193.tsv"
         | "facts-expansion-v2193.tsv"
         | "block-placement-v2193.tsv" => "block",
+        "block-aux-state-owners.tsv" => "any_block",
         _ => panic!("missing identifier policy for {file}"),
     };
     for (i, line) in text
         .lines()
         .filter(|line| {
-            !line.starts_with('#') && !line.starts_with("identifier\t") && !line.is_empty()
+            !line.starts_with('#')
+                && !line.starts_with("identifier\t")
+                && !line.starts_with("game_version\t")
+                && !line.is_empty()
         })
         .enumerate()
     {

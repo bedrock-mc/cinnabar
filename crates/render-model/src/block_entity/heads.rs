@@ -2,7 +2,7 @@
 //! than authored here.
 
 use assets::RuntimeEntityAssets;
-use assets::block_entity_geometry::heads::{HeadModel, skull_mob_head};
+use assets::block_entity_geometry::heads::{HeadModel, STATUE_GEOMETRIES, skull_mob_head};
 
 use super::skull::SkullKind;
 
@@ -13,14 +13,6 @@ pub struct HeadModels {
     /// Copper golem statue poses: standing, sitting, star, running.
     pub statues: [Option<HeadModel>; 4],
 }
-
-/// Entity geometry identifiers for the statue poses, in [`HeadModels::statues`] order.
-const STATUE_GEOMETRIES: [&str; 4] = [
-    "geometry.copper_golem",
-    "geometry.copper_golem.sitting",
-    "geometry.copper_golem.star",
-    "geometry.copper_golem.running",
-];
 
 impl HeadModels {
     #[must_use]
