@@ -274,6 +274,14 @@ impl ServerFlagAuthority {
         self.launched_spin
     }
 
+    /// Drops old-actor flag state while keeping a player game-mode stop awaiting item use.
+    pub(super) fn replace_actor(&mut self) {
+        *self = Self {
+            game_mode_stop: self.game_mode_stop,
+            ..Self::default()
+        };
+    }
+
     /// Drops writes that belong to discarded frames while preserving live item use.
     pub(super) fn reset_history(&mut self) {
         self.queued = None;

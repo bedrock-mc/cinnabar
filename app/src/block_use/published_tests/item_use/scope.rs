@@ -110,6 +110,7 @@ fn server_using_bow(held: bool) -> (World, client_session::CapturedPackets) {
             storage_item: None,
         }));
     });
+    super::super::riptide_tests::flush_and_acknowledge(&mut world);
     world
         .run_system_cached(crate::item_use::ordered::synchronize_scope)
         .unwrap();
