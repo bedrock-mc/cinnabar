@@ -526,4 +526,7 @@ mod culling_capacity_tests;
 mod xp_orb_tests;
 
 #[cfg(test)]
+mod vehicle_motion_tests;
+
+#[cfg(test)]
 mod billboard_frame_tests;

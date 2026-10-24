@@ -7,7 +7,7 @@ use super::ActorStore;
 const UNLOCKED_HEAD_DEGREES: f32 = 180.0;
 
 /// World offset of a mount-local seat `[right, up, forward]` for a mount facing `yaw_degrees`.
-pub(super) fn seat_world_offset(local: [f32; 3], yaw_degrees: f32) -> [f32; 3] {
+pub fn seat_world_offset(local: [f32; 3], yaw_degrees: f32) -> [f32; 3] {
     let (sin, cos) = yaw_degrees.to_radians().sin_cos();
     [
         local[0] * cos - local[2] * sin,
@@ -49,6 +49,26 @@ impl super::movement_interpolation::MotionState {
             self.received.head_yaw = head;
         }
         self.remaining = 0;
+    }
+}
+
+/// How a locked seat holds its rider's view, in degrees: the vehicle's render yaw, the
+/// seat's facing, and how far either side of that facing the view may turn.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SeatViewLock {
+    /// The vehicle the seat belongs to; a different vehicle's yaw is no turn of this one.
+    pub vehicle_runtime_id: u64,
+    pub vehicle_yaw: f32,
+    /// The seat's facing relative to the vehicle.
+    pub offset: f32,
+    pub limit: f32,
+}
+
+impl SeatViewLock {
+    /// The seat's facing in the world.
+    #[must_use]
+    pub fn facing(&self) -> f32 {
+        wrap_degrees(self.vehicle_yaw + self.offset)
     }
 }
 
@@ -117,34 +137,84 @@ impl ActorStore {
         }
         let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
         let admission = self.entity_assets.as_ref()?.seat_descriptor(*descriptor)?;
-        let mut riders = 0_u32;
-        let mut index = 0_usize;
-        let mut linked = false;
-        for (&id, link) in &self.rider_to_ridden {
-            if link.vehicle == mount.unique_id {
-                riders += 1;
-                index += usize::from(id < rider_unique_id);
-                linked |= id == rider_unique_id;
-            }
-        }
-        linked
-            .then(|| compiled_seat(admission, riders, index))
-            .flatten()
+        // Seats follow the seated passenger order, the same order that picks the driver.
+        let passengers = self.seated_passengers(mount.unique_id);
+        let index = passengers.iter().position(|&id| id == rider_unique_id)?;
+        compiled_seat(
+            admission,
+            u32::try_from(passengers.len()).unwrap_or(u32::MAX),
+            index,
+        )
     }
 
     /// Feet position and body yaw of `rider_unique_id` on its mount's seat, when linked and known.
     pub(crate) fn rider_seat_pose(&self, rider_unique_id: i64) -> Option<([f32; 3], f32)> {
-        let ridden = &self.rider_to_ridden.get(&rider_unique_id)?.vehicle;
+        let ridden = self.rider_to_ridden.get(&rider_unique_id)?;
+        let mount = self.actors.get(self.unique_to_runtime.get(ridden)?)?;
+        self.rider_seat_on(rider_unique_id, mount.position, mount.yaw)
+    }
+
+    /// Feet position and body yaw of `rider_unique_id` on its mount's seat, were the mount's
+    /// feet at `mount_feet` facing `mount_yaw`.
+    pub(crate) fn rider_seat_on(
+        &self,
+        rider_unique_id: i64,
+        mount_feet: [f32; 3],
+        mount_yaw: f32,
+    ) -> Option<([f32; 3], f32)> {
+        let ridden = self.rider_to_ridden.get(&rider_unique_id)?;
         let rider = self
             .actors
             .get(self.unique_to_runtime.get(&rider_unique_id)?)?;
         let mount = self.actors.get(self.unique_to_runtime.get(ridden)?)?;
         let seat = self.seat_for(rider_unique_id, rider, mount)?;
-        let offset = seat_world_offset(seat.position, mount.yaw);
+        let offset = seat_world_offset(seat.position, mount_yaw);
         Some((
-            std::array::from_fn(|axis| mount.position[axis] + offset[axis]),
-            wrap_degrees(mount.yaw + seat.rotate_by.unwrap_or(0.0)),
+            std::array::from_fn(|axis| mount_feet[axis] + offset[axis]),
+            wrap_degrees(mount_yaw + seat.rotate_by.unwrap_or(0.0)),
         ))
+    }
+
+    /// The view lock of `rider_unique_id`'s seat, with its vehicle's yaw `alpha` of the way
+    /// through the current tick; `None` unless the server locks the seat's rotation.
+    pub(crate) fn rider_view_lock(&self, rider_unique_id: i64, alpha: f32) -> Option<SeatViewLock> {
+        let rider = self.snapshot_by_unique(rider_unique_id)?;
+        let locked = match rider
+            .metadata
+            .get(&ActorDataKey::SeatLockPassengerRotation.wire_value())
+        {
+            Some(ActorMetadataValue::Byte(value)) => *value != 0,
+            Some(ActorMetadataValue::Int(value)) => *value != 0,
+            _ => false,
+        };
+        let degrees = |key: ActorDataKey| match rider.metadata.get(&key.wire_value()) {
+            Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
+            _ => None,
+        };
+        let limit = degrees(ActorDataKey::SeatLockPassengerRotationDegrees)?;
+        if !locked || limit < 0.0 {
+            return None;
+        }
+        let offset = degrees(ActorDataKey::SeatRotationOffsetDegrees).unwrap_or(0.0);
+        let mount = self.snapshot_by_unique(*self.rider_to_ridden.get(&rider_unique_id)?)?;
+        // A predicted boat turns as its latest feed renders it. Before the live actors
+        // advance this frame, any other mount turns as picks predict it.
+        let (previous, current) = if let Some(yaw) = self.local_vehicle_render_yaw(mount.runtime_id)
+        {
+            (yaw, yaw)
+        } else {
+            self.pick_ahead(mount.runtime_id)
+                .map_or((mount.previous_pose.yaw, mount.yaw), |pick| {
+                    (pick.previous_yaw, pick.state.pose.yaw)
+                })
+        };
+        let vehicle_yaw = previous + wrap_degrees(current - previous) * alpha.clamp(0.0, 1.0);
+        vehicle_yaw.is_finite().then_some(SeatViewLock {
+            vehicle_runtime_id: mount.runtime_id,
+            vehicle_yaw,
+            offset,
+            limit,
+        })
     }
 
     /// Seats for every linked rider from the mount poses `mount_pose` reports; the local rig is
@@ -153,16 +223,22 @@ impl ActorStore {
         &self,
         mount_pose: impl Fn(&super::ActorSnapshot) -> ([f32; 3], f32),
     ) -> Vec<Placement> {
-        self.rider_to_ridden
-            .iter()
+        self.placements_of(self.rider_to_ridden.iter(), mount_pose)
+    }
+
+    /// Seats for the given `(rider, vehicle)` links from the mount poses `mount_pose` reports.
+    fn placements_of<'a>(
+        &self,
+        links: impl Iterator<Item = (&'a i64, &'a i64)>,
+        mount_pose: impl Fn(&super::ActorSnapshot) -> ([f32; 3], f32),
+    ) -> Vec<Placement> {
+        links
             .filter_map(|(rider_unique_id, ridden)| {
                 let rider_id = *self.unique_to_runtime.get(rider_unique_id)?;
                 if self.remote_state_excluded_runtime_id == Some(rider_id) {
                     return None;
                 }
-                let mount = self
-                    .actors
-                    .get(self.unique_to_runtime.get(&ridden.vehicle)?)?;
+                let mount = self.actors.get(self.unique_to_runtime.get(ridden)?)?;
                 let rider = self.actors.get(&rider_id)?;
                 let seat = self.seat_for(*rider_unique_id, rider, mount)?;
                 let (mount_position, mount_yaw) = mount_pose(mount);
@@ -197,6 +273,48 @@ impl ActorStore {
         }
     }
 
+    /// Seats the riders of `vehicle_runtime_id` at its current pose and holds them there
+    /// whatever the actor clock's point between ticks, as the predicted boat is held.
+    /// A locked passenger's body is drawn at its seat's facing on the boat's render heading.
+    /// Returns the passengers held.
+    pub(super) fn hold_passengers_on(&mut self, vehicle_runtime_id: u64) -> Vec<u64> {
+        let Some(vehicle) = self
+            .actors
+            .get(&vehicle_runtime_id)
+            .map(|actor| actor.unique_id)
+        else {
+            return Vec::new();
+        };
+        let riders = self
+            .vehicle_riders
+            .get(&vehicle)
+            .cloned()
+            .unwrap_or_default();
+        let placements = self
+            .placements_of(riders.iter().map(|rider| (rider, &vehicle)), |mount| {
+                (mount.position, mount.yaw)
+            });
+        let mut held = Vec::with_capacity(placements.len());
+        for placement in placements {
+            let facing = self
+                .actors
+                .get(&placement.runtime_id)
+                .and_then(|rider| self.rider_view_lock(rider.unique_id, 1.0))
+                .map(|lock| lock.facing());
+            let Some(rider) = self.actors.get_mut(&placement.runtime_id) else {
+                continue;
+            };
+            let mut state = rider.motion_state();
+            state.seat(&placement);
+            rider.apply_motion_state(state);
+            rider.previous_pose = rider.current_pose();
+            rider.status.predicted_render_yaw = facing;
+            self.effect_members.collidable.update(rider);
+            held.push(placement.runtime_id);
+        }
+        held
+    }
+
     /// Seats predicted riders exactly as [`Self::seat_riders`] seats live ones.
     pub(super) fn seat_pick_riders(&mut self) {
         if self.rider_to_ridden.is_empty() {
@@ -211,9 +329,9 @@ impl ActorStore {
         for placement in placements {
             if let Ok(index) = self
                 .pick_states
-                .binary_search_by_key(&placement.runtime_id, |(runtime_id, _)| *runtime_id)
+                .binary_search_by_key(&placement.runtime_id, |pick| pick.runtime_id)
             {
-                self.pick_states[index].1.seat(&placement);
+                self.pick_states[index].state.seat(&placement);
             }
         }
     }
@@ -329,22 +447,8 @@ mod tests {
             store.apply(1, sequence, spawn(runtime_id, runtime_id as i64 * 10));
         }
         // 90 rides 80, which rides 70; turned seats make every level depend on the one below.
-        store.rider_to_ridden.insert(
-            80,
-            crate::actor_store::riding_control::RiderLink {
-                vehicle: 70,
-                order: 0,
-                pending: false,
-            },
-        );
-        store.rider_to_ridden.insert(
-            90,
-            crate::actor_store::riding_control::RiderLink {
-                vehicle: 80,
-                order: 1,
-                pending: false,
-            },
-        );
+        store.rider_to_ridden.insert(80, 70);
+        store.rider_to_ridden.insert(90, 80);
         for runtime_id in [8, 9] {
             let rider = store.actors.get_mut(&runtime_id).unwrap();
             rider.metadata.insert(
@@ -515,6 +619,11 @@ mod compiled_seat_tests {
 
     /// Gives the store an original checked literal seat instead of an installed behavior pack.
     fn store() -> ActorStore {
+        store_with_seats(Box::from([seat(0.5, 0, 2)]))
+    }
+
+    /// [`store`] with the mount's base seats replaced by `seats`.
+    fn store_with_seats(seats: Box<[CompiledRideSeat]>) -> ActorStore {
         let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
         compiled.sources = Box::from([
             assets::EntityAssetSource {
@@ -529,7 +638,7 @@ mod compiled_seat_tests {
             source: 0,
             layouts: Box::from([CompiledSeatLayout {
                 selector: SeatSelector::Base,
-                seats: Box::from([seat(0.5, 0, 2)]),
+                seats,
             }]),
         };
         let bytes = assets::encode_entity_blob(&compiled).unwrap();
@@ -580,6 +689,41 @@ mod compiled_seat_tests {
         store.begin_session(2, 0);
         assert!(store.seat_bindings.is_empty());
         assert!(store.seat_bases.is_empty());
+    }
+
+    /// Default seats follow boarding order, so the first rider aboard, who drives, takes the
+    /// first seat even when a lower id boards after it.
+    #[test]
+    fn default_seats_follow_boarding_order() {
+        let mut store = store_with_seats(Box::from([seat(0.5, 0, 2), seat(-0.5, 2, 2)]));
+        advertise(&mut store, 1, "minecraft:allay");
+        spawn_mount(&mut store, 2);
+        let mut sequence = 2;
+        for rider in [20, 10] {
+            sequence += 1;
+            store.apply(1, sequence, super::super::tests::spawn(rider as u64, rider));
+        }
+        for rider in [20, 10] {
+            sequence += 1;
+            store.apply_link(
+                1,
+                sequence,
+                protocol::ActorLinkEvent {
+                    dimension: 0,
+                    ridden_unique_id: 80,
+                    rider_unique_id: rider,
+                    link_type: protocol::ActorLinkType::Rider,
+                    immediate: false,
+                    rider_initiated: false,
+                },
+            );
+        }
+        assert_eq!(store.controlling_passenger(80), Some(20));
+        let mount_z = store.snapshot_by_unique(80).unwrap().position[2];
+        let (driver, _) = store.rider_seat_pose(20).unwrap();
+        let (second, _) = store.rider_seat_pose(10).unwrap();
+        assert!((driver[2] - (mount_z + 0.5)).abs() < 1.0e-4, "{driver:?}");
+        assert!((second[2] - (mount_z - 0.5)).abs() < 1.0e-4, "{second:?}");
     }
 
     #[test]

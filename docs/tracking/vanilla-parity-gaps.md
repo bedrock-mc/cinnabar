@@ -266,10 +266,16 @@ Core physics binary-confirmed correct (gravity/drag/friction/jump/speed). Gaps:
   modes (no oracle; coefficients need measurement); firework boost relies on server motion only.
 - Scaffolding is solid only from above and sneak descends (provisional rate). Honey jump/slide,
   soul speed and depth strider are simulated with provisional coefficients; sweet berry bush
-  slowdown, dolphin's grace and client-predicted vehicles are open.
+  slowdown, dolphin's grace and client-predicted horses are open.
 - Riding: player physics is suspended while mounted, the rider follows its mount seat, and boat
-  paddle flags are sent; client-predicted vehicles (no vehicle simulator) and
-  the vehicle predicate/coefficients (see plan.md) are open (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
+  paddle flags are sent. A boat the player steers from its controlling seat is client-predicted:
+  paddling, momentum, steering, collision and buoyancy run locally, inputs report the boat's
+  position, rotation and id, server moves apply only when they teleport, and a vehicle correction
+  restarts prediction from the corrected state (vanilla rewinds and replays; incomplete). A seat
+  that locks rotation turns the rider's view with the vehicle, holds it within the seat's range
+  and faces the rider's body along the seat. Open: horse prediction, collision with other boats,
+  leashed-boat momentum,
+  snow-layer friction, touch paddle buttons and bubble columns (HIGH); `ClientMovementPredictionSync` is sent after corrections (interval provisional). Sweet berry bush needs the
   registry regeneration described in plan.md.
 - Step height 0.6 vs ~0.5625 *(measure; oracle-validated value left unchanged)*; lava strata;
   scroll-notch magnitude; UI key-repeat (MED/LOW).
@@ -381,4 +387,4 @@ their client entities name no render controller. The entity compiler gives such 
 native hull, raft and chest models (authored `geometry.boat`-style geometry replaces them) and a
 controller that picks the wood texture and raft model from the actor variant. Streamed row times
 pose the paddles, and a struck boat rocks about its render origin. Missing: the bubble-column rock,
-the water cutout inside the hull, and client-predicted driving (see Riding).
+the water cutout inside the hull (driving is covered under Riding).

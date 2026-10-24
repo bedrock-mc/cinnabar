@@ -16,6 +16,7 @@ mod controller_frame;
 mod correction;
 mod dimension_wait;
 mod prediction_corrections;
+mod riding;
 mod riptide;
 mod server_flags;
 mod sprint_retention;
@@ -300,6 +301,8 @@ pub struct LocalPhysicsController {
     last_environment: sim::MovementEnvironment,
     dimension_waiting: bool,
     pub(super) prediction_sync: super::prediction_sync::PredictionSyncCountdown,
+    /// The steered boat's prediction.
+    vehicle: super::vehicle::VehiclePrediction,
 }
 
 impl Default for LocalPhysicsController {
@@ -345,6 +348,7 @@ impl Default for LocalPhysicsController {
             last_environment: sim::MovementEnvironment::default(),
             dimension_waiting: false,
             prediction_sync: Default::default(),
+            vehicle: Default::default(),
         }
     }
 }
@@ -465,7 +469,7 @@ impl LocalPhysicsController {
         input.sneak_profile = self.modes.sneak_profile();
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
-            let context = context.for_next_tick(state.tick);
+            let mut context = context.for_next_tick(state.tick);
             input.item_use_movement_modifier = context
                 .release_use_modifier
                 .map(|(_, modifier)| item_use_factor(modifier))
@@ -559,21 +563,19 @@ impl LocalPhysicsController {
             }
             self.modes.record_controls(input, context.input.sneak_down);
             // A rider's position is its seat on the mount, not a simulated result.
-            let mut ride_delta = None;
-            if input.mode == sim::MovementMode::Riding
-                && let Some(seat) = context
-                    .mode_intent
-                    .ride_seat
-                    .filter(|seat| seat.iter().all(|axis| axis.is_finite()))
-            {
-                let seat = Vec3::new(f64::from(seat[0]), f64::from(seat[1]), f64::from(seat[2]));
-                ride_delta = Some([
-                    (seat.x - state.position.x) as f32,
-                    (seat.y - state.position.y) as f32,
-                    (seat.z - state.position.z) as f32,
-                ]);
-                state.position = seat;
-            }
+            let seated = if input.mode == sim::MovementMode::Riding {
+                riding::seat_rider(
+                    &mut self.vehicle,
+                    state,
+                    &input,
+                    &mut context.mode_intent,
+                    world,
+                    &mut mode_error,
+                )
+            } else {
+                self.vehicle.reset();
+                None
+            };
             // A queued server impulse replaces this tick's starting velocity,
             // mirroring how Bedrock applies knockback as an absolute velocity.
             // The overlay is retained after application so a correction
@@ -587,7 +589,7 @@ impl LocalPhysicsController {
             {
                 state.velocity = overlay.velocity;
             }
-            let before = state.position;
+            let before = riding::before_seat(state.position, seated, self.vehicle.continued());
             // The liquid probe uses the prior tick's pose-adjusted eye anchor.
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
@@ -666,7 +668,7 @@ impl LocalPhysicsController {
                         flight_request,
                         grounded_before_tick,
                         jump_repeated,
-                        ride_delta,
+                        ride_delta: seated.map(|seated| seated.delta),
                         actor_position: self.actor_position_pending.take(),
                         input,
                         modes: self.modes,
@@ -698,6 +700,7 @@ impl LocalPhysicsController {
                         && input.mode != sim::MovementMode::Riding
                         && !input.spectator;
                     processed.ride = context.mode_intent.ride;
+                    processed.vehicle = self.vehicle.commit(state.tick);
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
                     if input.immobile || input.mode == sim::MovementMode::Riding {
@@ -749,8 +752,8 @@ impl LocalPhysicsController {
                         processed,
                         world_identity,
                     });
-                    if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
-                        sample.movement = delta;
+                    if let (Some(seated), Some(sample)) = (seated, frame.samples.last_mut()) {
+                        sample.movement = seated.delta;
                     }
                     while self.sample_history.len() >= self.history_capacity {
                         self.sample_history.pop_front();
@@ -784,6 +787,8 @@ impl LocalPhysicsController {
                 }
                 Err(error) => {
                     self.modes = previous_modes;
+                    state.position = riding::unseated(state.position, seated, &self.vehicle);
+                    self.vehicle.discard_pending();
                     let retryable_collision_blocked = matches!(
                         &error,
                         sim::PredictionError::Simulation(error)
@@ -798,8 +803,7 @@ impl LocalPhysicsController {
                         // returns or motion fits the query limit. New elapsed
                         // time starts a fresh tick.
                         self.previous_position = state.position;
-                        self.eye_offset.finish_interpolation();
-                        self.visual_correction.finish_interpolation();
+                        self.finish_render_interpolation();
                         self.accumulated_seconds = 0.0;
                         frame.dropped_ticks = 0;
                     } else {

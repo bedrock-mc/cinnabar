@@ -249,6 +249,7 @@ impl LocomotionState {
                         no_clip: facts.no_clip,
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
+                        vehicle: facts.vehicle,
                         vehicle_controlled_locally: facts.vehicle_controlled_locally,
                         can_fly: facts.can_fly,
                         flight: facts.flight,

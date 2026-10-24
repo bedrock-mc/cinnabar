@@ -110,7 +110,8 @@ impl ActorStore {
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
-            next_link_order: 0,
+            vehicle_riders: FastHashMap::new(),
+            tick_links: Default::default(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -119,6 +120,8 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            local_unique_id: None,
+            local_vehicle: Default::default(),
             pending_local_health: None,
             pending_local_actor: None,
             local_actor_revision: 0,
@@ -166,6 +169,12 @@ impl ActorStore {
     /// Arm swings the server sent for the local player since the last call.
     pub(crate) fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         std::mem::take(&mut self.local_server_swings)
+    }
+
+    /// Names the local player before its actor exists, so riding links treat it as a player
+    /// already present, as vanilla's local player always is.
+    pub(crate) fn set_local_unique_id(&mut self, unique_id: i64) {
+        self.local_unique_id = Some(unique_id);
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
@@ -219,6 +228,7 @@ impl ActorStore {
         if runtime_id == 0 {
             return;
         }
+        self.local_unique_id = Some(unique_id);
         self.local_view_dirty |= self.local_first_person != feed.first_person;
         self.local_first_person = feed.first_person;
         self.local_view_bobbing = feed.view_bobbing;
@@ -245,7 +255,11 @@ impl ActorStore {
         self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
         let revision = self.synthetic_local_revision.max(1);
         let (uuid, username) = self.resolve_local_identity(unique_id, feed);
+        // A seat that locks rotation draws the body at the facing the caller sampled for this
+        // frame rather than easing between ticked headings.
+        let locked_facing = self.rider_view_lock(unique_id, 1.0).map(|_| feed.yaw);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.status.predicted_render_yaw = locked_facing;
             if let Some(mode) = feed.game_mode {
                 let mode = Some(protocol::GameModeUpdate::Explicit(mode));
                 self.local_view_dirty |= actor.player_game_mode != mode;
@@ -299,7 +313,6 @@ impl ActorStore {
         self.effect_members.update(&mut actor);
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
-        self.resolve_rider_links(unique_id);
         self.apply_pending_local_health(runtime_id);
         self.apply_pending_local_death(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {
@@ -398,7 +411,7 @@ impl ActorStore {
         self.seat_bases.clear();
         self.effect_members = Default::default();
         self.unique_to_runtime.clear();
-        self.rider_to_ridden.clear();
+        self.clear_links();
         self.players.clear();
         self.unlisted_players.clear();
         self.synthetic_local_uuid = None;
@@ -449,7 +462,7 @@ impl ActorStore {
         self.seat_bindings.clear();
         self.effect_members = Default::default();
         self.unique_to_runtime.clear();
-        self.rider_to_ridden.clear();
+        self.clear_links();
         // The real player list survives a dimension change, but the synthetic local profile is
         // tied to the cleared actor and is re-inserted on the next pose feed.
         if let Some(uuid) = self.synthetic_local_uuid.take() {
@@ -508,6 +521,9 @@ impl ActorStore {
                 // (authoritative reconciliation) must not fight that feed.
                 if self.remote_state_excluded_runtime_id == Some(movement.runtime_id) {
                     return ActorApplyResult::MissingActor;
+                }
+                if !self.admit_local_vehicle_move(&movement) {
+                    return ActorApplyResult::Updated;
                 }
                 let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
                     return ActorApplyResult::MissingActor;

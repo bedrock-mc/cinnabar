@@ -185,3 +185,30 @@ fn placement_frame_keeps_body_placement_independent_from_absolute_target_rotatio
     let (_, yaw) = sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4]).unwrap();
     assert_eq!(yaw, 75.0);
 }
+
+/// A vehicle the client predicts draws at the yaw it predicts for this frame, not eased
+/// again between its rig's ticks.
+#[test]
+fn a_predicted_vehicle_draws_at_its_predicted_yaw() {
+    let world = world("minecraft:boat");
+    let rig = world.actor_rig(1).unwrap();
+    let sampled = ActorRigSnapshot {
+        previous_body_yaw: 0.0,
+        body_yaw: 40.0,
+        ..rig
+    };
+    let mut actor = world.actor(1).unwrap().clone();
+    assert_eq!(
+        sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4])
+            .unwrap()
+            .1,
+        20.0
+    );
+    actor.status.predicted_render_yaw = Some(25.0);
+    assert_eq!(
+        sampled_rig_placement(&sampled, &actor, 0.5, [1.0; 4])
+            .unwrap()
+            .1,
+        25.0
+    );
+}

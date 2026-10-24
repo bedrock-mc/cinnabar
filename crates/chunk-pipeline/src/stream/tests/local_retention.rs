@@ -212,6 +212,7 @@ fn historical_server_moves_keep_the_current_grid() {
         subject: MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 5,
+        vehicle_angular_velocity: None,
     });
     let unmarked_move = WorldEvent::MovePlayer(MovePlayerEvent {
         runtime_id: 1,

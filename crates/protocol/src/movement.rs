@@ -2,7 +2,7 @@ use std::ops::{BitOr, BitOrAssign};
 
 use bedrock_protocol_1_26_51::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
 use bedrock_protocol_1_26_51::packets::PlayerAuthInput;
-use bedrock_protocol_1_26_51::types::PlayerInputTick;
+use bedrock_protocol_1_26_51::types::{ActorUniqueID, PlayerInputTick};
 use bedrock_protocol_1_26_51::wire;
 use thiserror::Error;
 
@@ -74,6 +74,9 @@ impl PlayerInputFlags {
     pub const STOP_CRAWLING: Self = Self(1 << 41);
     pub const START_FLYING: Self = Self(1 << 42);
     pub const STOP_FLYING: Self = Self(1 << 43);
+    /// Wire ordinal 45: the input carries a vehicle the client predicts. The encoder derives
+    /// it from [`PlayerAuthInputSnapshot::vehicle`].
+    pub const IN_CLIENT_PREDICTED_VEHICLE: Self = Self(1 << 45);
     pub const PADDLING_LEFT: Self = Self(1 << 46);
     pub const PADDLING_RIGHT: Self = Self(1 << 47);
     pub const HORIZONTAL_COLLISION: Self = Self(1 << 49);
@@ -152,6 +155,21 @@ pub struct PlayerAuthInputSnapshot {
     pub camera_orientation: [f32; 3],
     pub flags: PlayerInputFlags,
     pub input_mode: PlayerInputMode,
+    /// The vehicle the client predicts. The wire then carries its position and delta in
+    /// place of the player's, which this snapshot keeps for local consumers.
+    pub vehicle: Option<PredictedVehicleInput>,
+}
+
+/// The vehicle a client-predicted input moves.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PredictedVehicleInput {
+    pub unique_id: i64,
+    /// Network position.
+    pub position: [f32; 3],
+    /// End-of-tick velocity.
+    pub delta: [f32; 3],
+    /// Vehicle pitch and yaw in degrees.
+    pub rotation: [f32; 2],
 }
 
 /// Invalid app-owned state that cannot be represented safely on the wire.
@@ -159,6 +177,8 @@ pub struct PlayerAuthInputSnapshot {
 pub enum PlayerAuthInputError {
     #[error("PlayerAuthInput contains a non-finite position, rotation, delta, or input vector")]
     NonFiniteState,
+    #[error("PlayerAuthInput asserts a predicted vehicle without naming one")]
+    UndeclaredVehicle,
     #[error("PlayerAuthInput interactions are invalid: {0}")]
     Interaction(#[from] InteractionEncodeError),
 }
@@ -203,6 +223,13 @@ pub fn player_auth_input_with_mining_request(
         .chain(snapshot.raw_move_vector)
         .chain([snapshot.pitch, snapshot.yaw, snapshot.head_yaw])
         .chain(snapshot.camera_orientation)
+        .chain(snapshot.vehicle.iter().flat_map(|vehicle| {
+            vehicle
+                .position
+                .into_iter()
+                .chain(vehicle.delta)
+                .chain(vehicle.rotation)
+        }))
         .all(f32::is_finite);
     if !finite {
         return Err(PlayerAuthInputError::NonFiniteState);
@@ -213,7 +240,13 @@ pub fn player_auth_input_with_mining_request(
     if snapshot.flags.bits() & derived_flag_bits != 0 {
         return Err(InteractionEncodeError::InconsistentInteractionFlags.into());
     }
+    if snapshot.flags.bits() & PlayerInputFlags::IN_CLIENT_PREDICTED_VEHICLE.bits() != 0 {
+        return Err(PlayerAuthInputError::UndeclaredVehicle);
+    }
     let mut flags = snapshot.flags;
+    if snapshot.vehicle.is_some() {
+        flags |= PlayerInputFlags::IN_CLIENT_PREDICTED_VEHICLE;
+    }
     let player_block_actions = if interactions.block_actions.is_empty() {
         None
     } else {
@@ -234,7 +267,10 @@ pub fn player_auth_input_with_mining_request(
 
     Ok(crate::Packet::new(PlayerAuthInput {
         player_rotation: [snapshot.pitch, snapshot.yaw].into(),
-        position: snapshot.position.into(),
+        position: snapshot
+            .vehicle
+            .map_or(snapshot.position, |vehicle| vehicle.position)
+            .into(),
         move_vector: snapshot.move_vector.into(),
         player_head_rotation: wire::F32LE(snapshot.head_yaw),
         input_data: input_data_items(flags),
@@ -252,12 +288,17 @@ pub fn player_auth_input_with_mining_request(
         new_interaction_model: NewInteractionModel::Crosshair,
         interact_rotation: [snapshot.pitch, snapshot.yaw].into(),
         client_tick: PlayerInputTick(tick),
-        pos_delta: snapshot.delta.into(),
+        pos_delta: snapshot
+            .vehicle
+            .map_or(snapshot.delta, |vehicle| vehicle.delta)
+            .into(),
         item_use_transaction,
         item_stack_request,
         player_block_actions,
-        vehicle_rotation: None,
-        client_predicted_vehicle: None,
+        vehicle_rotation: snapshot.vehicle.map(|vehicle| vehicle.rotation.into()),
+        client_predicted_vehicle: snapshot
+            .vehicle
+            .map(|vehicle| ActorUniqueID(vehicle.unique_id)),
         analog_move_vector: snapshot.analogue_move_vector.into(),
         camera_orientation: snapshot.camera_orientation.into(),
         raw_move_vector: snapshot.raw_move_vector.into(),

@@ -134,6 +134,7 @@ mod tests {
                 | PlayerInputFlags::SPRINTING
                 | PlayerInputFlags::HORIZONTAL_COLLISION,
             input_mode: PlayerInputMode::Mouse,
+            vehicle: None,
         }
     }
 

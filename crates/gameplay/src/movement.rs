@@ -36,6 +36,7 @@ mod speed_authority;
 mod state;
 mod teleport_ack;
 pub mod trace;
+pub mod vehicle;
 pub use authority::PhysicsSendIdentity;
 pub use authority::{PhysicsAuthorityFault, PhysicsAuthorityFaultRecord, PhysicsAuthorityGate};
 pub use collision_registries::{PhysicsCollisionRegistries, PhysicsCollisionRegistryError};
@@ -476,6 +477,7 @@ impl MovementTicker {
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),
             input_mode: sample.input_mode,
+            vehicle: sample.processed.vehicle.map(|vehicle| vehicle.input()),
         };
         self.next_tick = self.next_tick.saturating_add(1);
         self.previous_position = sample.position;
@@ -934,29 +936,6 @@ impl MovementTicker {
             }
         }
     }
-}
-
-/// Provisional local pre-first-input anchor: public protocol documentation does
-/// not define vanilla's initial `PlayerInputTick`, and StartGame world age is a
-/// separate clock domain.
-const START_GAME_PREDICTION_ANCHOR_TICK: u64 = 0;
-
-pub fn reset_start_game_prediction(
-    movement: &mut MovementTicker,
-    local_physics: &mut LocalPhysicsController,
-    session_generation: u64,
-    initial_position: [f32; 3],
-) {
-    movement.reset(
-        session_generation,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        initial_position,
-    );
-    local_physics.reanchor_network_position_before_advance(
-        initial_position,
-        START_GAME_PREDICTION_ANCHOR_TICK,
-        false,
-    );
 }
 
 #[cfg(test)]

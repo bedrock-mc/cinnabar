@@ -295,7 +295,7 @@ fn dismount_request_keeps_the_seated_pose_until_the_server_unlinks() {
         ));
         locals.flush_dismount(physics.network_position().unwrap(), |_| Ok(()));
         assert_eq!(physics.mode(), sim::MovementMode::Riding);
-        assert_eq!(physics.render_feet_position(), Some(seat));
+        assert_eq!(physics.state().unwrap().position, sim::Vec3::new(2.0, 3.0, 4.0));
         assert_eq!(physics.latest_sneak_sprint(), Some((false, false)));
         let sample = ticker.pending_samples().last().unwrap().clone();
         assert!(sample.snapshot.flags.bits() & PlayerInputFlags::SNEAK_CURRENT_RAW.bits() != 0);
@@ -379,4 +379,30 @@ fn mounted_sneak_and_jump_replay_without_crouching_or_moving_the_seat() {
             }
         }
     }
+}
+
+/// A streamed mount's rider renders at the seat the mount puts it in, as the mount itself
+/// renders, without trailing it by an extra tick.
+#[test]
+fn a_streamed_seat_renders_where_the_mount_puts_it() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = super::LocomotionState::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    for seat in [[2.0, 3.0, 4.0], [2.5, 3.0, 4.0]] {
+        let mut frame = speed_frame(Default::default());
+        frame.facts.ride = Some(super::RideKind::Other);
+        frame.facts.ride_seat = Some(seat);
+        frame.facts.mount_runtime_id = Some(20);
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+    }
+    assert_eq!(physics.tick_alpha(), 0.0);
+    assert_eq!(physics.render_feet_position(), Some([2.5, 3.0, 4.0]));
 }

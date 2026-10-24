@@ -17,6 +17,24 @@ pub trait GameplayWorld {
     fn local_player_unique_id(&self) -> i64;
     /// Reads the local player's resolved mount seat.
     fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)>;
+    /// The vehicle the local player steers from its controlling seat; worlds without
+    /// riding links steer none.
+    fn local_controlled_vehicle(&self) -> Option<&client_world::ActorSnapshot> {
+        None
+    }
+    /// The local player's seat feet and body yaw if its vehicle's feet were at
+    /// `vehicle_feet`, facing `vehicle_yaw`.
+    fn local_rider_seat_on(
+        &self,
+        _vehicle_feet: [f32; 3],
+        _vehicle_yaw: f32,
+    ) -> Option<([f32; 3], f32)> {
+        None
+    }
+    /// Counts server changes to the vehicle the local player steers, which prediction follows.
+    fn local_vehicle_revision(&self) -> client_world::VehicleRevision {
+        client_world::VehicleRevision::default()
+    }
     /// Whether the current vehicle selects the local player as its controller.
     fn local_vehicle_controlled(&self) -> bool {
         false

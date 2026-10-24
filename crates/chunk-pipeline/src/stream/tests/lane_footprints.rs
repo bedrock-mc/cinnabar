@@ -387,6 +387,7 @@ fn samples() -> Vec<WorldEvent> {
             subject: MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 1,
+            vehicle_angular_velocity: None,
         }),
         motion(LOCAL),
         motion(REMOTE),

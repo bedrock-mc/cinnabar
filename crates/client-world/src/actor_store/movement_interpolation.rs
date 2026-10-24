@@ -40,7 +40,7 @@ impl ActorSnapshot {
     }
 
     /// Returns the decoded target without a lossy feet-to-network round trip.
-    pub(crate) fn last_received_native_position(&self) -> [f32; 3] {
+    pub fn last_received_native_position(&self) -> [f32; 3] {
         self.last_received_pose()
             .native_position(self.network_position_offset())
     }
@@ -52,7 +52,7 @@ impl ActorSnapshot {
     }
 
     /// Returns the latest decoded movement target, including a queued target.
-    pub(crate) fn last_received_pose(&self) -> ActorPose {
+    pub fn last_received_pose(&self) -> ActorPose {
         self.status
             .movement_interpolation
             .last_received
@@ -170,6 +170,16 @@ pub(super) struct MotionState {
     network_offset: f32,
     /// Native origin offset of a grounded non-minecart, whose lerp lifts onto block surfaces.
     ground_offset: Option<f32>,
+}
+
+/// One remote actor's motion after this frame's due ticks, for reads made before the live
+/// actors advance.
+#[derive(Debug, Clone)]
+pub(super) struct PickState {
+    pub(super) runtime_id: u64,
+    /// The yaw one tick before `state`, which this frame eases from.
+    pub(super) previous_yaw: f32,
+    pub(super) state: MotionState,
 }
 
 impl MotionState {

@@ -160,6 +160,7 @@ fn movement_correction_never_arms_full_view_teleport_tracking() {
         subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 55,
+        vehicle_angular_velocity: None,
     };
     let mut tracker = FullViewTeleportTracker::new(true);
     tracker.set_source_mutation_coordinate([0, 58, 0]);

@@ -254,6 +254,7 @@ pub fn apply_environment_control(
         CommittedControlEvent::MovePlayer { .. }
         | CommittedControlEvent::LocalActorMove { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
+        | CommittedControlEvent::VehicleMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::Respawn { .. }

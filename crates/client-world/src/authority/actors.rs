@@ -324,6 +324,56 @@ impl WorldAuthority {
     pub fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.actors.rider_seat_pose(self.local_player_unique_id)
     }
+    /// Feet and body yaw the local player's seat gives it on its vehicle, were the vehicle's
+    /// feet at `vehicle_feet` facing `vehicle_yaw`.
+    pub fn local_rider_seat_on(
+        &self,
+        vehicle_feet: [f32; 3],
+        vehicle_yaw: f32,
+    ) -> Option<([f32; 3], f32)> {
+        self.actors
+            .rider_seat_on(self.local_player_unique_id, vehicle_feet, vehicle_yaw)
+    }
+    /// How the local player's seat holds its view, with the vehicle's yaw `alpha` of the way
+    /// through the current tick; `None` when the seat does not lock rotation.
+    pub fn local_seat_view_lock(&self, alpha: f32) -> Option<crate::SeatViewLock> {
+        self.actors
+            .rider_view_lock(self.local_player_unique_id, alpha)
+    }
+    /// The vehicle the local player rides from its controlling seat, which it steers.
+    pub fn local_controlled_vehicle(&self) -> Option<&ActorSnapshot> {
+        let vehicle = self.actors.ridden_unique_id(self.local_player_unique_id)?;
+        self.local_vehicle_controlled()
+            .then(|| self.actors.snapshot_by_unique(vehicle))
+            .flatten()
+    }
+    /// Commits a server correction of the vehicle the local player steers, naming that
+    /// vehicle. Without one nothing is predicted, so the correction is dropped.
+    pub fn commit_vehicle_correction(
+        &mut self,
+        sequence: u64,
+        correction: protocol::PlayerMovementCorrectionEvent,
+    ) {
+        let Some(vehicle_runtime_id) = self.local_controlled_vehicle().map(|v| v.runtime_id) else {
+            return;
+        };
+        let vehicle_revision = self.local_vehicle_revision();
+        self.push_committed_control(CommittedControlEvent::VehicleMovementCorrection {
+            sequence,
+            correction,
+            vehicle_runtime_id,
+            vehicle_revision,
+        });
+    }
+    /// Drives the predicted pose of the boat the local player steers; feeds for any other
+    /// actor, or `None`, change nothing.
+    pub fn sync_local_vehicle_pose(&mut self, feed: Option<crate::LocalVehicleFeed>) {
+        self.actors.sync_local_vehicle(feed);
+    }
+    /// Counts server changes to the predicted vehicle that prediction restarts from.
+    pub const fn local_vehicle_revision(&self) -> crate::VehicleRevision {
+        self.actors.local_vehicle_revision()
+    }
     /// Borrows the current actor with this persistent unique ID.
     pub fn actor_by_unique_id(&self, unique_id: i64) -> Option<&ActorSnapshot> {
         self.actors.snapshot_by_unique(unique_id)

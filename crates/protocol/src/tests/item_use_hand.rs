@@ -154,6 +154,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         camera_orientation: [0.0, 0.0, -1.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 

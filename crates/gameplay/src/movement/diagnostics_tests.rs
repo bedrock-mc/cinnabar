@@ -54,6 +54,7 @@ fn packet_facts_keep_move_player_ride_cause_and_tick() {
             subject: MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 412,
+            vehicle_angular_velocity: None,
         },
         resolved: RESOLVED,
     };

@@ -63,6 +63,7 @@ fn committed_movement_correction_preserves_local_rotation() {
         subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 55,
+        vehicle_angular_velocity: None,
     };
     let local_rotation = Quat::from_euler(bevy::math::EulerRot::YXZ, 0.35, -0.2, 0.0);
     let mut view = LocalViewPose::new(Vec3::ZERO, local_rotation);
@@ -98,6 +99,7 @@ fn committed_correction_ignores_non_finite_rotation_defensively() {
         subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 9,
+        vehicle_angular_velocity: None,
     };
     let local_rotation = Quat::from_euler(bevy::math::EulerRot::YXZ, 0.35, -0.2, 0.0);
     let mut view = LocalViewPose::new(Vec3::ZERO, local_rotation);
@@ -131,6 +133,7 @@ fn committed_correction_offsets_only_the_third_person_view() {
         subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 91,
+        vehicle_angular_velocity: None,
     };
     let mut view = LocalViewPose::default();
     let mut settings = CameraSettingsAuthority::default();

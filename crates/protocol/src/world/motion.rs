@@ -96,5 +96,9 @@ pub(super) fn normalize_correction(
         subject: MovementCorrectionSubject::from(packet.prediction_type),
         on_ground: packet.on_ground,
         tick: packet.tick.0,
+        vehicle_angular_velocity: packet
+            .vehicle_angular_velocity
+            .map(|velocity| velocity.0)
+            .filter(|velocity| velocity.is_finite()),
     })
 }

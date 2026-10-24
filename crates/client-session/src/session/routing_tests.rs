@@ -181,6 +181,7 @@ fn server_authoritative_correction_bypasses_foreign_player_runtime_filter() {
         subject: protocol::MovementCorrectionSubject::Player,
         on_ground: true,
         tick: 55,
+        vehicle_angular_velocity: None,
     });
 
     assert!(matches!(

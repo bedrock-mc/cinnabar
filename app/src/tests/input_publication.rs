@@ -41,6 +41,7 @@ fn packet() -> protocol::Packet {
             camera_orientation: [1.0, 0.0, 0.0],
             flags: protocol::PlayerInputFlags::NONE,
             input_mode: protocol::PlayerInputMode::Mouse,
+            vehicle: None,
         },
         &protocol::PlayerAuthInputInteractions {
             block_actions: actions,

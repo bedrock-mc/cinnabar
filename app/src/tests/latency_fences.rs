@@ -215,6 +215,7 @@ fn correction_before_fenced_probe_applies_this_frame() {
                     subject: protocol::MovementCorrectionSubject::Player,
                     on_ground: false,
                     tick: 1,
+                    vehicle_angular_velocity: None,
                 }),
             )
             .unwrap();

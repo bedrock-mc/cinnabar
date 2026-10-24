@@ -276,6 +276,7 @@ fn player_auth_input_builder_matches_gophertunnel_bytes_exactly() {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     })
     .expect("valid movement snapshot");
     built.header.from_subclient = 1;
@@ -448,6 +449,7 @@ fn fixture_movement_snapshot() -> PlayerAuthInputSnapshot {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 

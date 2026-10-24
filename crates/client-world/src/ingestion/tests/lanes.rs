@@ -54,6 +54,34 @@ fn marked_local_actor_moves_share_the_spatial_control_lane() {
     }
 }
 
+/// A vehicle correction reads the steered vehicle from the actors, so it orders with them.
+#[test]
+fn vehicle_corrections_order_with_actor_changes() {
+    let correction = |subject| {
+        WorldEvent::PlayerMovementCorrection(protocol::PlayerMovementCorrectionEvent {
+            position: [0.0; 3],
+            delta: [0.0; 3],
+            pitch: 0.0,
+            yaw: 0.0,
+            subject,
+            on_ground: false,
+            tick: 1,
+            vehicle_angular_velocity: None,
+        })
+    };
+    let vehicle = classify(
+        &correction(protocol::MovementCorrectionSubject::Vehicle),
+        CONTEXT,
+    );
+    assert!(vehicle.consumers.contains(Consumers::CONTROLS));
+    assert!(vehicle.consumers.contains(Consumers::ACTORS));
+    let player = classify(
+        &correction(protocol::MovementCorrectionSubject::Player),
+        CONTEXT,
+    );
+    assert!(!player.consumers.contains(Consumers::ACTORS));
+}
+
 fn chat() -> WorldEvent {
     let text = std::sync::Arc::<str>::from("hi");
     WorldEvent::Ui(UiEvent::Text(protocol::TextEvent {

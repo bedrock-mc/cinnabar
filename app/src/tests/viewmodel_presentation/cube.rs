@@ -206,7 +206,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut app = App::new();
     let mut movement = client_interaction::movement::MovementTicker::default();
     let mut physics = client_interaction::movement::LocalPhysicsController::default();
-    gameplay::movement::reset_start_game_prediction(&mut movement, &mut physics, 1, [0., 64., 0.]);
+    gameplay::movement::bootstrap::reset_start_game_prediction(
+        &mut movement,
+        &mut physics,
+        1,
+        [0., 64., 0.],
+    );
     movement.set_source(gameplay::movement::MovementSource::Physics);
     let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
     let mut view = client_presentation::local_player::LocalViewPose::default();

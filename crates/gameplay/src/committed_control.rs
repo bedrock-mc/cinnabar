@@ -191,6 +191,65 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
+        if let CommittedControlEvent::VehicleMovementCorrection {
+            correction,
+            vehicle_runtime_id,
+            vehicle_revision,
+            ..
+        } = control
+        {
+            // Prediction restarts from the corrected boat and the rider snaps to its seat at
+            // the local tick, discarding stale inputs as a teleport does. A snap resets the
+            // local frame and camera history like any other correction.
+            if !self.movement.physics_is_authorized() {
+                return ControlDisposition::Handled;
+            }
+            let previous = self.physics.network_position();
+            let Some(seat) = self
+                .physics
+                .correct_vehicle(&movement::vehicle::VehicleCorrection {
+                    runtime_id: vehicle_runtime_id,
+                    revision: vehicle_revision,
+                    tick: correction.tick,
+                    position: correction.position,
+                    velocity: correction.delta,
+                    rotation: [correction.pitch, correction.yaw],
+                    angular_velocity: correction.vehicle_angular_velocity,
+                    on_ground: correction.on_ground,
+                })
+            else {
+                return ControlDisposition::Handled;
+            };
+            let position = [seat[0], seat[1] + protocol::PLAYER_NETWORK_OFFSET, seat[2]];
+            return match movement::reconcile_physics_anchor(
+                self.movement,
+                self.physics,
+                movement::PhysicsAnchor {
+                    network_position: position,
+                    tick: correction.tick,
+                    on_ground: false,
+                    velocity: Some([0.0; 3]),
+                },
+                movement::PhysicsCorrectionMode::Snap,
+                world,
+            ) {
+                Ok(outcome) => {
+                    observe(ControlObservation::Correction {
+                        outcome,
+                        previous: previous.unwrap_or(position),
+                        position,
+                    });
+                    ControlDisposition::Spatial(SpatialReset::Correction)
+                }
+                Err(fault) => {
+                    warn!(
+                        ?fault,
+                        "local physics authority failed while applying a vehicle correction"
+                    );
+                    ControlDisposition::Handled
+                }
+            };
+        }
         if let CommittedControlEvent::LocalActorMotion { event, .. } = control {
             // A server-driven impulse (knockback, explosion) must enter the
             // prediction timeline; without it the client keeps its pre-hit
@@ -426,6 +485,7 @@ impl CommittedGameplayState<'_> {
             | CommittedControlEvent::LocalMovementFlags { .. }
             | CommittedControlEvent::NetworkStackLatency { .. }
             | CommittedControlEvent::LocalActorMotion { .. }
+            | CommittedControlEvent::VehicleMovementCorrection { .. }
             | CommittedControlEvent::LocalMovementBoost { .. }
             | CommittedControlEvent::LocalDeath { .. }
             | CommittedControlEvent::LocalHurt { .. }

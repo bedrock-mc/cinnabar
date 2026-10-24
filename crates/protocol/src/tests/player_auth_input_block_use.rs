@@ -29,6 +29,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         camera_orientation: [0.0, 0.0, -1.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 
@@ -248,6 +249,7 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     };
     let mut rebuilt =
         protocol::player_auth_input_with_interactions(snapshot, &interactions).unwrap();

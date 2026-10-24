@@ -91,6 +91,7 @@ fn traced_movement_packets(tick: u64) -> (protocol::Packet, protocol::Packet) {
         camera_orientation: [0.0, 0.0, -1.0],
         flags: protocol::PlayerInputFlags::NONE,
         input_mode: protocol::PlayerInputMode::Mouse,
+        vehicle: None,
     };
     let movement = protocol::player_auth_input(snapshot).unwrap();
     let mut block_actions = protocol::BlockActions::new();

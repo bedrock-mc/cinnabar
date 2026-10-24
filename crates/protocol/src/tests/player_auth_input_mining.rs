@@ -27,6 +27,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 

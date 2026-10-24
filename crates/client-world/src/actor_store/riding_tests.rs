@@ -525,14 +525,22 @@ fn vehicle_control_does_not_promote_a_later_player_after_removal() {
     assert!(store.rider_controls_vehicle(5));
 }
 
-/// Resolving a queued earlier player must preserve its position ahead of a later player.
+/// Vanilla's 26.30 `ActorLinkSystem::_tick` applies queued links in arrival order once per
+/// tick, skipping and dropping any whose actor is missing then. A player that spawns in its link's tick keeps
+/// its place ahead of a later player; one that spawns after a tick boards behind.
 #[test]
 fn vehicle_control_resolves_an_earlier_unknown_player() {
-    for kind in [ActorLinkType::Rider, ActorLinkType::Passenger] {
+    for (kind, ticked) in [ActorLinkType::Rider, ActorLinkType::Passenger]
+        .into_iter()
+        .flat_map(|kind| [(kind, false), (kind, true)])
+    {
         let mut store = player_on_boat(None, false);
         store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
         store.apply_link(1, 21, link(5, 20, kind));
         store.apply_link(1, 22, link(10, 20, ActorLinkType::Passenger));
+        if ticked {
+            store.advance_interpolation_ticks(1);
+        }
         let ActorEvent::Spawn(mut earlier) = spawn(5, 5) else {
             unreachable!()
         };
@@ -544,18 +552,19 @@ fn vehicle_control_resolves_an_earlier_unknown_player() {
             store.apply(1, 23, ActorEvent::Spawn(earlier)),
             ActorApplyResult::Inserted
         );
-        assert!(store.rider_controls_vehicle(5));
-        assert!(!store.rider_controls_vehicle(10));
+        let (controller, behind) = if ticked { (10, 5) } else { (5, 10) };
+        assert!(store.rider_controls_vehicle(controller), "ticked {ticked}");
+        assert!(!store.rider_controls_vehicle(behind), "ticked {ticked}");
         store.apply_link(1, 24, link(5, 20, kind));
         assert!(
-            store.rider_controls_vehicle(5),
+            store.rider_controls_vehicle(controller),
             "duplicate does not reorder"
         );
         assert_eq!(
             store.apply_link(1, 23, link(5, 20, ActorLinkType::Remove)),
             ActorApplyResult::StaleSequence
         );
-        assert!(store.rider_controls_vehicle(5));
+        assert!(store.rider_controls_vehicle(controller));
     }
 }
 
@@ -571,7 +580,9 @@ fn vehicle_control_resolves_an_earlier_unknown_nonplayer() {
     assert!(!store.rider_controls_vehicle(5));
 }
 
-/// Removing or moving an unresolved rider releases the later known rider's insertion.
+/// An unresolved earlier rider never holds back a later one: vanilla's 26.30
+/// `ActorLinkSystem::_tick` skips a link whose actor is missing and applies the rest. Removing or moving that rider leaves
+/// the known player in control.
 #[test]
 fn vehicle_control_releases_a_cancelled_unknown_rider() {
     for cancellation in 0..3 {
@@ -580,8 +591,8 @@ fn vehicle_control_releases_a_cancelled_unknown_rider() {
         store.apply_link(1, 21, link(5, 20, ActorLinkType::Passenger));
         store.apply_link(1, 22, link(10, 20, ActorLinkType::Rider));
         assert!(
-            !store.rider_controls_vehicle(10),
-            "unknown identity cannot establish control"
+            store.rider_controls_vehicle(10),
+            "an unknown rider does not block control"
         );
         match cancellation {
             0 => {

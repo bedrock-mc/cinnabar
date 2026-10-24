@@ -106,6 +106,7 @@ mod tests {
             camera_orientation: [0.0, 1.0, 0.0],
             flags: PlayerInputFlags::UP | PlayerInputFlags::SPRINTING,
             input_mode: PlayerInputMode::GamePad,
+            vehicle: None,
         }
     }
 

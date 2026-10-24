@@ -14,16 +14,18 @@ mod colliders;
 mod effect_members;
 mod offered_use;
 pub use colliders::ActorCollisionBounds;
+pub use local_vehicle::{LocalVehicleFeed, VehicleRevision};
 mod death_visibility;
 mod local_presentation;
+mod local_vehicle;
 mod native_facts;
 #[cfg(test)]
 pub(crate) use appearance_preparation::MAX_APPEARANCES_PUBLISHED_PER_FRAME;
 
 use protocol::{
-    ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorLinkType, ActorMetadataValue,
-    ActorMoveEvent, ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent,
-    ItemActorEvent, MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
+    ActorAttribute, ActorEvent, ActorKind, ActorLinkEvent, ActorMetadataValue, ActorMoveEvent,
+    ActorPositionOrigin, ActorProperty, ActorSpawnEvent, EquipmentEvent, ItemActorEvent,
+    MAX_ACTOR_ATTRIBUTES, MAX_ACTOR_METADATA_ENTRIES, MAX_ACTOR_PROPERTIES,
     MAX_PLAYER_LIST_SKIN_BYTES, MovePlayerEvent, MovePlayerMode, PLAYER_NETWORK_OFFSET,
     PlayerListEntry, PlayerSkin, PlayerSkinUnavailable,
 };
@@ -745,8 +747,7 @@ pub(crate) struct ActorStore {
     hitbox_budget: hitbox::Budget,
     effect_members: effect_members::EffectMembers,
     unique_to_runtime: FastHashMap<i64, u64>,
-    rider_to_ridden: FastHashMap<i64, riding_control::RiderLink>,
-    next_link_order: u64,
+    rider_to_ridden: FastHashMap<i64, i64>,
     max_actor_links: usize,
     players: HashMap<[u8; 16], PlayerProfile>,
     /// Appearances of spawned players removed from the roster, retained until despawn.
@@ -756,6 +757,10 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// The local player's persistent id, known from the session start before its actor exists.
+    local_unique_id: Option<i64>,
+    /// The vehicle the local player steers, whose pose the client predicts.
+    local_vehicle: local_vehicle::LocalVehicle,
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
     pending_local_actor: Option<ActorSnapshot>,
@@ -787,7 +792,7 @@ pub(crate) struct ActorStore {
     local_view_dirty: bool,
     /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
     /// the frame advances the live actors; reused across frames.
-    pick_states: Vec<(u64, movement_interpolation::MotionState)>,
+    pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
     local_view_bobbing: bool,
     local_flying: bool,
@@ -808,6 +813,12 @@ pub(crate) struct ActorStore {
     camera_position: [f32; 3],
     /// Rigs outside this view hold their pose instead of animating.
     animation_view: Option<actor_animation::ActorAnimationView>,
+    /// Each vehicle's passenger list in vanilla's order, including linked riders whose actors
+    /// do not exist yet; the inverse of `rider_to_ridden`.
+    vehicle_riders: FastHashMap<i64, Vec<i64>>,
+    /// Riders linked since the last actor tick, which board in link order when they spawn
+    /// before it.
+    tick_links: mount::TickLinks,
     /// Seat descriptor per mount, for riders that stream no seat offset.
     seat_bindings: FastHashMap<u64, Option<u32>>,
     seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,
@@ -845,7 +856,6 @@ mod dimensions;
 mod lifecycle;
 pub use dimensions::{DimensionWrite, ExplicitDimensions};
 mod movement_flags;
-mod riding_control;
 mod unspawned_local;
 pub use movement_flags::MovementFlagUpdate;
 mod lightning;
@@ -875,7 +885,7 @@ pub use hurt::{
 };
 pub use lightning::LightningBoltView;
 
-pub use placement::{ActorFluidProbe, RideSeat};
+pub use placement::{ActorFluidProbe, RideSeat, SeatViewLock, seat_world_offset};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;
 
@@ -925,6 +935,8 @@ mod roster_identity_tests;
 mod skin_update;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod vehicle_control_tests;
 
 #[cfg(test)]
 mod projectile_tests;

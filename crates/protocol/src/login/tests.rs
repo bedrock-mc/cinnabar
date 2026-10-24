@@ -1082,6 +1082,7 @@ fn allowlisted_movement_correction_is_materialized_and_normalized() {
             subject: crate::MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 55,
+            vehicle_angular_velocity: None,
         })
     );
 }

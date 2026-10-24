@@ -22,6 +22,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 
@@ -269,4 +270,46 @@ fn player_auth_input_rejects_non_finite_state_and_preserves_unsigned_ticks() {
         panic!("expected PlayerAuthInput payload");
     };
     assert_eq!(input.client_tick.0, u64::MAX);
+}
+
+#[test]
+fn a_predicted_vehicle_adds_its_rotation_id_and_flag() {
+    let mut input = snapshot();
+    input.vehicle = Some(protocol::PredictedVehicleInput {
+        unique_id: -42,
+        position: [10.5, 62.375, -4.0],
+        delta: [0.25, -0.01, 0.0],
+        rotation: [0.0, 135.5],
+    });
+    let packet = player_auth_input(input).expect("valid vehicle input");
+    let packets::Packet::PlayerAuthInput(input) = *packet.data else {
+        panic!("expected PlayerAuthInput payload");
+    };
+    assert!(
+        input
+            .input_data
+            .contains(&InputData::Isinclientpredictedvehicle)
+    );
+    let rotation = input.vehicle_rotation.expect("vehicle rotation");
+    assert_eq!((rotation.x, rotation.y), (0.0, 135.5));
+    assert_eq!(input.client_predicted_vehicle.map(|id| id.0), Some(-42));
+    // The wire reports the vehicle's position and motion in place of the rider's.
+    assert_eq!(
+        (input.position.x, input.position.y, input.position.z),
+        (10.5, 62.375, -4.0)
+    );
+    assert_eq!(
+        (input.pos_delta.x, input.pos_delta.y, input.pos_delta.z),
+        (0.25, -0.01, 0.0)
+    );
+}
+
+#[test]
+fn the_predicted_vehicle_flag_cannot_be_asserted_without_a_vehicle() {
+    let mut input = snapshot();
+    input.flags |= PlayerInputFlags::IN_CLIENT_PREDICTED_VEHICLE;
+    assert_eq!(
+        player_auth_input(input).unwrap_err(),
+        protocol::PlayerAuthInputError::UndeclaredVehicle
+    );
 }

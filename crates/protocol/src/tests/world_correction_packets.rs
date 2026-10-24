@@ -32,6 +32,7 @@ fn normalizes_server_authoritative_movement_correction_to_the_local_player_surfa
                 subject: MovementCorrectionSubject::Player,
                 on_ground: true,
                 tick: 4_096,
+                vehicle_angular_velocity: None,
             }
         ))
     );
@@ -56,6 +57,7 @@ fn vehicle_prediction_correction_is_retained_with_its_rewind_subject() {
                 subject: MovementCorrectionSubject::Vehicle,
                 on_ground: false,
                 tick: 0,
+                vehicle_angular_velocity: None,
             }
         ))
     );

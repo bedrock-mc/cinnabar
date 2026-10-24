@@ -303,6 +303,7 @@ fn committed_teleport_snap_correction_dispatches_through_production_reconciliati
             subject: MovementCorrectionSubject::Player,
             on_ground: true,
             tick: 101,
+            vehicle_angular_velocity: None,
         }),
     );
     app.update();

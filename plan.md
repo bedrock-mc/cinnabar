@@ -304,9 +304,14 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
-Keep raw, analogue and processed input semantics distinct. Mounted controls need
-attributable vehicle mapping, constants, state and actual prediction before claiming
-client-predicted vehicle behavior. Riding alone does not establish that capability.
+Keep raw, analogue and processed input semantics distinct. A boat steered from its
+controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
+constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
+rotation turns the rider's view with its vehicle and holds it within the seat's range.
+Incomplete: vanilla rewinds a vehicle correction and replays the recorded inputs, while
+Cinnabar restarts prediction from the corrected state and snaps the rider like a teleport.
+Server motion of a predicted boat replaces its predicted motion; vanilla's handling is
+unverified. Horse prediction and boat-to-boat collision remain open.
 
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
@@ -324,6 +329,17 @@ Received local spawns, removals and dimension resets publish complete replacemen
 authority through the same ordered controls. Synthetic creation keeps that lifetime
 and its already accepted updates and effects. Replacement retires cached flags, pose
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
+actor and controller writes independently of the replaced actor state.
+Passenger order follows vanilla's `Actor::addPassenger` and `ActorLinkSystem::_tick`: links
+apply in arrival order, a player boarding behind a non-player takes the front seat, and a
+rider whose actor is missing never holds back later riders. A rider spawning in its link's
+tick keeps its place; one spawning later boards behind. The controller is the player in the
+controlling seat of a boat or a saddled, tamed horse. Deviation: vanilla drops a link whose
+actor is missing at its tick and relies on spawn-embedded links; Cinnabar keeps it until
+either actor is removed, so a server that never re-links still seats the rider.
+Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
+block-climber flags, custom collision definitions, transition-tick packet ordering
+and broader live-server qualification remain incomplete.
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
 Server-driven item-use gameplay starts, block-climber flags, custom collision

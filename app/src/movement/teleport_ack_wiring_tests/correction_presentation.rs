@@ -151,6 +151,7 @@ fn pending_transport_correction_keeps_the_presented_view_without_advancing_autho
             subject: MovementCorrectionSubject::Player,
             on_ground: true,
             tick,
+            vehicle_angular_velocity: None,
         }),
     );
     app.world_mut()

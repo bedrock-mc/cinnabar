@@ -31,6 +31,24 @@ impl gameplay::GameplayWorld for GameplayWorldView<'_> {
     fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
         self.0.authority().local_rider_seat_pose()
     }
+    /// Reads the vehicle the local player steers.
+    fn local_controlled_vehicle(&self) -> Option<&client_world::ActorSnapshot> {
+        self.0.authority().local_controlled_vehicle()
+    }
+    /// Places the local seat on a vehicle pose.
+    fn local_rider_seat_on(
+        &self,
+        vehicle_feet: [f32; 3],
+        vehicle_yaw: f32,
+    ) -> Option<([f32; 3], f32)> {
+        self.0
+            .authority()
+            .local_rider_seat_on(vehicle_feet, vehicle_yaw)
+    }
+    /// Counts server changes to the steered vehicle.
+    fn local_vehicle_revision(&self) -> client_world::VehicleRevision {
+        self.0.authority().local_vehicle_revision()
+    }
     /// Reads the controller identity selected from current passenger links and mount flags.
     fn local_vehicle_controlled(&self) -> bool {
         self.0.authority().local_vehicle_controlled()

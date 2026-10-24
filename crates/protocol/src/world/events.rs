@@ -401,6 +401,11 @@ impl MovementCorrectionSubject {
     pub const fn is_player(self) -> bool {
         matches!(self, Self::Player)
     }
+
+    #[must_use]
+    pub const fn is_vehicle(self) -> bool {
+        matches!(self, Self::Vehicle)
+    }
 }
 
 impl From<RewindType> for MovementCorrectionSubject {
@@ -420,10 +425,7 @@ impl From<RewindType> for MovementCorrectionSubject {
 /// is a pitch/yaw pair only; the packet carries no head-yaw field. `position`
 /// keeps its raw value including non-finite sentinels because downstream
 /// resolution owns that documented recovery policy, while `delta` and the
-/// rotation are validated finite before this event exists. The wire's optional
-/// `vehicle_angular_velocity` is decoded and deliberately dropped here because
-/// vehicle-subject records are not admitted downstream yet; riding rewind will
-/// need to retain it.
+/// rotation are validated finite before this event exists.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerMovementCorrectionEvent {
     pub position: [f32; 3],
@@ -433,6 +435,8 @@ pub struct PlayerMovementCorrectionEvent {
     pub subject: MovementCorrectionSubject,
     pub on_ground: bool,
     pub tick: u64,
+    /// A vehicle correction's turn rate in degrees per tick; non-finite values are dropped.
+    pub vehicle_angular_velocity: Option<f32>,
 }
 
 /// One live biome definition reduced to the fields required by tint lookup.
