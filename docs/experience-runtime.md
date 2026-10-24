@@ -560,7 +560,8 @@ terrain. Live client-part transfer qualification remains open.
 The host samples committed positions once per host tick, independently of pauseable world clocks;
 moves retain the first and last sampled positions and emit at most once per player per tick.
 Observations retain their historical locations even if consumed after a later departure. Their
-writes still require current epoch authority. Leave has no live actor. A full observation queue
+writes still require current epoch authority. Leave retains private player state access but has no
+live actor for position reads, inventory, messages or travel. A full observation queue
 suspends the affected Experience instead of continuing with a missing lifecycle event.
 
 Each Experience has one private versioned record for the callback's player, one for its current

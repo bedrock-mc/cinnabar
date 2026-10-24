@@ -850,8 +850,6 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Client-part transfers remain disabled until the correlated extension notifier is integrated.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
-  Guest world definitions and creation, coordinated player transfers and world-epoch readiness,
-  typed player/instance stores, player lifecycle events and live transfer acceptance remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and
   offline behavior coverage; populated-world interaction and rendering acceptance
   remain unverified.

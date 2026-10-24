@@ -170,7 +170,7 @@ func (h *Host) current(tx *world.Tx, exp string, ev event, snap snapshot) (world
 	if !h.playerCurrent(ev) {
 		return nil, fmt.Errorf("%w: player location epoch changed", errStale)
 	}
-	if snap.req.Info.Context != nil && !h.store.statesCurrent(exp, stateAddresses(ev.instance.handle.ID, snap.req.Actor), snap.req.Info.Context.Stores) {
+	if snap.req.Info.Context != nil && !h.store.statesCurrent(exp, stateAddresses(ev.instance.handle.ID, ev.storePrincipal(snap.req.Actor)), snap.req.Info.Context.Stores) {
 		return nil, fmt.Errorf("%w: private state changed", errStale)
 	}
 	if instance, ok := h.worlds.of(tx.World()); !ok || instance.handle != ev.instance.handle {

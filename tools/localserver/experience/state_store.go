@@ -149,7 +149,7 @@ func (h *Host) validateStateWrite(ev event, snap snapshot, op *StoreWriteOp, ear
 	}
 	var address stateAddress
 	authorized := false
-	for _, a := range stateAddresses(ev.instance.handle.ID, snap.req.Actor) {
+	for _, a := range stateAddresses(ev.instance.handle.ID, ev.storePrincipal(snap.req.Actor)) {
 		if a.Scope == op.Key.Scope {
 			address, authorized = a, true
 		}

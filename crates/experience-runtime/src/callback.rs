@@ -96,6 +96,7 @@ pub struct CallbackRes {
     info: CallbackInfo,
     context: Option<protocol::WorldContext>,
     actor: Option<String>,
+    player_store: bool,
     /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
     /// its anchor would have.
     focus: Option<BlockPos>,
@@ -311,6 +312,7 @@ fn prepare<'a>(
             event_sequence: info.event_sequence,
         },
         actor: actor.clone(),
+        player_store: actor.is_some() || matches!(call, Call::Player { .. }),
         focus: focused,
         own: Arc::clone(own),
         snapshot: Snapshot {

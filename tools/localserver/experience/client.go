@@ -112,18 +112,20 @@ func (c *dropCount) add() (uint64, bool) {
 	return n, now-last >= int64(dropLogInterval) && c.lastLog.CompareAndSwap(last, now)
 }
 
-// sendCurrent holds the departure fence through delivery, closing the post-commit send race.
+// sendCurrent serializes delivery with departure without holding a registry lock across transport code.
 func (h *Host) sendCurrent(d *dispatcher, ev event, op *SendClientOp) {
-	h.players.mu.Lock()
-	defer h.players.mu.Unlock()
 	if ev.actor == nil {
 		return
 	}
-	if ev.epoch != 0 {
-		state := h.players.items[ev.actor]
-		if state == nil || state.transferring || state.location.Epoch != ev.epoch {
-			return
-		}
+	h.players.mu.Lock()
+	state := h.players.items[ev.actor]
+	h.players.mu.Unlock()
+	if state != nil {
+		state.sends.Lock()
+		defer state.sends.Unlock()
+	}
+	if !h.playerCurrent(ev) {
+		return
 	}
 	h.sendClient(d, ev.actor.UUID(), op)
 }

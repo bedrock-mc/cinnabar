@@ -57,6 +57,7 @@ fn player_reads_require_the_callback_actor() {
         Err(WorldError::Denied)
     ));
     res.actor = None;
+    res.player_store = false;
     assert!(matches!(
         res.store_read(wit::StoreKey {
             scope: wit::StoreScope::Player,
@@ -142,4 +143,24 @@ fn state_records_preserve_schema_presence_and_share_block_quota() {
     assert_eq!(res.store_read(key()).unwrap().unwrap(), None);
     assert_eq!(res.ops.len(), 1);
     assert_eq!(res.added, 0);
+}
+
+#[test]
+fn leave_keeps_private_player_state_without_live_player_authority() {
+    let mut res = world_callback();
+    res.actor = None;
+    res.player_store = true;
+    let key = wit::StoreKey {
+        scope: wit::StoreScope::Player,
+        schema: 1,
+    };
+    res.store_write(key, Some(vec![1])).unwrap().unwrap();
+    assert!(matches!(
+        res.player_location(ACTOR.into()).unwrap(),
+        Err(WorldError::Denied)
+    ));
+    assert!(matches!(
+        res.tell(ACTOR.into(), "left".into()).unwrap(),
+        Err(WorldError::Denied)
+    ));
 }

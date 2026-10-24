@@ -306,13 +306,19 @@ func TestWorldGenerationsSurviveRestart(t *testing.T) {
 }
 
 // runtimeChannels supplies the enabled-client-parts condition without sending network data.
-type runtimeChannels struct{ sent *int }
+type runtimeChannels struct {
+	sent    *int
+	observe func()
+}
 
 // Declares refuses undeclared test channels.
 func (runtimeChannels) Declares(string, string, uint16) bool { return true }
 
 // Send keeps fixture data off the network.
 func (c runtimeChannels) Send(uuid.UUID, string, string, uint16, []Scalar) bool {
+	if c.observe != nil {
+		c.observe()
+	}
 	if c.sent != nil {
 		*c.sent++
 		return true
@@ -431,5 +437,70 @@ func TestSynchronousEpochAcknowledgmentFollowsWorldEvent(t *testing.T) {
 		default:
 			t.Fatalf("missing %s", kind)
 		}
+	}
+}
+
+// TestTransferPreservesAltitudeOutsideBlockRange separates player coordinates from block height.
+func TestTransferPreservesAltitudeOutsideBlockRange(t *testing.T) {
+	f := newRuntimeFixture(t)
+	ev, snap := f.request()
+	handle, _ := f.h.worlds.handle("probe:two")
+	position := Position{X: 1.25, Y: 500.5, Z: 3.75}
+	op := Op{World: &WorldActionOp{Action: WorldOp{Type: "transfer", Player: f.actor.UUID().String(), Instance: handle, Position: position}}}
+	if err := f.h.commitLifecycle(t.Context(), f.d, ev, snap, []Op{op}); err != nil {
+		t.Fatal(err)
+	}
+	w, _ := f.h.ResolveWorld(handle)
+	f.do(w, func(tx *world.Tx) {
+		actor, ok := f.actor.Entity(tx)
+		if !ok || positionOf(actor.Position()) != position {
+			t.Fatal("player altitude was constrained by block height")
+		}
+	})
+}
+
+// TestSendBridgeMayReadCurrentEpoch keeps transport callbacks outside the registry lock.
+func TestSendBridgeMayReadCurrentEpoch(t *testing.T) {
+	f := newRuntimeFixture(t)
+	ev, _ := f.request()
+	sent := 0
+	f.h.channels = runtimeChannels{sent: &sent, observe: func() {
+		if f.h.epoch(f.actor) != ev.epoch {
+			t.Fatal("send read another epoch")
+		}
+	}}
+	f.h.sendCurrent(f.d, ev, &SendClientOp{Player: f.actor.UUID().String(), Channel: "probe.test", Schema: 1})
+	if sent != 1 {
+		t.Fatal("current send failed")
+	}
+}
+
+// TestLeaveRetainsPrivatePlayerScope permits final private writes without a live player actor.
+func TestLeaveRetainsPrivatePlayerScope(t *testing.T) {
+	f := newRuntimeFixture(t)
+	f.do(f.source, func(tx *world.Tx) {
+		actor, _ := f.actor.Entity(tx)
+		f.h.PlayerDisconnected(actor.(*player.Player))
+		tx.RemoveEntity(actor)
+		_ = f.actor.Close()
+	})
+	<-f.d.events
+	ev := <-f.d.events
+	snap, err := f.h.snapshot(t.Context(), f.d, &ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.req.Actor != nil {
+		t.Fatal("leave retained a live actor")
+	}
+	data := "01"
+	f.do(f.source, func(tx *world.Tx) {
+		if _, err := f.h.apply(tx, "probe", ev, snap, []Op{{StoreWrite: &StoreWriteOp{Key: StoreKey{Scope: StorePlayer, Schema: 1}, Data: &data}}}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	state := f.h.store.readStates("probe", []stateAddress{{Scope: StorePlayer, Owner: f.actor.UUID().String()}})[0]
+	if state.Data == nil || *state.Data != data {
+		t.Fatal("leave wrote another scope")
 	}
 }

@@ -16,6 +16,7 @@ import (
 
 // playerState tracks one session; a departure fences work even when it returns to the same world.
 type playerState struct {
+	sends         *sync.Mutex
 	location      PlayerLocation
 	w             *world.World
 	transferring  bool
@@ -51,7 +52,7 @@ func (h *Host) PlayerJoined(p *player.Player) {
 		return
 	}
 	loc := PlayerLocation{World: instance.handle, Epoch: 1, Position: positionOf(p.Position())}
-	h.players.items[p.H()] = &playerState{location: loc, w: p.Tx().World()}
+	h.players.items[p.H()] = &playerState{sends: new(sync.Mutex), location: loc, w: p.Tx().World()}
 	h.observeLocked(p.H(), instance, p.Tx().World(), PlayerEvent{Type: "join", Location: &loc})
 }
 
@@ -65,6 +66,7 @@ func (h *Host) PlayerDisconnected(p *player.Player) {
 	}
 	h.flushFocus(p.UUID())
 	loc := state.location
+	loc.Position = positionOf(p.Position())
 	instance, _ := h.worlds.of(state.w)
 	h.observeLocked(p.H(), instance, state.w, PlayerEvent{Type: "leave", Location: &loc})
 	delete(h.players.items, p.H())
@@ -185,7 +187,7 @@ func (h *Host) runPlayerTicks(ctx context.Context) {
 
 // worldContext reads authorized state and the actor's location under its world transaction.
 func (h *Host) worldContext(tx *world.Tx, d *dispatcher, ev event, actor *string) *WorldContext {
-	context := &WorldContext{Current: ev.instance.handle, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(ev.instance.handle.ID, actor))}
+	context := &WorldContext{Current: ev.instance.handle, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(ev.instance.handle.ID, ev.storePrincipal(actor)))}
 	if ev.actor != nil {
 		if e, ok := ev.actor.Entity(tx); ok {
 			context.Player = &PlayerLocation{World: ev.instance.handle, Epoch: ev.epoch, Position: positionOf(e.Position())}
@@ -206,10 +208,18 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 		id := call.Player
 		actor = &id
 	}
-	context := &WorldContext{Current: loc.World, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(loc.World.ID, actor))}
+	context := &WorldContext{Current: loc.World, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(loc.World.ID, ev.storePrincipal(actor)))}
 	if actor != nil {
 		copy := *loc
 		context.Player = &copy
 	}
 	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context}, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
+}
+
+// storePrincipal retains an observed player's private record after its live actor leaves.
+func (ev event) storePrincipal(actor *string) *string {
+	if ev.call.Player != nil {
+		return &ev.call.Player.Player
+	}
+	return actor
 }

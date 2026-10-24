@@ -72,16 +72,25 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 			return errors.New("nonfinite destination")
 		}
 	}
-	if pos.Y < float64(w.Range().Min()) || pos.Y > float64(w.Range().Max()) {
-		return errors.New("destination outside world height")
-	}
 	// A server offering client parts must supply the extension helper's real fence.
 	if h.channels != nil && h.worldChanged == nil {
 		return errors.New("client-part world-change fence unavailable")
 	}
-	if err := await(ctx, w.Do(func(tx *world.Tx) { tx.Block(cube.PosFromVec3(pos.vec())) })); err != nil {
+	if err := await(ctx, w.Do(func(tx *world.Tx) {
+		anchor := cube.PosFromVec3(pos.vec())
+		anchor[1] = w.Range().Min()
+		tx.Block(anchor)
+	})); err != nil {
 		return err
 	}
+	h.players.mu.Lock()
+	state := h.players.items[ev.actor]
+	h.players.mu.Unlock()
+	if state == nil {
+		return errStale
+	}
+	state.sends.Lock()
+	defer state.sends.Unlock()
 	var before PlayerLocation
 	detached := false
 	var result error

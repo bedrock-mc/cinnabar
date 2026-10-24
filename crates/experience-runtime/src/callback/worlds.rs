@@ -212,7 +212,7 @@ impl CallbackRes {
     ) -> Result<Result<Option<Vec<u8>>, WorldError>> {
         self.host_call()?;
         let key: StoreKey = key.into();
-        if key.scope == StoreScope::Player && self.actor.is_none() {
+        if key.scope == StoreScope::Player && !self.player_store {
             return Ok(Err(WorldError::Denied));
         }
         let record = self
@@ -235,7 +235,7 @@ impl CallbackRes {
     ) -> Result<Result<(), WorldError>> {
         self.host_call()?;
         let key: StoreKey = key.into();
-        if key.scope == StoreScope::Player && self.actor.is_none() {
+        if key.scope == StoreScope::Player && !self.player_store {
             return Ok(Err(WorldError::Denied));
         }
         let Some(context) = self.context.as_mut() else {
@@ -268,11 +268,7 @@ impl CallbackRes {
             key,
             data: data.clone(),
         };
-        if let Some(index) = self
-            .ops
-            .iter()
-            .position(|op| matches!(op, Op::StoreWrite { key: old, .. } if old.scope == key.scope))
-        {
+        if let Some(index) = earlier {
             self.ops[index] = op;
         } else {
             stage(&mut self.ops, op)?;
