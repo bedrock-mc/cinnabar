@@ -135,6 +135,7 @@ fn item_block_id(
             || assets::facts::FLOWER_BED_ITEM_IDENTIFIERS.contains(&identifier)
             || assets::facts::CANDLE_ITEM_IDENTIFIERS.contains(&identifier)
             || assets::facts::METAL_BAR_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::SHAPED_SPRITE_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
     }
