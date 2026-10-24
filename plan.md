@@ -1034,6 +1034,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
 - Java shader packs (Iris/OptiFine format) use the `shaderpacks` Cargo feature, enabled in
   nightly packages while tagged beta packages leave it disabled. Shaders start Off.
+  As a temporary terrain compatibility mitigation, Windows Auto prefers Vulkan when
+  the session starts in Shader pack mode; explicit Graphics API choices still apply.
+  Selecting a pack during a running DX12 session changes the automatic backend preference
+  on the next launch. The DX12 terrain root cause and Windows hardware acceptance remain open.
   Shader-only world sampling, GPU pipeline creation and pack-folder discovery
   are deferred until requested; a failed pack samples only the dimension its retry is keyed
   on, the reload key acts only with a selected pack and never lists the pack folder, and pack

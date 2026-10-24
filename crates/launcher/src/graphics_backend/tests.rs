@@ -26,6 +26,57 @@ fn windows_defaults_to_dx12_then_vulkan() {
 }
 
 #[test]
+fn shader_pack_sessions_prefer_vulkan_only_on_windows() {
+    for platform in [
+        Platform::Windows,
+        Platform::Linux,
+        Platform::Android,
+        Platform::Macos,
+    ] {
+        assert_eq!(platform.session_backends(false), platform.backends());
+        let defaults = platform.session_backends(true);
+        assert_eq!(defaults.len(), platform.backends().len());
+        assert!(platform.backends().iter().all(|api| defaults.contains(api)));
+        if platform == Platform::Windows {
+            assert_eq!(defaults, [Backend::Vulkan, Backend::Dx12]);
+        } else {
+            assert_eq!(defaults, platform.backends());
+        }
+    }
+}
+
+#[test]
+fn shader_pack_preferences_preserve_explicit_choices_and_recovery() {
+    let defaults = Platform::Windows.session_backends(true);
+    assert_eq!(
+        candidates(defaults, defaults, None, None, &[])[0],
+        Backend::Vulkan
+    );
+    assert_eq!(
+        candidates(defaults, defaults, None, Some(Backend::Dx12), &[]),
+        [Backend::Dx12]
+    );
+    assert_eq!(
+        candidates(
+            defaults,
+            defaults,
+            Some(&[Backend::Dx12]),
+            Some(Backend::Vulkan),
+            &[]
+        ),
+        [Backend::Dx12]
+    );
+    assert_eq!(
+        candidates(defaults, defaults, None, None, &[Backend::Vulkan]),
+        [Backend::Dx12]
+    );
+    assert_eq!(
+        candidates(defaults, &[Backend::Dx12], None, None, &[]),
+        [Backend::Dx12]
+    );
+}
+
+#[test]
 fn precedence_respects_overrides_defaults_and_sentinel() {
     let defaults = Platform::Windows.backends();
     assert_eq!(candidates(defaults, defaults, None, None, &[]), defaults);

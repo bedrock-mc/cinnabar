@@ -35,6 +35,7 @@ pub(super) fn render_plugin(
     root: &Path,
     video: Option<Backend>,
     graphics_api_revision: u64,
+    shader_pack: bool,
     settings: WgpuSettings,
 ) -> Result<RenderPlugin> {
     let mut guard = StartupGuard::open(root)?;
@@ -67,7 +68,12 @@ pub(super) fn render_plugin(
         .collect();
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let defaults = platform.backends();
+    let defaults = platform.session_backends(shader_pack);
+    if platform == Platform::Windows && shader_pack {
+        log(format_args!(
+            "Renderer Auto prefers Vulkan for shader-pack compatibility; explicit Graphics API choices still apply"
+        ));
+    }
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
     let crashed = guard.recovery.crashed_choice();
@@ -159,7 +165,7 @@ pub(super) fn render_plugin(
                         }
                     }
                 }
-                rank(&mut adapters, platform, settings.power_preference);
+                rank(&mut adapters, defaults, settings.power_preference);
                 try_candidates(adapters, guard, explicit, |candidate| {
                     let backend = candidate.backend;
                     let (instance, adapter) = candidate.native;

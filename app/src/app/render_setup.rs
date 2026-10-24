@@ -35,6 +35,7 @@ pub(super) struct RendererSetup {
     pub data_root: std::path::PathBuf,
     pub graphics_api_revision: u64,
     pub video_override: Option<launcher::graphics_backend::Backend>,
+    pub shader_pack: bool,
 }
 
 impl bevy::prelude::Plugin for RendererSetup {
@@ -47,6 +48,7 @@ impl bevy::prelude::Plugin for RendererSetup {
             &self.data_root,
             self.video_override,
             self.graphics_api_revision,
+            self.shader_pack,
             settings,
         );
         install_result(app, result);
