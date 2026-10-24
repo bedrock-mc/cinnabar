@@ -9,7 +9,10 @@ use assets::{
 };
 use serde_json::{Map, Value};
 
-use super::materials::MaterialStates;
+use super::{
+    super::selection::{Selector, selection_condition},
+    materials::MaterialStates,
+};
 use crate::entity::{invalid, molang::MolangCompiler};
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -20,7 +23,7 @@ struct Raster {
 
 pub(super) struct Group {
     raster: Raster,
-    hidden: Vec<Box<str>>,
+    visibility: Vec<(Box<str>, String)>,
 }
 
 fn raster(target: Option<&str>, materials: &MaterialStates) -> Raster {
@@ -41,6 +44,30 @@ pub(super) fn resolve(
     parents: &mut Option<Box<[Option<usize>]>>,
 ) -> Result<Vec<Group>, AssetError> {
     let aliases = super::lowercase_map(description.get("materials"));
+    let resolve_alias = |alias: &str| aliases.get(alias).map(|name| raster(Some(name), materials));
+    let selector = Selector {
+        prefix: "material.",
+        arrays: controller
+            .get("arrays")
+            .and_then(|arrays| arrays.get("materials"))
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .map(|(name, members)| {
+                (
+                    name.to_ascii_lowercase(),
+                    members
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|member| member.as_str().map(str::to_owned))
+                        .collect(),
+                )
+            })
+            .collect(),
+        resolve: &resolve_alias,
+    };
+    let mut validator = MolangCompiler::default();
     let rules: Vec<_> = controller
         .get("materials")
         .and_then(Value::as_array)
@@ -49,23 +76,36 @@ pub(super) fn resolve(
         .filter_map(Value::as_object)
         .flatten()
         .filter_map(|(pattern, value)| {
-            let alias = value.as_str()?.strip_prefix("Material.")?;
-            let target = aliases.get(&alias.to_ascii_lowercase())?;
-            Some((
-                pattern.to_ascii_lowercase(),
-                raster(Some(target), materials),
-            ))
+            let choices = selector
+                .leaves(value.as_str()?)?
+                .into_iter()
+                .map(|(path, raster)| {
+                    let condition = selection_condition(&path);
+                    if let Some(text) = &condition {
+                        validator.compile(text).ok()?;
+                    }
+                    Some(Choice { raster, condition })
+                })
+                .collect::<Option<Vec<_>>>()?;
+            (!choices.is_empty()).then(|| (pattern.to_ascii_lowercase(), choices))
         })
         .collect();
+    let default = vec![Choice {
+        raster: Raster::default(),
+        condition: None,
+    }];
     let fallback = rules
         .iter()
         .rev()
         .find(|(pattern, _)| pattern == "*")
-        .map_or_else(Raster::default, |(_, raster)| *raster);
-    if rules.iter().all(|(_, raster)| *raster == fallback) {
+        .map_or(&default, |(_, choices)| choices);
+    if let [choice] = fallback.as_slice()
+        && choice.condition.is_none()
+        && rules.iter().all(|(_, choices)| choices == fallback)
+    {
         return Ok(vec![Group {
-            raster: fallback,
-            hidden: Vec::new(),
+            raster: choice.raster,
+            visibility: Vec::new(),
         }]);
     }
     if parents.is_none() {
@@ -88,41 +128,50 @@ pub(super) fn resolve(
     }
     if names.is_empty() {
         return Ok(vec![Group {
-            raster: fallback,
-            hidden: Vec::new(),
+            raster: fallback[0].raster,
+            visibility: Vec::new(),
         }]);
     }
     let assignments: Vec<_> = names
         .into_iter()
         .map(|name| {
-            let raster = rules
+            let choices = rules
                 .iter()
                 .rev()
                 .find(|(pattern, _)| entity_render_pattern_matches(pattern, &name))
-                .map_or(fallback, |(_, raster)| *raster);
-            (name, raster)
+                .map_or(fallback, |(_, choices)| choices);
+            (name, choices)
         })
         .collect();
-    let mut order = Vec::new();
+    let authored_visibility: Vec<_> = controller
+        .get("part_visibility")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .flatten()
+        .filter_map(|(pattern, value)| {
+            let text = super::expression_text(value)?;
+            validator.compile(&text).ok()?;
+            Some((pattern.to_ascii_lowercase(), text))
+        })
+        .collect();
     let mut seen = BTreeSet::new();
-    for raster in rules.iter().map(|(_, raster)| *raster).chain([fallback]) {
-        if assignments.iter().any(|(_, assigned)| *assigned == raster)
-            && seen.insert(raster.material.word(raster.state))
-        {
-            order.push(raster);
-        }
-    }
-    if order.len() == 1 {
-        return Ok(vec![Group {
-            raster: order[0],
-            hidden: Vec::new(),
-        }]);
-    }
-    if order.len() > MAX_ENTITY_RENDER_LAYERS
-        || assignments.len().saturating_mul(order.len() - 1) > MAX_ENTITY_RENDER_VISIBILITY
-    {
+    let order: Vec<_> = rules
+        .iter()
+        .flat_map(|(_, choices)| choices)
+        .chain(fallback)
+        .map(|choice| choice.raster)
+        .filter(|raster| {
+            assignments
+                .iter()
+                .any(|(_, choices)| choices.iter().any(|choice| choice.raster == *raster))
+        })
+        .filter(|raster| seen.insert(raster.material.word(raster.state)))
+        .collect();
+    if order.len() > MAX_ENTITY_RENDER_LAYERS {
         return Err(invalid(
-            "entity material bone masks exceed admitted render bounds",
+            "entity material groups exceed admitted render bounds",
         ));
     }
     if assignments
@@ -137,13 +186,54 @@ pub(super) fn resolve(
         .into_iter()
         .map(|raster| Group {
             raster,
-            hidden: assignments
+            visibility: assignments
                 .iter()
-                .filter(|(_, assigned)| *assigned != raster)
-                .map(|(name, _)| name.as_str().into())
+                .filter_map(|(name, choices)| {
+                    let condition = material_condition(choices, raster)?;
+                    let authored = authored_visibility
+                        .iter()
+                        .rev()
+                        .find(|(pattern, _)| entity_render_pattern_matches(pattern, name));
+                    let condition = match authored {
+                        Some((_, authored)) if condition != "0" => {
+                            format!("({authored}) && ({condition})")
+                        }
+                        _ => condition,
+                    };
+                    Some((name.as_str().into(), condition))
+                })
                 .collect(),
         })
         .collect())
+}
+
+/// A raster leaf and the selector condition that chooses it.
+#[derive(Clone, PartialEq)]
+struct Choice {
+    raster: Raster,
+    condition: Option<String>,
+}
+
+/// Returns a bone's visibility in one raster group; an unconditional owner needs no mask.
+fn material_condition(choices: &[Choice], raster: Raster) -> Option<String> {
+    let mut conditions = Vec::new();
+    for choice in choices.iter().filter(|choice| choice.raster == raster) {
+        let Some(condition) = &choice.condition else {
+            return None;
+        };
+        if !conditions.contains(condition) {
+            conditions.push(condition.clone());
+        }
+    }
+    Some(if conditions.is_empty() {
+        "0".into()
+    } else {
+        conditions
+            .into_iter()
+            .map(|condition| format!("({condition})"))
+            .collect::<Vec<_>>()
+            .join(" || ")
+    })
 }
 
 pub(super) struct Records<'a> {
@@ -172,7 +262,10 @@ pub(super) fn append(
         .iter()
         .map(|slot| usize::from(slot.candidate_count))
         .sum();
-    let added_visibility = groups.iter().map(|group| group.hidden.len()).sum::<usize>()
+    let added_visibility = groups
+        .iter()
+        .map(|group| group.visibility.len())
+        .sum::<usize>()
         + extra * usize::from(base.visibility_count);
     if layers.len() + groups.len() > MAX_ENTITY_RENDER_LAYERS
         || slots.len() + extra * usize::from(base.slot_count) > MAX_ENTITY_RENDER_SLOTS
@@ -181,14 +274,14 @@ pub(super) fn append(
             > MAX_ENTITY_RENDER_CANDIDATES
         || visibility.len() + added_visibility > MAX_ENTITY_RENDER_VISIBILITY
         || groups.iter().any(|group| {
-            usize::from(base.visibility_count) + group.hidden.len() > usize::from(u16::MAX)
+            usize::from(base.visibility_count) + group.visibility.len() > usize::from(u16::MAX)
         })
     {
         return Err(invalid(
             "entity material groups exceed admitted render bounds",
         ));
     }
-    if groups.len() == 1 {
+    if groups.len() == 1 && groups[0].visibility.is_empty() {
         layers.push(EntityRenderLayer {
             material: groups[0].raster.material,
             material_state: groups[0].raster.state,
@@ -196,7 +289,6 @@ pub(super) fn append(
         });
         return Ok(());
     }
-    let hidden_condition = molang.compile("0.0")?;
     let authored_visibility = visibility[base.first_visibility as usize..].to_vec();
     let authored_slots = slots[base.first_slot as usize..].to_vec();
     let authored_candidates: BTreeMap<_, _> = authored_slots
@@ -227,16 +319,12 @@ pub(super) fn append(
             layer.first_visibility = visibility.len() as u32;
             visibility.extend_from_slice(&authored_visibility);
         }
-        // Material ownership only hides parts; authored visibility can never be undone.
-        visibility.extend(
-            group
-                .hidden
-                .into_iter()
-                .map(|pattern| EntityRenderVisibility {
-                    pattern,
-                    condition: hidden_condition,
-                }),
-        );
+        for (pattern, condition) in group.visibility {
+            visibility.push(EntityRenderVisibility {
+                pattern,
+                condition: molang.compile(&condition)?,
+            });
+        }
         layer.visibility_count = (visibility.len() - layer.first_visibility as usize) as u16;
         layer.material = group.raster.material;
         layer.material_state = group.raster.state;
@@ -244,3 +332,7 @@ pub(super) fn append(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "material_groups_tests.rs"]
+mod tests;
