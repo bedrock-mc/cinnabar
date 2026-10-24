@@ -91,7 +91,7 @@ mod tests {
         for requested in [None, Some(wgpu::Dx12Compiler::default_dynamic_dxc())] {
             assert!(matches!(
                 dx12_shader_compiler(requested.clone(), Some(bundled.clone())),
-                wgpu::Dx12Compiler::DynamicDxc { dxc_path } if PathBuf::from(&dxc_path) == bundled
+                wgpu::Dx12Compiler::DynamicDxc { dxc_path } if std::path::Path::new(&dxc_path) == bundled
             ));
             assert!(matches!(
                 dx12_shader_compiler(requested, None),
