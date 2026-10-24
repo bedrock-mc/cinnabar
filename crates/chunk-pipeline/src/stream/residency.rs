@@ -135,6 +135,9 @@ impl WorldStream {
         if self.connectivity.len() != old_connectivity_len {
             self.bump_connectivity_generation();
         }
+        if removing_all {
+            self.reserve_connectivity_for_view();
+        }
         let (light_dirty, mesh_dirty) = if removing_all {
             self.lighting.retire_all();
             Default::default()
@@ -158,7 +161,7 @@ impl WorldStream {
         if !retired.is_empty() || retired_indexes.is_some() {
             #[cfg(feature = "tracy")]
             let _zone = tracing::info_span!("stream.retire_drop_dispatch").entered();
-            workers::retire(move || {
+            workers::detach(move || {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("stream.retired_drop").entered();
                 drop((retired, retired_indexes));
@@ -240,6 +243,7 @@ impl WorldStream {
         let chunks = chunks.clamp(0, MAX_VIEW_RADIUS_CHUNKS);
         if self.requested_radius != Some(chunks) {
             self.requested_radius = Some(chunks);
+            self.reserve_connectivity_for_view();
             self.request_chunk_retention();
         }
     }

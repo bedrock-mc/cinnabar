@@ -3,8 +3,8 @@
 use std::path::Path;
 
 use super::device::{
-    backends, flags, force_fallback, identity, instance, log, meets_requirements, request_device,
-    requested_adapter_name,
+    backends, dxc_failed, flags, force_fallback, identity, instance, log, meets_requirements,
+    request_device, requested_adapter_name,
 };
 use super::selection::{
     Candidate, VideoFallback, eligible, probe_backend, rank, summary, try_candidates,
@@ -23,13 +23,13 @@ use bevy::{
         settings::{RenderCreation, WgpuSettings},
     },
 };
-use launcher::graphics_backend::{Backend, Platform, candidates, default_order};
+use launcher::graphics_backend::{Backend, Platform, candidates};
 use launcher_host::renderer_startup::StartupGuard;
 
 #[derive(Resource)]
 struct RendererGuard(StartupGuard);
 
-/// Applies explicit overrides, vendor defaults and crash recovery before device creation.
+/// Applies explicit overrides, platform defaults and crash recovery before device creation.
 pub(super) fn render_plugin(
     app: &mut App,
     root: &Path,
@@ -42,6 +42,24 @@ pub(super) fn render_plugin(
     if let Some(previous) = &guard.interrupted {
         log(format_args!("Renderer startup interrupted: {previous:?}"));
     }
+    // Only Windows has a bundled DXC location; DX12 runs nowhere else.
+    if let (wgpu::Dx12Compiler::Fxc, Some(dxc)) = (
+        &settings.dx12_shader_compiler,
+        render::device_settings::bundled_dxc(),
+    ) {
+        if dxc.is_file() {
+            log(format_args!(
+                "Renderer DX12 shader compiler: FXC, as WGPU_DX12_COMPILER requests"
+            ));
+        } else {
+            log(format_args!(
+                "Renderer DX12 shader compiler: FXC, since {} is missing",
+                dxc.display()
+            ));
+        }
+    }
+    // Every probe shares it, so DXC that fails to load is logged once and later probes use FXC.
+    let dx12_shader_compiler = std::cell::RefCell::new(settings.dx12_shader_compiler.clone());
     let platform = Platform::current();
     let supported: Vec<_> = backends(wgpu::Instance::enabled_backend_features())
         .into_iter()
@@ -49,19 +67,11 @@ pub(super) fn render_plugin(
         .collect();
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let defaults = guard
-        .recovery
-        .working
-        .as_ref()
-        .and_then(|attempt| attempt.adapter.as_ref())
-        .map_or_else(
-            || platform.backends().to_vec(),
-            |adapter| default_order(platform, adapter),
-        );
+    let defaults = platform.backends();
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
     let crashed = guard.recovery.crashed_choice();
-    let automatic = candidates(&defaults, &supported, None, None, &[]);
+    let automatic = candidates(defaults, &supported, None, None, &[]);
     let ((creation, chosen), fallback) = with_video_fallback(
         environment.is_some(),
         video,
@@ -70,7 +80,7 @@ pub(super) fn render_plugin(
         |video, excluded| {
             let explicit = environment.is_some() || video.is_some();
             let allowed = candidates(
-                &defaults,
+                defaults,
                 &supported,
                 environment.as_deref(),
                 video,
@@ -86,18 +96,28 @@ pub(super) fn render_plugin(
                 let mut failures = Vec::new();
                 for backend in order {
                     let found = probe_backend(guard, backend, explicit, || {
+                        let compiler = dx12_shader_compiler.borrow().clone();
                         log(format_args!(
-                            "Renderer probing {backend:?}; DX12 shader compiler: {:?}",
-                            settings.dx12_shader_compiler
+                            "Renderer probing {backend:?}; DX12 shader compiler: {compiler:?}"
                         ));
-                        let display = app
-                            .world()
-                            .get_resource::<bevy::winit::DisplayHandleWrapper>()
-                            .map(|display| {
-                                Box::new(display.0.clone())
-                                    as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
-                            });
-                        let instance = instance(backend, &settings, display);
+                        let create = |compiler| {
+                            let display = app
+                                .world()
+                                .get_resource::<bevy::winit::DisplayHandleWrapper>()
+                                .map(|display| {
+                                    Box::new(display.0.clone())
+                                        as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
+                                });
+                            instance(backend, &settings, compiler, display)
+                        };
+                        let mut instance = create(compiler.clone());
+                        if dxc_failed(backend, &compiler, &instance) {
+                            log(format_args!(
+                                "Renderer could not load DX12 with {compiler:?}; using FXC"
+                            ));
+                            *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
+                            instance = create(wgpu::Dx12Compiler::Fxc);
+                        }
                         let mut found = Vec::new();
                         for adapter in
                             bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
@@ -233,7 +253,11 @@ async fn create_renderer(
 ) -> Result<RenderCreation> {
     let info = adapter.get_info();
     log(format_args!("Renderer creating device: {info:?}"));
+    let started = std::time::Instant::now();
     let (device, queue) = request_device(&adapter, settings).await?;
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.record("device", started.elapsed());
+    }
     log(format_args!(
         "Renderer device ready; awaiting first presentation: {info:?}"
     ));
@@ -257,7 +281,8 @@ fn mark_presented(
             Ok(()) => {
                 *done = true;
                 log(format_args!(
-                    "Renderer first frame completed; saved working backend and adapter"
+                    "Renderer first frame completed {:.1} ms after launch; saved working backend and adapter",
+                    crate::lifecycle::launched_at().elapsed().as_secs_f64() * 1e3
                 ));
             }
             Err(error) => {

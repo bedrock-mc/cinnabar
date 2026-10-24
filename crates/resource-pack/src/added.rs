@@ -3,6 +3,7 @@
 use crate::{
     AdmissionError, LibraryError, ValidatedPack, ValidatedPackStack,
     import::read_import,
+    manifest::Version,
     parser::validate_archive_parts,
     subpacks::{device_memory_tier, select},
 };
@@ -79,7 +80,7 @@ fn admit(archive: Vec<u8>, memory: u32) -> Result<Vec<ValidatedPack>, LibraryErr
             let subpack = select(&metadata.subpacks, memory);
             let (pack, _) = validate_archive_parts(
                 metadata.id,
-                &metadata.version_text(),
+                Version(metadata.version),
                 subpack,
                 bytes,
                 None,

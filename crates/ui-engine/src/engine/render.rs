@@ -1,13 +1,14 @@
 //! Layout and texture preparation, followed by painting only for visible screens.
 
-use std::{borrow::Borrow, cell::RefCell};
+use std::{borrow::Borrow, cell::RefCell, ops::Range};
 
 use json_ui::{Draw, DrawNode, FormRender, HitRegion, LayoutEnv};
 use ui::FONT_DESIGN_PIXEL_TEXELS;
 
 use super::{
     Art, Canvas, FormEngine, ScreenArt, dependencies, host_edit,
-    screen::{PaintError, PaintFrame},
+    retained_paint::{PaintInputs, Painted, RetainedPaint, reusable},
+    screen::{CustomRenderer, PaintError, PaintFrame},
     text_paint::{Measure, label_font, label_metrics, label_positioned},
     tooltip,
 };
@@ -26,6 +27,37 @@ impl FormEngine {
         draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
     ) -> Option<R> {
         prepare_with(self.art(), frame, art, draw)
+    }
+
+    /// [`Self::draw`] that reuses `retained`'s last paint while the layout, frame, art, textures
+    /// and animations it read are unchanged and its animations have settled. `reuse` is the
+    /// caller's word that `frame`'s renderers and `art`'s callbacks draw as they did then.
+    pub fn draw_retained<R: Borrow<FormRender>>(
+        &self,
+        retained: &mut RetainedPaint,
+        reuse: bool,
+        art: ScreenArt<'_>,
+        frame: &mut PaintFrame<'_>,
+        draw: impl FnOnce(&LayoutEnv, [f64; 2]) -> Option<R>,
+    ) -> Result<Option<EngineFrame>, PaintError> {
+        let textures = self.art();
+        let Some(render) = prepare_with(textures, frame, art, draw) else {
+            retained.forget();
+            return Ok(None);
+        };
+        let render = render.borrow();
+        if reuse
+            && reusable(&art)
+            && let Some(painted) = retained.replay(textures, frame, art, render)
+        {
+            return Ok(Some(painted));
+        }
+        retained.paints += 1;
+        if !reusable(&art) {
+            retained.forget();
+            return paint(textures, frame, art, render, None);
+        }
+        paint(textures, frame, art, render, Some(retained))
     }
 }
 
@@ -94,7 +126,23 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
     let Some(render) = prepare_with(textures, frame, art, draw) else {
         return Ok(None);
     };
-    let render = render.borrow();
+    paint(textures, frame, art, render.borrow(), None)
+}
+
+/// Paints `render`, and records into `retained` what a later frame needs to reuse the paint.
+fn paint(
+    textures: Art<'_>,
+    frame: &mut PaintFrame<'_>,
+    art: ScreenArt<'_>,
+    render: &FormRender,
+    mut retained: Option<&mut RetainedPaint>,
+) -> Result<Option<EngineFrame>, PaintError> {
+    // A paint that fails part-way leaves nothing to reuse.
+    if let Some(retained) = retained.as_deref_mut() {
+        retained.forget();
+    }
+    let inputs = retained.is_some().then(|| PaintInputs::of(&*frame, &art));
+    let start = frame.nodes.len();
     let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
     let mut atlas = textures.set.lock();
     let layouts = &mut *frame.layouts;
@@ -128,9 +176,72 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
             .lock()
             .unwrap_or_else(|poison| poison.into_inner()),
     };
-    let renderers = &mut *frame.renderers;
+    if inputs.is_some() {
+        canvas.animator.record();
+    }
+    let painted = paint_nodes(&mut canvas, render, art, &mut *frame.renderers);
+    // Recording stops even when painting failed, so later samples are not collected.
+    let animation = inputs.is_some().then(|| canvas.animator.finish_record());
+    let top = painted?;
+    let prepared = std::mem::take(&mut canvas.prepared);
+    drop(canvas);
+    let rasters = prepared.publish(
+        &mut atlas,
+        textures.set.server_page,
+        frame.nodes,
+        textures.set,
+    )?;
+    let origin = [frame.safe_area.left(), frame.safe_area.top()];
+    let painted = EngineFrame {
+        hits: render.hits.clone(),
+        report: render.report.clone(),
+        cancel_target: render.cancel_target.clone(),
+        origin,
+        scale: px,
+        panel: render
+            .root_panel
+            .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
+        edit_texts: edit_texts(
+            &render.hits,
+            &render.nodes,
+            origin[0],
+            frame.metrics,
+            frame.font,
+        ),
+        top,
+    };
+    if let (Some(retained), Some(inputs), Some(animation)) = (retained, inputs, animation)
+        && !animation.playing()
+    {
+        retained.remember(Painted {
+            inputs,
+            layout: std::sync::Arc::clone(&render.nodes),
+            textures: textures.set.revision(&atlas),
+            events_fired: textures
+                .animator
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .events_fired(),
+            animation,
+            rasters,
+            nodes: frame.nodes[start..].to_vec(),
+            next: *frame.next,
+            frame: painted.clone(),
+        });
+    }
+    Ok(Some(painted))
+}
+
+/// Paints `render`'s shown nodes, then `art`'s overlay, returning the output ranges that must
+/// stay above anything drawn after the screen.
+fn paint_nodes(
+    canvas: &mut Canvas<'_>,
+    render: &FormRender,
+    art: ScreenArt<'_>,
+    renderers: &mut [&mut dyn CustomRenderer],
+) -> Result<Vec<Range<usize>>, PaintError> {
     let view = art.view;
-    let mut top: Vec<std::ops::Range<usize>> = Vec::new();
+    let mut top: Vec<Range<usize>> = Vec::new();
     let overlay_start = render.nodes.len();
     for (index, node) in render.nodes.iter().chain(art.overlay).enumerate() {
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
@@ -160,33 +271,7 @@ pub(super) fn render_with<R: Borrow<FormRender>>(
         }
     }
     canvas.close_filter()?;
-    let prepared = std::mem::take(&mut canvas.prepared);
-    drop(canvas);
-    prepared.publish(
-        &mut atlas,
-        textures.set.server_page,
-        frame.nodes,
-        textures.set,
-    )?;
-    let origin = [frame.safe_area.left(), frame.safe_area.top()];
-    Ok(Some(EngineFrame {
-        hits: render.hits.clone(),
-        report: render.report.clone(),
-        cancel_target: render.cancel_target.clone(),
-        origin,
-        scale: px,
-        panel: render
-            .root_panel
-            .map(|rect| [rect.x, rect.y, rect.w, rect.h]),
-        edit_texts: edit_texts(
-            &render.hits,
-            &render.nodes,
-            origin[0],
-            frame.metrics,
-            frame.font,
-        ),
-        top,
-    }))
+    Ok(top)
 }
 
 /// Each edit box's text label as painted, including its effective scale and named face.

@@ -2,6 +2,7 @@ use assets::facts::entity::{EntityFact, EntityFacts, NativeEntityClass};
 use hashbrown::HashMap as FastHashMap;
 use protocol_ids::{ActorDataKey, ActorFlag, PlayerFlag};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU64;
 
 #[cfg(test)]
 use protocol::ITEM_ACTOR_NETWORK_OFFSET;
@@ -11,6 +12,7 @@ mod animated;
 mod appearance_preparation;
 mod colliders;
 mod effect_members;
+mod offered_use;
 pub use colliders::ActorCollisionBounds;
 mod death_visibility;
 mod local_presentation;
@@ -123,9 +125,11 @@ pub struct ActorSnapshot {
     pub painting: Option<protocol::PaintingData>,
     pub unique_id: i64,
     pub runtime_id: u64,
-    /// Spawn arrival, or the last admitted actor arrival for a synthetic local actor.
-    /// Zero identifies an initial synthetic actor before any actor event arrived.
+    /// Spawn arrival, or the boundary that started a synthetic local actor's lifetime.
+    /// Zero identifies the initial local lifetime created by session setup.
     pub spawn_revision: u64,
+    /// Independently allocated render lifetime, including before a local spawn arrives.
+    pub render_spawn_revision: NonZeroU64,
     pub movement_revision: u64,
     pub kind: ActorKind,
     /// Native facts copied at actor admission from its declared constructor.
@@ -241,6 +245,7 @@ impl ActorSnapshot {
     fn from_spawn(
         spawn: ActorSpawnEvent,
         spawn_revision: u64,
+        render_spawn_revision: NonZeroU64,
         entity_fact: EntityFact,
         hitbox_budget: &mut hitbox::Budget,
     ) -> Self {
@@ -262,6 +267,7 @@ impl ActorSnapshot {
             unique_id: spawn.unique_id,
             runtime_id: spawn.runtime_id,
             spawn_revision,
+            render_spawn_revision,
             movement_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
@@ -313,11 +319,11 @@ impl ActorSnapshot {
     fn local_player(
         unique_id: i64,
         runtime_id: u64,
-        spawn_revision: u64,
-        movement_revision: u64,
+        (spawn_revision, movement_revision, render_spawn_revision): (u64, u64, NonZeroU64),
         uuid: [u8; 16],
         username: std::sync::Arc<str>,
         feed: &LocalPlayerFeed,
+        authority: Option<Self>,
     ) -> Self {
         let pose = ActorPose {
             y_origin: PoseYOrigin::default(),
@@ -326,14 +332,18 @@ impl ActorSnapshot {
             yaw: feed.yaw,
             head_yaw: feed.head_yaw,
         };
-        let mut snapshot = Self {
+        let mut snapshot = authority.unwrap_or_else(|| Self {
             painting: None,
             unique_id,
             runtime_id,
             spawn_revision,
+            render_spawn_revision,
             movement_revision,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
-            kind: ActorKind::Player { uuid, username },
+            kind: ActorKind::Player {
+                uuid,
+                username: username.clone(),
+            },
             entity_fact: EntityFacts::pinned().player(),
             position: feed.position,
             velocity: feed.velocity,
@@ -362,12 +372,33 @@ impl ActorSnapshot {
             },
             dragon_animation: None,
             hitboxes: None,
-        };
+        });
+        snapshot.unique_id = unique_id;
+        snapshot.runtime_id = runtime_id;
+        snapshot.spawn_revision = spawn_revision;
+        snapshot.render_spawn_revision = render_spawn_revision;
+        snapshot.explicit_dimensions.spawn_revision = Some(spawn_revision);
+        snapshot.movement_revision = movement_revision;
+        snapshot.kind = ActorKind::Player { uuid, username };
+        snapshot.previous_pose = pose;
+        snapshot.received_pose = pose;
+        snapshot.set_current_pose(pose);
+        snapshot.body_yaw = feed.yaw;
+        snapshot.interpolation_ticks_remaining = 0;
+        snapshot.velocity = feed.velocity;
+        snapshot.status.native_velocity = feed.velocity;
+        snapshot.status.fall_fly_ticks = feed.fall_fly_ticks;
+        snapshot.on_ground = Some(feed.on_ground);
+        snapshot.teleported = feed.teleported;
         // Retain the visible-name default until the server replaces it.
-        snapshot.metadata.insert(
-            ActorDataKey::Flags.wire_value(),
-            ActorMetadataValue::Flags(1 << ActorFlag::ShowName.wire_value()),
-        );
+        snapshot
+            .metadata
+            .entry(ActorDataKey::Flags.wire_value())
+            .or_insert(ActorMetadataValue::Flags(
+                (1 << ActorFlag::ShowName.wire_value())
+                    | (1 << ActorFlag::HasGravity.wire_value())
+                    | (1 << ActorFlag::HasCollision.wire_value()),
+            ));
         snapshot.apply_local_flags(feed);
         snapshot
     }
@@ -400,9 +431,11 @@ impl ActorSnapshot {
         }
     }
 
+    /// Whether invisibility hides this actor's body after applying its rendering override.
     #[must_use]
     pub fn is_invisible(&self) -> bool {
         self.flag(ActorFlag::Invisible.wire_value())
+            && !self.flag(ActorFlag::RenderWhenInvisible.wire_value())
     }
 
     #[must_use]
@@ -725,6 +758,10 @@ pub(crate) struct ActorStore {
     remote_state_excluded_runtime_id: Option<u64>,
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
+    pending_local_actor: Option<ActorSnapshot>,
+    local_actor_revision: u64,
+    /// Last allocated render lifetime; authority arrivals use a separate sequence.
+    render_spawn_revision: u64,
     /// Arm swings the server sent for the local player, waiting for its swing tracker.
     local_server_swings: Vec<Option<std::sync::Arc<str>>>,
     pending_local_damage: Option<local_health::PendingLocalDamage>,
@@ -809,6 +846,7 @@ mod lifecycle;
 pub use dimensions::{DimensionWrite, ExplicitDimensions};
 mod movement_flags;
 mod riding_control;
+mod unspawned_local;
 pub use movement_flags::MovementFlagUpdate;
 mod lightning;
 mod mount;
@@ -919,6 +957,9 @@ mod hitbox_tests;
 mod dimensions_tests;
 #[cfg(test)]
 mod movement_flags_tests;
+
+#[cfg(test)]
+mod visibility_tests;
 
 mod display;
 pub use display::{DisplayActorStore, MAX_DISPLAY_ACTORS};

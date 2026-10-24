@@ -2,9 +2,34 @@ use super::*;
 use crate::committed_control::CommittedGameplayState;
 use std::sync::Arc;
 
+/// Applies queued actor writes through the gameplay authority consumer.
+pub(super) fn apply_controls(
+    world: &mut client_world::WorldAuthority,
+    physics: &mut LocalPhysicsController,
+) {
+    let mut movement = crate::movement::MovementTicker::default();
+    movement.reset(1, 100, [0.5, 72.0, 0.5]);
+    movement.set_source(crate::movement::MovementSource::Physics);
+    let mut effects = crate::movement::LocalMovementEffectTimeline::default();
+    let mut speed = crate::movement::LocalMovementSpeedAuthority::default();
+    for control in world.take_committed_controls() {
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 1,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(control, &OpenWorld, |_| {});
+    }
+}
+
 /// Commits sparse dimensions through the same actor path as server metadata.
 pub(super) fn write_dimensions(
     world: &mut client_world::WorldAuthority,
+    physics: &mut LocalPhysicsController,
     sequence: u64,
     fields: &[(ActorDataKey, f32)],
 ) {
@@ -28,6 +53,7 @@ pub(super) fn write_dimensions(
             Some(sequence),
         )
         .unwrap();
+    apply_controls(world, physics);
 }
 
 /// Reads a due sync without consuming it, using the actual stored local actor.
@@ -58,8 +84,14 @@ fn sync_sparse_width_preserves_pose_owned_height() {
         for previous_height in [None, Some(1.5)] {
             let mut world = local_actor_authority();
             let mut physics = due_physics();
+            apply_controls(&mut world, &mut physics);
             if let Some(previous_height) = previous_height {
-                write_dimensions(&mut world, 2, &[(ActorDataKey::Height, previous_height)]);
+                write_dimensions(
+                    &mut world,
+                    &mut physics,
+                    2,
+                    &[(ActorDataKey::Height, previous_height)],
+                );
                 assert_eq!(
                     reported_box(&mut physics, &world),
                     [1.0, 0.6, previous_height]
@@ -76,6 +108,7 @@ fn sync_sparse_width_preserves_pose_owned_height() {
             assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
             write_dimensions(
                 &mut world,
+                &mut physics,
                 3,
                 &[(ActorDataKey::Width, 0.6), (ActorDataKey::Scale, scale)],
             );
@@ -99,7 +132,7 @@ fn sync_sparse_height_preserves_pose_owned_width() {
     let height = sim::MovementMode::Walking.hitbox_height(true) as f32;
     let mut world = local_actor_authority();
     let mut physics = due_physics();
-    write_dimensions(&mut world, 2, &[(ActorDataKey::Width, 0.8)]);
+    write_dimensions(&mut world, &mut physics, 2, &[(ActorDataKey::Width, 0.8)]);
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.8, 1.8]);
     physics.advance(
         simulation_clock::TICK_DURATION,
@@ -110,7 +143,12 @@ fn sync_sparse_height_preserves_pose_owned_width() {
         &OpenWorld,
     );
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
-    write_dimensions(&mut world, 3, &[(ActorDataKey::Height, height)]);
+    write_dimensions(
+        &mut world,
+        &mut physics,
+        3,
+        &[(ActorDataKey::Height, height)],
+    );
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
 }
 
@@ -119,22 +157,16 @@ fn sync_sparse_height_preserves_pose_owned_width() {
 fn sync_accumulates_sparse_dimensions_before_a_tick() {
     let mut world = local_actor_authority();
     let mut physics = due_physics();
-    write_dimensions(&mut world, 2, &[(ActorDataKey::Width, 0.8)]);
-    write_dimensions(&mut world, 3, &[(ActorDataKey::Height, 1.5)]);
+    write_dimensions(&mut world, &mut physics, 2, &[(ActorDataKey::Width, 0.8)]);
+    write_dimensions(&mut world, &mut physics, 3, &[(ActorDataKey::Height, 1.5)]);
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.8, 1.5]);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
         sim::MovementInput::default(),
-        crate::movement::PhysicsSampleContext {
-            mode_intent: crate::movement::ModeIntent {
-                explicit_dimensions: world.actor(7).unwrap().explicit_dimensions,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        crate::movement::PhysicsSampleContext::default(),
         &OpenWorld,
     );
-    write_dimensions(&mut world, 4, &[(ActorDataKey::Scale, 2.0)]);
+    write_dimensions(&mut world, &mut physics, 4, &[(ActorDataKey::Scale, 2.0)]);
     assert_eq!(reported_box(&mut physics, &world), [2.0, 0.8, 1.5]);
 }
 
@@ -230,6 +262,7 @@ fn replacement_dimensions_have_a_new_lifetime() {
         let mut physics = due_physics();
         write_dimensions(
             &mut world,
+            &mut physics,
             2,
             &[(ActorDataKey::Width, 0.9), (ActorDataKey::Height, 0.7)],
         );
@@ -248,6 +281,7 @@ fn replacement_dimensions_have_a_new_lifetime() {
                 Some(3),
             )
             .unwrap();
+        apply_controls(&mut world, &mut physics);
         assert_eq!(world.actor(7).unwrap().spawn_revision, 3);
         let expected = [
             1.0,
@@ -264,13 +298,7 @@ fn replacement_dimensions_have_a_new_lifetime() {
         physics.advance_with_context(
             simulation_clock::TICK_DURATION,
             sim::MovementInput::default(),
-            crate::movement::PhysicsSampleContext {
-                mode_intent: crate::movement::ModeIntent {
-                    explicit_dimensions: world.actor(7).unwrap().explicit_dimensions,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
+            crate::movement::PhysicsSampleContext::default(),
             &OpenWorld,
         );
         assert_eq!(reported_box(&mut physics, &world), expected);
@@ -301,30 +329,20 @@ fn replacement_size_yields_to_a_changed_local_pose() {
             Some(3),
         )
         .unwrap();
+    apply_controls(&mut world, &mut physics);
     assert_eq!(reported_box(&mut physics, &world), [1.0, 0.8, 1.8]);
     physics.advance_with_context(
         simulation_clock::TICK_DURATION,
-        sim::MovementInput::default(),
-        crate::movement::PhysicsSampleContext {
-            mode_intent: crate::movement::ModeIntent {
-                explicit_dimensions: world.actor(7).unwrap().explicit_dimensions,
-                ..Default::default()
-            },
-            ..Default::default()
-        },
+        crouch,
+        crate::movement::PhysicsSampleContext::default(),
         &OpenWorld,
     );
-    assert_eq!(
-        reported_box(&mut physics, &world),
-        [1.0, 0.6, sim::PLAYER_HEIGHT as f32]
-    );
+    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.6, height]);
     write_dimensions(
         &mut world,
+        &mut physics,
         4,
         &[(ActorDataKey::Width, 0.6), (ActorDataKey::Scale, 2.0)],
     );
-    assert_eq!(
-        reported_box(&mut physics, &world),
-        [2.0, 0.6, sim::PLAYER_HEIGHT as f32]
-    );
+    assert_eq!(reported_box(&mut physics, &world), [2.0, 0.6, height]);
 }

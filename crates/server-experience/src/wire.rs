@@ -287,6 +287,40 @@ pub struct Ingress {
 }
 
 impl Ingress {
+    /// Takes a server request to advance the logical world epoch on wire v2. Notices bypass
+    /// the data rate budget and cannot interrupt a fragmented message.
+    pub fn receive_epoch_request(
+        &mut self,
+        message: &protocol::ExperienceMessage,
+        grant: &Grant,
+    ) -> Result<Option<u64>> {
+        let Some((session, world_epoch)) = message.world_notice() else {
+            return Ok(None);
+        };
+        let result = (|| {
+            ensure!(!self.failed, "channel quarantined");
+            ensure!(
+                message.as_bytes().len() <= protocol::MAX_EXPERIENCE_CONTROL_BYTES,
+                "control message too large"
+            );
+            ensure!(
+                grant.wire.version != WIRE_VERSION,
+                "world notice requires wire v2"
+            );
+            ensure!(session == grant.session, "world notice for another session");
+            ensure!(world_epoch != 0, "zero world epoch request");
+            ensure!(
+                self.partial.is_none(),
+                "world notice inside a fragmented message"
+            );
+            Ok(Some(world_epoch))
+        })();
+        if result.is_err() {
+            self.quarantine();
+        }
+        result
+    }
+
     /// Starts a fresh sequence space after a signed handshake.
     pub fn new(now_ms: u64) -> Self {
         Self {
@@ -313,12 +347,17 @@ impl Ingress {
     ) -> Result<()> {
         let result = self.receive_inner(bytes, now_ms, publication, grant, recipient);
         if result.is_err() {
-            self.failed = true;
-            self.queue.clear();
-            self.bytes = 0;
-            self.partial = None;
+            self.quarantine();
         }
         result
+    }
+
+    /// Revokes this direction and releases all queued or partially assembled messages.
+    fn quarantine(&mut self) {
+        self.failed = true;
+        self.queue.clear();
+        self.bytes = 0;
+        self.partial = None;
     }
 
     /// Validates identity and schema after charging aggregate ingress cost.

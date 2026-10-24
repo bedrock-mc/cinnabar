@@ -8,7 +8,7 @@ mod labels;
 mod layout;
 mod localization;
 mod mods;
-mod picker;
+pub(super) mod picker;
 mod presets;
 mod renderer;
 mod resources;

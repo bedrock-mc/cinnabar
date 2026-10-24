@@ -30,6 +30,8 @@ pub enum Scene {
     Loading,
     SignEditor,
     ServerForm,
+    /// A script form shown through data-driven UI.
+    DataDriven,
     Menu(MenuScreen),
     /// The server settings form, which opens over the settings menu.
     ServerSettingsForm,
@@ -46,6 +48,7 @@ impl Scene {
             | Self::Emote
             | Self::SignEditor
             | Self::ServerForm
+            | Self::DataDriven
             | Self::ServerSettingsForm
             | Self::Credits => true,
             Self::Gameplay

@@ -242,6 +242,7 @@ mod tests {
                 player_interact: false,
                 sound: None,
                 tags: Default::default(),
+                tags_complete: true,
                 visual: std::sync::Arc::default(),
             }]),
             ..Default::default()

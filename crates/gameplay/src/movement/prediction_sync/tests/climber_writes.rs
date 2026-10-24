@@ -364,3 +364,79 @@ fn pending_climber_clear_replaces_a_set_without_clearing_other_pending_bits() {
         assert_eq!(reported(&physics, &actor)[1], 0);
     }
 }
+
+#[test]
+fn replacement_climber_flags_supersede_pending_old_lifetime_writes() {
+    for completed in [false, true] {
+        for contact in [false, true] {
+            let mut world = local_actor_authority();
+            let mut physics = due_physics();
+            super::state_updates::apply_controls(&mut world, &mut physics);
+            let anchor = physics
+                .advance(
+                    simulation_clock::TICK_DURATION,
+                    sim::MovementInput::default(),
+                    &OpenWorld,
+                )
+                .samples
+                .remove(0);
+            physics.advance(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                &OpenWorld,
+            );
+            let bit = 1 << (ActorFlag::OverDescendingBlock.wire_value() % 64);
+            physics.apply_server_movement_flags(
+                0,
+                client_world::MovementFlagUpdate {
+                    extended_flags: Some(if contact { 0 } else { bit }),
+                    ..Default::default()
+                },
+            );
+            let mut replacement = local_actor_spawn(Vec::new());
+            replacement.metadata = [protocol::ActorMetadata {
+                key: ActorDataKey::FlagsTwo.wire_value(),
+                value: ActorMetadataValue::FlagsExtended(if contact { bit } else { 0 }),
+            }]
+            .into();
+            world
+                .apply_ordered_event(
+                    protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
+                    Some(2),
+                )
+                .unwrap();
+            super::state_updates::apply_controls(&mut world, &mut physics);
+            let flags = physics.prediction_sync_flags().extended_flags.unwrap();
+            assert_eq!(flags & bit != 0, contact);
+            if completed {
+                physics.advance(
+                    simulation_clock::TICK_DURATION,
+                    sim::MovementInput {
+                        immobile: true,
+                        ..Default::default()
+                    },
+                    &OpenWorld,
+                );
+            }
+            physics
+                .replay_retained_from(anchor.tick, &OpenWorld)
+                .unwrap();
+            if !completed {
+                let flags = physics.prediction_sync_flags().extended_flags.unwrap();
+                assert_eq!(flags & bit != 0, contact);
+            }
+            let next = physics.advance(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput {
+                    sneaking: true,
+                    ..Default::default()
+                },
+                &OpenWorld,
+            );
+            assert_eq!(next.completed_ticks, 1);
+            if !completed {
+                assert_eq!(next.samples[0].movement[1] == -0.15, contact);
+            }
+        }
+    }
+}

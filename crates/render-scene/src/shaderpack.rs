@@ -212,10 +212,6 @@ pub struct ShaderPackFrameInputs {
     /// Frozen `frameTimeCounter` in seconds for captures (developer `--frame-time-counter`);
     /// `None` counts real time.
     pub frame_time_counter: Option<f32>,
-    /// Blocks along the camera ray to terrain geometry; models use their surfaces, while
-    /// cubes and liquids use cell boundaries. `None` when nothing is in range.
-    /// `centerDepthSmooth` smooths the corresponding depth-buffer value.
-    pub center_distance: Option<f32>,
     /// Fog start and end distances in blocks (`fogStart`, `fogEnd`).
     pub fog_range: [f32; 2],
     /// Render distance in blocks (`far`).
@@ -273,7 +269,6 @@ impl Default for ShaderPackFrameInputs {
             eye_medium: 0,
             sky_biomes: [(0, 0.0); SKY_BIOME_SLOTS],
             frame_time_counter: None,
-            center_distance: None,
             fog_range: [0.0, 256.0],
             render_distance: 256.0,
             night_vision: 0.0,

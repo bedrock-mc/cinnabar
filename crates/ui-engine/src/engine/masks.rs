@@ -42,33 +42,17 @@ pub(crate) struct PreparedRasters {
 }
 
 impl PreparedRasters {
-    /// Publishes only each painter's namespace and resolves its already transformed sprite nodes.
+    /// Publishes only each painter's namespace and resolves its already transformed sprite
+    /// nodes, returning the atlas work that [`Self::repeat`] performs again for a reused paint.
     pub(crate) fn publish(
-        self,
+        mut self,
         atlas: &mut ServerAtlas,
         first: u16,
         nodes: &mut [UiNode],
         set: &crate::textures::TextureSet,
-    ) -> Result<(), PaintError> {
-        for (key, size) in self.sources {
-            atlas.prepare_outline(&key, size);
-        }
-        for namespace in self.namespaces {
-            set.masks
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .rows
-                .retain(|key, _| !key.starts_with(&namespace) || self.rows.contains(key));
-            let images = self
-                .images
-                .iter()
-                .filter(|(key, _)| key.starts_with(&namespace))
-                .map(|(key, image)| (key.clone(), image.clone()))
-                .collect();
-            atlas.set_client_rasters(&namespace, &images);
-        }
-        atlas.require_current(self.images.keys().map(String::as_str));
-        for sprite in self.sprites {
+    ) -> Result<Self, PaintError> {
+        self.repeat(atlas, set);
+        for sprite in std::mem::take(&mut self.sprites) {
             if let Some(slot) = atlas.placement(&sprite.key) {
                 let [x, y, w, h] = slot.rect.map(f32::from);
                 let mesh = UiMesh::sprite(
@@ -83,7 +67,34 @@ impl PreparedRasters {
                     .with_visual(UiVisual::Mesh(Arc::new(mesh)));
             }
         }
-        Ok(())
+        Ok(self)
+    }
+
+    /// Prepares the paint's source outlines and publishes its mask rasters, keeping them resident.
+    pub(crate) fn repeat(&self, atlas: &mut ServerAtlas, set: &crate::textures::TextureSet) {
+        for (key, size) in &self.sources {
+            atlas.prepare_outline(key, *size);
+        }
+        for namespace in &self.namespaces {
+            set.masks
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .rows
+                .retain(|key, _| !key.starts_with(namespace.as_str()) || self.rows.contains(key));
+            let images = self
+                .images
+                .iter()
+                .filter(|(key, _)| key.starts_with(namespace.as_str()))
+                .map(|(key, image)| (key.clone(), image.clone()))
+                .collect();
+            atlas.set_client_rasters(namespace, &images);
+        }
+        atlas.require_current(self.images.keys().map(String::as_str));
+    }
+
+    /// The source outlines the paint read, by canonical key and draw size.
+    pub(crate) fn sources(&self) -> impl Iterator<Item = (&str, [u32; 2])> {
+        self.sources.iter().map(|(key, size)| (key.as_str(), *size))
     }
 }
 

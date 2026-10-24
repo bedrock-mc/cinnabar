@@ -277,6 +277,7 @@ pub struct LocalPhysicsController {
     sample_history: VecDeque<PhysicsMovementSample>,
     controller_history: VecDeque<ControllerFrame>,
     live_climber: Option<ClimberFlags>,
+    pending_climber: climber_authority::ClimberWrite,
     climber_corrections: VecDeque<climber_authority::ClimberCorrection>,
     motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
     motion_anchor: Option<motion_ticks::CompletedMotionTick>,
@@ -290,6 +291,8 @@ pub struct LocalPhysicsController {
     /// Accepted server posture newer than the latest completed sample.
     live_posture: ServerControlFlags,
     sync_state: posture::SyncState,
+    /// Ordered writes belong to the timeline and survive actor-state replacement.
+    sync_pending: Vec<posture::ServerWrite>,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
     boosts: super::boosts::BoostTimeline,
@@ -330,6 +333,7 @@ impl Default for LocalPhysicsController {
             sample_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             live_climber: None,
+            pending_climber: Default::default(),
             climber_corrections: VecDeque::new(),
             motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
             motion_anchor: None,
@@ -340,6 +344,7 @@ impl Default for LocalPhysicsController {
             server_control_flags: None,
             live_posture: Default::default(),
             sync_state: Default::default(),
+            sync_pending: Vec::new(),
             riptide_pending: None,
             boosts: Default::default(),
             anchor_state: super::anchor_probe::AnchorProbeState::new(),

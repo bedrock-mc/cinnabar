@@ -21,7 +21,7 @@ fn identity(runtime_id: u64, spawn_revision: u64) -> ActorRenderIdentity {
         session_id: 7,
         dimension: -1,
         runtime_id,
-        spawn_revision,
+        spawn_revision: std::num::NonZeroU64::new(spawn_revision).unwrap(),
         ingress_sequence: runtime_id,
         source_tick: Some(runtime_id),
         movement_revision: runtime_id,

@@ -344,6 +344,7 @@ pub(super) fn font_texture_array_with_hud_and_icons(
             let left = placement.cursor[0] + HUD_ATLAS_GUTTER;
             let top = placement.cursor[1] + HUD_ATLAS_GUTTER;
             refs.push(IconRef {
+                color_mask: None,
                 page: u16::try_from(layer).map_err(|_| UiPresentationError::InvalidFontTexture)?,
                 uv: [
                     u16::try_from(left).map_err(|_| UiPresentationError::InvalidFontTexture)?,

@@ -226,7 +226,7 @@ impl LocalPhysicsController {
         let anchor_controller = controller_frames
             .iter()
             .find(|frame| frame.tick == tick)
-            .copied()
+            .cloned()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
         let mut anchor_state = anchor_controller.anchor_state;
@@ -261,8 +261,7 @@ impl LocalPhysicsController {
                         );
                         preceding_climber = Some(frame.climber);
                         frame.finish_eye(&mut eye, state);
-                        sync_state.server_flags(frame.sync_server);
-                        sync_state.take_pending();
+                        sync_state.replay_server(&frame.sync_server);
                         sync_state.complete_tick(frame, state);
                         frame.sync_state = sync_state;
                     }
@@ -273,7 +272,11 @@ impl LocalPhysicsController {
                         .iter_mut()
                         .find(|frame| frame.tick == next_tick)
                         .expect("controller and prediction histories retain the same ticks");
-                    if let Some(climber) = preceding_climber {
+                    if let Some(climber) = preceding_climber
+                        && !frame.sync_server.iter().any(|write| {
+                            matches!(write, posture::ServerWrite::Replacement(..))
+                        })
+                    {
                         frame.entry_climber = climber;
                     }
                     if let Some(climber) = frame.entry_climber {
@@ -329,8 +332,7 @@ impl LocalPhysicsController {
             frame.climber =
                 ClimberFlags::after_tick(&frame.input, &frame.environment, effective_climber);
             frame.finish_eye(&mut eye, state);
-            sync_state.server_flags(frame.sync_server);
-            sync_state.take_pending();
+            sync_state.replay_server(&frame.sync_server);
             sync_state.complete_tick(frame, state);
             frame.sync_state = sync_state;
         }
@@ -432,6 +434,7 @@ impl LocalPhysicsController {
             replayed_samples.push(retained.clone());
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
+        posture::replay_actor_modes(&self.sync_pending, &mut modes);
         self.modes = modes;
         eye.preserve_interpolation_hold(self.eye_offset);
         self.eye_offset = eye;
@@ -444,11 +447,11 @@ impl LocalPhysicsController {
             controller_frames.back().and_then(|frame| frame.climber)
         };
         self.controller_history = controller_frames;
-        sync_state.restore_pending(self.sync_state);
+        sync_state.replay_server(&self.sync_pending);
         self.sync_state = sync_state;
-        self.live_climber = sync_state.pending_climber.apply_flags(self.live_climber);
+        self.live_climber = self.pending_climber.apply_flags(self.live_climber);
         if let Some(state) = self.state.as_mut() {
-            sync_state.pending_climber.apply(state);
+            self.pending_climber.apply(state);
         }
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self

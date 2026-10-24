@@ -1514,6 +1514,34 @@
           ]
         },
         {
+          "rust": "WorldAck",
+          "go": "WorldAck",
+          "json": "world_ack",
+          "fields": [
+            {
+              "name": "session",
+              "go": "Session",
+              "type": "String",
+              "optional": false,
+              "skip": false
+            },
+            {
+              "name": "world_epoch",
+              "go": "WorldEpoch",
+              "type": "u64",
+              "optional": false,
+              "skip": false
+            },
+            {
+              "name": "requested_epoch",
+              "go": "RequestedEpoch",
+              "type": "u64",
+              "optional": false,
+              "skip": false
+            }
+          ]
+        },
+        {
           "rust": "Disabled",
           "go": "Disabled",
           "json": "disabled"

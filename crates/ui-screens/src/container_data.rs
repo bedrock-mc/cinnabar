@@ -842,6 +842,7 @@ mod banner_tests {
                     .contains(assets::facts::ContainerRoles::BEACON_PAYMENT)
             );
             Some(IconRef {
+                color_mask: None,
                 page: u16::try_from(record.network_id).unwrap(),
                 uv: [0, 0, 16, 16],
                 glint: false,

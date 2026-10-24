@@ -53,6 +53,7 @@ impl TitleSource {
         };
         let (page, [x, y, width, height]) = textures.sprite(key)?;
         Some(IconRef {
+            color_mask: None,
             page,
             uv: [x as u16, y as u16, (x + width) as u16, (y + height) as u16],
             glint: false,
@@ -104,6 +105,7 @@ mod tests {
             ..Default::default()
         });
         let shipped = IconRef {
+            color_mask: None,
             page: 999,
             uv: [0, 0, 30, 10],
             glint: false,
@@ -125,6 +127,7 @@ mod tests {
         let mut presentation = crate::test_support::mini_engine_presentation();
         let key = "textures/ui/original_large_brand";
         let shipped = IconRef {
+            color_mask: None,
             page: 999,
             uv: [0, 0, 30, 10],
             glint: false,

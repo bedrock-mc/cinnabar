@@ -48,6 +48,21 @@ impl ClimberWrite {
 }
 
 impl LocalPhysicsController {
+    /// Replaces live contact and unconsumed writes when ordered authority starts a new actor.
+    pub(super) fn replace_climber_authority(&mut self, flags: client_world::MovementFlagUpdate) {
+        let word = flags.extended_flags.unwrap_or(0);
+        let write = ClimberWrite { word, mask: ClimberFlags::mask() };
+        self.live_climber = Some(ClimberFlags::from_word(word));
+        self.pending_climber = write;
+        if let Some(state) = self.state.as_mut() {
+            self.climber_corrections.retain(|edit| edit.tick <= state.tick);
+            write.apply(state);
+        } else {
+            self.climber_corrections.clear();
+        }
+    }
+
+
     /// Adopts a server's changed climber bits now and retains stamped edits for later replay.
     pub(super) fn adopt_climber_flags(&mut self, stamp: u64, word: u64) -> Option<u64> {
         let state = self.state.as_mut()?;
@@ -77,9 +92,9 @@ impl LocalPhysicsController {
         flags.apply(state, mask);
         let write = ClimberWrite { word, mask };
         if boundary.is_none_or(|tick| tick > state.tick) {
-            self.sync_state.pending_climber.merge(write);
+            self.pending_climber.merge(write);
         } else {
-            self.sync_state.pending_climber.supersede(mask);
+            self.pending_climber.supersede(mask);
         }
         if let Some(tick) = boundary {
             self.climber_corrections.retain(|edit| edit.tick > oldest);

@@ -219,13 +219,14 @@ impl LocalPhysicsController {
                     let previous = self.live_climber;
                     let climber = ClimberFlags::after_tick(&input, &result.environment, previous);
                     self.live_climber = climber;
+                    self.pending_climber = Default::default();
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
                     let mut controller = ControllerFrame {
                         tick: state.tick,
-                        sync_state: self.sync_state,
-                        sync_server: self.sync_state.take_pending(),
+                        sync_state: Default::default(),
+                        sync_server: std::mem::take(&mut self.sync_pending),
                         position_before_tick: before,
                         anchor_state: self.anchor_state,
                         entry_velocity,

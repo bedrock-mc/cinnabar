@@ -135,6 +135,7 @@ fn furnace_recipe_panel_lists_outputs_and_routes_filter_tabs_and_search() {
         super::super::super::forms::furnace_book::icons(&player, &runtime, 0, |_| None);
     assert!(pending_icons[0].is_none());
     let installed = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,

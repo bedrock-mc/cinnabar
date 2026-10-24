@@ -109,6 +109,7 @@ pub(crate) fn install_graph(world: &mut World) {
                     .in_set(EntityShadowLabel)
                     .after(crate::scene_target::ScenePass::Opaque)
                     .after(crate::chunk::GpuCullLateLabel)
+                    .after(crate::far_terrain::FarTerrainLabel)
                     .before(crate::scene_target::ScenePass::Transparent)
                     .in_set(Core3dSystems::MainPass),
             );
