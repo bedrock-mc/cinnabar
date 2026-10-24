@@ -57,6 +57,15 @@ fn no_offering() -> EntityUseAdmission {
     }
 }
 
+/// Holds `main_hand` with an empty offhand and no enchantments.
+fn equipment(main_hand: &VerifiedNetworkItemStack) -> crate::UseEquipment {
+    crate::UseEquipment {
+        main_hand: crate::HandStack::verified(main_hand),
+        offhand: Some(crate::HandStack::default()),
+        enchantments: Some(0),
+    }
+}
+
 /// Verifies one retained stack against the same empty payload digest used for packet admission.
 fn stack(identifier: &str) -> VerifiedNetworkItemStack {
     let network_id = protocol::vanilla_item_registry()
@@ -79,17 +88,42 @@ fn stack(identifier: &str) -> VerifiedNetworkItemStack {
 }
 
 #[test]
-fn verified_resolver_and_behavior_absence_admit_a_retail_throwable_only() {
+fn verified_resolver_and_behavior_absence_admit_any_retail_item() {
     let store = fixture("minecraft:zombie", no_offering());
     let actor = store.get(8).unwrap();
-    assert_eq!(
-        store.offered_throwable_use(actor, &stack("minecraft:snowball")),
-        OfferedUse::Absent
-    );
-    assert_eq!(
-        store.offered_throwable_use(actor, &stack("minecraft:name_tag")),
-        OfferedUse::Unresolved
-    );
+    for item in ["minecraft:snowball", "minecraft:bow", "minecraft:crossbow"] {
+        assert_eq!(
+            store.offered_use(actor, &equipment(&stack(item))),
+            OfferedUse::Absent,
+            "{item}"
+        );
+    }
+}
+
+#[test]
+fn an_unobserved_offhand_keeps_a_lighter_offering_open() {
+    let lighter = || UseCondition::EitherHandItem {
+        identifier: "minecraft:flint_and_steel".into(),
+        metadata: None,
+    };
+    let definition = EntityUseAdmission::Components {
+        source: 0,
+        offerings: Box::from([ComponentUse {
+            selector: UseSelector::UnresolvedComponentGroup { group: 0 },
+            component: "minecraft:interact".into(),
+            condition: lighter(),
+        }]),
+    };
+    let store = fixture("minecraft:tnt_minecart", definition);
+    let actor = store.get(8).unwrap();
+    let mut held = equipment(&stack("minecraft:bow"));
+    assert_eq!(store.offered_use(actor, &held), OfferedUse::Absent);
+    held.offhand = None;
+    assert_eq!(store.offered_use(actor, &held), OfferedUse::Unresolved);
+    held.offhand = Some(crate::HandStack::verified(&stack(
+        "minecraft:flint_and_steel",
+    )));
+    assert_eq!(store.offered_use(actor, &held), OfferedUse::Unresolved);
 }
 
 #[test]
@@ -101,7 +135,10 @@ fn missing_behavior_unknown_native_and_prevent_default_do_not_prove_absence() {
     ] {
         let store = fixture(identifier, definition);
         assert_eq!(
-            store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+            store.offered_use(
+                store.get(8).unwrap(),
+                &equipment(&stack("minecraft:snowball"))
+            ),
             OfferedUse::Unresolved
         );
     }
@@ -122,7 +159,10 @@ fn matching_feed_or_unknown_group_state_cannot_become_an_absence_proof() {
     };
     let store = fixture("minecraft:happy_ghast", definition);
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Unresolved
     );
 }
@@ -142,7 +182,7 @@ fn a_nonempty_server_component_override_cannot_inherit_the_retail_absence_proof(
         entries: Arc::from([entry])
     }));
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack),
+        store.offered_use(store.get(8).unwrap(), &equipment(&stack)),
         OfferedUse::Unresolved
     );
 }
@@ -163,7 +203,7 @@ fn a_custom_actor_cannot_inherit_a_verified_base_resolver() {
         ActorUseResolver::Unresolved
     );
     assert_eq!(
-        store.offered_throwable_use(actor, &stack("minecraft:snowball")),
+        store.offered_use(actor, &equipment(&stack("minecraft:snowball"))),
         OfferedUse::Unresolved
     );
 }
@@ -199,7 +239,10 @@ fn a_canonical_empty_component_native_throwable_keeps_its_compiled_admission() {
         Some(assets::item_use::ItemUseKind::Throw)
     );
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Absent
     );
     let mut data_driven = entry.clone();
@@ -208,7 +251,10 @@ fn a_canonical_empty_component_native_throwable_keeps_its_compiled_admission() {
         entries: Arc::from([data_driven])
     }));
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Absent
     );
     for mutation in 0..4 {
@@ -226,7 +272,10 @@ fn a_canonical_empty_component_native_throwable_keeps_its_compiled_admission() {
             entries: Arc::from([entry])
         }));
         assert_eq!(
-            store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+            store.offered_use(
+                store.get(8).unwrap(),
+                &equipment(&stack("minecraft:snowball"))
+            ),
             OfferedUse::Unresolved
         );
     }
@@ -246,11 +295,14 @@ fn an_empty_live_registry_uses_only_the_effective_builtin_throwable_record() {
         }),
     );
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:snowball")),
+        store.offered_use(
+            store.get(8).unwrap(),
+            &equipment(&stack("minecraft:snowball"))
+        ),
         OfferedUse::Absent
     );
     assert_eq!(
-        store.offered_throwable_use(store.get(8).unwrap(), &stack("minecraft:name_tag")),
-        OfferedUse::Unresolved
+        store.offered_use(store.get(8).unwrap(), &equipment(&stack("minecraft:bow"))),
+        OfferedUse::Absent
     );
 }

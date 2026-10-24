@@ -40,9 +40,11 @@ pub(super) fn compile(
         .player()
         .native_class
         .identifier();
-    let families = player
-        .and_then(|player| definitions.get(player))
-        .and_then(|(_, entity)| player_families(entity));
+    let interactor = Interactor::new(
+        player
+            .and_then(|player| definitions.get(player))
+            .map(|(_, entity)| entity),
+    );
     Ok(symbols
         .iter()
         .filter(|symbol| symbol.kind == EntityAssetKind::Entity)
@@ -51,12 +53,49 @@ pub(super) fn compile(
                 EntityUseAdmission::Unresolved,
                 |(source, entity)| EntityUseAdmission::Components {
                     source: *source,
-                    offerings: offerings(entity, families.as_deref()).into(),
+                    offerings: offerings(entity, &interactor).into(),
                 },
             );
             (symbol.identifier.clone(), admission)
         })
         .collect::<BTreeMap<_, _>>())
+}
+
+/// What the interacting player's own definition fixes for filters that test it.
+pub(super) struct Interactor<'a> {
+    /// Fixed families, or `None` when a component group may change them.
+    families: Option<Vec<&'a str>>,
+    /// Every component the definition can hold in its base or any group, or `None` without one.
+    components: Option<BTreeSet<&'a str>>,
+}
+
+impl<'a> Interactor<'a> {
+    /// Reads the player definition; a missing one leaves every player test unresolved.
+    pub(super) fn new(player: Option<&'a Value>) -> Self {
+        let components = player.and_then(|entity| {
+            let mut names = BTreeSet::new();
+            for value in std::iter::once(entity.get("components")?).chain(
+                entity
+                    .get("component_groups")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flat_map(|groups| groups.values()),
+            ) {
+                names.extend(value.as_object()?.keys().map(String::as_str));
+            }
+            Some(names)
+        });
+        Self {
+            families: player.and_then(player_families),
+            components,
+        }
+    }
+
+    /// Whether the definition may hold `name`, accepting the namespace a filter may omit.
+    fn may_have_component(&self, name: &str) -> Option<bool> {
+        let components = self.components.as_ref()?;
+        Some(components.contains(name) || components.contains(format!("minecraft:{name}").as_str()))
+    }
 }
 
 /// A player's conditional family changes cannot establish a fixed rider or filter identity.
@@ -78,8 +117,23 @@ fn player_families(entity: &Value) -> Option<Vec<&str>> {
 }
 
 /// Collects every possibly active component; selectors never imply that a group is active.
-fn offerings(entity: &Value, player_families: Option<&[&str]>) -> Vec<ComponentUse> {
-    let mut output = Vec::new();
+fn offerings(entity: &Value, player: &Interactor<'_>) -> Vec<ComponentUse> {
+    // Bucket capture and leash cutting are native offerings no definition names.
+    let mut output = vec![
+        ComponentUse {
+            selector: UseSelector::Base,
+            component: "native:bucketable".into(),
+            condition: C::Any(Box::new([
+                held("minecraft:bucket"),
+                held("minecraft:water_bucket"),
+            ])),
+        },
+        ComponentUse {
+            selector: UseSelector::Base,
+            component: "native:cuttable_leash".into(),
+            condition: held("minecraft:shears"),
+        },
+    ];
     if entity
         .get("component_groups")
         .is_some_and(|groups| !groups.is_object())
@@ -93,7 +147,7 @@ fn offerings(entity: &Value, player_families: Option<&[&str]>) -> Vec<ComponentU
     components(
         &entity["components"],
         UseSelector::Base,
-        player_families,
+        player,
         &mut output,
     );
     if let Some(groups) = entity.get("component_groups").and_then(Value::as_object) {
@@ -103,7 +157,7 @@ fn offerings(entity: &Value, player_families: Option<&[&str]>) -> Vec<ComponentU
                 UseSelector::UnresolvedComponentGroup {
                     group: index as u32,
                 },
-                player_families,
+                player,
                 &mut output,
             );
         }
@@ -111,11 +165,19 @@ fn offerings(entity: &Value, player_families: Option<&[&str]>) -> Vec<ComponentU
     output
 }
 
-/// Compiles only necessary conditions for instant throwable use; other item uses stay unresolved.
+/// Names the main-hand item a native offering requires.
+fn held(identifier: &str) -> C {
+    C::HeldItem {
+        identifier: identifier.into(),
+        metadata: None,
+    }
+}
+
+/// Compiles the necessary held-item conditions of every component that can offer an interaction.
 fn components(
     value: &Value,
     selector: UseSelector,
-    player_families: Option<&[&str]>,
+    player: &Interactor<'_>,
     output: &mut Vec<ComponentUse>,
 ) {
     let Some(components) = value.as_object() else {
@@ -127,82 +189,82 @@ fn components(
         return;
     };
     for (name, component) in components {
-        let condition = match name.as_str() {
-            "minecraft:interact" => component
-                .get("interactions")
-                .and_then(Value::as_array)
-                .map_or(C::Unresolved, |interactions| {
-                    C::Any(
+        let condition =
+            match name.as_str() {
+                // A single interaction object is accepted in place of a list.
+                "minecraft:interact" => match component.get("interactions") {
+                    Some(Value::Array(interactions)) => C::Any(
                         interactions
                             .iter()
                             .map(|interaction| {
-                                filter(interaction.pointer("/on_interact/filters"), player_families)
+                                filter(interaction.pointer("/on_interact/filters"), player)
                             })
                             .collect(),
-                    )
-                }),
-            "minecraft:rideable" => rideable(component, player_families),
-            "minecraft:breedable" => items(component.get("breed_items")),
-            "minecraft:ageable" => C::Any(
-                ["feed_items", "pause_growth_items", "reset_growth_items"]
-                    .into_iter()
-                    .filter_map(|field| component.get(field))
-                    .map(|value| items(Some(value)))
-                    .collect(),
-            ),
-            "minecraft:healable" => items(component.get("items")),
-            "minecraft:tameable" => items(component.get("tame_items")),
-            "minecraft:tamemount" => C::Any(
-                ["feed_items", "auto_reject_items"]
-                    .into_iter()
-                    .map(|field| items(component.get(field)))
-                    .collect(),
-            ),
-            "minecraft:bribeable" => items(component.get("bribe_items")),
-            "minecraft:giveable" => component.get("triggers").and_then(Value::as_array).map_or(
-                C::Unresolved,
-                |triggers| {
-                    C::Any(
-                        triggers
-                            .iter()
-                            // Event filters run after the offering has been selected.
-                            .map(|trigger| items(trigger.get("items")))
-                            .collect(),
-                    )
+                    ),
+                    Some(interaction @ Value::Object(_)) => {
+                        filter(interaction.pointer("/on_interact/filters"), player)
+                    }
+                    _ => C::Unresolved,
                 },
-            ),
-            "minecraft:equippable" => {
-                component
-                    .get("slots")
-                    .and_then(Value::as_array)
-                    .map_or(C::Unresolved, |slots| {
+                "minecraft:rideable" => rideable(component, player.families.as_deref()),
+                "minecraft:breedable" => items(component.get("breed_items")),
+                "minecraft:ageable" => C::Any(
+                    ["feed_items", "pause_growth_items", "reset_growth_items"]
+                        .into_iter()
+                        .filter_map(|field| component.get(field))
+                        .map(|value| items(Some(value)))
+                        .collect(),
+                ),
+                "minecraft:healable" => items(component.get("items")),
+                "minecraft:tameable" => items(component.get("tame_items")),
+                "minecraft:tamemount" => C::Any(
+                    ["feed_items", "auto_reject_items"]
+                        .into_iter()
+                        .map(|field| items(component.get(field)))
+                        .collect(),
+                ),
+                "minecraft:bribeable" => items(component.get("bribe_items")),
+                "minecraft:giveable" => component.get("triggers").and_then(Value::as_array).map_or(
+                    C::Unresolved,
+                    |triggers| {
+                        C::Any(
+                            triggers
+                                .iter()
+                                // Event filters run after the offering has been selected.
+                                .map(|trigger| items(trigger.get("items")))
+                                .collect(),
+                        )
+                    },
+                ),
+                "minecraft:equippable" => component.get("slots").and_then(Value::as_array).map_or(
+                    C::Unresolved,
+                    |slots| {
                         C::Any(
                             slots
                                 .iter()
                                 .map(|slot| items(slot.get("accepted_items")))
                                 .collect(),
                         )
-                    })
-            }
-            "minecraft:inventory"
-            | "minecraft:economy_trade_table"
-            | "minecraft:trade_table"
-            | "minecraft:trusting"
-            | "minecraft:leashable"
-            | "minecraft:leashable_to"
-            | "minecraft:balloonable"
-            | assets::facts::entity::NPC_COMPONENT_IDENTIFIER
-            | "minecraft:sittable"
-            | "minecraft:interact_with" => C::Unresolved,
-            // These callbacks require a non-throwable item role. The runtime admits this proof
-            // only for a known retail throwable without a server component override.
-            "minecraft:nameable"
-            | "minecraft:dyeable"
-            | "minecraft:spawn_egg_interaction"
-            | "minecraft:boostable" => C::Never,
-            // A namespace alone cannot rule out an interaction from an unclassified component.
-            _ => C::Unresolved,
-        };
+                    },
+                ),
+                "minecraft:inventory"
+                | "minecraft:economy_trade_table"
+                | "minecraft:trade_table"
+                | "minecraft:trusting"
+                | "minecraft:leashable"
+                | "minecraft:leashable_to"
+                | "minecraft:balloonable"
+                | assets::facts::entity::NPC_COMPONENT_IDENTIFIER
+                | "minecraft:sittable"
+                | "minecraft:tripod_camera"
+                | "minecraft:interact_with" => C::Unresolved,
+                "minecraft:nameable" => held("minecraft:name_tag"),
+                "minecraft:spawn_egg_interaction" => C::HeldActorPlacer,
+                // The client offers interactions only through its player-interaction component
+                // mappings and the ride, trade and container checks classified above. Dyeing is
+                // decided by the server, and other components never offer an interaction.
+                _ => C::Never,
+            };
         output.push(ComponentUse {
             selector,
             component: name.clone().into(),
@@ -227,6 +289,21 @@ fn rideable(component: &Value, player_families: Option<&[&str]>) -> C {
         {
             C::Never
         }
+        _ => C::Unresolved,
+    }
+}
+
+/// A player holds a named component through its definition, a mob effect or an equipped
+/// item's enchantment; only the enchantment form of a name the definition lacks is modeled.
+fn player_component(name: Option<&str>, player: &Interactor<'_>) -> C {
+    let Some(name) = name else {
+        return C::Unresolved;
+    };
+    match (
+        player.may_have_component(name),
+        assets::entity::offered_use::enchantment_id(name),
+    ) {
+        (Some(false), Some(enchantment)) => C::EquipmentEnchantment { enchantment },
         _ => C::Unresolved,
     }
 }
@@ -283,7 +360,8 @@ fn items(value: Option<&Value>) -> C {
 }
 
 /// Lowers supported JSON filter structure to necessary conditions without evaluating text expressions.
-fn filter(value: Option<&Value>, player_families: Option<&[&str]>) -> C {
+/// Group keys sharing one object must all pass, as nested groups do.
+fn filter(value: Option<&Value>, player: &Interactor<'_>) -> C {
     let Some(value) = value else {
         return C::Always;
     };
@@ -293,30 +371,29 @@ fn filter(value: Option<&Value>, player_families: Option<&[&str]>) -> C {
     if object.is_empty() {
         return C::Always;
     }
-    for (key, any, negate) in [
-        ("all_of", false, false),
-        ("any_of", true, false),
-        ("none_of", true, true),
-    ] {
-        if let Some(values) = object.get(key).and_then(Value::as_array) {
-            if object.len() != 1 {
-                return C::Unresolved;
-            }
-            let conditions = values
+    let groups = ["all_of", "any_of", "none_of"];
+    if groups.iter().any(|key| object.contains_key(*key)) {
+        return C::All(
+            object
                 .iter()
-                .map(|value| filter(Some(value), player_families))
-                .collect();
-            let condition = if any {
-                C::Any(conditions)
-            } else {
-                C::All(conditions)
-            };
-            return if negate {
-                C::Not(Box::new(condition))
-            } else {
-                condition
-            };
-        }
+                .map(|(key, values)| {
+                    let (Some(values), Some(_)) =
+                        (values.as_array(), groups.iter().find(|group| *group == key))
+                    else {
+                        return C::Unresolved;
+                    };
+                    let conditions = values
+                        .iter()
+                        .map(|value| filter(Some(value), player))
+                        .collect();
+                    match key.as_str() {
+                        "all_of" => C::All(conditions),
+                        "any_of" => C::Any(conditions),
+                        _ => C::Not(Box::new(C::Any(conditions))),
+                    }
+                })
+                .collect(),
+        );
     }
     let supported_fields = ["test", "subject", "domain", "operator", "value"];
     if object
@@ -331,8 +408,21 @@ fn filter(value: Option<&Value>, player_families: Option<&[&str]>) -> C {
         value["domain"].as_str(),
     ) {
         (Some("has_equipment"), Some("other"), Some("main_hand")) => item(&value["value"]),
+        (Some("has_equipment"), Some("other"), Some("hand")) => match item(&value["value"]) {
+            C::HeldItem {
+                identifier,
+                metadata,
+            } => C::EitherHandItem {
+                identifier,
+                metadata,
+            },
+            condition => condition,
+        },
+        (Some("has_component"), Some("other"), None) => {
+            player_component(value["value"].as_str(), player)
+        }
         (Some("is_family"), Some("other"), None) => {
-            match (value["value"].as_str(), player_families) {
+            match (value["value"].as_str(), player.families.as_deref()) {
                 (Some(family), Some(player)) => {
                     if player.contains(&family) {
                         C::Always

@@ -5985,40 +5985,6 @@
       "id": "component-use",
       "status": "verified",
       "members": [
-        "minecraft:bogged",
-        "minecraft:cow",
-        "minecraft:donkey",
-        "minecraft:drowned",
-        "minecraft:happy_ghast",
-        "minecraft:horse",
-        "minecraft:husk",
-        "minecraft:mule",
-        "minecraft:parched",
-        "minecraft:skeleton",
-        "minecraft:skeleton_horse",
-        "minecraft:stray",
-        "minecraft:wither_skeleton",
-        "minecraft:zombie",
-        "minecraft:zombie_horse"
-      ],
-      "facts": {
-        "actor_use_resolver": "Components"
-      }
-    },
-    {
-      "id": "prevent-default-use",
-      "status": "verified",
-      "members": [
-        "minecraft:armor_stand"
-      ],
-      "facts": {
-        "actor_use_resolver": "PreventDefault"
-      }
-    },
-    {
-      "id": "unresolved-use",
-      "status": "verified",
-      "members": [
         "minecraft:agent",
         "minecraft:allay",
         "minecraft:area_effect_cloud",
@@ -6030,6 +5996,7 @@
         "minecraft:bee",
         "minecraft:blaze",
         "minecraft:boat",
+        "minecraft:bogged",
         "minecraft:breeze",
         "minecraft:breeze_wind_charge_projectile",
         "minecraft:camel",
@@ -6043,11 +6010,14 @@
         "minecraft:cod",
         "minecraft:command_block_minecart",
         "minecraft:copper_golem",
+        "minecraft:cow",
         "minecraft:creaking",
         "minecraft:creeper",
         "minecraft:cushion",
         "minecraft:dolphin",
+        "minecraft:donkey",
         "minecraft:dragon_fireball",
+        "minecraft:drowned",
         "minecraft:egg",
         "minecraft:elder_guardian",
         "minecraft:elder_guardian_ghost",
@@ -6069,12 +6039,14 @@
         "minecraft:glow_squid",
         "minecraft:goat",
         "minecraft:guardian",
+        "minecraft:happy_ghast",
         "minecraft:hoglin",
         "minecraft:hopper_minecart",
+        "minecraft:horse",
+        "minecraft:husk",
         "minecraft:ice_bomb",
         "minecraft:iron_golem",
         "minecraft:item",
-        "minecraft:leash_knot",
         "minecraft:lightning_bolt",
         "minecraft:lingering_potion",
         "minecraft:llama",
@@ -6083,19 +6055,19 @@
         "minecraft:minecart",
         "minecraft:mooshroom",
         "minecraft:moving_block",
+        "minecraft:mule",
         "minecraft:nautilus",
         "minecraft:npc",
         "minecraft:ocelot",
         "minecraft:ominous_item_spawner",
         "minecraft:painting",
         "minecraft:panda",
+        "minecraft:parched",
         "minecraft:parrot",
         "minecraft:phantom",
         "minecraft:pig",
-        "minecraft:piglin",
         "minecraft:piglin_brute",
         "minecraft:pillager",
-        "minecraft:player",
         "minecraft:polar_bear",
         "minecraft:pufferfish",
         "minecraft:rabbit",
@@ -6106,6 +6078,8 @@
         "minecraft:shulker",
         "minecraft:shulker_bullet",
         "minecraft:silverfish",
+        "minecraft:skeleton",
+        "minecraft:skeleton_horse",
         "minecraft:slime",
         "minecraft:small_fireball",
         "minecraft:sniffer",
@@ -6114,6 +6088,7 @@
         "minecraft:spider",
         "minecraft:splash_potion",
         "minecraft:squid",
+        "minecraft:stray",
         "minecraft:strider",
         "minecraft:sulfur_cube",
         "minecraft:tadpole",
@@ -6121,28 +6096,53 @@
         "minecraft:tnt",
         "minecraft:tnt_minecart",
         "minecraft:trader_llama",
-        "minecraft:tripod_camera",
         "minecraft:tropicalfish",
         "minecraft:turtle",
         "minecraft:vex",
         "minecraft:villager",
-        "minecraft:villager_v2",
         "minecraft:vindicator",
         "minecraft:wandering_trader",
         "minecraft:warden",
         "minecraft:wind_charge_projectile",
         "minecraft:witch",
         "minecraft:wither",
+        "minecraft:wither_skeleton",
         "minecraft:wither_skull",
         "minecraft:wither_skull_dangerous",
         "minecraft:wolf",
         "minecraft:xp_bottle",
         "minecraft:xp_orb",
         "minecraft:zoglin",
+        "minecraft:zombie",
+        "minecraft:zombie_horse",
         "minecraft:zombie_nautilus",
         "minecraft:zombie_pigman",
         "minecraft:zombie_villager",
         "minecraft:zombie_villager_v2"
+      ],
+      "facts": {
+        "actor_use_resolver": "Components"
+      }
+    },
+    {
+      "id": "prevent-default-use",
+      "status": "verified",
+      "members": [
+        "minecraft:armor_stand"
+      ],
+      "facts": {
+        "actor_use_resolver": "PreventDefault"
+      }
+    },
+    {
+      "id": "unresolved-use",
+      "status": "verified",
+      "members": [
+        "minecraft:leash_knot",
+        "minecraft:piglin",
+        "minecraft:player",
+        "minecraft:tripod_camera",
+        "minecraft:villager_v2"
       ],
       "facts": {
         "actor_use_resolver": "Unresolved"
@@ -7192,7 +7192,11 @@
       }
     ],
     "default_item_tints": {
-      "minecraft:firework_star": [0, 0, 0]
+      "minecraft:firework_star": [
+        0,
+        0,
+        0
+      ]
     },
     "item_visuals": {
       "minecraft:banner": "BlockModel",

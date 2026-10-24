@@ -174,15 +174,17 @@ fn throw_at_entity(
     offered_use: assets::entity::offered_use::EntityUseAdmission,
     interact_text: &str,
 ) -> Vec<&'static str> {
-    throw_at_entity_in_session(identifier, offered_use, interact_text, false)
+    throw_at_entity_in_session(identifier, offered_use, interact_text, false, None)
 }
 
 /// Replays negotiated native startup and an optional empty live registry before selecting a stack.
+/// `held` replaces the snowball with one stack of that item.
 fn throw_at_entity_in_session(
     identifier: &str,
     offered_use: assets::entity::offered_use::EntityUseAdmission,
     interact_text: &str,
     native_startup_then_empty: bool,
+    held: Option<&str>,
 ) -> Vec<&'static str> {
     let mut compiled =
         assets::carriers::startup::test_carriers::synthetic_interaction_assets(identifier);
@@ -266,6 +268,8 @@ fn throw_at_entity_in_session(
             player.inventory.ledger_mut().apply_registry(&live);
         }
         super::item_use_tests::hold_air_stack(&mut world, network_id, 16, [].into());
+    } else if let Some(item) = held {
+        super::item_use_tests::hold_air_item(&mut world, item, 1, [].into());
     } else {
         super::item_use_tests::hold_snowball(&mut world);
     }
@@ -318,6 +322,23 @@ fn a_throwable_used_on_a_zombie_without_an_offering_still_throws_after_interact(
         throw_at_entity("minecraft:zombie", no_component_offering(), ""),
         ["interact", "use"]
     );
+}
+
+#[test]
+fn a_held_use_aimed_at_an_actor_without_an_offering_starts_after_interact() {
+    for actor in ["minecraft:creeper", "minecraft:skeleton"] {
+        assert_eq!(
+            throw_at_entity_in_session(
+                actor,
+                no_component_offering(),
+                "",
+                false,
+                Some("minecraft:potion")
+            ),
+            ["interact", "use"],
+            "{actor}"
+        );
+    }
 }
 
 #[test]
@@ -396,7 +417,7 @@ fn possible_ride_feed_equipment_and_offhand_offerings_consume_the_actor_press() 
 #[test]
 fn native_startup_then_empty_live_registry_still_throws_after_actor_interact() {
     assert_eq!(
-        throw_at_entity_in_session("minecraft:zombie", no_component_offering(), "", true),
+        throw_at_entity_in_session("minecraft:zombie", no_component_offering(), "", true, None),
         ["interact", "use"]
     );
 }

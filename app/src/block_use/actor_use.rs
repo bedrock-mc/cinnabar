@@ -108,7 +108,7 @@ pub(super) fn prepare(
                 context.ui.gameplay_hud().has_interact_text(),
                 stream
                     .authority()
-                    .offered_throwable_use(hit.runtime_id, &selection.item),
+                    .offered_use(hit.runtime_id, &use_equipment(player, &selection.item)),
             )
         });
     Some(ActorUse {
@@ -118,6 +118,36 @@ pub(super) fn prepare(
         due,
         clock,
     })
+}
+
+/// Reads the hands and armor that actor offerings test, keeping unobserved gear unknown.
+fn use_equipment(
+    player: &client_state::PlayerRuntime,
+    main_hand: &protocol::VerifiedNetworkItemStack,
+) -> client_world::UseEquipment {
+    use inventory::{PlayerInventorySlot, inventory_ledger::InventoryTarget};
+    let ledger = player.inventory.ledger();
+    let gear = |target| match ledger.gear_slot_state(target) {
+        Some(PlayerInventorySlot::Present(stack)) => Some(Some(stack)),
+        Some(PlayerInventorySlot::Empty) => Some(None),
+        Some(PlayerInventorySlot::Unknown) | None => None,
+    };
+    let offhand = gear(InventoryTarget::Offhand);
+    let armor = (0..4).map(|slot| gear(InventoryTarget::Armor(slot)));
+    client_world::UseEquipment {
+        main_hand: client_world::HandStack::verified(main_hand),
+        offhand: offhand
+            .map(|stack| stack.map_or_else(Default::default, client_world::HandStack::of)),
+        enchantments: client_world::equipment_enchantments(
+            std::iter::once(Some(main_hand.extra_data()))
+                .chain(std::iter::once(offhand).chain(armor).map(gear_extra_data)),
+        ),
+    }
+}
+
+/// An observed gear slot's user data, empty for an empty slot.
+fn gear_extra_data(slot: Option<Option<&protocol::NetworkItemStack>>) -> Option<&[u8]> {
+    slot.map(|stack| stack.map_or(&[][..], |stack| &stack.extra_data[..]))
 }
 
 /// Commits the current actor use only after its packet enters the session FIFO.

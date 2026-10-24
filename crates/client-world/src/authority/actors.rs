@@ -3,14 +3,14 @@ use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration}
 
 impl WorldAuthority {
     /// Reads the target's component proof without predicting unknown native interactions.
-    pub fn offered_throwable_use(
+    pub fn offered_use(
         &self,
         runtime_id: u64,
-        item: &protocol::VerifiedNetworkItemStack,
+        equipment: &crate::UseEquipment,
     ) -> assets::entity::offered_use::OfferedUse {
         self.actor(runtime_id).map_or(
             assets::entity::offered_use::OfferedUse::Unresolved,
-            |actor| self.actors.offered_throwable_use(actor, item),
+            |actor| self.actors.offered_use(actor, equipment),
         )
     }
 

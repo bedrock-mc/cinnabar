@@ -25,6 +25,7 @@ pub use actor_store::{
     PlayerProfile, PoseYOrigin, PropertyDefault, ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView,
     SLEEPING_PLAYER_NETWORK_OFFSET, dropped_item_copy_count, tnt_presentation,
 };
+pub use actor_store::{HandStack, UseEquipment, equipment_enchantments};
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,
     adjudicate_block_entity_visual,

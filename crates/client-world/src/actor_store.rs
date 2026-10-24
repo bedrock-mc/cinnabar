@@ -14,6 +14,7 @@ mod colliders;
 mod effect_members;
 mod offered_use;
 pub use colliders::ActorCollisionBounds;
+pub use offered_use::{HandStack, UseEquipment, equipment_enchantments};
 mod death_visibility;
 mod local_presentation;
 mod native_facts;

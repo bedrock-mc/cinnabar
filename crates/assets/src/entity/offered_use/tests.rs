@@ -1,5 +1,26 @@
 use super::*;
 
+/// Holds one main-hand item with an empty offhand.
+fn main_hand(identifier: &str, metadata: u32) -> HeldItems<'_> {
+    HeldItems {
+        main_hand: HandItem::Item {
+            identifier,
+            metadata,
+        },
+        offhand: HandItem::Empty,
+        equipment_enchantments: Some(0),
+    }
+}
+
+/// Holds an unreadable main-hand item with an empty offhand.
+fn unknown_main_hand() -> HeldItems<'static> {
+    HeldItems {
+        main_hand: HandItem::Unknown,
+        offhand: HandItem::Empty,
+        equipment_enchantments: Some(0),
+    }
+}
+
 /// Creates an original behavior descriptor without assigning component-group activation.
 fn descriptor(condition: UseCondition, selector: UseSelector) -> EntityUseAdmission {
     EntityUseAdmission::Components {
@@ -22,16 +43,19 @@ fn an_excluded_item_rules_out_an_unresolved_group_without_activating_it() {
         UseSelector::UnresolvedComponentGroup { group: 0 },
     );
     assert_eq!(
-        definition.for_throwable(Some("fixture:projectile"), 0),
+        definition.for_held(&main_hand("fixture:projectile", 0)),
         OfferedUse::Absent
     );
     assert_eq!(
-        definition.for_throwable(Some("fixture:food"), 0),
+        definition.for_held(&main_hand("fixture:food", 0)),
         OfferedUse::Unresolved
     );
-    assert_eq!(definition.for_throwable(None, 0), OfferedUse::Unresolved);
     assert_eq!(
-        EntityUseAdmission::Unresolved.for_throwable(Some("fixture:projectile"), 0),
+        definition.for_held(&unknown_main_hand()),
+        OfferedUse::Unresolved
+    );
+    assert_eq!(
+        EntityUseAdmission::Unresolved.for_held(&main_hand("fixture:projectile", 0)),
         OfferedUse::Unresolved
     );
 }
@@ -47,11 +71,11 @@ fn unknown_filters_preserve_possible_offerings_but_cannot_override_a_false_conju
         UseSelector::Base,
     );
     assert_eq!(
-        definition.for_throwable(Some("fixture:feed"), 2),
+        definition.for_held(&main_hand("fixture:feed", 2)),
         OfferedUse::Unresolved
     );
     assert_eq!(
-        definition.for_throwable(Some("fixture:feed"), 0),
+        definition.for_held(&main_hand("fixture:feed", 0)),
         OfferedUse::Absent
     );
     let alternatives = descriptor(
@@ -59,7 +83,7 @@ fn unknown_filters_preserve_possible_offerings_but_cannot_override_a_false_conju
         UseSelector::Base,
     );
     assert_eq!(
-        alternatives.for_throwable(Some("fixture:projectile"), 0),
+        alternatives.for_held(&main_hand("fixture:projectile", 0)),
         OfferedUse::Unresolved
     );
 }
@@ -76,11 +100,11 @@ fn either_item_auxiliary_can_be_a_wildcard_without_changing_the_item_identity() 
             UseSelector::Base,
         );
         assert_eq!(
-            definition.for_throwable(Some("minecraft:snowball"), held),
+            definition.for_held(&main_hand("minecraft:snowball", held)),
             OfferedUse::Unresolved
         );
         assert_eq!(
-            definition.for_throwable(Some("minecraft:egg"), held),
+            definition.for_held(&main_hand("minecraft:egg", held)),
             OfferedUse::Absent
         );
     }
@@ -89,11 +113,11 @@ fn either_item_auxiliary_can_be_a_wildcard_without_changing_the_item_identity() 
         metadata: Some(2),
     };
     assert_eq!(
-        condition.permits(Some("minecraft:snowball"), u32::MAX),
+        condition.permits(&main_hand("minecraft:snowball", u32::MAX)),
         None
     );
     assert_eq!(
-        condition.permits(Some("minecraft:egg"), u32::MAX),
+        condition.permits(&main_hand("minecraft:egg", u32::MAX)),
         Some(false)
     );
 }
@@ -133,7 +157,7 @@ fn offered_use_carrier_retains_conditions_and_rejects_a_resource_source() {
         runtime
             .offered_use_for("minecraft:zombie")
             .unwrap()
-            .for_throwable(Some("fixture:projectile"), 0),
+            .for_held(&main_hand("fixture:projectile", 0)),
         OfferedUse::Absent
     );
     let EntityUseAdmission::Components { source, .. } = &mut compiled
@@ -147,4 +171,72 @@ fn offered_use_carrier_retains_conditions_and_rejects_a_resource_source() {
     };
     *source = 1;
     assert!(crate::encode_entity_blob(&compiled).is_err());
+}
+
+#[test]
+fn either_hand_conditions_read_the_offhand_and_stay_open_while_it_is_unobserved() {
+    let condition = UseCondition::EitherHandItem {
+        identifier: "minecraft:flint_and_steel".into(),
+        metadata: None,
+    };
+    let bow = HandItem::Item {
+        identifier: "minecraft:bow",
+        metadata: 0,
+    };
+    let lighter = HandItem::Item {
+        identifier: "minecraft:flint_and_steel",
+        metadata: 0,
+    };
+    for (offhand, expected) in [
+        (HandItem::Empty, Some(false)),
+        (lighter, Some(true)),
+        (HandItem::Unknown, None),
+    ] {
+        let held = HeldItems {
+            main_hand: bow,
+            offhand,
+            equipment_enchantments: Some(0),
+        };
+        assert_eq!(condition.permits(&held), expected, "{offhand:?}");
+    }
+    let held = HeldItems {
+        main_hand: lighter,
+        offhand: HandItem::Unknown,
+        equipment_enchantments: Some(0),
+    };
+    assert_eq!(condition.permits(&held), Some(true));
+}
+
+#[test]
+fn only_spawn_eggs_satisfy_an_actor_placer_condition() {
+    let condition = UseCondition::HeldActorPlacer;
+    assert_eq!(
+        condition.permits(&main_hand("minecraft:cow_spawn_egg", 0)),
+        Some(true)
+    );
+    assert_eq!(
+        condition.permits(&main_hand("minecraft:bow", 0)),
+        Some(false)
+    );
+    assert_eq!(condition.permits(&unknown_main_hand()), None);
+}
+
+#[test]
+fn equipment_enchantment_conditions_read_the_whole_equipment_mask() {
+    let fire_aspect = enchantment_id("fire_aspect").unwrap();
+    assert_eq!(
+        fire_aspect,
+        protocol_ids::Enchantment::Fireaspect.wire_value()
+    );
+    assert_eq!(enchantment_id("minecraft:fire_aspect"), Some(fire_aspect));
+    assert_eq!(enchantment_id("fixture:missing"), None);
+    let condition = UseCondition::EquipmentEnchantment {
+        enchantment: fire_aspect,
+    };
+    let mut held = main_hand("minecraft:bow", 0);
+    assert_eq!(condition.permits(&held), Some(false));
+    held.equipment_enchantments = Some(1 << fire_aspect);
+    assert_eq!(condition.permits(&held), Some(true));
+    held.equipment_enchantments = None;
+    assert_eq!(condition.permits(&held), None);
 }
