@@ -1,10 +1,5 @@
 //! Derives the safe callback surface from the canonical WIT bindings.
 
-#![expect(
-    clippy::print_stdout,
-    reason = "build scripts report Cargo dependency tracking directives"
-)]
-
 use std::{env, fs, path::PathBuf};
 
 use quote::quote;
