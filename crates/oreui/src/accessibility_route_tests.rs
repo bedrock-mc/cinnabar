@@ -301,6 +301,7 @@ fn extra_large_shader_library_keeps_every_control_inside_the_settings_panel() {
                 MenuAction::RemoveShaderPackDialog(0, view.shader_packs_revision),
                 MenuAction::ShaderOptions(launcher::shader_options::Action::Open),
                 MenuAction::ReloadShaders,
+                MenuAction::ImportShaderPacks,
                 MenuAction::SettingsStorage(StorageAction::OpenFolder(StorageFolder::ShaderPacks)),
             ] {
                 let bounds = paint

@@ -1,6 +1,8 @@
 use super::*;
+use protocol::ExperienceMessage;
 
 mod shift;
+mod world;
 use mod_host::helper::{CallFailure, FailureKind};
 use server_experience::screen::GuiSize;
 use server_experience::{
@@ -195,6 +197,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         ready: false,
         epoch: 1,
         modal_order: 0,
+        native_epoch: 1,
+        requested_epoch: None,
         gui: None,
         session: None,
     };
@@ -322,8 +326,11 @@ fn receive(live: &mut Live<FakeWorker>, id: &str, sequence: u64) {
         world_epoch: live.epoch,
         payload: vec![Scalar::Bool(sequence.is_multiple_of(2))],
     };
-    live.receive(&serde_json::to_vec(&message).unwrap(), CALLBACK_INTERVAL_MS)
-        .unwrap();
+    live.receive(
+        &ExperienceMessage::new(serde_json::to_vec(&message).unwrap()),
+        CALLBACK_INTERVAL_MS,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -595,10 +602,12 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
         .unwrap()
     };
     // A callback dispatched in epoch 1 is still running when the world moves to epoch 2.
-    live.receive(&message(&live, 1, 1), 1).unwrap();
+    live.receive(&ExperienceMessage::new(message(&live, 1, 1)), 1)
+        .unwrap();
     live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
-    live.receive(&message(&live, 2, 1), 2).unwrap();
+    live.receive(&ExperienceMessage::new(message(&live, 2, 1)), 2)
+        .unwrap();
     let packets = live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
     let Control::Epoch {
         session,
@@ -617,8 +626,11 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     assert_eq!(helper.dispatched.len(), 2);
     assert_eq!(helper.dispatched[1], Event::Epoch);
     // Its transaction carries the new epoch, and the new epoch's messages reach the guest.
-    live.receive(&message(&live, 3, 2), 3 * CALLBACK_INTERVAL_MS)
-        .unwrap();
+    live.receive(
+        &ExperienceMessage::new(message(&live, 3, 2)),
+        3 * CALLBACK_INTERVAL_MS,
+    )
+    .unwrap();
     live.poll(2, 3 * CALLBACK_INTERVAL_MS).unwrap();
     live.poll(2, 4 * CALLBACK_INTERVAL_MS).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
@@ -671,7 +683,7 @@ fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
         payload: large_list(),
     };
     for bytes in wire::encode(&incoming, &live.grant.wire).unwrap() {
-        live.receive(&bytes, 1).unwrap();
+        live.receive(&ExperienceMessage::new(bytes), 1).unwrap();
     }
     live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();

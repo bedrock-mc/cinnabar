@@ -51,7 +51,7 @@ fn liquid_shader_parses_validates_and_uses_shared_address_contract() {
     assert!(shader.contains("metadata_index: u32"));
     assert!(shader.contains("let liquid_word = record_index * 4u"));
     assert!(
-        shader.contains("let chunk_origin = chunk_origins[geometry_streams[liquid_word + 3u]]")
+        shader.contains("let chunk_origin = chunk_origins(geometry_streams[liquid_word + 3u])")
     );
     assert!(
         shader.contains("chunk_origin.stream_bases.w + record_index - chunk_origin.stream_bases.z")

@@ -83,17 +83,10 @@ fn every_tinted_pipeline_calls_the_shared_blender() {
 fn foliage_variants_select_their_palette_inside_the_shared_average() {
     let source = shader("biome_tint.wesl");
     assert!(source.contains("fn special_foliage_tint("));
+    assert!(source.contains("case 0x200u: { return unpack_linear_rgb10(tint_birch(tint)); }"));
+    assert!(source.contains("case 0x400u: { return unpack_linear_rgb10(tint_evergreen(tint)); }"));
     assert!(
-        source.contains("case 0x200u: { return unpack_linear_rgb10(biome_tints[tint].birch); }")
-    );
-    assert!(
-        source
-            .contains("case 0x400u: { return unpack_linear_rgb10(biome_tints[tint].evergreen); }")
-    );
-    assert!(
-        source.contains(
-            "case 0x600u: { return unpack_linear_rgb10(biome_tints[tint].dry_foliage); }"
-        )
+        source.contains("case 0x600u: { return unpack_linear_rgb10(tint_dry_foliage(tint)); }")
     );
     assert!(source.contains(
         "tint_domain_colour(tint, tint_kind, material_flags, position + vec3<i32>(world_origin))"

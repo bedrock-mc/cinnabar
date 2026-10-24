@@ -228,6 +228,52 @@ fn shaders_offer_reload_and_folder_import_when_the_host_opens_folders() {
 }
 
 #[test]
+fn the_import_target_opens_the_picker_with_or_without_file_drops() {
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    for accepts_file_drops in [false, true] {
+        Arc::make_mut(&mut view.storage).accepts_file_drops = accepts_file_drops;
+        for importing in [false, true] {
+            view.shader_pack_importing = importing;
+            assert_eq!(
+                controls(&view).0.contains(&MenuAction::ImportShaderPacks),
+                !importing && render_model::SHADER_PACKS_ENABLED,
+                "drops {accepts_file_drops}, importing {importing}"
+            );
+        }
+    }
+}
+
+#[test]
+fn touch_hosts_offer_a_named_shader_import_button_without_a_folder_shortcut() {
+    let mut view = settings_view(SettingSection::Shaders.definition().name);
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.accepts_file_drops = false;
+    storage.opens_folders = false;
+    for packs in [Vec::new(), vec!["Dusk.zip".to_owned()]] {
+        view.shader_packs = packs.into();
+        let (actions, labels) = controls(&view);
+        assert_eq!(
+            labels.iter().any(|label| label == "Import shader pack"),
+            render_model::SHADER_PACKS_ENABLED
+        );
+        assert_eq!(
+            labels.iter().any(|label| label == "Tap to choose a .zip"),
+            render_model::SHADER_PACKS_ENABLED
+        );
+        assert_eq!(
+            actions.contains(&MenuAction::ImportShaderPacks),
+            render_model::SHADER_PACKS_ENABLED
+        );
+        assert!(!labels.iter().any(|label| label == "Open folder"));
+        assert!(
+            !actions.contains(&MenuAction::SettingsStorage(StorageAction::OpenFolder(
+                StorageFolder::ShaderPacks,
+            )))
+        );
+    }
+}
+
+#[test]
 fn a_requested_pack_without_a_picker_entry_offers_its_options() {
     let mut view = settings_view(SettingSection::Shaders.definition().name);
     view.render_mode = ui::RenderMode::ShaderPack;

@@ -4,15 +4,17 @@ use crate::diagnostics::{Diagnostic, Phase};
 use crate::preprocess::LineMap;
 use crate::programs::StageKind;
 use naga::valid::ModuleInfo;
+use std::collections::HashSet;
 
 mod inputs;
 mod order;
+mod wire;
 
 #[cfg(test)]
 mod tests;
 
 /// A validated stage module.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, Clone, Debug)]
 pub struct CompiledStage {
     pub stage: StageKind,
     /// The translated GLSL 4.50 that naga parsed.
@@ -20,7 +22,25 @@ pub struct CompiledStage {
     pub module: naga::Module,
     /// Validation info for `module`, validated with every capability; the host checks the
     /// capabilities and limits its device actually has.
+    #[serde(skip_serializing)]
     pub info: ModuleInfo,
+}
+
+/// Compilation diagnostics and the unresolved variable names reported by the GLSL parser.
+#[derive(Debug)]
+pub(crate) struct CompileFailure {
+    pub diagnostics: Vec<Diagnostic>,
+    pub unknown_variables: HashSet<String>,
+}
+
+impl From<Vec<Diagnostic>> for CompileFailure {
+    /// Keeps failures outside name resolution ineligible for declaration repair.
+    fn from(diagnostics: Vec<Diagnostic>) -> Self {
+        Self {
+            diagnostics,
+            unknown_variables: HashSet::new(),
+        }
+    }
 }
 
 /// naga's stage for a translatable stage kind.
@@ -62,18 +82,68 @@ impl OutputMap<'_> {
 pub(crate) fn compile(
     stage: StageKind,
     map: &OutputMap<'_>,
-) -> Result<CompiledStage, Vec<Diagnostic>> {
+) -> Result<CompiledStage, CompileFailure> {
+    let mut module = parse_module(stage, map)?;
+    let info = inputs::validate(&mut module).map_err(|error| validation_failure(&error, map))?;
+    Ok(CompiledStage {
+        stage,
+        glsl: map.glsl.to_string(),
+        module,
+        info,
+    })
+}
+
+/// Finds resolved numeric reads before dead inputs and uncalled functions are removed.
+pub(crate) fn numeric_reads(compiled: &CompiledStage) -> Result<HashSet<String>, CompileFailure> {
+    let map = OutputMap {
+        glsl: &compiled.glsl,
+        origins: &[],
+        lines: &LineMap::default(),
+    };
+    let module = parse_module(compiled.stage, &map)?;
+    let info = inputs::module_info(&module).map_err(|error| validation_failure(&error, &map))?;
+    let usage = info.get_entry_point(0);
+    Ok(module
+        .global_variables
+        .iter()
+        .filter(|(global, variable)| {
+            matches!(
+                &module.types[variable.ty].inner,
+                naga::TypeInner::Scalar(_)
+                    | naga::TypeInner::Vector { .. }
+                    | naga::TypeInner::Matrix { .. }
+            ) && (usage[*global].contains(naga::valid::GlobalUse::READ)
+                || module.functions.iter().any(|(function, _)| {
+                    info[function][*global].contains(naga::valid::GlobalUse::READ)
+                }))
+        })
+        .filter_map(|(_, variable)| variable.name.clone())
+        .collect())
+}
+
+/// Parses GLSL and orders function dependencies while retaining structured name failures.
+fn parse_module(stage: StageKind, map: &OutputMap<'_>) -> Result<naga::Module, CompileFailure> {
     let Some(naga_stage) = naga_stage(stage) else {
         return Err(vec![Diagnostic::new(
             Phase::Parse,
             format!("{} shaders are not supported", stage.extension()),
-        )]);
+        )]
+        .into());
     };
     let mut frontend = naga::front::glsl::Frontend::default();
     let mut module = frontend
         .parse(&naga::front::glsl::Options::from(naga_stage), map.glsl)
-        .map_err(|e| {
-            e.errors
+        .map_err(|e| CompileFailure {
+            unknown_variables: e
+                .errors
+                .iter()
+                .filter_map(|error| match &error.kind {
+                    naga::front::glsl::ErrorKind::UnknownVariable(name) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect(),
+            diagnostics: e
+                .errors
                 .iter()
                 .map(|err| {
                     let line = err
@@ -82,7 +152,7 @@ pub(crate) fn compile(
                         .then(|| err.meta.location(map.glsl).line_number);
                     map.diagnostic(Phase::Parse, err.kind.to_string(), line)
                 })
-                .collect::<Vec<_>>()
+                .collect(),
         })?;
     order::functions(&mut module).map_err(|span| {
         let line = span
@@ -94,19 +164,19 @@ pub(crate) fn compile(
             line,
         )]
     })?;
-    let info = inputs::validate(&mut module).map_err(|e| {
-        let line = e
-            .spans()
-            .find(|(span, _)| span.is_defined())
-            .map(|(span, _)| span.location(map.glsl).line_number);
-        vec![map.diagnostic(Phase::Validate, error_chain(&e), line)]
-    })?;
-    Ok(CompiledStage {
-        stage,
-        glsl: map.glsl.to_string(),
-        module,
-        info,
-    })
+    Ok(module)
+}
+
+/// Maps a validator failure to the source coordinates used by this compilation.
+fn validation_failure(
+    error: &naga::WithSpan<naga::valid::ValidationError>,
+    map: &OutputMap<'_>,
+) -> CompileFailure {
+    let line = error
+        .spans()
+        .find(|(span, _)| span.is_defined())
+        .map(|(span, _)| span.location(map.glsl).line_number);
+    vec![map.diagnostic(Phase::Validate, error_chain(error), line)].into()
 }
 
 /// `error: cause: cause …`.

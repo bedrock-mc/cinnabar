@@ -17,8 +17,11 @@ import (
 	"time"
 )
 
-// storeSchema is the schema number of every file the store writes and accepts.
-const storeSchema = 1
+// storeSchema identifies instance-keyed block data. Schema 1 is migrated when it is opened.
+const storeSchema = 2
+
+// installedSchema identifies the installation manifest, whose format has not changed.
+const installedSchema = 1
 
 // installedFile records the ids of every Experience ever installed in the world. Its leading
 // underscore keeps it apart from every Experience data file.
@@ -33,10 +36,10 @@ var ErrQuota = errors.New("experience data quota exceeded")
 // ErrNotPlaced is returned by SetData when the position has no entry for the Experience.
 var ErrNotPlaced = errors.New("no placed experience block at position")
 
-// Key identifies a block position. Dim is 0 for the overworld, 1 for the nether and 2 for the end.
+// Key identifies a block position in one stable world instance.
 type Key struct {
-	Dim     int
-	X, Y, Z int32
+	Instance WorldInstanceID
+	X, Y, Z  int32
 }
 
 // Token identifies one state of an entry: a placement generation and a data revision within it.
@@ -70,13 +73,14 @@ type Store struct {
 }
 
 type fileEntry struct {
-	Dim        int     `json:"dim"`
-	X          int32   `json:"x"`
-	Y          int32   `json:"y"`
-	Z          int32   `json:"z"`
-	Generation uint64  `json:"generation"`
-	Revision   uint64  `json:"revision"`
-	Data       *string `json:"data"`
+	Instance   WorldInstanceID `json:"instance"`
+	LegacyDim  *int            `json:"dim,omitempty"`
+	X          int32           `json:"x"`
+	Y          int32           `json:"y"`
+	Z          int32           `json:"z"`
+	Generation uint64          `json:"generation"`
+	Revision   uint64          `json:"revision"`
+	Data       *string         `json:"data"`
 }
 
 type experienceFile struct {
@@ -129,13 +133,24 @@ func (s *Store) loadExperience(id, path string) error {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return err
 	}
-	if f.Schema != storeSchema {
+	if f.Schema != 1 && f.Schema != storeSchema {
 		return fmt.Errorf("schema %d, want %d", f.Schema, storeSchema)
 	}
-	e := &experienceData{entries: make(map[Key]entry, len(f.Entries))}
+	e := &experienceData{entries: make(map[Key]entry, len(f.Entries)), dirty: f.Schema != storeSchema}
 	s.nextGeneration = max(s.nextGeneration, f.NextGeneration)
 	for _, fe := range f.Entries {
-		k := Key{Dim: fe.Dim, X: fe.X, Y: fe.Y, Z: fe.Z}
+		instance := fe.Instance
+		if f.Schema == 1 {
+			if fe.LegacyDim == nil || instance != "" {
+				return errors.New("legacy entry must have a dimension and no instance")
+			}
+			if instance, err = legacyWorldInstance(*fe.LegacyDim); err != nil {
+				return err
+			}
+		} else if instance == "" || fe.LegacyDim != nil {
+			return errors.New("entry must have an instance and no legacy dimension")
+		}
+		k := Key{Instance: instance, X: fe.X, Y: fe.Y, Z: fe.Z}
 		if _, dup := e.entries[k]; dup {
 			return fmt.Errorf("duplicate entry at %+v", k)
 		}
@@ -299,7 +314,7 @@ func (s *Store) Flush() error {
 		f := experienceFile{Schema: storeSchema, NextGeneration: p.next, Entries: make([]fileEntry, len(p.keys))}
 		for i, k := range p.keys {
 			en := p.entries[i]
-			fe := fileEntry{Dim: k.Dim, X: k.X, Y: k.Y, Z: k.Z, Generation: en.token.Generation, Revision: en.token.Revision}
+			fe := fileEntry{Instance: k.Instance, X: k.X, Y: k.Y, Z: k.Z, Generation: en.token.Generation, Revision: en.token.Revision}
 			if en.data != nil {
 				h := hex.EncodeToString(en.data)
 				fe.Data = &h
@@ -307,7 +322,7 @@ func (s *Store) Flush() error {
 			f.Entries[i] = fe
 		}
 		slices.SortFunc(f.Entries, func(a, b fileEntry) int {
-			return cmp.Or(cmp.Compare(a.Dim, b.Dim), cmp.Compare(a.X, b.X), cmp.Compare(a.Y, b.Y), cmp.Compare(a.Z, b.Z))
+			return cmp.Or(cmp.Compare(a.Instance, b.Instance), cmp.Compare(a.X, b.X), cmp.Compare(a.Y, b.Y), cmp.Compare(a.Z, b.Z))
 		})
 		if err := s.writeJSON(p.id+".json", f); err != nil {
 			errs = append(errs, err)

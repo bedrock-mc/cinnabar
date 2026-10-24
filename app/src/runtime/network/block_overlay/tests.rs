@@ -37,6 +37,7 @@ mod hd_textures;
 mod legacy;
 mod lighting;
 mod mining;
+mod multi_page;
 mod partial_faces;
 mod random_offset;
 mod session;

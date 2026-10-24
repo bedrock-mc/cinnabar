@@ -113,23 +113,27 @@ fn build(
                 particle_quads(mesh, &frame.add, camera, inputs.particle_atlas_side);
             }
         }
-        Effect::Weather => {
+        Effect::Rain => {
+            let Some(scene) = inputs.precipitation else {
+                return;
+            };
+            if scene
+                .layers
+                .iter()
+                .any(|layer| layer.kind == RAIN_KIND && layer.particle_count > 0)
+            {
+                let seconds = inputs.frame.frame_time_counter.unwrap_or(inputs.seconds);
+                rain_columns(
+                    mesh,
+                    &scene.occlusion,
+                    camera,
+                    inputs.frame.rain_strength,
+                    seconds * render_model::PRECIPITATION_TICKS_PER_SECOND as f32,
+                );
+            }
+        }
+        Effect::Snow => {
             if let Some(scene) = inputs.precipitation {
-                if let Some(rain) = scene
-                    .layers
-                    .iter()
-                    .find(|layer| layer.kind == RAIN_KIND && layer.particle_count > 0)
-                {
-                    let seconds = inputs.frame.frame_time_counter.unwrap_or(inputs.seconds);
-                    rain_columns(
-                        mesh,
-                        &scene.occlusion,
-                        rain.uv_rect,
-                        camera,
-                        inputs.frame.rain_strength,
-                        seconds * render_model::PRECIPITATION_TICKS_PER_SECOND as f32,
-                    );
-                }
                 weather_quads(
                     mesh,
                     &scene.layers,

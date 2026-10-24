@@ -7,6 +7,13 @@ use super::super::pack_reload_tests::stack;
 fn saved_globals_reopen_the_selected_revision_in_the_launcher_layout() {
     use launcher::install_layout::{InstallEnvironment, InstallLayout, Platform};
 
+    let platform = if cfg!(target_os = "windows") {
+        Platform::Windows
+    } else if cfg!(target_os = "macos") {
+        Platform::MacOs
+    } else {
+        Platform::Linux
+    };
     for isolated in [false, true] {
         let fixture = tempfile::tempdir().unwrap();
         let environment = InstallEnvironment {
@@ -18,7 +25,7 @@ fn saved_globals_reopen_the_selected_revision_in_the_launcher_layout() {
             xdg_data_home: None,
             xdg_runtime_dir: None,
         };
-        let layout = InstallLayout::resolve(Platform::Linux, &environment).unwrap();
+        let layout = InstallLayout::resolve(platform, &environment).unwrap();
         let root = layout.global_resource_packs_dir();
         assert_eq!(
             root,

@@ -114,6 +114,7 @@ fn large_local_fallbacks_preserve_carrier_and_icon_pixels_below_server_overrides
             [(
                 ICON.to_owned(),
                 ui::IconRef {
+                    color_mask: None,
                     page: 0,
                     uv: [0, 0, 1, 1],
                     glint: false,

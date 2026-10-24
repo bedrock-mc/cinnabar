@@ -606,6 +606,7 @@ impl FrameUniforms {
             // Outside actor draws, which patch their own: no entity, block entity or item.
             "entityId" | "blockEntityId" | "currentRenderedItemId" => Int(-1),
             "entityColor" => HostValue::Vec(Vec4::ZERO, 4),
+            "alphaTestRef" => Float(0.0),
             _ => return None,
         })
     }
@@ -629,6 +630,8 @@ pub(crate) struct DrawUniforms {
     pub atlas_size: [i32; 2],
     /// `entityId`: the drawn entity's `entity.properties` id, Iris's -1 outside entities.
     pub entity_id: i32,
+    /// `alphaTestRef`: the draw's alpha test threshold for cutout discarding.
+    pub alpha_test_ref: f32,
 }
 
 impl DrawUniforms {
@@ -656,6 +659,7 @@ impl DrawUniforms {
             "renderStage" => HostValue::Int(self.render_stage),
             "atlasSize" => HostValue::IVec([self.atlas_size[0], self.atlas_size[1], 0, 0], 2),
             "entityId" => HostValue::Int(self.entity_id),
+            "alphaTestRef" => HostValue::Float(self.alpha_test_ref),
             _ => return None,
         })
     }

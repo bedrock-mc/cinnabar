@@ -37,7 +37,7 @@ pub trait ClientPart {
     /// modal has focus; `collection_index` is the control's row in its nearest collection.
     fn action(_id: String, _collection_index: Option<u32>) {}
 
-    /// Handles `epoch`: the world epoch changed, such as on a dimension change, and the client
+    /// Handles `epoch`: the world epoch changed, after a server world notice or dimension change, and the client
     /// part and its state live on. The server half resends what it needs to.
     fn epoch() {}
 

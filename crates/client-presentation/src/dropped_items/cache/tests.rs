@@ -346,6 +346,7 @@ fn warm_icon_lookup_and_admission_do_not_allocate() {
     frame(&mut cache, []);
     let key = ModelKey::icon(
         ui::IconRef {
+            color_mask: None,
             page: 0,
             uv: [0, 0, 1, 1],
             glint: false,
@@ -487,6 +488,7 @@ fn transient_icon_and_carried_block_build_failures_are_retried() {
     for key in [
         ModelKey::icon(
             ui::IconRef {
+                color_mask: None,
                 page: 0,
                 uv: [0, 0, 1, 1],
                 glint: false,

@@ -512,6 +512,7 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
         }
         let [left, top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
         let placement = IconRef {
+            color_mask: None,
             page: page_index,
             uv: [
                 left as u16,

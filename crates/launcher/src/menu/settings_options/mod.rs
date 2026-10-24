@@ -46,7 +46,7 @@ pub use definitions::{
     MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
     SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
     THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VIEW_BOBBING_CHOICES, VRR_CHOICES,
-    VRR_OPTION, VSYNC_OPTION,
+    VRR_OPTION, VSYNC_CHOICES,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -166,6 +166,10 @@ impl SettingsOptions {
 
     pub fn oreui_dark_mode(&self) -> bool {
         self.value(SettingId::OreuiDarkMode) != 0
+    }
+
+    pub fn f5_self_visuals(&self) -> bool {
+        self.value(SettingId::F5SelfVisuals) != 0
     }
 
     /// Whether launch and Settings layer debug levels for the net, session, core and packs

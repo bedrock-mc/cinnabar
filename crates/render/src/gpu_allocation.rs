@@ -109,10 +109,13 @@ impl UploadRetry {
         self.failed
     }
 
-    /// Advances one frame of a failed upload; `true` when its owner should retry and `record` it.
+    /// Waits for a failed upload's retry, then stays ready until its owner records the result.
     pub(crate) fn take_ready(&mut self) -> bool {
         if !self.failed {
             return false;
+        }
+        if self.retrying {
+            return true;
         }
         let retired = self
             .retired

@@ -146,7 +146,7 @@ impl Builder<'_> {
                 Source::Image(texture) | Source::GridImage(texture, _) => texture.rgba8.len(),
             })
             .sum();
-        self.upload_bytes = (0..super::super::MAX_OVERLAY_SHARDS)
+        self.upload_bytes = (0..self.max_shards())
             .map(|shard| {
                 self.texture_policy
                     .terrain_bytes(

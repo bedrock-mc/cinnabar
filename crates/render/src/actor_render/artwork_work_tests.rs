@@ -307,3 +307,54 @@ fn failed_artwork_replacement_keeps_its_source_until_upload_recovers() {
         }
     );
 }
+
+// No frame writes more than the upload budget, and a large page binds only once complete.
+#[test]
+fn large_pages_upload_within_the_frame_budget_and_bind_when_complete() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut pages = ActorArtworkPages::default();
+    pages.entity_identity = [1; 32];
+    let layers = 6;
+    pages.pages = Arc::from([render_model::ActorTexturePage {
+        width: 1024,
+        height: 1024,
+        layers,
+        rgba8: vec![9; 1024 * 1024 * 4 * layers as usize].into(),
+        color_mask: false,
+        multitexture: false,
+    }]);
+    let total = pages.pages[0].rgba8.len();
+    let mut gpu = GpuArtwork::default();
+    assert!(gpu.prepare(&ActorArtworkPages::default(), &device, &queue));
+    let written = std::rc::Rc::new(Cell::new(0));
+    let observed = written.clone();
+    let _observe = gpu_allocation::inject(move |label, bytes| {
+        if label == "actor page upload" {
+            observed.set(observed.get() + bytes as usize);
+        }
+        false
+    });
+    let frames = total.div_ceil(UPLOAD_BYTES_PER_FRAME);
+    let mut uploaded = 0;
+    for frame in 1..=frames {
+        written.set(0);
+        assert!(gpu.prepare_demanded(&pages, &[1], &device, &queue));
+        let written = written.get();
+        assert!(
+            written <= UPLOAD_BYTES_PER_FRAME,
+            "{written} bytes in one frame"
+        );
+        assert!(written > 0, "every frame makes progress");
+        uploaded += written;
+        assert_eq!(gpu.page(0).is_some(), frame == frames);
+    }
+    assert_eq!(uploaded, total);
+    assert!(
+        gpu.page(0)
+            .unwrap()
+            .source
+            .shares_pixels_with(&pages.pages[0])
+    );
+}

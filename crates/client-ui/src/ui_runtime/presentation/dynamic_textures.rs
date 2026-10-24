@@ -151,6 +151,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         }
         player_preview_page = Some(page);
         player_preview_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 0,
@@ -161,6 +162,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             glint: false,
         });
         left_hand_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 0,
@@ -171,6 +173,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             glint: false,
         });
         right_hand_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 player_preview::HAND_WIDTH as u16,
@@ -207,11 +210,12 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         } else if offset >= super::gui_models::MODEL_PAGE {
             runtime
                 .gui_models
+                .sources
                 .pages
                 .get(offset - super::gui_models::MODEL_PAGE)
                 .or_else(|| {
                     let index = (offset - super::gui_models::MODEL_PAGE)
-                        .checked_sub(runtime.gui_models.pages.len())?;
+                        .checked_sub(runtime.gui_models.sources.pages.len())?;
                     runtime.gui_models.pack_equipment.pages.get(index)
                 })
         } else {
@@ -344,6 +348,7 @@ mod tests {
             std::collections::HashMap::from([(
                 ui_engine::textures::TITLE_KEY.to_owned(),
                 IconRef {
+                    color_mask: None,
                     page: 0,
                     uv: [0, 0, 8, 4],
                     glint: false,
@@ -354,7 +359,8 @@ mod tests {
         let old_refs = runtime.menu_artwork.refs.clone();
         runtime.preview_dirty = true;
         runtime.menu_artwork_dirty = true;
-        runtime.gui_models.pages = vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap()];
+        runtime.gui_models.sources.pages =
+            vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap()];
         rebuild(&mut runtime);
         assert!(Arc::ptr_eq(&runtime.textures, &previous));
         assert!(runtime.preview_dirty, "rejected pixels must be retried");
@@ -364,7 +370,7 @@ mod tests {
             runtime.menu_artwork_loader.poll(),
             "rejected artwork stays pending"
         );
-        runtime.gui_models.pages.clear();
+        runtime.gui_models.sources.pages.clear();
         rebuild(&mut runtime);
         assert!(!runtime.preview_dirty);
         assert!(!runtime.menu_artwork_dirty);

@@ -102,6 +102,7 @@ fn installed_spear_charge_keeps_the_authored_third_person_arm_with_java_enabled(
     let input = ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts,
             grip: assets::item::grip::builtin_item_grip("minecraft:iron_spear"),

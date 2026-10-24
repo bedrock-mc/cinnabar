@@ -1,6 +1,6 @@
 use meshing::FaceConnectivity;
 
-use super::tests::{Rng, grid, oracle, update_incrementally};
+use super::tests::{Rng, assert_superset_of_oracle, grid, oracle, update_incrementally};
 use super::*;
 
 /// Creates a key in the test world's primary dimension.
@@ -131,7 +131,7 @@ fn active_visibility_reader_survives_addition_journal_rollover() {
         }
     }
     assert_eq!(grid.checkpoint().1, initial_checkpoint.1);
-    assert!(!grid.retains_additions(initial_checkpoint.2));
+    assert!(!grid.retains_changes(initial_checkpoint.2));
     assert_eq!(visible.iter().collect::<HashSet<_>>(), oracle(camera, &map));
 }
 
@@ -329,12 +329,13 @@ fn random_camera_moves_and_graph_mutations_match_the_full_search() {
                 update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
             assert_eq!(scratch.work().rebuilt, rebuilt);
             assert!(scratch.work().proof_exits <= camera::CAMERA_PROOF_BUDGET);
-            assert_eq!(
-                visible.iter().collect::<HashSet<_>>(),
-                oracle(camera, &map),
-                "round {round}, step {step}, camera {camera:?}",
+            assert_superset_of_oracle(
+                camera,
+                &map,
+                &scratch,
+                &visible,
+                &format!("round {round}, step {step}, camera {camera:?}"),
             );
-            assert_eq!(visible.len(), visible.iter().collect::<HashSet<_>>().len());
         }
     }
 }

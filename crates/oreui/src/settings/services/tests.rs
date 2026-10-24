@@ -10,6 +10,41 @@ fn account_panel(view: &MenuView) -> (Vec<String>, Vec<MenuAction>) {
     panel(view, account)
 }
 
+#[test]
+fn french_account_keeps_gamertags_verbatim() {
+    let mut view = MenuView::new(true, "Player".into());
+    view.auth_state = AuthState::Authenticated;
+    assert!(std::sync::Arc::make_mut(&mut view.settings_options).set_language("fr_FR"));
+    for name in ["High", "Automatic", "options.fullscreen"] {
+        view.feeds.profile.gamertag = name.into();
+        let (labels, _) = account_panel(&view);
+        assert!(labels.iter().any(|label| label == name), "{labels:?}");
+    }
+}
+
+#[test]
+fn french_storage_keeps_world_and_cache_names_verbatim() {
+    use launcher::menu::settings_storage::StorageItem;
+    let mut view = MenuView::new(true, "Player".into());
+    assert!(std::sync::Arc::make_mut(&mut view.settings_options).set_language("fr_FR"));
+    let storage_view = std::sync::Arc::make_mut(&mut view.storage);
+    storage_view.expanded.fill(true);
+    storage_view.worlds = vec![StorageItem {
+        name: "High".into(),
+        ..Default::default()
+    }];
+    storage_view.cached = vec![StorageItem {
+        name: "options.fullscreen".into(),
+        ..Default::default()
+    }];
+    let (labels, actions) = panel(&view, storage);
+    for name in ["High", "options.fullscreen"] {
+        assert!(labels.iter().any(|label| label == name), "{labels:?}");
+    }
+    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::SelectWorld(0))));
+    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::Select(0))));
+}
+
 /// Draws one settings panel and returns its visible text and available actions.
 fn panel(
     view: &MenuView,

@@ -148,6 +148,7 @@ pub struct MenuRuntime {
     shader_pack_reload: bool,
     shader_pack_removing: Option<std::sync::Arc<str>>,
     shader_pack_remove_request: Option<String>,
+    shader_pack_import: renderer::PackImport,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -174,6 +175,8 @@ pub struct MenuRuntime {
     player_skin: crate::player_skin::LocalPlayerSkin,
     dressing_room: std::sync::Arc<launcher::dressing_room::DressingRoomView>,
     dressing_room_worker: Option<dressing_room::Worker>,
+    /// Fallback pixels for catalog entries created before world assets were ready.
+    default_player_skin: Option<render_api::StandardSkin>,
     skin_update_pending: bool,
     skin_outbound: Option<(u64, protocol::Packet)>,
     skin_packet_pending: Option<protocol::Packet>,
@@ -699,6 +702,7 @@ impl MenuRuntime {
             MenuAction::AddBack => self.go_back(),
             MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
             MenuAction::ReloadShaders => self.activate_shader_reload(),
+            MenuAction::ImportShaderPacks => self.request_shader_pack_import(),
             MenuAction::RemoveShaderPackDialog(index, revision) => {
                 self.remove_shader_pack_dialog(index, revision)
             }

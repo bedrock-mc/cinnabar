@@ -351,6 +351,16 @@ pub(in crate::compiler) fn compile_rule(
         materials,
         min,
         max,
+        if record
+            .traits
+            .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
+        {
+            assets::MODEL_TEMPLATE_FLAG_CHORUS
+        } else if block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea {
+            assets::MODEL_TEMPLATE_FLAG_AZALEA
+        } else {
+            0
+        },
         template_by_key,
         storage.templates,
         storage.quads,
@@ -363,6 +373,92 @@ pub(in crate::compiler) fn compile_rule(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_selection_preserves_the_placed_envelope() {
+        let protocol = assets::active_content_registry_protocol();
+        let records =
+            assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
+                .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::create_dir(directory.path().join("textures")).unwrap();
+        for (path, content) in [
+            ("blocks.json", "{}"),
+            ("textures/terrain_texture.json", r#"{"texture_data":{}}"#),
+            ("textures/flipbook_textures.json", "[]"),
+        ] {
+            std::fs::write(directory.path().join(path), content).unwrap();
+        }
+        let pack = read_pack(directory.path()).unwrap();
+        let descriptors = BTreeMap::new();
+        let inputs = RuleInputs {
+            pack: &pack,
+            material_by_descriptor: &descriptors,
+            vanilla_fallback_material: 1,
+            fallback: inventory(protocol).unwrap(),
+        };
+        let mut templates = Vec::new();
+        let mut quads = Vec::new();
+        let mut interned = BTreeMap::new();
+        let mut seen = 0;
+        for record in records.iter().filter(|record| {
+            record
+                .traits
+                .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
+                || block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
+        }) {
+            let (min, max, _) = inputs.fallback.entry(record).unwrap();
+            let CompileRuleResult::Compiled(visual) = compile_rule(
+                record,
+                &inputs,
+                &mut interned,
+                &mut ModelStorage {
+                    templates: &mut templates,
+                    quads: &mut quads,
+                },
+            )
+            .unwrap() else {
+                panic!("missing inventory visual")
+            };
+            let template = &templates[visual.model_template as usize];
+            let expected =
+                if block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea {
+                    assets::MODEL_TEMPLATE_FLAG_AZALEA
+                } else {
+                    assets::MODEL_TEMPLATE_FLAG_CHORUS
+                };
+            assert_eq!(template.flags, expected);
+            let placed = &quads[template.quad_start as usize..][..template.quad_count as usize];
+            let mut bounds = [[i16::MAX; 3], [i16::MIN; 3]];
+            for point in placed.iter().flat_map(|quad| quad.positions) {
+                for axis in 0..3 {
+                    bounds[0][axis] = bounds[0][axis].min(point[axis]);
+                    bounds[1][axis] = bounds[1][axis].max(point[axis]);
+                }
+            }
+            assert_eq!(bounds, [min, max]);
+            let ordinary = intern_cuboid_template(
+                visual.faces,
+                min,
+                max,
+                0,
+                &mut interned,
+                &mut templates,
+                &mut quads,
+            )
+            .unwrap();
+            assert_ne!(
+                ordinary, visual.model_template,
+                "GUI shape participates in interning"
+            );
+            assert_eq!(templates[ordinary as usize].flags, 0);
+            seen += 1;
+        }
+        assert!(
+            seen >= 4,
+            "both chorus and azalea block types are registered"
+        );
+    }
 
     #[test]
     fn embedded_inventories_are_sorted_unique_and_bounded() {

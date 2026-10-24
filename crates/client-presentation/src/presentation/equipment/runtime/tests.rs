@@ -1,5 +1,8 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "map_mesh_tests.rs"]
+mod map_mesh_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 
@@ -29,6 +32,9 @@ mod texture_artwork_tests;
 
 #[path = "held_scale_tests.rs"]
 mod held_scale_tests;
+
+#[path = "third_person_hand_tests.rs"]
+mod third_person_hand_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
@@ -293,6 +299,7 @@ fn block_fixture_with_visuals(
         overlay_rgba8: 0,
     };
     let item = WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),

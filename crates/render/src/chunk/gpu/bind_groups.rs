@@ -192,7 +192,7 @@ pub(in crate::chunk) fn prepare_chunk_biome_tints(
     let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("packed chunk biome tints"),
         contents: bytemuck::cast_slice(&entries),
-        usage: BufferUsages::STORAGE,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
     let query_tables = match gpu.prepared.take() {
         Some(prepared) => prepared.query_tables,
@@ -366,6 +366,8 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     pipeline_cache: Res<PipelineCache>,
     view_uniforms: Res<ViewUniforms>,
     render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    mut compact: ResMut<super::compact::CompactTerrain>,
     texture_assets: Res<ChunkGpuTextureAssets>,
     clock: Res<ChunkGpuAnimationClock>,
     biome_tints: Res<ChunkGpuBiomeTints>,
@@ -510,6 +512,19 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
                 resource: BindingResource::TextureView(view),
             }),
     );
+    if pipeline.compact {
+        if !compact.prepare(&render_device, &render_queue, &mut entries) {
+            arena.bind_group = None;
+            arena.transparent_bind_group = None;
+            arena.bind_group_buffers = None;
+            return;
+        }
+        entries
+            .iter_mut()
+            .find(|entry| entry.binding == 2)
+            .unwrap()
+            .resource = compact.binding();
+    }
     let transparent_bind_group = render_device.create_bind_group(
         "transparent packed chunk bind group",
         &pipeline_cache.get_bind_group_layout(&pipeline.transparent_bind_group_layout),

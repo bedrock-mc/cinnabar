@@ -11,6 +11,7 @@ mod animated;
 mod appearance_preparation;
 mod colliders;
 mod effect_members;
+mod offered_use;
 pub use colliders::ActorCollisionBounds;
 pub use local_vehicle::{LocalVehicleFeed, VehicleRevision};
 mod death_visibility;
@@ -396,9 +397,11 @@ impl ActorSnapshot {
         }
     }
 
+    /// Whether invisibility hides this actor's body after applying its rendering override.
     #[must_use]
     pub fn is_invisible(&self) -> bool {
         self.flag(ActorFlag::Invisible.wire_value())
+            && !self.flag(ActorFlag::RenderWhenInvisible.wire_value())
     }
 
     #[must_use]
@@ -967,6 +970,9 @@ mod hitbox_tests;
 
 #[cfg(test)]
 mod movement_flags_tests;
+
+#[cfg(test)]
+mod visibility_tests;
 
 mod display;
 pub use display::{DisplayActorStore, MAX_DISPLAY_ACTORS};

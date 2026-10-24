@@ -2,7 +2,7 @@ use super::*;
 use bevy::math::Mat4;
 
 /// Builds the canonical six-part player fixture used by pose publication tests.
-fn head_assets() -> Arc<assets::RuntimeEntityAssets> {
+pub(super) fn head_assets() -> Arc<assets::RuntimeEntityAssets> {
     let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","materials":{"default":"entity"},"textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"render_controllers":["controller.render.test"]}}}"#;
     let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.test","texture_width":64,"texture_height":64},"bones":[{"name":"head","pivot":[0,24,0]},{"name":"body","pivot":[0,24,0]},{"name":"rightarm","pivot":[5,22,0]},{"name":"leftarm","pivot":[-5,22,0]},{"name":"rightleg","pivot":[1.9,12,0]},{"name":"leftleg","pivot":[-1.9,12,0]}]}]}"#;
     let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.test":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
@@ -14,6 +14,23 @@ fn head_assets() -> Arc<assets::RuntimeEntityAssets> {
     .unwrap()
     .unwrap();
     Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.assets).unwrap())
+}
+
+/// Supplies original paper pixels independently of the inventory icon atlas.
+pub(super) fn map_paper_catalog(identity: [u8; 32]) -> Arc<assets::RuntimeEquipmentCatalog> {
+    Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            identity,
+            Vec::new(),
+            vec![assets::EquipmentTexture {
+                identifier: assets::entity::MAP_BACKGROUND_TEXTURE_IDENTIFIER.into(),
+                width: 2,
+                height: 2,
+                rgba8: [220, 190, 140, 255].repeat(4).into(),
+            }],
+        )
+        .unwrap(),
+    )
 }
 
 /// Creates a local player stream with the fixture player assets.
@@ -335,6 +352,7 @@ fn retained_item_does_not_use_the_selected_items_clock() {
 #[test]
 fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
     let item = |identifier: &str| WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -367,6 +385,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
 #[test]
 fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
     let item = |identifier: &str| WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -444,6 +463,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         .unwrap(),
     );
     let item = |identifier: &str| WornItem {
+        map_id: (identifier == FILLED_MAP).then_some(266),
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -458,15 +478,31 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
     };
     for (old, new) in [(ids[0], ids[1]), (ids[1], ids[0])] {
         let mut stream = head_stream();
+        stream
+            .submit(
+                stream.committed_sequence() + 1,
+                protocol::WorldEvent::MapData(protocol::MapDataEvent {
+                    map_id: 266,
+                    initialized_ids: Default::default(),
+                    start_x: 0,
+                    start_y: 0,
+                    width: 1,
+                    height: 1,
+                    pixels: Arc::from([0xff28_14c8]),
+                }),
+            )
+            .unwrap();
         let mut feed = uploaded_skin_feed(false);
         feed.first_person = true;
         feed.main_hand = Some(old.into());
         stream.sync_local_player_pose(&feed);
         stream.prepare_actor_appearance_fixture();
         stream.advance_actor_interpolation_frame(6);
+        let assets = head_assets();
+        let catalog = map_paper_catalog(assets.source_manifest_sha256());
         let (mut equipment, artwork, _) = EquipmentRuntime::build(
-            head_assets(),
-            None,
+            assets,
+            Some(catalog),
             Arc::clone(&icons),
             None,
             None,
@@ -483,21 +519,25 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
         let presentation =
             crate::presentation::actors::entity_rig_presentation(&rig, actor, &artwork, 0.5)
                 .unwrap();
-        let expected = equipment
-            .first_person_java_item(
-                &presentation.submission,
-                &item(old),
-                JavaHand {
-                    swing: 0.0,
-                    equip: 1.0,
-                    using: None,
-                },
-            )
-            .unwrap()
-            .presentation
-            .submission
-            .input
-            .rig;
+        let expected = if old == FILLED_MAP {
+            equipment.map_meshes()[1]
+        } else {
+            equipment
+                .first_person_java_item(
+                    &presentation.submission,
+                    &item(old),
+                    JavaHand {
+                        swing: 0.0,
+                        equip: 1.0,
+                        using: None,
+                    },
+                )
+                .unwrap()
+                .presentation
+                .submission
+                .input
+                .rig
+        };
         feed.main_hand = Some(new.into());
         stream.sync_local_player_pose(&feed);
         stream.prepare_actor_appearance_fixture();
@@ -539,6 +579,20 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
                 .submission
                 .input
                 .rig;
+            let displayed = if tick < 3 { old } else { new };
+            let paper_count = source
+                .all_submissions()
+                .filter(|draw| {
+                    draw.texture_layer & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0
+                })
+                .count();
+            assert_eq!(paper_count, usize::from(displayed == FILLED_MAP));
+            assert_eq!(source.body.is_some(), displayed == FILLED_MAP);
+            if displayed == FILLED_MAP {
+                let atlas = &source.items[0].as_ref().unwrap().1;
+                assert_eq!(&atlas.rgba8[..4], &[200, 20, 40, 255]);
+                assert_eq!(drawn, equipment.map_meshes()[1]);
+            }
             if tick < 3 {
                 assert_eq!(drawn, expected, "{old} → {new} before adoption");
             } else {
@@ -573,6 +627,7 @@ fn partial_layers_skip_missing_parts() {
 fn worn(identifier: &str) -> WornItem {
     WornItem {
         variant: Default::default(),
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),

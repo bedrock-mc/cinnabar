@@ -196,8 +196,12 @@ fn publish_debug_overlay(
     let record_session = settings
         .as_ref()
         .is_some_and(|(settings, _)| settings.record_network_session());
-    let toggled = !menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
-        && state.bindings.pressed(&keys, context.mouse.as_deref());
+    let touch_toggled = presentation
+        .bypass_change_detection()
+        .take_touch_debug_toggle();
+    let toggled = touch_toggled
+        ^ (!menu.is_some_and(client_shell::menu::MenuRuntime::is_remapping_key)
+            && state.bindings.pressed(&keys, context.mouse.as_deref()));
     if toggled {
         state.visible = !state.visible;
         if !state.visible {

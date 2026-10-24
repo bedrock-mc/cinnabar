@@ -167,7 +167,8 @@ pub(crate) fn prepare(
         *state = None;
         return;
     };
-    if gpu.instance_count == 0
+    if !pipeline.motion_supported
+        || gpu.instance_count == 0
         || gpu.frame_generation != frame.rig.frame_generation
         || gpu.instances.len() != frame.rig.instances.len()
     {

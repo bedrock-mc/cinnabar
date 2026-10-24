@@ -135,7 +135,7 @@ impl WorldsClient {
                     }
                     // Only an open holds the gate, so a revoked client never starts a world
                     // while slow requests (a Docker probe) never delay a detach.
-                    let gate = matches!(effect, Effect::Open(_)).then_some(gate);
+                    let gate = matches!(effect, Effect::Open(_) | Effect::Prestart).then_some(gate);
                     let cancelled = || *lock(&worker_revoked);
                     let event = execute(&manager, &route, effect, &cancelled);
                     drop(gate);
@@ -258,12 +258,20 @@ fn execute(
             manager.close();
             return None;
         }
+        Effect::Leave => {
+            manager.leave();
+            return None;
+        }
         Effect::SetPaused(paused) => {
             let _ = manager.set_paused(paused);
             return None;
         }
         Effect::Prepare => {
             manager.prepare();
+            return None;
+        }
+        Effect::Prestart => {
+            manager.prestart();
             return None;
         }
         Effect::OpenUrl(_) => return None,

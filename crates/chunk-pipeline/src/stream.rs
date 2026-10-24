@@ -86,6 +86,7 @@ mod map_data;
 mod meshing;
 mod model;
 mod near_drawn;
+pub use near_drawn::TerrainPublicationCursor;
 mod particle_events;
 mod polling;
 mod prediction;
@@ -168,6 +169,8 @@ const URGENT_RESULTS_PER_PASS: usize = 16;
 /// Cooperative time for one urgent pass outside the poll, so it never sweeps a backlog.
 const URGENT_PASS_BUDGET: Duration = Duration::from_millis(1);
 const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
+// Removal scans clamp between these, which panics if the floor exceeds the ceiling.
+const _: () = assert!(MAX_PENDING_SCHEDULER_SCANS_PER_POLL <= MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
 const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;

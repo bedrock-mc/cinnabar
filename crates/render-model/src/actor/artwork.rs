@@ -28,6 +28,9 @@ mod raster_page_tests;
 #[path = "artwork/raster_pages.rs"]
 mod raster_pages;
 #[cfg(test)]
+#[path = "artwork/render_coverage.rs"]
+mod render_coverage;
+#[cfg(test)]
 #[path = "artwork/retained_equipment_tests.rs"]
 mod retained_equipment_tests;
 

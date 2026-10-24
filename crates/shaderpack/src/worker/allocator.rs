@@ -79,7 +79,8 @@ pub(super) fn enable() -> bool {
     let layout = Layout::new::<u8>();
     // SAFETY: the probe uses a valid nonzero layout and is released with the same layout.
     unsafe {
-        let pointer = std::alloc::alloc(layout);
+        // Keep the pointer observable so optimization cannot remove the allocator probe.
+        let pointer = std::hint::black_box(std::alloc::alloc(layout));
         if pointer.is_null() {
             return false;
         }
