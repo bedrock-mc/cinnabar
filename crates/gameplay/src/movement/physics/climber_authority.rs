@@ -16,7 +16,7 @@ impl ClimberWrite {
         self.mask |= update.mask;
     }
 
-    /// Removes edits whose newer correction will be consumed by retained input replay.
+    /// Removes bits replaced before any successful input consumes them.
     fn supersede(&mut self, mask: u64) {
         self.mask &= !mask;
     }
@@ -48,7 +48,7 @@ struct PendingClimberWrite {
     write: ClimberWrite,
 }
 
-/// Arrival-ordered writes stay pending until an input successfully consumes them.
+/// Each pending bit belongs to its latest accepted write until an input consumes it.
 #[derive(Debug, Clone, Default)]
 pub(super) struct PendingClimberWrites(Vec<PendingClimberWrite>);
 
@@ -56,6 +56,10 @@ impl PendingClimberWrites {
     /// Queues changed bits, optionally offering them to a retained historical input first.
     fn push(&mut self, replay_tick: Option<u64>, write: ClimberWrite) {
         if write.mask != 0 {
+            for pending in &mut self.0 {
+                pending.write.supersede(write.mask);
+            }
+            self.0.retain(|pending| pending.write.mask != 0);
             self.0.push(PendingClimberWrite { replay_tick, write });
         }
     }
@@ -80,21 +84,13 @@ impl PendingClimberWrites {
         consumed
     }
 
-    /// Retires successfully replayed writes and any older pending bits they superseded.
+    /// Retires writes only after their replayed inputs have successfully consumed them.
     pub(super) fn complete_replay(&mut self, anchor: u64, through: u64) {
-        let mut consumed_mask = 0;
-        for pending in self.0.iter_mut().rev() {
-            if pending
+        self.0.retain(|pending| {
+            !pending
                 .replay_tick
                 .is_some_and(|tick| tick > anchor && tick <= through)
-            {
-                consumed_mask |= pending.write.mask;
-                pending.write.mask = 0;
-            } else {
-                pending.write.supersede(consumed_mask);
-            }
-        }
-        self.0.retain(|pending| pending.write.mask != 0);
+        });
     }
 
     /// Restores unconsumed server bits over the last completed contact report.

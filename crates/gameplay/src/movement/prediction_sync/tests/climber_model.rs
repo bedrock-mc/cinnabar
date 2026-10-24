@@ -227,6 +227,35 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                 }
                 // A rejected rewind leaves this write for the next live input instead.
                 pending.push(Edit { mask, word });
+                if mask != 0 && current > 102 && random.next() & 1 == 0 {
+                    let newer_stamp = if stamp == 101 { current - 1 } else { stamp - 1 };
+                    let word = ticks[(newer_stamp - 100) as usize].entry ^ mask;
+                    // A newer accepted write owns the old pending bits before either input runs.
+                    for pending in &mut pending {
+                        pending.mask &= !mask;
+                    }
+                    ticks[(newer_stamp - 100) as usize]
+                        .edits
+                        .push(Edit { mask, word });
+                    assert_eq!(
+                        physics.apply_server_movement_flags(
+                            newer_stamp,
+                            client_world::MovementFlagUpdate {
+                                extended_flags: Some(word),
+                                ..Default::default()
+                            }
+                        ),
+                        Some(newer_stamp)
+                    );
+                    check_replay(
+                        &mut physics,
+                        stamp.min(newer_stamp),
+                        &ticks,
+                        &pending,
+                        &world,
+                        seed,
+                    );
+                }
             }
             let input = sim::MovementInput {
                 sneaking: random.next() & 1 != 0,

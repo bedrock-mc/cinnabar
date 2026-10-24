@@ -176,6 +176,47 @@ fn a_failed_historical_replay_leaves_the_write_for_its_first_successful_live_inp
 }
 
 #[test]
+fn a_newer_historical_write_supersedes_an_unconsumed_write_before_replay() {
+    let mut physics = due_physics();
+    let tick = simulation_clock::TICK_DURATION;
+    let input = sim::MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    physics.advance(tick * 3, input, &OpenWorld);
+    let word = 1 << (ActorFlag::OverDescendingBlock.wire_value() % 64);
+    for stamp in [102, 101] {
+        assert_eq!(
+            physics.apply_server_movement_flags(
+                stamp,
+                client_world::MovementFlagUpdate {
+                    extended_flags: Some(word),
+                    ..Default::default()
+                }
+            ),
+            Some(stamp)
+        );
+        assert!(
+            physics
+                .replay_retained_from(stamp, &MissingTerrain)
+                .is_err()
+        );
+    }
+    let mut reference = due_physics();
+    reference.advance(tick, input, &OpenWorld);
+    edit(&mut reference, 0, word);
+    let expected = reference.advance(tick * 2, input, &OpenWorld);
+    for _ in 0..2 {
+        let replay = physics.replay_retained_from(101, &OpenWorld).unwrap();
+        for (actual, expected) in replay.replayed_samples.iter().zip(&expected.samples) {
+            assert_eq!(actual.movement, expected.movement, "tick={}", actual.tick);
+            assert_eq!(actual.position, expected.position);
+        }
+        assert_eq!(reported(&physics), reported(&reference));
+    }
+}
+
+#[test]
 fn consumed_climber_edits_match_live_processing_from_every_replay_anchor() {
     let flags = [
         ActorFlag::InScaffolding,
