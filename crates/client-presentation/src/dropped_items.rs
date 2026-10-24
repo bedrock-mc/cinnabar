@@ -116,7 +116,10 @@ fn item_block_id(
         _ => None,
     }?;
     if identifier.is_some_and(|identifier| {
-        assets::facts::block_render_fact(identifier).kind == assets::facts::BlockRenderKind::Lantern
+        matches!(
+            assets::facts::block_render_fact(identifier).kind,
+            assets::facts::BlockRenderKind::Lantern | assets::facts::BlockRenderKind::Chain
+        )
     }) {
         return None;
     }

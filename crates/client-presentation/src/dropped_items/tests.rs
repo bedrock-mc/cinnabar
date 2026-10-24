@@ -316,7 +316,7 @@ fn dropped_crossed_plants_use_sprites_while_falling_blocks_keep_their_model() {
 }
 
 #[test]
-fn dropped_lantern_variants_use_sprites_without_changing_other_block_routes() {
+fn dropped_lantern_and_chain_variants_use_sprites_without_changing_other_block_routes() {
     let stream = stream(false, 1);
     let visuals = [
         ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
@@ -325,15 +325,26 @@ fn dropped_lantern_variants_use_sprites_without_changing_other_block_routes() {
         },
     ];
     let registry = protocol::vanilla_item_registry();
-    let lanterns: Vec<_> = registry
+    let sprites: Vec<_> = registry
         .iter()
         .filter(|entry| {
-            assets::facts::block_render_fact(&entry.identifier).kind
-                == assets::facts::BlockRenderKind::Lantern
+            matches!(
+                assets::facts::block_render_fact(&entry.identifier).kind,
+                assets::facts::BlockRenderKind::Lantern | assets::facts::BlockRenderKind::Chain
+            )
         })
         .collect();
-    assert!(!lanterns.is_empty());
-    for entry in lanterns {
+    for family in [
+        assets::facts::BlockRenderKind::Lantern,
+        assets::facts::BlockRenderKind::Chain,
+    ] {
+        assert!(
+            sprites
+                .iter()
+                .any(|entry| assets::facts::block_render_fact(&entry.identifier).kind == family)
+        );
+    }
+    for entry in sprites {
         for visual in visuals {
             assert_eq!(
                 item_block_id(&stream, visual, Some(&entry.identifier), None),
@@ -347,6 +358,7 @@ fn dropped_lantern_variants_use_sprites_without_changing_other_block_routes() {
         "minecraft:sea_lantern",
         "minecraft:stone",
         "cinnabar:lantern",
+        "cinnabar:chain",
     ] {
         for visual in visuals {
             assert_eq!(
