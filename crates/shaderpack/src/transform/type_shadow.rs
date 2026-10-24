@@ -5,13 +5,14 @@
 //! reading the name as the type and expects a constructor there, so each hiding variable and
 //! its uses get one fresh name per struct. Initializers still see the type, as in GLSL.
 
-use super::items::{Item, shadowed_bindings};
+use super::items::{Item, shadowed_bindings, struct_body_end};
 use crate::token::{Tok, id};
 use std::collections::HashSet;
+use std::ops::Range;
 
 /// Renames every function-local variable that shares its name with a top-level struct, and
 /// the uses that variable hides, leaving the type's own uses (including in the variable's
-/// initializer) untouched.
+/// initializer) untouched. Members of structs declared inside a function keep their names.
 pub(super) fn rename_struct_shadowing_locals(items: &mut [Item], source: &[Tok]) {
     let structs: Vec<String> = items
         .iter()
@@ -40,8 +41,12 @@ pub(super) fn rename_struct_shadowing_locals(items: &mut [Item], source: &[Tok])
         let Item::Func { toks, .. } = item else {
             continue;
         };
+        let bodies = struct_bodies(toks);
         let hidden = shadowed_bindings(toks, structs.iter().map(String::as_str));
         for index in hidden {
+            if bodies.iter().any(|body| body.contains(&index)) {
+                continue;
+            }
             let token = &toks[index];
             if let Some((_, renamed)) = fresh
                 .iter()
@@ -51,6 +56,13 @@ pub(super) fn rename_struct_shadowing_locals(items: &mut [Item], source: &[Tok])
             }
         }
     }
+}
+
+/// Token ranges of the struct declarations in `toks`, from `struct` to the closing brace.
+fn struct_bodies(toks: &[Tok]) -> Vec<Range<usize>> {
+    (0..toks.len())
+        .filter_map(|start| Some(start..struct_body_end(toks, start)?))
+        .collect()
 }
 
 #[cfg(test)]
@@ -98,6 +110,16 @@ mod tests {
                 "struct S { float x; }; float f() { { S S = S(1.0); S.x += 1.0; } S s = S(2.0); return s.x; }"
             ),
             "float f ( ) { { S __shaderpack_S_local_0 = S ( 1.0 ) ; __shaderpack_S_local_0 . x += 1.0 ; } S s = S ( 2.0 ) ; return s . x ; }"
+        );
+    }
+
+    #[test]
+    fn members_of_a_struct_declared_inside_the_function_keep_their_names() {
+        assert_eq!(
+            renamed(
+                "struct S { float x; }; float f() { float S = 0.0; struct T { float S; }; T t = T(1.0); return t.S + S; }"
+            ),
+            "float f ( ) { float __shaderpack_S_local_0 = 0.0 ; struct T { float S ; } ; T t = T ( 1.0 ) ; return t . S + __shaderpack_S_local_0 ; }"
         );
     }
 
