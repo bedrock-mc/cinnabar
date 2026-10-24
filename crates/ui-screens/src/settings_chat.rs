@@ -197,6 +197,7 @@ pub(crate) fn message_text(
     text: &str,
     color: Option<char>,
     mention: Option<char>,
+    local_player: &str,
 ) -> Option<String> {
     if !key
         .split('/')
@@ -205,12 +206,17 @@ pub(crate) fn message_text(
         return None;
     }
     if color.is_none() {
-        return match crate::text::highlight_mentions(text, mention?) {
+        return match crate::text::highlight_mentions(text, local_player, mention?) {
             std::borrow::Cow::Owned(text) => Some(text),
             std::borrow::Cow::Borrowed(_) => None,
         };
     }
-    Some(crate::text::format_chat_label(text, color, mention))
+    Some(crate::text::format_chat_label(
+        text,
+        color,
+        mention,
+        local_player,
+    ))
 }
 
 #[cfg(test)]

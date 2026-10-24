@@ -9,8 +9,7 @@
 //! the frame it starts from and refreshes every later capture from the replayed
 //! state before re-applying that frame's corrections; the replayed word then
 //! replaces the live one, as vanilla copies every client-owned flag back. A
-//! write
-//! stamped at the current tick is queued for the next frame's capture, one
+//! write stamped at the current tick is queued for the next frame's capture, one
 //! stamped at a future tick joins the current frame's corrections, and an
 //! unstamped write only changes the live word. Pose rules then continue or end
 //! a pose and the spin runs its lifetime. The item-use bit is retained the same
@@ -73,7 +72,7 @@ pub(super) struct FlagWrite {
 }
 
 impl FlagWrite {
-    /// Packs only the pose and spin fields supplied by this server update.
+    /// Packs only the pose, spin and item-use fields supplied by this server update.
     pub(super) fn from_flags(flags: &client_world::MovementFlagUpdate) -> Self {
         let mut write = Self::default();
         for (bit, flag) in [
@@ -101,6 +100,18 @@ pub(super) struct FlagCorrection {
 }
 
 impl FlagCorrection {
+    /// Returns only the pose and spin bits changed by this correction.
+    pub(super) fn flags(self) -> client_world::MovementFlagUpdate {
+        let flag = |bit| (self.mask & bit != 0).then_some(self.value & bit != 0);
+        client_world::MovementFlagUpdate {
+            gliding: flag(1),
+            swimming: flag(1 << 1),
+            crawling: flag(1 << 2),
+            spinning: flag(SPINNING),
+            ..Default::default()
+        }
+    }
+
     /// The bits of `write` that differ from `base`.
     fn against(write: FlagWrite, base: FlagWord) -> Self {
         let mask = write.present & (write.value ^ base.0);
@@ -129,10 +140,14 @@ impl FlagCorrection {
     }
 }
 
-/// Applies selected pose bits independently and updates the next swim-blend input.
+/// Applies selected pose bits and updates the blend input only for a changed swim or crawl bit.
 fn apply_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker, state: &mut PlayerState) {
+    let previous = modes.pose_flags();
     write_pose(word, mask, modes);
-    state.swim_pose_active = modes.pose_flags().swim_pose();
+    let poses = modes.pose_flags();
+    if previous.swimming != poses.swimming || previous.crawling != poses.crawling {
+        state.swim_pose_active = poses.swim_pose();
+    }
 }
 
 /// The pose half of [`apply_pose`].
@@ -154,15 +169,18 @@ fn set_spin(state: &mut PlayerState, spinning: bool, dormant: u8) {
     }
 }
 
-/// Imposes a frame's effective word on replayed pose and spin; a spin the word
-/// starts resumes from the `dormant` counter the previous tick left.
+/// Restores a frame's pose word without changing its pending blend input, then
+/// applies its corrections. A started spin resumes from the saved dormant counter.
 pub(super) fn impose(
-    word: FlagWord,
+    entry: FlagWord,
+    correction: FlagCorrection,
     modes: &mut ModeTracker,
     state: &mut PlayerState,
     dormant: u8,
 ) {
-    apply_pose(word, SPINNING - 1, modes, state);
+    write_pose(entry, SPINNING - 1, modes);
+    let word = correction.apply(entry);
+    apply_pose(word, correction.mask, modes, state);
     set_spin(state, word.has(SPINNING), dormant);
 }
 
@@ -176,13 +194,14 @@ pub(super) fn dormant_spin(spun: bool, state: &PlayerState) -> u8 {
     )
 }
 
-/// Counters vanilla keeps in components beside the flag word and snapshots
-/// with every frame: the glide counter, the swim blend and the Riptide spin
-/// counter, which keeps its value while the spin flag is clear.
+/// Per-frame state beside the flag word: the glide counter, the swim blend
+/// and its pending pose input, and the spin counter retained while its flag is clear.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct EntryCounters {
     fall_fly_ticks: u32,
     swim_amount: f32,
+    /// The blend input can outlive the pose when an immobile tick ends it.
+    swim_pose_active: bool,
     spin: u8,
 }
 
@@ -193,6 +212,7 @@ impl EntryCounters {
         Self {
             fall_fly_ticks: modes.fall_fly_ticks(),
             swim_amount: state.swim_amount,
+            swim_pose_active: state.swim_pose_active,
             spin: state.spin_attack_ticks.unwrap_or(dormant),
         }
     }
@@ -203,6 +223,7 @@ impl EntryCounters {
     pub(super) fn restore(self, modes: &mut ModeTracker, state: &mut PlayerState) -> u8 {
         modes.set_glide_counter(self.fall_fly_ticks);
         state.swim_amount = self.swim_amount;
+        state.swim_pose_active = self.swim_pose_active;
         if let Some(ticks) = state.spin_attack_ticks.as_mut() {
             *ticks = self.spin;
         }
@@ -251,13 +272,6 @@ impl ServerFlagAuthority {
     /// The tick of the local launch that started the current spin.
     pub(super) const fn launched_spin(&self) -> Option<u64> {
         self.launched_spin
-    }
-
-    /// Drops writes that belong to discarded frames.
-    pub(super) fn reset_history(&mut self) {
-        self.queued = None;
-        self.cleared_spin = None;
-        self.launched_spin = None;
     }
 }
 
@@ -317,9 +331,9 @@ fn apply_live_correction(
     }
 }
 
-/// Captures the live word a fixed tick starts with (`using_item` is the
-/// tick's item use) and attaches a correction queued for it without applying
-/// it again, as vanilla moves queued corrections into the captured frame; the
+/// Captures the live word a fixed tick starts with and attaches a correction
+/// queued for it without applying it again, as vanilla moves queued corrections
+/// into the captured frame; the
 /// queue keeps it until a later tick, so a failed tick retries with it. The
 /// pose and spin the tick starts from become its action baseline. Returns the
 /// capture, the attached correction and the counters the tick starts with.
@@ -376,13 +390,13 @@ impl LocalPhysicsController {
         self.server_flags.pending_using_item = Some(using);
     }
 
-    /// Applies `correction` to the live state and hands its item-use bit to
-    /// the item-use owner.
-    fn correct_live(&mut self, correction: FlagCorrection) {
+    /// Applies a correction live and retains whether accepting it caused a resize.
+    fn correct_live(&mut self, correction: FlagCorrection) -> posture::PoseWrite {
         let live = self.live_flag_word();
         if correction.mask & USING_ITEM != 0 {
             self.write_server_using_item(correction.value & USING_ITEM != 0);
         }
+        let mut resized = false;
         if let Some(state) = self.state.as_mut() {
             apply_live_correction(
                 correction,
@@ -391,8 +405,13 @@ impl LocalPhysicsController {
                 state,
                 &mut self.server_flags,
             );
-            self.sync_state
+            resized = self
+                .sync_state
                 .accept_poses(self.modes.pose_flags(), state.spin_attack_ticks.is_some());
+        }
+        posture::PoseWrite {
+            correction,
+            resized,
         }
     }
 
@@ -411,10 +430,13 @@ impl LocalPhysicsController {
         if correction.is_empty() {
             return;
         }
-        self.correct_live(correction);
+        let write = self.correct_live(correction);
         if tick == 0 {
+            self.sync_pending
+                .push(posture::ServerWrite::LivePose(write));
             return;
         }
+        let sync_write = posture::ServerWrite::PoseCorrection(write);
         let Some(current) = self.state.as_ref().map(|state| state.tick) else {
             return;
         };
@@ -426,8 +448,13 @@ impl LocalPhysicsController {
             {
                 frame.flag_correction = frame.flag_correction.then(correction);
             }
+            // Its flag correction belongs to the completed frame, while the
+            // accepted resize follows that frame and any pending dimensions.
+            self.sync_pending
+                .push(posture::ServerWrite::LivePose(write));
             return;
         }
+        self.sync_pending.push(sync_write);
         let Some(next) = current.checked_add(1) else {
             return;
         };
@@ -445,20 +472,31 @@ impl LocalPhysicsController {
     /// tick, the write applies live and waits for the next capture. Returns
     /// whether a retained frame changed.
     pub(super) fn retain_server_flags(&mut self, tick: u64, write: FlagWrite) -> bool {
-        let Some(frame) = self
+        let Some(index) = self
             .controller_history
-            .iter_mut()
-            .find(|frame| Some(frame.tick) == tick.checked_add(1))
+            .iter()
+            .position(|frame| Some(frame.tick) == tick.checked_add(1))
         else {
             self.adopt_live_server_flags(tick, write);
             return false;
         };
+        let frame = &mut self.controller_history[index];
         let correction = FlagCorrection::against(write, frame.entry_flags);
         if correction.is_empty() {
             return false;
         }
         frame.flag_correction = frame.flag_correction.then(correction);
-        self.correct_live(correction);
+        let write = self.correct_live(correction);
+        self.controller_history[index]
+            .sync_server
+            .push(posture::ServerWrite::PoseCorrection(write));
+        if write.resized {
+            self.sync_pending
+                .push(posture::ServerWrite::LivePose(posture::PoseWrite {
+                    correction: Default::default(),
+                    ..write
+                }));
+        }
         true
     }
 

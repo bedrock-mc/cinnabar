@@ -5,6 +5,7 @@
 use super::*;
 
 mod combinations;
+mod replay_blend;
 mod replay_policy;
 
 /// An airborne controller and outbox, high enough for a full spin or glide.

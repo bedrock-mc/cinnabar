@@ -46,6 +46,18 @@ type entityAppearance struct {
 	Attributes []protocol.AttributeValue  `json:"attributes"`
 	Properties protocol.EntityProperties  `json:"properties"`
 	Armour     *packet.MobArmourEquipment `json:"armour"`
+	Cloud      *entityCloudAppearance     `json:"cloud"`
+	Yaw        *float32                   `json:"yaw"`
+	AttachFace *uint8                     `json:"attach_face"`
+	Peek       *int32                     `json:"peek"`
+}
+
+// entityCloudAppearance supplies the typed state needed to display a lingering cloud.
+type entityCloudAppearance struct {
+	Radius   float32 `json:"radius"`
+	Duration int32   `json:"duration"`
+	Particle int32   `json:"particle"`
+	Color    int32   `json:"color"`
 }
 
 // loadEntityGallery derives default cases from the registry and rejects stale appearance identities.
@@ -133,33 +145,33 @@ func entityGalleryListener(inner func(server.Config) (server.Listener, error), g
 		if err != nil {
 			return nil, err
 		}
-		return &galleryListener{Listener: listener, gallery: gallery}, nil
+		return &entityGalleryPacketListener{Listener: listener, gallery: gallery}, nil
 	}
 }
 
-type galleryListener struct {
+type entityGalleryPacketListener struct {
 	server.Listener
 	gallery []entityAppearance
 }
 
 // Accept gives each viewer an independent page and replacement state.
-func (l *galleryListener) Accept() (session.Conn, error) {
+func (l *entityGalleryPacketListener) Accept() (session.Conn, error) {
 	conn, err := l.Listener.Accept()
 	if err != nil {
 		return nil, err
 	}
-	return &galleryConn{Conn: conn, gallery: l.gallery}, nil
+	return &entityGalleryPacketConn{Conn: conn, gallery: l.gallery}, nil
 }
 
 // Disconnect returns the original connection to its owning listener.
-func (l *galleryListener) Disconnect(conn session.Conn, reason string) error {
-	if wrapped, ok := conn.(*galleryConn); ok {
+func (l *entityGalleryPacketListener) Disconnect(conn session.Conn, reason string) error {
+	if wrapped, ok := conn.(*entityGalleryPacketConn); ok {
 		conn = wrapped.Conn
 	}
 	return l.Listener.Disconnect(conn, reason)
 }
 
-type galleryConn struct {
+type entityGalleryPacketConn struct {
 	session.Conn
 	gallery  []entityAppearance
 	position mgl32.Vec3
@@ -168,7 +180,7 @@ type galleryConn struct {
 }
 
 // ReadPacket replaces only this viewer's gallery and leaves other commands untouched.
-func (c *galleryConn) ReadPacket() (packet.Packet, error) {
+func (c *entityGalleryPacketConn) ReadPacket() (packet.Packet, error) {
 	for {
 		pk, err := c.Conn.ReadPacket()
 		if err != nil {
@@ -180,6 +192,15 @@ func (c *galleryConn) ReadPacket() (packet.Packet, error) {
 		request, ok := pk.(*packet.CommandRequest)
 		if !ok {
 			return pk, nil
+		}
+		if peek, recognized := entityGalleryPeek(request.CommandLine); recognized {
+			for i := 0; i < c.count; i++ {
+				update := &packet.SetActorData{EntityRuntimeID: uint64(entityGalleryFirstID + i*2), EntityMetadata: protocol.EntityMetadata{protocol.EntityDataKeyPeekID: peek}}
+				if err := c.Conn.WritePacket(update); err != nil {
+					return nil, err
+				}
+			}
+			continue
 		}
 		page, recognized := entityGalleryPage(request.CommandLine, c.gallery)
 		if !recognized {
@@ -208,6 +229,16 @@ func (c *galleryConn) ReadPacket() (packet.Packet, error) {
 		}
 		c.count = len(page)
 	}
+}
+
+// entityGalleryPeek parses `/entitygallery peek N`, which sends the shulker peek data item to the shown actors.
+func entityGalleryPeek(command string) (int32, bool) {
+	fields := strings.Fields(strings.TrimPrefix(command, "/"))
+	if len(fields) != 3 || fields[0] != "entitygallery" || fields[1] != "peek" {
+		return 0, false
+	}
+	peek, err := strconv.ParseInt(fields[2], 10, 32)
+	return int32(peek), err == nil
 }
 
 // entityGalleryPage filters the sorted catalog before selecting a zero-based page.
@@ -251,7 +282,11 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 		columns := min(4, len(page))
 		position := origin.Add(mgl32.Vec3{(float32(i%4) - float32(columns-1)/2) * 5, -1.62, 7 + float32(i/4)*7})
 		metadata := appearance.metadata()
-		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position.Add(mgl32.Vec3{0, appearance.spawnOffset(), 0}), Yaw: 180, HeadYaw: 180, BodyYaw: 180, EntityMetadata: metadata, Attributes: appearance.Attributes, EntityProperties: appearance.Properties}
+		yaw := float32(180)
+		if appearance.Yaw != nil {
+			yaw = *appearance.Yaw
+		}
+		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position.Add(mgl32.Vec3{0, appearance.spawnOffset(), 0}), Yaw: yaw, HeadYaw: yaw, BodyYaw: yaw, EntityMetadata: metadata, Attributes: appearance.Attributes, EntityProperties: appearance.Properties}
 		if appearance.Identifier == "minecraft:painting" {
 			title := appearance.Painting
 			if title == "" {
@@ -342,6 +377,19 @@ func (a entityAppearance) metadata() protocol.EntityMetadata {
 	}
 	if a.Height > 0 {
 		metadata[protocol.EntityDataKeyHeight] = a.Height
+	}
+	if a.AttachFace != nil {
+		metadata[protocol.EntityDataKeyAttachFace] = *a.AttachFace
+	}
+	if a.Peek != nil {
+		metadata[protocol.EntityDataKeyPeekID] = *a.Peek
+	}
+	if a.Cloud != nil {
+		metadata[protocol.EntityDataKeyDataRadius] = a.Cloud.Radius
+		metadata[protocol.EntityDataKeyDataDuration] = a.Cloud.Duration
+		metadata[protocol.EntityDataKeyDataParticle] = a.Cloud.Particle
+		metadata[protocol.EntityDataKeyEffectColor] = a.Cloud.Color
+		metadata[protocol.EntityDataKeyDataChangeRate] = float32(0)
 	}
 	return metadata
 }

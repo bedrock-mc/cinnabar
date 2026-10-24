@@ -342,14 +342,16 @@ impl RigPlan {
             controllers: controllers.into(),
             camera,
             swing,
-            frames: camera || render_frame::sampling::needs_frame_sampling(assets, binding),
+            frames: camera || render_frame::sampling::needs_frame_sampling(assets, layout, binding),
             presentation: render_frame::camera::presentation_expressions(
                 assets, layout, binding, geometry,
             ),
-            always_depth: assets
-                .render_layers(binding)
-                .iter()
-                .any(|layer| layer.material_state.is_some_and(|state| state.depth_always)),
+            always_depth: assets.render_layers(binding).iter().any(|layer| {
+                assets
+                    .render_data()
+                    .materials(layer)
+                    .any(|(_, state)| state.is_some_and(|state| state.depth_always))
+            }),
         })
     }
 

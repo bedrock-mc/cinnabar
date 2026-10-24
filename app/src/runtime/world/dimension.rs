@@ -93,6 +93,9 @@ struct PendingTransfer {
     actor: u64,
     started_at: Duration,
     presentation_pending: bool,
+    /// Vanilla shows and reports a dimension loading screen only for a living player, so a
+    /// respawn into another dimension sends no loading-screen packets the server never expects.
+    reports_loading_screen: bool,
     start_queued: bool,
     server_acknowledged: bool,
     switch_queued: bool,
@@ -106,6 +109,7 @@ impl DimensionTransfer {
         epoch: u64,
         change: ChangeDimensionEvent,
         actor: u64,
+        local_player_alive: bool,
         now: Duration,
     ) {
         bevy::log::debug!(session, epoch, dimension = change.dimension, loading_screen_id = ?change.loading_screen_id, "dimension transfer started");
@@ -123,6 +127,7 @@ impl DimensionTransfer {
             actor,
             started_at: now,
             presentation_pending: true,
+            reports_loading_screen: local_player_alive,
             start_queued: false,
             server_acknowledged: false,
             switch_queued: false,
@@ -205,7 +210,7 @@ impl DimensionTransfer {
                 if let Some(id) = pending.change.loading_screen_id {
                     screen.id = Some(id);
                 }
-            } else {
+            } else if pending.reports_loading_screen {
                 send(protocol::loading_screen_packet(
                     LoadingScreenPhase::Start,
                     pending.change.loading_screen_id,
@@ -253,15 +258,13 @@ impl DimensionTransfer {
         if !pending.switch_queued {
             return Ok(false);
         }
-        let screen = self
-            .screen
-            .as_ref()
-            .expect("a switched transfer has an active loading screen");
-        send(protocol::loading_screen_packet(
-            LoadingScreenPhase::End,
-            screen.id,
-        ))?;
-        bevy::log::debug!(epoch = pending.epoch, loading_screen_id = ?screen.id, "dimension loading screen end queued after presentation readiness");
+        if let Some(screen) = self.screen.as_ref() {
+            send(protocol::loading_screen_packet(
+                LoadingScreenPhase::End,
+                screen.id,
+            ))?;
+            bevy::log::debug!(epoch = pending.epoch, loading_screen_id = ?screen.id, "dimension loading screen end queued after presentation readiness");
+        }
         self.active = None;
         self.screen = None;
         Ok(true)

@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
-use server_experience::rate_limit::RateLimit;
+use server_experience::rate_limit::{RateClass, RateLimit};
 
 use super::{InboundWorldEvent, NetworkHandle, WorldEvent};
 
@@ -32,15 +32,21 @@ impl ExperienceGate {
         if !self.enabled() {
             return false;
         }
-        if let Some((_, epoch)) = message.world_notice() {
+        let class = if let Some((_, epoch)) = message.world_notice() {
             // Raising the watermark at admission drops a duplicate that arrives before its
             // acknowledgment is written, while the peer's next notice still has a higher epoch.
-            return message.as_bytes().len() <= protocol::MAX_EXPERIENCE_CONTROL_BYTES
-                && self.notice_epoch.fetch_max(epoch, Ordering::AcqRel) < epoch;
-        }
+            if message.as_bytes().len() > protocol::MAX_EXPERIENCE_CONTROL_BYTES
+                || self.notice_epoch.fetch_max(epoch, Ordering::AcqRel) >= epoch
+            {
+                return false;
+            }
+            RateClass::WorldNotice
+        } else {
+            RateClass::Data
+        };
         if rate
             .get_or_insert_with(|| RateLimit::new(now_ms))
-            .charge(message.as_bytes().len(), now_ms)
+            .charge_class(class, message.as_bytes().len(), now_ms)
             .is_err()
         {
             self.state.store(2, Ordering::Release);

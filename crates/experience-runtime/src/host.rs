@@ -2,6 +2,7 @@
 //! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`],
 //! [`v0_3`], [`v0_4`] and [`v0_5`] keep the worlds that older artifacts target.
 
+use experience_sdk::artifact::SERVER_WASM;
 use std::fmt;
 use std::time::{Duration, Instant};
 
@@ -15,13 +16,13 @@ use crate::limits::{
     EPOCH_PERIOD, MAX_CORE_INSTANCES, MAX_FRAME_BYTES, MAX_LOG_BYTES, MAX_LOGS, MAX_MEMORIES,
     MAX_MEMORY_BYTES, MAX_TABLE_ELEMENTS,
 };
-use crate::manifest::SERVER_WASM;
 
 pub(crate) mod v0_1;
 pub(crate) mod v0_2;
 pub(crate) mod v0_3;
 pub(crate) mod v0_4;
 pub(crate) mod v0_5;
+pub(crate) mod v0_6;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -34,7 +35,7 @@ use cinnabar::experience_server::types::{
     BlockDef, BlockState, BlockType, CallbackInfo, Crafted, Inventory, ItemKey, LogLevel, Network,
     NewStack, PlacementStates, WorldError,
 };
-use cinnabar::experience_server::{diagnostics, types, world_access};
+use cinnabar::experience_server::{diagnostics, types, types as wit, world_access};
 
 use crate::callback::CallbackRes;
 
@@ -55,25 +56,28 @@ pub(crate) enum Api {
     V0_4,
     /// The 0.5 world: no crafting recipes or scheduled updates.
     V0_5,
-    /// The current world.
+    /// Crafting recipes and scheduled updates.
     V0_6,
+    /// The current world, with world and player operations.
+    V0_8,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 6] = [
+    pub(crate) const ALL: [Api; 7] = [
         Api::V0_1,
         Api::V0_2,
         Api::V0_3,
         Api::V0_4,
         Api::V0_5,
         Api::V0_6,
+        Api::V0_8,
     ];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 | Api::V0_5 | Api::V0_6 => true,
+            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_8 => true,
         }
     }
 
@@ -90,7 +94,8 @@ impl Api {
             Api::V0_3 => v0_3::WIT,
             Api::V0_4 => v0_4::WIT,
             Api::V0_5 => v0_5::WIT,
-            Api::V0_6 => WIT,
+            Api::V0_6 => v0_6::WIT,
+            Api::V0_8 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -114,7 +119,8 @@ pub(crate) enum Pre {
     V0_3(v0_3::ServerPre<HostState>),
     V0_4(v0_4::ServerPre<HostState>),
     V0_5(v0_5::ServerPre<HostState>),
-    V0_6(ServerPre<HostState>),
+    V0_6(v0_6::ServerPre<HostState>),
+    V0_8(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -142,8 +148,12 @@ impl Pre {
                 Self::V0_5(v0_5::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_6 => {
+                v0_6::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_6(v0_6::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_8 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_6(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_8(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -182,6 +192,10 @@ impl Pre {
                 .with_context(instantiating)?
                 .call_register(store),
             Self::V0_6(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_8(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -410,6 +424,64 @@ impl world_access::HostCallback for HostState {
         self.table.get_mut(&ctx)?.info()
     }
 
+    fn world(&mut self, ctx: Resource<CallbackRes>) -> Result<wit::WorldHandle> {
+        self.table.get_mut(&ctx)?.world()
+    }
+    fn player_location(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+    ) -> Result<Result<wit::PlayerLocation, WorldError>> {
+        self.table.get_mut(&ctx)?.player_location(player)
+    }
+    fn resolve_world(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        id: wit::WorldInstanceId,
+    ) -> Result<Result<wit::WorldHandle, WorldError>> {
+        self.table.get_mut(&ctx)?.resolve_world(id)
+    }
+    fn create_world(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        instance: wit::WorldInstance,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.create_world(instance)
+    }
+    fn unload_world(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        instance: wit::WorldHandle,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.unload_world(instance)
+    }
+    fn transfer(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        instance: wit::WorldHandle,
+        position: wit::Position,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .transfer(player, instance, position)
+    }
+    fn store_read(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        key: wit::StoreKey,
+    ) -> Result<Result<Option<Vec<u8>>, WorldError>> {
+        self.table.get_mut(&ctx)?.store_read(key)
+    }
+    fn store_write(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        key: wit::StoreKey,
+        data: Option<Vec<u8>>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.store_write(key, data)
+    }
+
     fn get_block(
         &mut self,
         ctx: Resource<CallbackRes>,
@@ -464,6 +536,20 @@ impl world_access::HostCallback for HostState {
         self.table
             .get_mut(&ctx)?
             .send_client(player, channel, schema, payload)
+    }
+
+    /// Stages a negotiation reply for retained delivery after the callback commits.
+    fn send_control(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .send_control(player, channel, schema, payload)
     }
 
     fn focus(&mut self, ctx: Resource<CallbackRes>) -> Result<Option<BlockPos>> {

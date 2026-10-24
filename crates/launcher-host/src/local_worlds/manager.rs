@@ -32,8 +32,6 @@ const DEFAULT_RUNTIME_WAIT: Duration = Duration::from_secs(25);
 const DEFAULT_HOST_WAIT: Duration = Duration::from_secs(30);
 /// How often a start waiting on the host rechecks its cancel.
 const HOST_POLL: Duration = Duration::from_millis(50);
-/// How long a left world's server stays running where server starts are slow enough to hide.
-pub(crate) const SLOW_START_STANDBY: Duration = Duration::from_secs(5 * 60);
 
 /// The account hosting later opens, which BDS makes an operator as a vanilla world owner is.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -88,10 +86,6 @@ pub(crate) struct Parts {
     pub runtime_wait: Duration,
     /// How long a BDS start waits for a [`Host::Loading`] host, counted from before its launch.
     pub host_wait: Duration,
-    /// How long a BDS world's server keeps running, hidden, after its player leaves. Setting it
-    /// also prestarts the most recently played world; `None` stops servers at once and never
-    /// prestarts.
-    pub standby: Option<Duration>,
 }
 
 impl Parts {
@@ -105,7 +99,6 @@ impl Parts {
             stop_timeout: DEFAULT_STOP_TIMEOUT,
             runtime_wait: DEFAULT_RUNTIME_WAIT,
             host_wait: DEFAULT_HOST_WAIT,
-            standby: None,
         }
     }
 }
@@ -133,7 +126,6 @@ struct Inner {
     runtime_wait: Duration,
     life: Mutex<Life>,
     host_wait: Duration,
-    standby: Option<Duration>,
     /// Read by each start; see [`Manager::set_host`].
     host: Mutex<Host>,
     host_changed: Condvar,
@@ -167,20 +159,6 @@ struct Life {
     generation: u64,
     /// Pending edits applied live by one server generation; only that server can save them.
     live_applied: Option<(u64, OptionChanges)>,
-    /// The view distance the server was started for.
-    view_distance: Option<u32>,
-    /// The server runs ahead of an open and is hidden from status and the core until an open of
-    /// the same world adopts it: prestarted for the likely next world, or kept after its player
-    /// left.
-    standby: bool,
-    /// Ends a left world's keep-alive wait when dropped.
-    standby_timer: Option<CancelHandle>,
-    /// The operator the running server grants, reconciled with the host when an open adopts it.
-    granted: Option<String>,
-    /// Option edits a hidden start applied, recorded once an open adopts its server.
-    unrecorded: Option<OptionChanges>,
-    /// The world as the running server was launched, before any live setting changes.
-    launched: Option<World>,
 }
 
 /// A world whose exited or closing server has not finished backend cleanup.
@@ -238,7 +216,6 @@ impl Manager {
                 runtime_wait: parts.runtime_wait,
                 life: Mutex::default(),
                 host_wait: parts.host_wait,
-                standby: parts.standby,
                 host: Mutex::default(),
                 host_changed: Condvar::new(),
                 #[cfg(test)]
@@ -342,7 +319,6 @@ impl Manager {
 
     /// Renames a world or changes its game mode or difficulty, which apply on its next open.
     pub fn update(&self, id: &str, update: &WorldUpdate) -> Result<World, WorldError> {
-        self.retire_standby(id, false);
         self.inner.store.update(id, update)
     }
 
@@ -350,7 +326,6 @@ impl Manager {
     /// once; settings the server reads only at startup, or that it failed to take, apply on the
     /// next start.
     pub fn apply(&self, id: &str, update: &WorldUpdate) -> Result<Applied, WorldError> {
-        self.retire_standby(id, false);
         let world = self.inner.store.update(id, update)?;
         let (instance, generation) = {
             let mut life = lock(&self.inner.life);
@@ -403,9 +378,8 @@ impl Manager {
         })
     }
 
-    /// Deletes a world that is not open or saving; a hidden server of it is stopped first.
+    /// Deletes a world that is not open or saving.
     pub fn delete(&self, id: &str) -> Result<(), WorldError> {
-        self.retire_standby(id, true);
         let life = lock(&self.inner.life);
         // A stopping world is always retiring, so `saving` covers it.
         let open = matches!(life.state, WorldState::Starting | WorldState::Running);
@@ -454,31 +428,6 @@ impl Manager {
     /// the last world still saves starts its server once that one has exited.
     pub fn open(&self, id: &str, view_distance: Option<u32>) -> Result<(), WorldError> {
         let mut life = lock(&self.inner.life);
-        if life.standby {
-            let same = life.world.as_ref().is_some_and(|world| world.id == id)
-                && life.view_distance == view_distance;
-            if same {
-                if let Some(cleanup) = self.adopt(&mut life) {
-                    drop(life);
-                    cleanup.run(self);
-                }
-                return Ok(());
-            }
-            self.close_locked(life);
-            life = lock(&self.inner.life);
-        }
-        self.begin(life, id, view_distance, false)
-    }
-
-    /// Starts world `id` in the background unless it is already starting or running; a
-    /// `standby` start stays hidden until an open adopts it.
-    fn begin(
-        &self,
-        mut life: MutexGuard<'_, Life>,
-        id: &str,
-        view_distance: Option<u32>,
-        standby: bool,
-    ) -> Result<(), WorldError> {
         match life.state {
             WorldState::Starting | WorldState::Running => {
                 return if life.world.as_ref().is_some_and(|world| world.id == id) {
@@ -523,12 +472,6 @@ impl Manager {
         life.paused = false;
         life.cancel_start = Some(handle);
         life.start_done = Some(start_done);
-        life.view_distance = view_distance;
-        life.standby = standby;
-        life.standby_timer = None;
-        life.granted = None;
-        life.unrecorded = None;
-        life.launched = None;
         self.set_state(&mut life, WorldState::Starting);
         let spec = StartSpec {
             world,
@@ -609,11 +552,6 @@ impl Manager {
         }
         let instance = match started {
             Ok(instance) => instance,
-            Err(error) if life.standby => {
-                tracing::warn!("local world {} failed to prestart: {error}", spec.world.id);
-                self.idle(&mut life);
-                return;
-            }
             Err(error) => {
                 tracing::error!("local world {} failed to start: {error}", spec.world.id);
                 life.failure = Some(error.status_text());
@@ -622,25 +560,16 @@ impl Manager {
             }
         };
         if let Some(world) = fresh_world {
-            life.launched = Some(world.clone());
             life.world = Some(world);
         }
         life.instance = Some(Arc::clone(&instance));
-        life.granted = match &host_guard {
-            Some(host) => host_xuid_of(host),
-            None => host_xuid,
-        };
         let paused = life.paused && instance.can_pause();
         life.paused = paused;
-        let standby = life.standby;
-        if standby {
-            life.unrecorded = Some(applied.clone());
-        }
         self.set_state(&mut life, WorldState::Running);
         drop(host_guard);
         drop(life);
-        if !standby {
-            self.record_played(&spec.world.id, &applied);
+        if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
+            tracing::warn!("record when {} was last played: {error}", spec.world.id);
         }
         if paused {
             let _ = instance.set_paused(true);
@@ -667,15 +596,9 @@ impl Manager {
         }
     }
 
-    /// Ends the lifecycle of `instance`, the current server, which exited on its own: a hidden one
-    /// idles quietly, a visible one fails. Its backend cleanup stays a barrier for later opens.
+    /// Fails the current server after an unexpected exit, keeping cleanup ahead of later opens.
     fn fail_exited(&self, mut life: MutexGuard<'_, Life>, instance: &Arc<dyn Instance>) {
-        let standby = life.standby;
-        if standby {
-            tracing::warn!("the hidden local world server exited unexpectedly");
-        } else {
-            tracing::error!("the local world server exited unexpectedly");
-        }
+        tracing::error!("the local world server exited unexpectedly");
         let (cleaning, done) = crossbeam_channel::bounded::<()>(0);
         if let Some(world) = &life.world {
             let retiring = Retiring {
@@ -686,12 +609,8 @@ impl Manager {
         }
         life.instance = None;
         life.live_applied = None;
-        if standby {
-            self.idle(&mut life);
-        } else {
-            life.failure = Some("local world server exited unexpectedly".to_owned());
-            self.set_state(&mut life, WorldState::Failed);
-        }
+        life.failure = Some("local world server exited unexpectedly".to_owned());
+        self.set_state(&mut life, WorldState::Failed);
         drop(life);
         // stop joins the backend's shared cleanup even when its process has already exited.
         self.stop_instance(instance.as_ref());
@@ -740,16 +659,19 @@ impl Manager {
         }
     }
 
+    /// Leaves the open world, requesting its save and stop immediately.
+    pub fn leave(&self) {
+        self.close();
+    }
+
     /// Stops the open world (saving it) or clears a failure, normally without waiting.
     /// If a stop worker cannot start, completes cleanup inline before releasing its barrier.
     pub fn close(&self) {
         self.close_locked(lock(&self.inner.life));
     }
 
-    /// [`Self::close`] on the held lifecycle, also ending a hidden server.
+    /// [`Self::close`] on the held lifecycle.
     fn close_locked(&self, mut life: MutexGuard<'_, Life>) {
-        life.standby = false;
-        life.standby_timer = None;
         let state = life.state;
         match state {
             WorldState::Failed => self.idle(&mut life),
@@ -839,9 +761,6 @@ impl Manager {
     /// Freezes or resumes the running world; a request while starting applies once it runs.
     pub fn set_paused(&self, paused: bool) -> Result<(), WorldError> {
         let mut life = lock(&self.inner.life);
-        if life.standby {
-            return Err(WorldError::NotOpen);
-        }
         let state = life.state;
         match state {
             WorldState::Starting => {
@@ -937,8 +856,6 @@ impl Manager {
 mod host;
 #[path = "manager_report.rs"]
 mod report;
-#[path = "manager_standby.rs"]
-mod standby;
 
 /// The XUID `host` names, `None` while signed out or loading.
 fn host_xuid_of(host: &Host) -> Option<String> {

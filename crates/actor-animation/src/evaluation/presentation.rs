@@ -5,6 +5,7 @@ impl PresentationReads {
     /// Combines inputs conservatively across authored branches and assignments.
     pub(super) fn union(self, other: Self) -> Self {
         Self {
+            frame: self.frame || other.frame,
             camera: self.camera || other.camera,
             swing: self.swing || other.swing,
         }
@@ -17,6 +18,11 @@ impl VariableLayout {
         self.plans = rig_plans::RigPlans::default();
         self.presentation_symbols = (0..assets.molang_symbols().len())
             .map(|symbol| PresentationReads {
+                frame: assets
+                    .molang_query_binding(symbol as u32)
+                    .is_some_and(|query| {
+                        query.descriptor().sampling != assets::MolangQuerySampling::Tick
+                    }),
                 camera: camera::camera_symbol(assets, symbol as u32, false),
                 swing: camera::camera_symbol(assets, symbol as u32, true),
             })
@@ -70,6 +76,7 @@ impl VariableLayout {
             .get(symbol as usize)
             .copied()
             .unwrap_or(PresentationReads {
+                frame: true,
                 camera: true,
                 swing: true,
             })
@@ -81,6 +88,7 @@ impl VariableLayout {
             .get(expression)
             .copied()
             .unwrap_or(PresentationReads {
+                frame: true,
                 camera: true,
                 swing: true,
             })
@@ -310,6 +318,7 @@ mod tests {
 
     fn reads(symbol: u32) -> PresentationReads {
         PresentationReads {
+            frame: false,
             camera: symbol == CAMERA,
             swing: false,
         }

@@ -230,6 +230,7 @@ fn ordered_use_release_behind_a_pick_precedes_a_server_clear() {
     }
 }
 
+/// Checks that a queued release remains visible when the button may be pressed again.
 fn ordered_use_release_behind_a_pick(represses: bool) {
     let (mut world, mut captured) =
         respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);

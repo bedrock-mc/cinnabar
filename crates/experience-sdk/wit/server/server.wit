@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.6.0;
+package cinnabar:experience-server@0.8.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -108,6 +108,29 @@ interface types {
     // 0.6: the server's crafting recipes and scheduled updates. Every 0.5 type above is
     // unchanged, so the 0.5 world shares them.
 
+
+    /// A registered definition, distinct from a live instance and its dimension type.
+    record world-definition-id { value: string }
+    /// Stable storage identity. Names are scoped to the installing Experience.
+    record world-instance-id { value: string }
+    /// One opening of an instance; unloading or reopening invalidates earlier handles.
+    record world-handle { id: world-instance-id, generation: u64 }
+    /// Built-in environment profiles, including their height and sky rules.
+    enum dimension-type { overworld, nether, end }
+    enum generator { empty, flat }
+    record world-settings { generator: generator, dimension: dimension-type, persistent: bool }
+    record world-definition { id: world-definition-id, settings: world-settings }
+    record world-instance { id: world-instance-id, definition: world-definition-id }
+    record world-registration { definitions: list<world-definition>, startup: list<world-instance> }
+    record position { x: f64, y: f64, z: f64 }
+    record player-location { %world: world-handle, epoch: u64, position: position }
+    record player-transition { before: player-location, after: player-location }
+    variant player-event { join(player-location), leave(player-location), world-change(player-transition), move(player-transition) }
+    /// Scope is restricted to this callback's player, world instance, or installing mod.
+    enum store-scope { player, instance, mod }
+    /// Schema revisions are part of a key; changing a type requires an explicit migration.
+    record store-key { scope: store-scope, schema: u32 }
+
     /// An item by Bedrock id and metadata.
     record item-key { id: string, metadata: u16 }
     /// What a crafting recipe makes.
@@ -117,11 +140,27 @@ interface types {
 interface world-access {
     use types.{
         block-pos, player-id, callback-info, world-error, value-node, block-state, network,
-        inventory, new-stack, item-key, crafted,
+        inventory, new-stack, item-key, crafted, world-handle, world-instance, world-instance-id,
+        player-location, position, store-key,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
         info: func() -> callback-info;
+        /// The actual instance opening, independent of the legacy metadata in info.
+        %world: func() -> world-handle;
+        /// Only this callback's actor may be read. Leave events have no live player.
+        player-location: func(player: player-id) -> result<player-location, world-error>;
+        /// Resolves an instance owned by this Experience from this callback's snapshot.
+        resolve-world: func(id: world-instance-id) -> result<world-handle, world-error>;
+        /// Lifecycle operations must be the only staged operation. Results are observed by
+        /// subsequent resolve-world/player events, after host validation and commit.
+        create-world: func(instance: world-instance) -> result<_, world-error>;
+        unload-world: func(instance: world-handle) -> result<_, world-error>;
+        transfer: func(player: player-id, instance: world-handle, position: position) -> result<_, world-error>;
+        /// Reads private state; none is absent, an empty list is a present empty value.
+        store-read: func(key: store-key) -> result<option<list<u8>>, world-error>;
+        /// Stages private state. none deletes it. Shares the block store's byte quota.
+        store-write: func(key: store-key, data: option<list<u8>>) -> result<_, world-error>;
         get-block: func(pos: block-pos) -> result<string, world-error>;
         set-block: func(pos: block-pos, id: string) -> result<_, world-error>;
         block-data: func(pos: block-pos) -> result<option<list<u8>>, world-error>;
@@ -131,6 +170,10 @@ interface world-access {
         /// Stages `payload` for `player`'s client part on `channel`, revision `schema`. It is sent
         /// after the callback commits, if that player's client part declares the channel.
         send-client: func(player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, world-error>;
+        /// Stages a negotiation or acknowledgment reply through retained control delivery.
+        /// A newer reply on the same route replaces any pending one. Pending replies expire
+        /// with the connection or world epoch; ordinary data should use send-client.
+        send-control: func(player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, world-error>;
         /// The block that a `client-message` or `epoch` callback got as its player's focus: the
         /// block of this Experience that the player last used. Its snapshot is the one
         /// `on-interact` gets, the block and its neighbors, and it is read and written the same
@@ -175,8 +218,11 @@ world server {
     import world-access;
     import diagnostics;
     use world-access.{callback};
-    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node};
+    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event};
     /// Declares the Experience's blocks and items; it runs once, at startup.
+    export world-definitions: func() -> result<world-registration, guest-error>;
+    /// Ordered observations. Move events retain the first and last position in one host tick.
+    export on-player: func(ctx: borrow<callback>, player: player-id, event: player-event) -> result<_, guest-error>;
     export register: func() -> result<registration, guest-error>;
     export on-place: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-break: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;

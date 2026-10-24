@@ -116,6 +116,7 @@ impl Limits {
     /// Nonzero, ordered and nowhere above `offer`.
     fn within(&self, offer: &Self) -> bool {
         self.ordered()
+            && *self == self.fit_rate()
             && self.max_fragment_bytes <= offer.max_fragment_bytes
             && self.max_message_bytes <= offer.max_message_bytes
             && self.max_reassembly_bytes <= offer.max_reassembly_bytes

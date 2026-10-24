@@ -1,7 +1,7 @@
 # Server Experiences
 
-A server Experience is a WebAssembly guest that adds stateless cube blocks to the local Dragonfly
-server (`tools/localserver`) and reacts to them being placed, broken, used and disturbed. Each
+A server Experience is a WebAssembly guest that registers blocks, items and world definitions in
+the local Dragonfly server (`tools/localserver`) and reacts to block and player events. Each
 Experience runs in its own `experience-runtime` helper process, off the world goroutine; the Go
 adapter in `tools/localserver/experience` validates what the guest asks for and commits it.
 
@@ -121,6 +121,10 @@ declarations with one name, a channel outside the namespace and a template that 
 
 ### Building and packaging
 
+For a Rust client part with a Go server, [mod projects](mod-projects.md) generate
+the scaffold, messages, assets and signed bundle with `devtool mod new/build`.
+The steps below remain available for existing Experience artifacts.
+
 1. Write `experience.toml` without `[files]`.
 2. Write the server half: a `cdylib` crate that depends on `crates/experience-sdk` with the
    `server` feature and takes `experience.toml`'s declarations. `examples/experiences/probe` is a
@@ -144,7 +148,7 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.6.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.8.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
 `on-break`, `on-interact` and `on-neighbor-changed`, `client-message`, `epoch` and
 `on-scheduled-update`. Every world
@@ -171,7 +175,7 @@ still runs older artifacts against their frozen worlds, by the manifest's `api`:
 WIT cannot express the rules below; the runtime (`crates/experience-runtime`) and the adapter
 (`tools/localserver/experience`) both enforce them.
 
-- **0.6.** `crafting-result` matches a 3×3 grid against the server's crafting-table recipes,
+- **0.6.** `crafting-result` matches a 3x3 grid against the server's crafting-table recipes,
   which the adapter sends with `load` (`recipes`, at most `MAX_RECIPES`, each input of at most
   `MAX_RECIPE_INPUT_ITEMS` items): the first shaped recipe whose shape the grid's items fill,
   anywhere in the grid or mirrored left to right with every other cell empty, or the first
@@ -488,20 +492,23 @@ dirty, and on shutdown. **Crash window:** a crash loses up to one flush interval
 The world and the store are saved independently, so after a crash a block can exist without its
 latest data.
 
-The adapter binds each loaded world to a stable `WorldInstanceID`. The three existing worlds use
+The adapter binds each loaded world to a stable `cinnabarext.WorldID`. The three existing worlds use
 `OverworldInstance`, `NetherInstance` and `EndInstance`; additional worlds use their own IDs, even
 when they share a dimension type. IDs must remain stable across restarts. A `WorldHandle` also
 contains an opening generation. Unbinding an instance invalidates its handles, queued block callbacks
 and already-read results before the world closes; reopening it preserves storage but assigns a new generation.
 Unbound worlds do not admit Experience hooks. Player focus belongs to that live instance opening.
-This adapter binding does not yet expose guest world creation or coordinate player transfers.
+Opening generations are reserved in `_worlds.json` before publication, so handles saved by an
+older server process cannot regain authority after restart. Server WIT 0.8 exposes these identities
+through `callback.world` and `resolve-world`; legacy `callback.info` metadata keeps its old meaning.
 
-Block-data file schema 2 writes `instance` instead of `dim`. Opening schema 1 maps dimensions
+Data-file schema 3 retains schema 2's instance-keyed blocks and adds scoped state records.
+Opening schema 1 maps dimensions
 0, 1 and 2 to the three existing instance IDs, preserving bytes, absent versus empty values,
 placement generations, revisions and quota usage. The next flush persists the migration atomically.
 Unknown legacy dimensions and entries with ambiguous identities fail startup. `_installed.json`
 keeps its existing schema. Back up the data directory before upgrading: older servers cannot read
-schema 2, so a downgrade requires restoring the backup.
+the newer data schema, so a downgrade requires restoring the backup.
 
 `_installed.json` records installed Experience IDs and their required block IDs together. Removing
 an artifact or one of its block definitions fails startup. Both lists are replaced atomically.
@@ -511,6 +518,90 @@ then add a `"blocks"` object mapping each recorded Experience ID to all of its o
 (for example, `"blocks": {"probe": ["probe:counter"]}`). Do not infer these IDs from an updated
 artifact that may have removed definitions. Startup refuses an incomplete manifest instead of
 risking unreadable saved chunks.
+
+## Guest worlds, players and private state
+
+Server WIT 0.8 adds `Experience::world_definitions` and `Experience::on_player`. Existing
+0.1-0.6 artifacts keep their ABIs; rebuilding with the current SDK requires `api = "0.8"`.
+The SDK supplies empty/default implementations for the new exports. The helper and adapter
+must both speak IPC protocol 8. Reloads must retain the same world declarations.
+
+`world_definitions` registers immutable, mod-namespaced definition IDs and optional startup
+instances before players join. A definition selects an empty or flat generator, a built-in
+dimension type (including its height/sky profile), and persistent or temporary terrain. Definition
+IDs, stable instance IDs and generation-bearing handles are distinct guest types; protocol
+network dimension numbers stay inside the adapter. Instances of the same definition have
+independent terrain, actors and private state. Definitions cannot be added by a callback.
+
+Persistent terrain lives under `<world>/experience-worlds/<mod>/<instance>/`. Reopening the
+same ID preserves terrain and private state but assigns a new handle generation. Changing a
+saved instance's definition requires an explicit migration. Runtime-created instances open on
+request; they are not automatically reopened after restart. Startup instances open every time.
+
+`create-world`, `unload-world` and `transfer(player, instance, position)` each stage an exclusive
+lifecycle command: it must be the callback's only operation. A successful staging call means
+accepted for host validation, not completed travel. A later `resolve-world` observes creation;
+`on_player` observes committed travel. Occupied instances cannot unload. Unloaded handles fail
+instead of resolving to a later opening. Operations and IDs remain scoped to the installing mod;
+only the callback actor may be transferred or have their live position read.
+
+The coordinator prepares the destination before detaching the player. Departure advances the
+player epoch and clears focus; it invalidates queued callbacks, read results and deferred sends,
+including after a return to the same live instance. Dragonfly owns the actual world swap and
+session dimension handling. Failed admission restores the source with the newer epoch, even
+if the caller cancels after detach. A player disconnected while detached loses authority rather
+than being restored. Cancellation after admission leaves the destination authoritative.
+
+The existing extension helper reserves a player fence before departure, drains previously
+admitted application callbacks and fences both message directions. A client part that activates
+during preparation joins that fence; one that activates after commit receives a destination notice. Failed admission aborts that
+preparation and restores the earlier fence. Admission publishes through the helper's correlated
+world-change notice; its acknowledgment opens client traffic and requests fresh state. Ordinary
+players without client parts need no notice. An active wire-v1 client part cannot follow this
+fence, so its transfer fails before departure. Notification failure ends only the optional client
+part; the destination remains authoritative and ordinary teleports, respawn placement and later
+transfers continue. Relocation state clears on every exit, separately from the client part's
+acknowledgment fence. Destination preparation and acknowledgment do not certify
+that the client has rendered terrain; live client-part transfer qualification remains open.
+
+Player saves keep stable instance identity and position together in `<world>/player-worlds/`,
+alongside Dragonfly's ordinary player data. Reconnect uses the current opening of that instance.
+If it is closed, or an older save has no instance metadata, the player starts at the default
+Overworld spawn. Saved coordinates from another instance never carry over to that fallback.
+
+Shutdown stops event admission, queues leave for each admitted session and drains callbacks with
+a ten-second deadline before flushing stores and closing the server and worlds. Final leaves
+wait outside world transactions for callback queue space, so a full queue does not drop them. A missed deadline
+is reported as a shutdown error. Leave commits retain scoped revision checks and need no live world.
+
+Go integrations now use `cinnabarext.WorldID` as the shared stable instance-ID type. JSON storage
+keeps the same string identities.
+
+`on_player` receives ordered join, leave, world-change (before/after), and move observations.
+The host samples committed positions once per host tick, independently of pauseable world clocks;
+moves retain the first and last sampled positions and emit at most once per player per tick.
+Observations retain their historical locations even if consumed after a later departure. Their
+writes still require current epoch authority. Leave retains private player state access but has no
+live actor for position reads, inventory, messages or travel. A full observation queue
+suspends the affected Experience instead of continuing with a missing lifecycle event.
+
+Each Experience has one private versioned record for the callback's player, one for its current
+instance and one for the mod. A record can contain an author's typed struct or map. `Persistent`
+and `Callback::read_state`/`write_state` encode typed records with serde JSON. `store-read` and
+`store-write` expose the bytes for explicit schema migrations. Reading with a different schema
+fails until the guest reads the old revision and writes its replacement. Absent and empty remain
+distinct. No store data is sent to clients automatically.
+
+Records use the existing store's persistence, revision checks and total byte quota. Each record
+uses the block-data size ceiling; snapshots contain only the three authorized scopes. State and
+block writes commit together after every operation validates, and quota checks count their net
+change. Deleted records keep revisions so stale results cannot mistake a deletion for untouched
+state. The existing flush crash window applies; transfers do not promise crash-atomic saves
+across two terrain providers and private state. Opening fresh temporary terrain removes that
+instanceâ€™s old block records and refunds their quota, including after an abrupt exit. Scoped
+records retain their independent lifetimes. Unloading an instance finishes resource release
+once it is unbound, even if the caller cancels. Durable records use synced atomic replacement,
+and reopening an instance leaves matching world metadata untouched.
 
 ## Strikes, quarantine and reload
 
@@ -540,8 +631,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.6; 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
-| IPC protocol | 6 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.8; 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 8 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |

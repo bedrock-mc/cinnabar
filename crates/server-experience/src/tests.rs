@@ -116,8 +116,14 @@ fn ssrf_and_rate_limits_are_conservative() {
     assert!(rate.charge(1, 999).is_err());
     rate.charge(1, 2000).unwrap();
     assert!(
-        rate.charge(policy::MAX_BYTES_PER_SECOND as usize, 2000)
-            .is_err()
+        rate.charge_all(
+            std::iter::repeat_n(
+                policy::MAX_PAYLOAD_BYTES,
+                policy::MAX_BURST_BYTES as usize / policy::MAX_PAYLOAD_BYTES
+            ),
+            2000
+        )
+        .is_err()
     );
 }
 

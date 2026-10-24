@@ -21,6 +21,7 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
@@ -44,6 +45,12 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "list-mod-clients" {
+		return listModClients(args[1:], stdout)
+	}
+	if len(args) > 0 && args[0] == "export-mod-pack" {
+		return exportModPack(args[1:])
+	}
 	standby := len(args) == 1 && args[0] == standbyFlag
 	if standby {
 		started, rest, ok, err := awaitStandbyStart(stdin)
@@ -54,6 +61,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	cfg, err := parseSettings(args, stderr)
 	if err != nil {
+		return err
+	}
+	if err := cfg.loadMods(); err != nil {
 		return err
 	}
 	if cfg.terrainFixtureGenerate {
@@ -87,7 +97,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return err
 	}
 	var exps *experiences
-	if cfg.experiences != "" {
+	if cfg.experiences != "" || len(cfg.modArtifacts) > 0 {
 		if exps, err = startExperiences(cfg, logger); err != nil {
 			return err
 		}
@@ -174,30 +184,42 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	cfg.configureLocalPlayers(&conf)
+	var host *experience.Host
+	if exps != nil {
+		var channels experience.ClientChannels
+		if ext != nil {
+			channels = ext
+		}
+		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		provider, err := host.PlayerProvider(conf.PlayerProvider, filepath.Join(cfg.dir, "player-worlds"))
+		if err != nil {
+			return errors.Join(err, conf.PlayerProvider.Close(), host.Close())
+		}
+		conf.PlayerProvider = provider
+	}
 	var srv *server.Server
 	for i, listen := range conf.Listeners {
 		conf.Listeners[i] = flySpeedListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
 			return srv.Player(id)
 		})
 	}
-	srv = conf.New()
+	var closeUnstarted func() error
+	srv, closeUnstarted = newLocalServer(conf)
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
-	cfg.applyTo(worlds...)
-	pauses := &pauseState{worlds: worlds}
+	pauses := &pauseState{settings: cfg}
+	for _, w := range worlds {
+		pauses.WorldOpened(w)
+	}
 	cmds := commands{pause: pauses.request}
-	var host *experience.Host
 	var running sync.WaitGroup
 	runCtx, stopRunning := context.WithCancel(context.Background())
 	defer stopRunning()
 	if exps != nil {
-		// Without client parts every staged client message is dropped and counted.
-		var channels experience.ClientChannels
-		if ext != nil {
-			channels = ext
-		}
-		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
 		if err := host.BindDefaultWorlds(worlds...); err != nil {
-			return errors.Join(err, srv.Close(), host.Close())
+			return errors.Join(err, closeUnstarted(), host.Close())
+		}
+		if err := host.ConfigureWorlds(ctx, filepath.Join(cfg.dir, "experience-worlds"), pauses); err != nil {
+			return errors.Join(err, closeUnstarted(), host.Close())
 		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
 		// without them: each loads again with them.
@@ -230,15 +252,25 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		defer close(accepting)
 		for p := range srv.Accept() {
 			p.Handle(&localPlayerHandler{host: host})
+			if host != nil {
+				host.PlayerJoined(p)
+			}
 		}
 	}()
 	fmt.Fprintln(stdout, "ready")
 
 	serveCommands(ctx, stdin, cmds)
-	closeErr := srv.Close()
+	var closeErr error
+	if host != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		closeErr = host.Drain(drainCtx)
+		cancel()
+		stopRunning()
+	}
+	closeErr = errors.Join(closeErr, srv.Close())
 	<-accepting
 	if host != nil {
-		// The worlds have stopped, so no hook changes the store once the Host flushes it.
+		// Callbacks have drained and player saves completed before guest worlds close.
 		if err := host.Close(); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("close experiences: %w", err))
 		}
@@ -261,9 +293,13 @@ type experiences struct {
 // provided, then registers the blocks before server.Config.New and records their IDs together.
 // On error no helper is left running.
 func startExperiences(cfg settings, log *slog.Logger) (_ *experiences, err error) {
-	dirs, err := discoverArtifacts(cfg.experiences)
-	if err != nil {
-		return nil, err
+	dirs := slices.Clone(cfg.modArtifacts)
+	if cfg.experiences != "" {
+		found, err := discoverArtifacts(cfg.experiences)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, found...)
 	}
 	store, err := experience.OpenStore(filepath.Join(cfg.dir, experienceDataDir))
 	if err != nil {

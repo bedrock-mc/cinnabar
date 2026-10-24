@@ -66,6 +66,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
         &loaded.blocks,
         &loaded.items,
         loaded.focus,
+        loaded.worlds.clone(),
     )? {
         return Ok(EXIT_LOAD_FAILED);
     }
@@ -111,6 +112,7 @@ fn answer_loaded(
     blocks: &[BlockDef],
     items: &[ItemDef],
     focus: bool,
+    worlds: Option<crate::protocol::WorldRegistration>,
 ) -> io::Result<bool> {
     let response = Response::Loaded {
         protocol: PROTOCOL_VERSION,
@@ -119,6 +121,7 @@ fn answer_loaded(
         blocks: blocks.to_vec(),
         items: items.to_vec(),
         focus,
+        worlds,
     };
     let failed = || Response::LoadFailed {
         reason: OVERSIZED_LOADED.to_owned(),
@@ -190,6 +193,7 @@ fn write_or(
 /// The `type` of `call` in the protocol.
 fn call_kind(call: &Call) -> &'static str {
     match call {
+        Call::Player { .. } => "player",
         Call::Place { .. } => "place",
         Call::Break { .. } => "break",
         Call::Interact { .. } => "interact",
@@ -232,7 +236,7 @@ mod tests {
             network: false,
         };
         let mut output = Vec::new();
-        assert!(!answer_loaded(&mut output, &manifest, &[block], &[], false).unwrap());
+        assert!(!answer_loaded(&mut output, &manifest, &[block], &[], false, None).unwrap());
         let mut frames = output.as_slice();
         let failed = Response::LoadFailed {
             reason: OVERSIZED_LOADED.to_owned(),

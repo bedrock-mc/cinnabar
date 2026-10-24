@@ -462,6 +462,7 @@ impl LocalPhysicsController {
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
+        input.sneak_profile = self.modes.sneak_profile();
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
             let context = context.for_next_tick(state.tick);
@@ -826,6 +827,30 @@ impl LocalPhysicsController {
         }
         self.dropped_tick_count = self.dropped_tick_count.saturating_add(frame.dropped_ticks);
         frame
+    }
+
+    #[must_use]
+    pub fn render_eye_position(&self) -> Option<[f32; 3]> {
+        let mut feet = self.render_feet_position()?;
+        feet[1] += self.eye_offset.height(self.tick_alpha());
+        Some(feet)
+    }
+
+    /// How far the frame sits between the last two completed ticks, `0..=1`.
+    #[must_use]
+    pub fn tick_alpha(&self) -> f32 {
+        (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0) as f32
+    }
+
+    /// The interpolated actor origin, independent of the camera's stance offset.
+    #[must_use]
+    pub fn render_feet_position(&self) -> Option<[f32; 3]> {
+        let state = self.state.as_ref()?;
+        let alpha = (self.accumulated_seconds / LOCAL_PHYSICS_TICK_SECONDS).clamp(0.0, 1.0);
+        let feet = self.previous_position
+            + (state.position - self.previous_position) * alpha
+            + self.visual_correction.offset(alpha as f32);
+        Some([feet.x as f32, feet.y as f32, feet.z as f32])
     }
 
     #[must_use]

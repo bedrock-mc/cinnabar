@@ -126,7 +126,10 @@ pub(super) fn colored_mentions() -> Fixture {
             0,
         );
         *messages = [
+            "Local player: Alex",
             "Hello @Alex back to green",
+            "Unrelated @Steve and @something stay green",
+            "Longer @Alex123 stays green; @here reaches everyone",
             "§c§l§oAlert @Alex still red and styled",
             "Green §fexplicit white§r green again",
         ]

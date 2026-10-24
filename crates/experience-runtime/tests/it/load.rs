@@ -1,4 +1,5 @@
 use crate::common;
+use experience_sdk::artifact::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 
 use std::fs;
 use std::path::Path;
@@ -11,9 +12,7 @@ use common::{
 use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 use experience_runtime::load::{engine, load};
-use experience_runtime::manifest::{
-    ASSETS_DIR, CLIENT_TABLE, MANIFEST_FILE, SERVER_WASM, read_manifest,
-};
+use experience_runtime::manifest::{CLIENT_TABLE, read_manifest};
 use experience_runtime::protocol::{
     BlockDef, ItemDef, Mining, Outcome, PlacementState, Scalar, StateDef, StateValues, Texture,
 };
@@ -528,4 +527,43 @@ fn api_must_match_the_component() {
             "{error}"
         );
     }
+}
+
+/// Existing 0.6 artifacts retain their imports, registration and scheduled-update export.
+#[test]
+fn v0_6_artifact_loads_and_runs() {
+    let dir = common::v0_6_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.6");
+    assert!(loaded.worlds.is_none());
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.6")]
+        }
+    );
+    assert_eq!(
+        run(&engine, &loaded, &scheduled(p(0))),
+        Outcome::Committed { ops: vec![] }
+    );
+}
+
+/// Retained replies from the paired-mod 0.6 SDK keep their transport semantics.
+#[test]
+fn v0_6_control_artifact_loads_and_retains_replies() {
+    let dir = common::v0_6_control_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    let payload = vec![Scalar::Text("registry fingerprint".to_owned())];
+    let mut expected = send("probe.echo", 1, payload.clone());
+    if let experience_runtime::protocol::Op::SendClient { control, .. } = &mut expected {
+        *control = true;
+    }
+    assert_eq!(
+        run(&engine, &loaded, &client_message("probe.echo", 1, payload)),
+        Outcome::Committed {
+            ops: vec![expected]
+        }
+    );
 }

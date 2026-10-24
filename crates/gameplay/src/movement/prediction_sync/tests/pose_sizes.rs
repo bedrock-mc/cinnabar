@@ -137,3 +137,61 @@ fn pose_size_regression_current_correction_keeps_dimension_owner() {
         }
     }
 }
+
+/// Server poses and correction replay retain the level's crouching dimensions.
+#[test]
+fn server_pose_resize_and_replay_keep_the_level_sneak_profile() {
+    for version in ["1.19.80", "1.20.10"] {
+        let mut physics = due_physics();
+        physics.set_base_game_version(protocol::BaseGameVersion::parse(version));
+        let actor = local_actor();
+        let crouch = sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        };
+        let anchor = physics
+            .advance(simulation_clock::TICK_DURATION, crouch, &OpenWorld)
+            .samples
+            .remove(0);
+        let expected = [
+            1.0,
+            sim::PLAYER_WIDTH as f32,
+            sim::MovementMode::Walking.hitbox_height(true, physics.sneak_profile()) as f32,
+        ];
+        assert_eq!(reported_size(&mut physics, &actor), expected);
+        physics.apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                gliding: Some(true),
+                swimming: Some(true),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            reported_size(&mut physics, &actor),
+            [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_WIDTH as f32]
+        );
+        physics.advance(simulation_clock::TICK_DURATION, crouch, &OpenWorld);
+        assert_eq!(physics.mode(), sim::MovementMode::Walking);
+        assert_eq!(reported_size(&mut physics, &actor), expected);
+        let eye = physics.render_eye_position();
+        for _ in 0..2 {
+            let replay = physics
+                .apply_correction(
+                    crate::movement::PhysicsAnchor {
+                        network_position: anchor.position,
+                        tick: anchor.tick,
+                        on_ground: false,
+                        velocity: Some(anchor.velocity),
+                    },
+                    crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                    None,
+                    &OpenWorld,
+                )
+                .unwrap();
+            assert_eq!(replay.replayed_samples.len(), 1);
+            assert_eq!(reported_size(&mut physics, &actor), expected);
+            assert_eq!(physics.render_eye_position(), eye);
+        }
+    }
+}
