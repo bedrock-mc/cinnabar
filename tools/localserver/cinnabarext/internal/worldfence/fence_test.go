@@ -79,9 +79,9 @@ func (m *reference) apply(e event) (notices []Notice, err bool) {
 		}
 		m.token++
 		m.preparing, m.notify = m.token, e.kind != "initial"
-	case "commit", "change":
+	case "commit", "change", "publish_fails":
 		notify := m.notify
-		if e.kind == "commit" {
+		if e.kind != "change" {
 			if m.preparing == 0 || e.token != m.preparing {
 				return nil, true
 			}
@@ -104,7 +104,12 @@ func (m *reference) apply(e event) (notices []Notice, err bool) {
 		if notify {
 			m.changed = false
 		}
-		return m.publish(), false
+		notices = m.publish()
+		if e.kind == "publish_fails" {
+			m.apply(event{kind: "disable"})
+			return nil, false
+		}
+		return notices, false
 	case "abort":
 		if e.token == m.preparing {
 			m.preparing, m.notify = 0, false
@@ -182,6 +187,11 @@ func (c *comparison) step(t *testing.T, e event) {
 		}
 	case "commit":
 		notices, err = c.fence.Commit(e.token, e.world)
+	case "publish_fails":
+		_, err = c.fence.Commit(e.token, e.world)
+		if err == nil {
+			c.fence.Disable()
+		}
 	case "change":
 		notices, err = c.fence.Change(e.world)
 	case "abort":
@@ -274,8 +284,10 @@ func (c *comparison) selectEvent(kind int, value uint64) event {
 	case 11:
 		e.kind = "change"
 	case 12:
-		e.kind = "disable"
+		e.kind = "publish_fails"
 	case 13:
+		e.kind = "disable"
+	case 14:
 		e.kind = "disconnect"
 	}
 	return e
@@ -287,9 +299,9 @@ func TestFenceRandomSequences(t *testing.T) {
 		t.Run(fmt.Sprint(sequence), func(t *testing.T) {
 			c := comparison{model: reference{status: "pending"}}
 			for step := range 96 {
-				kind := rng.IntN(12)
+				kind := rng.IntN(13)
 				if step >= 72 {
-					kind = rng.IntN(14)
+					kind = rng.IntN(15)
 				}
 				e := c.selectEvent(kind, rng.Uint64())
 				if (e.kind == "abort" || e.kind == "commit") && rng.IntN(4) == 0 {
@@ -306,12 +318,12 @@ func TestFenceRandomSequences(t *testing.T) {
 
 func TestFenceAllShortSequences(t *testing.T) {
 	// Enumerate every length-four sequence over the core lifecycle events.
-	for sequence := range 12 * 12 * 12 * 12 {
+	for sequence := range 13 * 13 * 13 * 13 {
 		c := comparison{model: reference{status: "pending"}}
 		choices := sequence
 		for range 4 {
-			e := c.selectEvent(choices%12, 1)
-			choices /= 12
+			e := c.selectEvent(choices%13, 1)
+			choices /= 13
 			c.step(t, e)
 		}
 	}

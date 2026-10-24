@@ -58,6 +58,7 @@ func (l lifecycleListener) Accept() (session.Conn, error) { return l.c, nil }
 type lifecyclePart struct {
 	t                  *testing.T
 	server             *ext.Server
+	now                *time.Time
 	conn               session.Conn
 	inner              *lifecycleConn
 	hello              ext.Hello
@@ -82,7 +83,7 @@ func readExtensionFixture(t *testing.T, name string, target ext.Target) {
 }
 
 // newLifecyclePart constructs an optional client part without a native client or socket.
-func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*ext.Server) *lifecyclePart {
+func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*lifecyclePart) *lifecyclePart {
 	t.Helper()
 	var manifest ext.Manifest
 	readExtensionFixture(t, "manifest_payload.json", &manifest)
@@ -93,14 +94,19 @@ func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*ext.Server) 
 	}
 	var offer ext.Offer
 	readExtensionFixture(t, "offer_payload.json", &offer)
-	s, err := ext.New(ext.Config{Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), Audience: offer.Audience, Now: func() time.Time { return time.Unix(int64(offer.ExpiresUnix)-1, 0) }, Bundles: []ext.Bundle{{Manifest: manifest, Digest: offer.Packages[0].Digest, Bytes: offer.Packages[0].Bytes}}})
+	now := time.Unix(int64(offer.ExpiresUnix)-1, 0)
+	clock := &now
+	if len(existing) != 0 {
+		clock = existing[0].now
+	}
+	s, err := ext.New(ext.Config{Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), Audience: offer.Audience, Now: func() time.Time { return *clock }, Bundles: []ext.Bundle{{Manifest: manifest, Digest: offer.Packages[0].Digest, Bytes: offer.Packages[0].Bytes}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(existing) != 0 {
-		s = existing[0]
+		s = existing[0].server
 	}
-	part := &lifecyclePart{t: t, server: s, sequence: 1}
+	part := &lifecyclePart{t: t, server: s, now: clock, sequence: 1}
 	for _, channel := range manifest.Channels {
 		if channel.Direction == ext.ToServer {
 			part.incoming = channel

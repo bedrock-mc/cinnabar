@@ -871,7 +871,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Coordinator moves, native teleports, sampled world swaps and reconnect placement use one admission path.
   Its session-pinned transport fences old input and sends; same-instance transfers explicitly
   synchronize position. Client-part activation shares that session's preparation and acknowledgment
-  fence, which is retired on disconnect. Pending logins stay separate from admitted sessions,
+  fence, which is retired on disconnect. Relocation state clears on every exit; a failed optional
+  notice ends client-part authority without blocking native placement or later transfers.
+  Pending logins stay separate from admitted sessions,
   so rejected duplicates preserve the connected player’s transport. Player saves resolve stable
   instance identities with a default-spawn fallback. Pending logins reserve their destinations
   through the handshake and revalidate before spawn; completion or failure releases only that

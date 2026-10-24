@@ -26,21 +26,30 @@ func (h *Host) changeWorld(handle *world.EntityHandle, mode cinnabarext.WorldCha
 	h.players.mu.Unlock()
 
 	var prepared *cinnabarext.WorldChange
+	defer func() { prepared.Abort() }()
+	completed, notified := false, false
+	defer func() {
+		h.players.mu.Lock()
+		state.transferring, state.publishing = false, false
+		pending := slices.Sorted(maps.Keys(state.pendingEpochs))
+		state.pendingEpochs = nil
+		h.players.mu.Unlock()
+		if notified {
+			for _, exp := range pending {
+				h.DeliverEpoch(handle, exp)
+			}
+		}
+	}()
+	defer func() {
+		if completed && !notified {
+			prepared.Disable()
+		}
+	}()
+
 	var err error
 	if state.connection != nil {
 		prepared, err = state.connection.PrepareWorldChange(mode)
 	}
-	defer prepared.Abort()
-	completed := false
-	defer func() {
-		if !completed {
-			h.players.mu.Lock()
-			if h.players.items[handle] == state && state.location.Epoch == before.Epoch {
-				state.transferring = false
-			}
-			h.players.mu.Unlock()
-		}
-	}()
 	if err != nil {
 		return err
 	}
@@ -80,21 +89,13 @@ func (h *Host) changeWorld(handle *world.EntityHandle, mode cinnabarext.WorldCha
 		h.observeLocked(p, instance, observation)
 		h.players.mu.Unlock()
 		completed = true
-		notified := prepared.CommitAt(after.World.ID, after.Epoch)
+		published := prepared.CommitAt(after.World.ID, after.Epoch)
 		if h.worldChanged != nil {
-			notified = h.worldChanged(handle.UUID(), after.World, after.Epoch) && notified
+			published = h.worldChanged(handle.UUID(), after.World, after.Epoch) && published
 		}
-		h.players.mu.Lock()
-		state.transferring, state.publishing = !notified, false
-		pending := slices.Sorted(maps.Keys(state.pendingEpochs))
-		state.pendingEpochs = nil
-		h.players.mu.Unlock()
-		if notified {
-			for _, exp := range pending {
-				h.DeliverEpoch(handle, exp)
-			}
-		} else {
-			publication = errors.New("destination admitted, client-part world notice failed; callbacks remain fenced")
+		notified = published
+		if !notified {
+			h.log.Warn("destination admitted without client-part world notice")
 		}
 	}, &before)
 	return errors.Join(err, publication)

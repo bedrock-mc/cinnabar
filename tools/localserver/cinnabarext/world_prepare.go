@@ -117,6 +117,22 @@ func (w *WorldChange) CommitAt(id WorldID, epoch uint64) bool {
 	return true
 }
 
+// Disable ends only this connection's optional client part after publication fails.
+// Ordinary player placement can continue; a new login must establish fresh authority.
+func (w *WorldChange) Disable() {
+	if w == nil || w.conn == nil {
+		return
+	}
+	c := w.conn
+	c.s.transferMu.Lock()
+	defer c.s.transferMu.Unlock()
+	c.deliveryMu.Lock()
+	defer c.deliveryMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fallBack(errors.New("world notice publication failed"))
+}
+
 // Abort releases only this preparation and preserves any earlier world-notice fence.
 func (w *WorldChange) Abort() {
 	if w == nil || w.conn == nil {

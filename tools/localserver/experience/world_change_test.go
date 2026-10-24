@@ -1,12 +1,14 @@
 package experience
 
 import (
-	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"testing"
+
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
+	"github.com/google/uuid"
 )
 
 // nativePositionHandler connects Dragonfly's teleport hook to the production admission operation.
@@ -266,4 +268,109 @@ func TestDisconnectDuringTransferPreparationRecordsNativeDeparture(t *testing.T)
 		t.Fatal("departed session completed transfer")
 	}
 	assertDestinationDeparture(t, f, handle)
+}
+
+// TestExpiredWorldNoticeAllowsLaterPlacement preserves native placement and transfers after optional failure.
+func TestExpiredWorldNoticeAllowsLaterPlacement(t *testing.T) {
+	for _, placement := range []string{"tp", "same_world_respawn", "transfer"} {
+		t.Run(placement, func(t *testing.T) {
+			m := newLifecycleMatrix(t)
+			publicationErr := m.expireGrantDuringTransfer()
+			before := m.f.h.epoch(m.f.actor)
+			want := mgl64.Vec3{8, 75, 6}
+			if placement == "transfer" {
+				if err := m.f.travel(t.Context(), "probe:two"); err != nil {
+					t.Fatalf("later transfer failed: %v", err)
+				}
+			} else {
+				if err := m.f.actor.Do(func(tx *world.Tx, e world.Entity) {
+					p := e.(*player.Player)
+					if placement == "same_world_respawn" {
+						tx.RemoveEntity(p)
+						p = tx.AddEntity(m.f.actor).(*player.Player)
+					}
+					p.Teleport(want)
+					if p.Position() != want {
+						t.Fatalf("%s position = %v, want %v", placement, p.Position(), want)
+					}
+				}).Wait(t.Context()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if publicationErr != nil {
+				t.Fatalf("optional publication failure rejected placement: %v", publicationErr)
+			}
+			if m.f.h.epoch(m.f.actor) != before+1 || m.f.countLocations() != 1 {
+				t.Fatal("later placement did not retain one fresh authoritative location")
+			}
+			m.part.oldInput()
+			if m.part.admitted != 0 {
+				t.Fatal("expired client part retained callback authority")
+			}
+			if !m.f.h.playerCurrent(event{actor: m.f.actor, epoch: m.f.h.epoch(m.f.actor)}) {
+				t.Fatal("optional failure blocked ordinary gameplay")
+			}
+			m.drain()
+		})
+	}
+}
+
+// TestWorldChangePanicReleasesRelocation allows another placement after recovery at each boundary.
+func TestWorldChangePanicReleasesRelocation(t *testing.T) {
+	for _, boundary := range []string{"prepare", "relocate", "publish"} {
+		t.Run(boundary, func(t *testing.T) {
+			f := newRuntimeFixture(t)
+			if boundary == "prepare" {
+				f.setRuntimeChannels(runtimeChannels{prepare: func() (*cinnabarext.WorldChange, error) { panic("prepare") }})
+			}
+			if boundary == "publish" {
+				f.h.worldChanged = func(uuid.UUID, WorldHandle, uint64) bool { panic("publish") }
+			}
+			f.do(f.source, func(tx *world.Tx) {
+				defer func() {
+					if recover() != boundary {
+						t.Fatal("missing expected panic")
+					}
+				}()
+				_ = f.h.changeWorld(f.actor, cinnabarext.CoordinatedChange, func(admit func(*player.Player), _ *PlayerLocation) error {
+					if boundary == "relocate" {
+						panic("relocate")
+					}
+					e, _ := f.actor.Entity(tx)
+					admit(e.(*player.Player))
+					return nil
+				})
+			})
+			f.setRuntimeChannels(runtimeChannels{})
+			f.h.worldChanged = nil
+			if err := f.travel(t.Context(), "probe:one"); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+// TestFailedPublicationDisablesClientPart preserves placement while ending the old grant's authority.
+func TestFailedPublicationDisablesClientPart(t *testing.T) {
+	m := newLifecycleMatrix(t)
+	m.step("handshake")
+	m.f.h.worldChanged = func(uuid.UUID, WorldHandle, uint64) bool { return false }
+	if err := m.f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatalf("optional notice failure rejected placement: %v", err)
+	}
+	m.f.h.worldChanged = nil
+	m.part.inputAt(m.part.acknowledgeWorld())
+	if m.part.admitted != 0 {
+		t.Fatal("failed publication retained client-part authority after acknowledgment")
+	}
+	if err := m.f.travel(t.Context(), "probe:two"); err != nil {
+		t.Fatalf("failed publication blocked later travel: %v", err)
+	}
+	m.step("reconnect")
+	m.step("handshake")
+	m.part.oldInput()
+	if m.part.admitted != 1 {
+		t.Fatal("new handshake did not establish fresh client-part authority")
+	}
+	m.drain()
 }

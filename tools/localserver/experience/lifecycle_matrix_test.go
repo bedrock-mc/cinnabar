@@ -18,7 +18,8 @@ import (
 // lifecycleChannels lets the real host consume a preparation made by an earlier matrix step.
 type lifecycleChannels struct {
 	*ext.Server
-	prepared *ext.WorldChange
+	prepared     *ext.WorldChange
+	afterPrepare func()
 }
 
 // PlayerSession pins the session while allowing the matrix to reserve a fence in an earlier step.
@@ -38,12 +39,17 @@ type lifecycleSession struct {
 
 // PrepareWorldChange consumes an earlier reservation or prepares the pinned connection.
 func (c lifecycleSession) PrepareWorldChange(kind ext.WorldChangeKind) (*ext.WorldChange, error) {
-	if c.channels.prepared != nil {
-		change := c.channels.prepared
-		c.channels.prepared = nil
-		return change, nil
+	change, err := c.channels.prepared, error(nil)
+	c.channels.prepared = nil
+	if change == nil {
+		change, err = c.PlayerSession.PrepareWorldChange(kind)
 	}
-	return c.PlayerSession.PrepareWorldChange(kind)
+	if err == nil && c.channels.afterPrepare != nil {
+		after := c.channels.afterPrepare
+		c.channels.afterPrepare = nil
+		after()
+	}
+	return change, err
 }
 
 // lifecycleMatrix owns one player's synchronous worlds, persisted location and real client part.
@@ -168,7 +174,7 @@ func (m *lifecycleMatrix) step(name string) {
 		data, w := m.admission.Resolve()
 		id := f.actor.UUID()
 		f.actor = world.EntitySpawnOpts{ID: id}.New(player.Type, data)
-		m.part = newLifecyclePart(f.t, f, m.part.server)
+		m.part = newLifecyclePart(f.t, f, m.part)
 		m.live = true
 		m.channels.prepared.Abort()
 		m.channels = &lifecycleChannels{Server: m.part.server}
@@ -297,6 +303,17 @@ func (m *lifecycleMatrix) step(name string) {
 		if err == nil {
 			m.fenced = true
 		}
+	case "publish_fails":
+		if !m.live || f.h.epoch(f.actor) == 0 {
+			return
+		}
+		if _, ok := f.h.worlds.handle("probe:one"); !ok {
+			return
+		}
+		if err := m.expireGrantDuringTransfer(); err != nil {
+			f.t.Fatalf("optional publication failure blocked relocation: %v", err)
+		}
+		m.fenced = true
 	case "unload":
 		handle, ok := f.h.worlds.handle("probe:one")
 		if ok {
@@ -307,6 +324,17 @@ func (m *lifecycleMatrix) step(name string) {
 	default:
 		f.t.Fatalf("unknown lifecycle event %s", name)
 	}
+}
+
+// expireGrantDuringTransfer expires the optional grant after preparation and before publication.
+func (m *lifecycleMatrix) expireGrantDuringTransfer() error {
+	m.part.handshake()
+	before := *m.part.now
+	defer func() { *m.part.now = before; m.channels.afterPrepare = nil }()
+	m.channels.afterPrepare = func() {
+		*m.part.now = time.Unix(int64(m.part.server.Offer().ExpiresUnix), 0)
+	}
+	return m.f.travel(m.f.t.Context(), "probe:one")
 }
 
 // drain finishes every admitted callback and verifies persisted final writes before worlds close.
@@ -360,7 +388,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {

@@ -554,8 +554,10 @@ during preparation joins that fence; one that activates after commit receives a 
 preparation and restores the earlier fence. Admission publishes through the helper's correlated
 world-change notice; its acknowledgment opens client traffic and requests fresh state. Ordinary
 players without client parts need no notice. An active wire-v1 client part cannot follow this
-fence, so its transfer fails before departure. Notification failure leaves one authoritative
-destination with its callbacks fenced. Destination preparation and acknowledgment do not certify
+fence, so its transfer fails before departure. Notification failure ends only the optional client
+part; the destination remains authoritative and ordinary teleports, respawn placement and later
+transfers continue. Relocation state clears on every exit, separately from the client part's
+acknowledgment fence. Destination preparation and acknowledgment do not certify
 that the client has rendered terrain; live client-part transfer qualification remains open.
 
 Player saves keep stable instance identity and position together in `<world>/player-worlds/`,

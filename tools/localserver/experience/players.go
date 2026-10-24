@@ -16,10 +16,11 @@ import (
 
 // playerState tracks one session; a departure fences work even when it returns to the same world.
 type playerState struct {
-	connection    cinnabarext.PlayerSession
-	reservation   *worldReservation
-	location      PlayerLocation
-	w             *world.World
+	connection  cinnabarext.PlayerSession
+	reservation *worldReservation
+	location    PlayerLocation
+	w           *world.World
+	// transferring lasts only for the scoped authoritative relocation, independently of client-part fences.
 	transferring  bool
 	retiring      bool
 	synchronizing bool

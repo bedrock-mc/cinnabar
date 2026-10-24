@@ -266,20 +266,20 @@ func TestPlayerObservationsAreOrderedAndCoalesced(t *testing.T) {
 	}
 }
 
-// TestClientFenceFailureKeepsOneDestination blocks new callbacks after a failed world notice.
+// TestClientFenceFailureKeepsOneDestination preserves gameplay after an optional world-notice failure.
 func TestClientFenceFailureKeepsOneDestination(t *testing.T) {
 	f := newRuntimeFixture(t)
 	f.setRuntimeChannels(runtimeChannels{})
 	f.h.worldChanged = (func(uuid.UUID, WorldHandle, uint64) bool { return false })
-	if err := f.travel(t.Context(), "probe:one"); err == nil {
-		t.Fatal("failed notice reported success")
+	if err := f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatalf("optional notice failure rejected placement: %v", err)
 	}
 	if f.countLocations() != 1 {
 		t.Fatal("failed notice lost authoritative destination")
 	}
 	ev := event{actor: f.actor, epoch: f.h.epoch(f.actor)}
-	if f.h.playerCurrent(ev) {
-		t.Fatal("failed notice released callback fence")
+	if !f.h.playerCurrent(ev) {
+		t.Fatal("optional notice failure blocked ordinary gameplay")
 	}
 }
 
