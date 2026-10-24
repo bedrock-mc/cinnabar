@@ -1011,6 +1011,9 @@ fn dropped_shaped_plants_and_eggs_use_sprites_and_keep_the_identity_guard_curren
             records.iter().any(|record| {
                 record.name.as_ref() == item.identifier.as_ref()
                     && record.model_family == assets::ModelFamily::Unknown
+                    && !record
+                        .traits
+                        .contains(assets::registry::BlockTraits::CANDLE)
                     && assets::facts::block_render_fact(&record.name).kind
                         == assets::facts::BlockRenderKind::Ordinary
                     && assets::facts::block_render_fact(&record.name).flat_icon
