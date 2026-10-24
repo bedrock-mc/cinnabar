@@ -7,12 +7,23 @@ use render_scene::greedy_texture_uv;
 
 /// Compile the actual production functions, not a test-side UV implementation.
 fn shader() -> String {
-    let source = include_str!("../../src/chunk.wesl");
+    let source = crate::shader_source::preprocess(include_str!("../../src/chunk.wesl"), &[]);
     let corners = source.split_once("fn quad_corner(").unwrap().1;
     let corners = corners.split_once("\nfn face_normal(").unwrap().0;
     let uv = source.split_once("fn greedy_uv(").unwrap().1;
     let uv = uv.split_once("\n@vertex").unwrap().0;
     format!("fn quad_corner({corners}\nfn greedy_uv({uv}\n{FIXTURE}")
+}
+
+#[test]
+fn production_leaf_uv_shader_is_valid() {
+    let module = naga::front::wgsl::parse_str(&shader()).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
 }
 
 #[test]

@@ -1,4 +1,4 @@
-use crate::material_shader;
+use crate::shader_source;
 use std::borrow::Cow;
 use wgpu::util::DeviceExt;
 
@@ -10,7 +10,7 @@ fn positional_material_gpu_matches_signed_coordinate_vectors() {
         return;
     };
     let (device, queue) = (gpu.device, gpu.queue);
-    let source = material_shader::source(include_str!("../../src/material.wesl"));
+    let source = shader_source::preprocess(include_str!("../../src/material.wesl"), &[]);
     let source = format!(
         "{source}\n{}",
         r#"
