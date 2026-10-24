@@ -180,7 +180,7 @@ full-memory `crash.dmp` (Windows).
 | `packs` | Assets, resource packs, pack runtime and extensions |
 | `audio` | Audio playback and decoding |
 | `input` | Input mapping, gamepads and windowing input |
-| `core` | Go core bridge, launcher, lifecycle, crash monitor and diagnostics |
+| `core` | Launcher, local-world lifecycle, crash monitor and diagnostics |
 | `session` | Client session, join, rich presence and telemetry |
 
 ## Native and performance evidence
@@ -364,26 +364,25 @@ session) to record each session in full to `logs/packets-<session start unix ms>
 set the variable to a file path. A set variable, including `0`, overrides the setting. An existing file is
 never replaced; the start time is added to the name instead. Before each capture into `logs/`, the
 oldest `packets-*.cnbrcap` there are deleted so the folder keeps at most 10 captures and 2 GiB,
-counting the new one at its 512 MiB cap; a capture at a path you named is never deleted. The capture uses the v2 format that
-`tools/bedrock-replay` reads, with `-original-timing` replaying the recorded times; those are
-when the client read each batch, which trails socket arrival while ingress is backlogged. It
+counting the new one at its 512 MiB cap; a capture at a path you named is never deleted.
+The capture retains the v2 byte format and the times when the client read each batch,
+which trail socket arrival while ingress is backlogged. The retired OS-endpoint replay
+executable is not part of the native client. A capture
 stops at 512 MiB; a writer that falls behind records how many packets it dropped rather than
 slowing the network thread. Session teardown finishes the file, waiting at most 2 s; a crash
-loses at most the queued packets and 64 KiB of written ones and leaves a capture that
-`bedrock-replay` reports as truncated. Login, handshake and resource-pack offer packets are left
+loses at most the queued packets and 64 KiB of written ones and can leave a truncated capture.
+Login, handshake and resource-pack offer packets are left
 out of captures and rejected-body samples, keeping only their ring header, so neither holds
 credentials or content keys; captures still hold chat and world data, so keep them outside git
 and delete them after use.
 
 ## Packet latency trace
 
-Set `CINNABAR_LATENCY_TRACE` to an existing directory before launching the client; it and its core
-each write `<role>-<pid>.trace` there. Both stamp events with Unix nanoseconds read once at
-startup plus monotonic time since, so the files join on one clock. Inbound, they follow each
-packet from the core's decoded relay batch through the bridge frame, world ingress sequencing, the
-app's drain and commit, to the frame handoff and the presented frame; outbound, from the frame's
-time sample through the PlayerAuthInput send, frame flush and bridge write to the core's RakNet
-hand-off. The connection ID the core sends in its handoff, with bridge frame numbers and slots,
-links the two files. Event kinds and fields are listed in `crates/bridge/src/latency_trace.rs`
-and `core/internal/latencytrace`. Traces hold packet IDs, these identifiers and timings only, no
-packet bodies.
+Set `CINNABAR_LATENCY_TRACE` to an existing directory before launching the client. It
+writes `client-<pid>.trace` with Unix nanoseconds anchored once at startup and monotonic
+elapsed time. The retained trace records decoded/enqueued packets, app drain and commit,
+frame handoff/presentation and outbound command admission/write events. Framed transports
+can also attach the original peer's connection, batch and slot identities. This does not
+supply a retired Go process trace or establish native UDP arrival timing. Event kinds and
+fields are listed in `crates/bridge/src/latency_trace.rs`; traces contain packet IDs,
+identifiers and timings, without packet bodies.

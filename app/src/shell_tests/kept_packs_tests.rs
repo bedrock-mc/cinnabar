@@ -1,5 +1,4 @@
 //! Leaving for the menu keeps the newest server archives for a rejoin.
-use client_shell::menu::test_support as menu_fixture;
 use client_shell::ui_resources::UiRuntimeResource;
 
 use crate::runtime::network::resource_packs::PackApplication;
@@ -51,11 +50,11 @@ fn missing_core_layout(root: &Path) -> InstallLayout {
 /// Stacks of their own, keeping one admitted stack as a finished join would.
 fn kept_stacks() -> &'static CompiledStacks {
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
-            protocol::ResourcePackArchive::unencrypted(
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
+            bedrock_packs::ResourcePackArchive::unencrypted(
                 "00000000-0000-0000-0000-00000000ca7e".parse().unwrap(),
                 "1.0.0".into(),
-                String::new(),
+                Vec::new(),
                 vec![0; 32],
             ),
         ]));
@@ -92,7 +91,6 @@ fn session_app<M>(
         missing_core_layout(root),
         client_shell::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
-    menu_fixture::suppress_catalog(&mut menu);
     menu.show_world();
     prepare(&mut menu);
     let mut app = App::new();

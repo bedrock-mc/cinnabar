@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 /// The largest file a skin import reads: a skin pack, a PNG or a geometry JSON.
 const MAX_SKIN_BYTES: u64 = larger(
-    larger(resource_pack::MAX_ARCHIVE_BYTES as u64, MAX_PNG_BYTES),
+    larger(resource_pack::MAX_LOCAL_ARCHIVE_BYTES as u64, MAX_PNG_BYTES),
     render_api::MAX_SKIN_GEOMETRY_SOURCE_BYTES as u64,
 );
 

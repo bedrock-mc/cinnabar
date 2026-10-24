@@ -24,9 +24,7 @@ $script:AcceptanceExecutionPhase = {
             effective_present_mode = $null
             present_mode_proven = $false
             steady_resource_trigger = $EffectiveSteadyResourceTrigger
-            build_core_command = Format-ResolvedCommand 'go' @('build', '-trimpath', '-o', $CoreExecutable, './core/cmd/bedrock-core')
             bds_command = $BdsCommand
-            core_command = $CoreCommand
             app_command = $AppCommand
             machine = $env:COMPUTERNAME
             operating_system = Get-OptionalCimValue 'Win32_OperatingSystem' 'Caption'
@@ -245,17 +243,14 @@ $script:AcceptanceExecutionPhase = {
         $portV6Reservation = New-ReservedUdpPort
         $bdsPort = $portReservation.Port
         $Upstream = "127.0.0.1:$bdsPort"
+        $AppArguments[1] = $Upstream
         Set-ServerProperties -Path (Join-Path $RuntimeDirectory 'server.properties') -Port $bdsPort -PortV6 $portV6Reservation.Port
-        $CoreArguments = @('-socket-dir', $SocketDirectory, '-upstream', $Upstream)
         $BdsCommand = Format-ResolvedCommand $BdsExecutable $BdsArguments
-        $CoreCommand = Format-ResolvedCommand $CoreExecutable $CoreArguments
         $AppCommand = Format-ResolvedCommand $AppExecutable $AppArguments
         Write-Output "BDS_COMMAND=$BdsCommand"
-        Write-Output "CORE_COMMAND=$CoreCommand"
         Write-Output "APP_COMMAND=$AppCommand"
         $metadata['status'] = 'building'
         $metadata['bds_command'] = $BdsCommand
-        $metadata['core_command'] = $CoreCommand
         $metadata['app_command'] = $AppCommand
         $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $RunDirectory 'metadata.json') -Encoding UTF8
         if (-not $SkipClientBuild) {
@@ -265,7 +260,6 @@ $script:AcceptanceExecutionPhase = {
             throw "client executable was not available after build selection: $AppExecutable"
         }
         $metadata['client_executable_sha256'] = (Get-FileHash -Algorithm SHA256 -LiteralPath $AppExecutable).Hash.ToLowerInvariant()
-        Invoke-CheckedBuild -Executable 'go' -Arguments @('build', '-trimpath', '-o', $CoreExecutable, './core/cmd/bedrock-core') -LogPath (Join-Path $RunDirectory 'build-core.log') -WorkingDirectory $ProjectRoot
         if ($hasClientExecutable) {
             Assert-FileHashUnchanged -Path $AppExecutable -ExpectedSha256 $PrebuiltClientSha256 -Label 'prebuilt client after generated builds'
         }
@@ -292,9 +286,19 @@ $script:AcceptanceExecutionPhase = {
             -Marker 'Server started.' `
             -TimeoutSeconds 120 `
             -ReadinessProbe $bdsReadinessProbe
-        $coreHandle = Start-LoggedProcess -Executable $CoreExecutable -Arguments $CoreArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
-        $null = Wait-CoreReady -Handle $coreHandle -TimeoutSeconds 30
-        $savedBuildCommit = $env:CINNABAR_BUILD_COMMIT; if (-not $SkipClientBuild) { $env:CINNABAR_BUILD_COMMIT = $repoCommit }; try { $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') -StderrPath (Join-Path $RunDirectory 'app.stderr.log') } finally { $env:CINNABAR_BUILD_COMMIT = $savedBuildCommit }
+        $savedBuildCommit = $env:CINNABAR_BUILD_COMMIT
+        $savedUserRoot = $env:CINNABAR_USER_ROOT
+        if (-not $SkipClientBuild) { $env:CINNABAR_BUILD_COMMIT = $repoCommit }
+        $env:CINNABAR_USER_ROOT = Join-Path $RunDirectory 'guest-user'
+        try {
+            $appHandle = Start-LoggedProcess -Executable $AppExecutable -Arguments $AppArguments `
+                -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'app.stdout.log') `
+                -StderrPath (Join-Path $RunDirectory 'app.stderr.log')
+        }
+        finally {
+            $env:CINNABAR_BUILD_COMMIT = $savedBuildCommit
+            $env:CINNABAR_USER_ROOT = $savedUserRoot
+        }
         $worldReadyMarkerLine = $null
         if ($isModelWitnessGallery) {
             $galleryAnchorMarkerEvidence = Wait-ProcessOutputMarker `
@@ -343,7 +347,6 @@ $script:AcceptanceExecutionPhase = {
                 -WorldReadyMarker $worldReadyMarkerLine
             $resourceDocument = Measure-SteadyResources `
                 -ClientHandle $appHandle `
-                -CoreHandle $coreHandle `
                 -RunDirectory $RunDirectory `
                 -Trigger $steadyTriggerEvidence `
                 -DurationSeconds 30
@@ -491,7 +494,6 @@ $script:AcceptanceExecutionPhase = {
                 -ForcedRemeshMarker $forcedRemeshMarkerEvidence
             $resourceDocument = Measure-SteadyResources `
                 -ClientHandle $appHandle `
-                -CoreHandle $coreHandle `
                 -RunDirectory $RunDirectory `
                 -Trigger $steadyTriggerEvidence `
                 -DurationSeconds 30
@@ -531,7 +533,6 @@ $script:AcceptanceExecutionPhase = {
                     -FixturePublication $fixturePublication
                 $resourceDocument = Measure-SteadyResources `
                     -ClientHandle $appHandle `
-                    -CoreHandle $coreHandle `
                     -RunDirectory $RunDirectory `
                     -Trigger $steadyTriggerEvidence `
                     -DurationSeconds 30
@@ -656,8 +657,7 @@ $script:AcceptanceExecutionPhase = {
     finally {
         $cleanupErrors = [Collections.Generic.List[string]]::new()
         foreach ($child in @(
-            [pscustomobject]@{ Handle = $appHandle; Kind = 'app' },
-            [pscustomobject]@{ Handle = $coreHandle; Kind = 'core' }
+            [pscustomobject]@{ Handle = $appHandle; Kind = 'app' }
         )) {
             try {
                 Stop-BoundedProcess `
@@ -719,7 +719,7 @@ $script:AcceptanceExecutionPhase = {
                 Write-Warning $cleanupErrors[$cleanupErrors.Count - 1]
             }
         }
-        foreach ($handle in @($appHandle, $coreHandle, $bdsHandle)) {
+        foreach ($handle in @($appHandle, $bdsHandle)) {
             try {
                 Complete-ProcessLogs $handle
             }

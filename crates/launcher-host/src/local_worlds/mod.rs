@@ -1,12 +1,11 @@
 //! Local single-player worlds: the saved-world store, the official dedicated-server download and
-//! the local server processes. The core only learns the open world's loopback address.
+//! the local server processes and their typed loopback connection authority.
 
 mod android_setup;
 mod android_trust;
 mod bds;
 mod code_cache;
 mod container;
-mod core_link;
 mod docker;
 mod download;
 mod import;
@@ -19,7 +18,7 @@ mod provision;
 mod startup_timing;
 mod store;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 mod translated;
 mod translated_setup;
 mod unpack;
@@ -27,8 +26,13 @@ mod world;
 
 pub use android_setup::{android_server_needs_preparation, prepare_android_server};
 pub use android_trust::refresh as refresh_android_server_trust;
-pub use core_link::{CoreLink, CoreRoute};
 pub use import::{WORLD_ARCHIVE_EXTENSION, is_world_archive};
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) use manager::HostOpening;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use manager::NativeHostIntent;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use manager::NativeLocalWorldSelection;
 pub use manager::{Host, Manager};
 pub use world::WorldError;
 
@@ -44,16 +48,6 @@ use launcher::install_layout::InstallLayout;
 use serde::Deserialize;
 
 const BEDROCK_TARGET_JSON: &str = include_str!("../../../../assets/bedrock-target.json");
-
-/// Resolves the local server beside the core, using the APK's executable helper on Android.
-fn local_server_path(core: &Path, platform: provision::Platform) -> PathBuf {
-    let name = match platform.os {
-        "android" => translated::android_runtime().local_server_library.clone(),
-        "windows" => "bedrock-local-server.exe".to_owned(),
-        _ => "bedrock-local-server".to_owned(),
-    };
-    core.with_file_name(name)
-}
 
 /// The dedicated-server build local worlds run, from the target manifest.
 #[derive(Debug, Deserialize)]
@@ -78,7 +72,7 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
     let platform = provision::Platform::host();
     let translation = translated::Translation::detect(
         platform,
-        &layout.core_executable,
+        &layout.local_server_executable,
         android_runtime_dir(&layout.user_data_root),
     )
     .map(Arc::new);
@@ -109,9 +103,9 @@ pub fn open(layout: &InstallLayout) -> Result<Manager, WorldError> {
             .unwrap_or_else(|| docker::detect_runtime(platform, docker::DOCKER, &[]))
     }));
     let mut parts = manager::Parts::new(store);
-    let local_server = local_server_path(&layout.core_executable, platform);
+    let local_server = &layout.local_server_executable;
     if local_server.is_file() {
-        parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(local_server)));
+        parts.runners.dragonfly = Some(Arc::new(process::ProcessRunner::new(local_server.clone())));
     } else {
         // Docker detection may still settle on Dragonfly; its worlds are then refused, not saved unopenable.
         parts.unavailable.push((
@@ -224,14 +218,14 @@ mod tests {
             serde_json::from_str(include_str!("../../../../packaging/android/runtime.json"))
                 .expect("runtime manifest");
         let libraries = Path::new("/data/app/fixture/lib/arm64");
-        let core = libraries.join(manifest["core_library"].as_str().expect("core helper"));
-        let server = local_server_path(
-            &core,
-            provision::Platform {
-                os: "android",
-                arch: "arm64",
-            },
+        let layout = InstallLayout::android(
+            Path::new("/data/user/0/app/files"),
+            libraries,
+            manifest["local_server_library"]
+                .as_str()
+                .expect("server helper"),
         );
+        let server = layout.local_server_executable;
         assert_eq!(
             server,
             libraries.join(

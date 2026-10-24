@@ -2,9 +2,6 @@ use serde::Deserialize;
 
 use super::{Error, Learned, MAX_ESCAPE_DEPTH, PLACEHOLDER, Redactor, patterns, rules::RULES_JSON};
 
-/// The Go core's embedded copy of the rule file.
-const GO_COPY: &str = include_str!("../../../../core/internal/redact/rules.json");
-
 #[derive(Deserialize)]
 struct File {
     placeholder: String,
@@ -27,14 +24,6 @@ struct Vector {
 
 fn file() -> File {
     serde_json::from_str(RULES_JSON).unwrap()
-}
-
-#[test]
-fn the_go_copy_matches_the_rule_file() {
-    assert!(
-        GO_COPY == RULES_JSON,
-        "core/internal/redact/rules.json is stale; copy crates/crash-report/data/redaction-rules.json over it"
-    );
 }
 
 #[test]

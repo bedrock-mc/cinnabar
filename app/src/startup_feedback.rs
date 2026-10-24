@@ -159,55 +159,10 @@ pub(crate) fn finish(
     }
 }
 
-/// Revokes an expensive ownership boundary before entry and prefers quiet cancellation on exit.
-pub(crate) fn while_active<T>(
-    cancelled: impl Fn() -> bool,
-    work: impl FnOnce() -> anyhow::Result<T>,
-) -> anyhow::Result<Option<T>> {
-    if cancelled() {
-        return Ok(None);
-    }
-    let result = work();
-    if cancelled() {
-        Ok(None)
-    } else {
-        result.map(Some)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{SurfaceLifetime, while_active};
-    use std::cell::Cell;
+    use super::SurfaceLifetime;
 
-    #[test]
-    fn cancelled_preparation_never_admits_a_connection() {
-        let admitted = Cell::new(false);
-        let result = while_active(
-            || true,
-            || {
-                admitted.set(true);
-                Ok(())
-            },
-        )
-        .unwrap();
-        assert!(result.is_none());
-        assert!(!admitted.get());
-    }
-
-    #[test]
-    fn cancellation_during_preflight_is_quiet_even_when_the_endpoint_fails() {
-        let cancelled = Cell::new(false);
-        let result = while_active(
-            || cancelled.get(),
-            || -> anyhow::Result<()> {
-                cancelled.set(true);
-                anyhow::bail!("endpoint failed");
-            },
-        )
-        .unwrap();
-        assert!(result.is_none());
-    }
     #[test]
     fn resume_retries_dropped_readiness_when_the_native_surface_survives() {
         use bevy::{ecs::change_detection::Tick, prelude::Entity};

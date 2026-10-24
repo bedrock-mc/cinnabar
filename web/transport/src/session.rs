@@ -4,8 +4,9 @@
 //! received bearer is echoed in pong. Offline account intent occupies one slot. Caller time
 //! drives six bounded retries with capped backoff and caller-supplied jitter.
 
-use crate::control::{Capability, Event, Hello, Request, parse};
+use crate::control::{hello, parse};
 use crate::{Channel, CloseReason, RelayTransport};
+use bridge::relay_control::{Capability, Event, Request};
 use bridge::{
     BridgeCodec,
     contract::{
@@ -184,7 +185,7 @@ impl<T: RelayTransport> Session<T> {
             .await?;
         let mut control = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
         control
-            .send(encode(&Hello::new(Channel::Control, &resume, 0))?)
+            .send(encode(&hello(Channel::Control, &resume, 0))?)
             .await
             .map_err(|_| CloseReason::Transport)?;
         let frame = control
@@ -337,13 +338,9 @@ impl<T: RelayTransport> Session<T> {
                     .open(channel)
                     .await?;
                 let mut play = Framed::new(stream, BridgeCodec::with_max(RELAY_CONTROL_BYTES));
-                play.send(encode(&Hello::new(
-                    channel,
-                    self.resume(now()),
-                    generation,
-                ))?)
-                .await
-                .map_err(|_| CloseReason::Transport)?;
+                play.send(encode(&hello(channel, self.resume(now()), generation))?)
+                    .await
+                    .map_err(|_| CloseReason::Transport)?;
                 let (read, write) = tokio::io::split(play.into_inner());
                 let (reader, frames, writer) = bridge::tasks::prepare_bounded_connection(
                     read,

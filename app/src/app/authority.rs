@@ -65,7 +65,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 .in_set(OrdinaryInputSet)
                 .before(client_state::ShellFrameSet::MenuInput),
             drive_inventory_ui_actions.after(client_state::ShellFrameSet::MenuInput),
-            drive_menu_services,
+            crate::shell_adapters::menu_services(),
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),

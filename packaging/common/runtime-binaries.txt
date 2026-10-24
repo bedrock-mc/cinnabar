@@ -1,5 +1,4 @@
 cinnabar cinnabar CLIENT
 cinnabar-updater update-installer UPDATER
-bedrock-core - CORE
 bedrock-local-server - LOCAL_SERVER
 cinnabar-cxb cinnabar-cxb CXB

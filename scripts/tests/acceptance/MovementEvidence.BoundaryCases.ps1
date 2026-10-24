@@ -68,8 +68,9 @@ It 'defines Zeno as an authenticated five-minute candidate target' {
     $endpoint = Get-EvidenceTargetEndpoint -Target Zeno
     $endpoint | Should Be 'zenomc.org:19197'
     $plan = New-MovementLaunchPlan -Target Zeno -Endpoint $endpoint `
-        -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-        -DurationSeconds 300 -Scenario CandidatePhysics -AuthCache token.json
-    ($plan.CoreArguments -ccontains '-auth-cache') | Should Be $true
+        -RunId $script:RunId -MetricsPath metrics.json `
+        -DurationSeconds 300 -Scenario CandidatePhysics
+    $plan.AppArguments[0] | Should Be '--address'
+    $plan.AppArguments[1] | Should Be $endpoint
     ($plan.AppArguments -ccontains '--movement-candidate-physics') | Should Be $true
 }

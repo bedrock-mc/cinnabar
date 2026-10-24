@@ -1,11 +1,11 @@
 //! Featured thumbnails cached off the frame loop.
-use crate::{
-    launcher_account::ARTWORK_BUDGET,
-    remote_images::{ImageDirectory, LAUNCHER_ART},
-};
+use crate::remote_images::{ImageDirectory, LAUNCHER_ART};
 use crossbeam_channel::Receiver;
 use launcher::menu::view::MenuServerCard;
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
+
+/// The original finite budget shared by optional launcher feed artwork.
+pub const ARTWORK_BUDGET: Duration = Duration::from_secs(40);
 
 #[derive(Debug)]
 pub struct CatalogArt(Receiver<Vec<(String, String)>>);

@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-reads = ["core/cinnabarapi/schema/v1.json", "core/cinnabarapi/schema/source.json", "core/cinnabarapi/schema/emote-clips.json"]
+reads = ["crates/bridge/data/cinnabar-api/v1.json", "crates/bridge/data/cinnabar-api/source.json", "crates/bridge/data/cinnabar-api/emote-clips.json"]
 
 [features]
 test-support = []

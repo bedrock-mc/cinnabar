@@ -17,7 +17,7 @@ mod runtime;
 pub use def::{AnimGraph, AnimKind, AnimNode};
 pub use ease::Easing;
 pub(crate) use layout::Inherited;
-pub use paint::{Animated, ControlAnims, NodeAnim};
+pub use paint::{Animated, Clip, ControlAnims, NodeAnim};
 pub use runtime::{AnimEvent, AnimationRecord, Animator, FlipWrite, Written};
 
 /// Property holding a control's resolved [`AnimGraph`].

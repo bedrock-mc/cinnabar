@@ -36,7 +36,6 @@ pub(super) fn trust_path(runtime_dir: &Path) -> PathBuf {
 /// Executable names and the translated runtime's pinned guest library.
 #[derive(Deserialize)]
 pub(super) struct AndroidRuntime {
-    pub local_server_library: String,
     pub bds_translation: TranslationPin,
 }
 

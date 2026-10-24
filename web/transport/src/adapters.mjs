@@ -39,6 +39,26 @@ function wait(ch, promise) {
             error => { ch.waiters.delete(cancel); reject(error); });
     });
 }
+/** Packs PLAY bytes into bounded queued storage; removed views are never appended to again. */
+function appendPlayBytes(ch, bytes) {
+    const chunks = ch.t.c.chunks, chunkBytes = Math.ceil(ch.limit / chunks);
+    while (bytes.byteLength) {
+        let tail = ch.queue.at(-1);
+        if (!tail || tail.byteLength === tail.buffer.byteLength) {
+            if (ch.queue.length === chunks) return false;
+            const available = ch.limit - ch.queue.reduce((total, chunk) => total + chunk.buffer.byteLength, 0);
+            const capacity = Math.min(chunkBytes, available);
+            if (capacity <= 0) return false;
+            tail = new Uint8Array(capacity).subarray(0, 0); ch.queue.push(tail);
+        }
+        const count = Math.min(bytes.byteLength, tail.buffer.byteLength - tail.byteLength);
+        const filled = new Uint8Array(tail.buffer, 0, tail.byteLength + count);
+        filled.set(bytes.subarray(0, count), tail.byteLength);
+        ch.queue[ch.queue.length - 1] = filled;
+        bytes = bytes.subarray(count);
+    }
+    return true;
+}
 /** Opens a QUIC stream or the named fallback socket; both return reliable byte chunks. */
 export async function open(t, name, join) {
     const control = name === t.c.control;
@@ -66,10 +86,13 @@ export async function open(t, name, join) {
     ws.binaryType = "arraybuffer";
     ws.onmessage = event => {
         if (!(event.data instanceof ArrayBuffer) || event.data.byteLength > ch.limit ||
-            ch.bytes + event.data.byteLength > ch.limit || ch.queue.length === t.c.chunks) {
+            ch.bytes + event.data.byteLength > ch.limit || (control && ch.queue.length === t.c.chunks)) {
             close(t); return;
         }
-        ch.queue.push(new Uint8Array(event.data)); ch.bytes += event.data.byteLength;
+        const bytes = new Uint8Array(event.data);
+        if (control) ch.queue.push(bytes);
+        else if (!appendPlayBytes(ch, bytes)) { close(t); return; }
+        ch.bytes += bytes.byteLength;
         ch.wake?.(); ch.wake = undefined;
     };
     ws.onclose = () => { ch.ended = true; ch.wake?.(); ch.wake = undefined; for (const cancel of ch.waiters) cancel(); ch.waiters.clear(); if (!ch.opened) ch.fail(); };

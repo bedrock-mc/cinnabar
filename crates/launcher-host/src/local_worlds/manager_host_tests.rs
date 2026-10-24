@@ -116,7 +116,7 @@ fn a_server_exit_ends_the_host_wait() {
     waiting_on_host(manager);
     runner.last().exit();
     wait_for(manager, WorldState::Failed);
-    assert!(manager.core_report().target.is_none());
+    assert!(manager.world_report().target.is_none());
 }
 
 /// Cancellation also ends a permission reload already in flight and saves the started server.
@@ -255,7 +255,7 @@ fn a_failed_grant_stops_the_server_and_fails_the_world() {
     );
     let error = status.error.expect("failure text");
     assert!(!error.contains("secret"), "{error}");
-    assert!(manager.core_report().target.is_none());
+    assert!(manager.world_report().target.is_none());
 }
 
 /// Dragonfly grants no operator, so its starts never wait on a loading host.

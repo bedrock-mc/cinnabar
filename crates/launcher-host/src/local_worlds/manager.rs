@@ -16,6 +16,17 @@ use launcher::local_worlds::{
 
 use crate::lifecycle::children::{self, ExitHookGuard};
 
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod opening;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) use opening::HostOpening;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use opening::NativeHostIntent;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod local_connection;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use local_connection::NativeLocalWorldSelection;
+
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
     process::{HostGrant, Instance, Runner, SAVE_BUDGET, StartSpec},
@@ -141,11 +152,15 @@ struct Inner {
     #[cfg(test)]
     host_waits: std::sync::atomic::AtomicUsize,
     subscribers: Mutex<Vec<Sender<()>>>,
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    native_changed: tokio::sync::watch::Sender<()>,
     /// Background starts, stops and exit watches still running.
     background: Mutex<usize>,
     background_done: Condvar,
     /// Asks the running server to stop its own way when the client exits without destructors.
     _exit: ExitHookGuard<'static>,
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    native_host: crate::native_account::HostSlot,
 }
 
 /// The single open world's lifecycle.
@@ -165,6 +180,9 @@ struct Life {
     retiring: Vec<Retiring>,
     /// Counts opens, so a stop that finishes late never idles a newer open.
     generation: u64,
+    /// Visible opening identity, revoked when the process is kept hidden for another open.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    opening: Arc<()>,
     /// Pending edits applied live by one server generation; only that server can save them.
     live_applied: Option<(u64, OptionChanges)>,
     /// The view distance the server was started for.
@@ -244,8 +262,12 @@ impl Manager {
                 #[cfg(test)]
                 host_waits: Default::default(),
                 subscribers: Mutex::default(),
+                #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+                native_changed: tokio::sync::watch::channel(()).0,
                 background: Mutex::new(0),
                 background_done: Condvar::new(),
+                #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+                native_host: Default::default(),
             }),
         }
     }
@@ -876,6 +898,8 @@ impl Manager {
 
     fn set_state(&self, life: &mut Life, state: WorldState) {
         life.state = state;
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        self.inner.native_changed.send_replace(());
         self.notify_subscribers();
     }
 

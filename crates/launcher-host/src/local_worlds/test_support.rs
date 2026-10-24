@@ -1,6 +1,13 @@
 //! Fixtures shared by the local-world tests: worlds, archives, a fake download service, fake
 //! servers and an in-memory runner.
 
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) mod packless;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) mod paired;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) mod paired_bds;
+
 use std::{
     io::{BufRead, BufReader, Cursor, Read, Write},
     net::{TcpListener, TcpStream},
@@ -36,6 +43,54 @@ pub(crate) fn scratch() -> tempfile::TempDir {
         .prefix("cinnabar-local-worlds-")
         .tempdir()
         .expect("temporary folder")
+}
+
+/// Owns an actual manager opening over the existing in-memory runner, stopping it on fixture drop.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) struct NativeHostFixture {
+    pub manager: super::Manager,
+    pub runner: Arc<FakeRunner>,
+    pub world_id: String,
+    _dir: tempfile::TempDir,
+}
+
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+impl NativeHostFixture {
+    /// Starts a real manager generation without provisioning a game server or contacting Xbox.
+    pub(crate) fn new() -> Self {
+        use super::{manager::Parts, process::Runner, store::Store};
+        let dir = scratch();
+        let store = Arc::new(Store::open(dir.path().join("worlds")).expect("world store"));
+        let runner = Arc::new(FakeRunner::default());
+        let mut parts = Parts::new(store);
+        let process: Arc<dyn Runner> = runner.clone();
+        parts.runners.dragonfly = Some(process);
+        let manager = super::Manager::from_parts(parts);
+        let world = manager
+            .create(&launcher::local_worlds::world::NewWorld {
+                name: "synthetic-host-world".into(),
+                generator: launcher::local_worlds::world::Generator::Flat,
+                ..Default::default()
+            })
+            .expect("create world");
+        manager.open(&world.id, None).expect("open world");
+        test_time::eventually("native host fixture running", || {
+            manager.status().state == bridge::WorldState::Running
+        });
+        Self {
+            manager,
+            runner,
+            world_id: world.id,
+            _dir: dir,
+        }
+    }
+}
+
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+impl Drop for NativeHostFixture {
+    fn drop(&mut self) {
+        self.manager.shutdown();
+    }
 }
 
 pub(crate) fn world() -> World {
@@ -316,6 +371,7 @@ pub(crate) struct FakeInstance {
     exited: Receiver<()>,
     pub can_pause: bool,
     pub lan: Option<String>,
+    pub address: Option<String>,
     /// Holds a stop, as a world save would, until disconnected.
     save: Option<Receiver<()>>,
     /// Holds a stop after the process has exited, as removing a container would.
@@ -338,6 +394,7 @@ impl FakeInstance {
             exited,
             can_pause,
             lan: None,
+            address: None,
             save: None,
             cleanup: None,
             cleaned: std::sync::atomic::AtomicBool::new(false),
@@ -362,7 +419,7 @@ impl FakeInstance {
 
 impl Instance for FakeInstance {
     fn address(&self) -> &str {
-        "127.0.0.1:1"
+        self.address.as_deref().unwrap_or("127.0.0.1:1")
     }
 
     fn set_paused(&self, paused: bool) -> std::io::Result<()> {
@@ -431,6 +488,10 @@ pub(crate) struct FakeRunner {
     pub gate: Option<Receiver<()>>,
     pub error: Option<fn() -> WorldError>,
     pub can_pause: Option<bool>,
+    /// The original discovery endpoint reported by each started instance.
+    pub lan: Option<String>,
+    /// An actual fixture-owned local protocol listener, when the default inert address is unused.
+    pub address: Option<String>,
     pub made: Mutex<Vec<Arc<FakeInstance>>>,
     /// Starts begun, counted before any gate.
     pub entered: AtomicUsize,
@@ -534,6 +595,8 @@ impl Runner for FakeRunner {
         let instance = Arc::new(FakeInstance {
             save: self.save.clone(),
             cleanup: self.cleanup.clone(),
+            lan: self.lan.clone(),
+            address: self.address.clone(),
             console_fails: std::sync::atomic::AtomicBool::new(self.console_fails),
             unclean: self.unclean,
             grant_gate: self.grant_gate.clone(),

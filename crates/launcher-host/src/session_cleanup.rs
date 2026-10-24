@@ -2,9 +2,8 @@
 //!
 //! Every client-owned session gets its own directory under the install
 //! layout's transient runtime root: `connect-<pid>-<generation>` for
-//! launcher sessions and `direct-<pid>` for `--address` starts. The Go
-//! core publishes its bridge endpoint artifact inside that directory, so
-//! the directory is the unit of per-session runtime state.
+//! launcher sessions and `direct-<pid>` for direct starts. The directory owns
+//! transient session state and also recognizes stale account directories from older installs.
 //!
 //! Before this module existed those directories were created and never
 //! removed, so every disconnect, failed start, or crash left another stale
@@ -103,7 +102,7 @@ struct SessionDirId {
 
 /// Parses the strict session-directory grammar.
 ///
-/// Only direct sessions, numbered connections and numbered account cores are owned.
+/// Only direct sessions, numbered connections and historical account directories are owned.
 /// Empty segments, signs, overflow and extra segments are rejected.
 fn parse_session_dir_name(name: &str) -> Option<SessionDirId> {
     let (kind, rest) = name
@@ -499,7 +498,7 @@ impl Drop for SessionDirectoryGuard {
 /// packaged as an opaque holder so `run()` can keep it alive to function
 /// exit without reading it: the holder releases the directory when the
 /// scope ends, which is strictly after the explicit `drop(app)` statement
-/// has stopped the core child, and across any early-return unwind.
+/// has dropped the application owners, and across any early-return unwind.
 #[derive(Debug)]
 pub struct ScopedSessionDirectory(Option<SessionDirectoryGuard>);
 

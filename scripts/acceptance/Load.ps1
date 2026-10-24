@@ -113,7 +113,7 @@ function New-AcceptancePerformanceContract {
         max_frame_ms_max = 50.0
         lifecycle_ms_max = 2000.0
         resource_sample_count = 120
-        max_combined_rss_bytes = 681574400
+        max_client_rss_bytes = 681574400
         mean_cpu_percent_max = 15.0
         p95_cpu_percent_max = 15.0
     }
@@ -498,7 +498,7 @@ function Complete-PublicationDiagnosticEvidence {
     param(
         [Parameter(Mandatory = $true)]$Manifest,
         [Parameter(Mandatory = $true)][string]$ClientLogPath,
-        [string]$CoreLogPath,
+        [string]$SourceLogPath,
         [Parameter(Mandatory = $true)][ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode,
         [Parameter(Mandatory = $true)][bool]$WorldReadyObserved,
         [Parameter(Mandatory = $true)][ValidateSet('Lunar', 'Zeqa')][string]$Server,
@@ -508,10 +508,10 @@ function Complete-PublicationDiagnosticEvidence {
     if ([string]$Manifest.mode -cne 'Diagnostic') {
         throw 'diagnostic evidence completion is valid only for Diagnostic mode'
     }
-    $cacheBoundary = if ([string]::IsNullOrWhiteSpace($CoreLogPath)) {
-        [pscustomobject][ordered]@{ classification = 'unavailable'; reason = 'core_log_not_supplied' }
+    $cacheBoundary = if ([string]::IsNullOrWhiteSpace($SourceLogPath)) {
+        [pscustomobject][ordered]@{ classification = 'unavailable'; reason = 'source_log_not_supplied' }
     }
-    else { Get-CacheBoundaryEvidence -CoreLogPath $CoreLogPath }
+    else { Get-CacheBoundaryEvidence -SourceLogPath $SourceLogPath }
     $Manifest | Add-Member -MemberType NoteProperty -Name cache_boundary_evidence `
         -Value $cacheBoundary -Force
     $evidence = Get-PublicationSequenceEvidence -ClientLogPath $ClientLogPath `
@@ -562,7 +562,7 @@ function Find-CompletedLunarPrerequisite {
         'resources_evidence', 'schema', 'server', 'status', 'upstream', 'world_ready_observed'
     )
     $performanceProperties = @(
-        'lifecycle_ms_max', 'max_combined_rss_bytes', 'max_frame_ms_max', 'mean_cpu_percent_max',
+        'lifecycle_ms_max', 'max_client_rss_bytes', 'max_frame_ms_max', 'mean_cpu_percent_max',
         'p95_cpu_percent_max', 'p95_frame_ms_max', 'p99_frame_ms_max', 'resource_sample_count',
         'steady_seconds', 'warmup_seconds'
     )
@@ -592,7 +592,7 @@ function Find-CompletedLunarPrerequisite {
                 Assert-AcceptanceUnsignedInteger -Value $candidate.cache_boundary_evidence.$field `
                     -Label "manifest.cache_boundary_evidence.$field"
             }
-            foreach ($field in @('warmup_seconds', 'steady_seconds', 'resource_sample_count', 'max_combined_rss_bytes')) {
+            foreach ($field in @('warmup_seconds', 'steady_seconds', 'resource_sample_count', 'max_client_rss_bytes')) {
                 Assert-AcceptanceUnsignedInteger -Value $candidate.performance.$field `
                     -Label "manifest.performance.$field" -Positive
             }

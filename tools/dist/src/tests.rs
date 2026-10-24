@@ -27,11 +27,9 @@ fn fixture(platform: Platform) -> (PathBuf, Options) {
         fs::write(assets.join(name), format!("synthetic {name}")).unwrap();
     }
     let client = root.join("client.bin");
-    let core = root.join("core.bin");
     let physics = root.join("physics.bin");
     let notices = root.join("THIRD_PARTY_NOTICES.md");
     fs::write(&client, b"synthetic client").unwrap();
-    fs::write(&core, b"synthetic core").unwrap();
     fs::write(&physics, b"synthetic physics").unwrap();
     fs::write(&notices, b"synthetic notices").unwrap();
     let binaries = root.join("runtime");
@@ -51,7 +49,6 @@ fn fixture(platform: Platform) -> (PathBuf, Options) {
     let options = Options {
         platform,
         client,
-        core,
         binaries,
         assets,
         physics,
@@ -155,8 +152,8 @@ fn refuses_existing_output_and_secret_named_inputs() {
 #[test]
 fn refuses_non_regular_inputs() {
     let (root, mut options) = fixture(Platform::Macos);
-    options.core = root.join("directory-core");
-    fs::create_dir(&options.core).unwrap();
+    options.client = root.join("directory-client");
+    fs::create_dir(&options.client).unwrap();
     assert!(matches!(stage(&options), Err(DistError::NotRegular(_))));
     fs::remove_dir_all(root).unwrap();
 }

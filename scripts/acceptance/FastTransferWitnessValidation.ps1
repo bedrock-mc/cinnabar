@@ -60,30 +60,6 @@ function Assert-FastTransferVector2 {
     }
 }
 
-function Assert-FastTransferCoreArgumentTokens {
-    # Mirrors the launcher-side allowlist in Resolve-MovementCoreExtraArguments so
-    # recorded core extra arguments stay exactly one verbatim allowlisted token
-    # each: a lowercase long-form flag or a conservative value.
-    param($Value, [string]$Label)
-    if ($Value -isnot [System.Array] -or @($Value).Count -gt 16) {
-        throw "$Label must be a bounded JSON array"
-    }
-    foreach ($item in @($Value)) {
-        if ($item -isnot [string] -or ([string]$item).Length -gt 256) {
-            throw "$Label must contain bounded JSON strings"
-        }
-        $token = [string]$item
-        if ($token.StartsWith('-')) {
-            if ($token -cnotmatch '^-[a-z][a-z0-9-]*$') {
-                throw "$Label contains a non-allowlisted flag token"
-            }
-        }
-        elseif ($token -cnotmatch '^[A-Za-z0-9._/:=-]+$') {
-            throw "$Label contains a non-allowlisted value token"
-        }
-    }
-}
-
 function ConvertFrom-FastTransferJson {
     param([string]$Json, [string]$Label)
     if ([string]::IsNullOrWhiteSpace($Json)) { throw "$Label JSON is empty" }
@@ -121,12 +97,9 @@ function Assert-FastTransferWitnessEvidence {
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedPregSha256,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedBregSha256,
         [Parameter(Mandatory = $true)][ValidateRange(1, [uint32]::MaxValue)][uint32]$ExpectedProtocol,
-        [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedCoreSha256,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedAppSha256,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{64}$')][string]$ExpectedAssetsSha256,
         [Parameter(Mandatory = $true)][ValidatePattern('^[0-9a-f]{32}$')][string]$ExpectedRunId,
-        [Parameter(Mandatory = $true)][string]$ExpectedBridgeEndpoint,
-        [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$ExpectedCoreProcessId,
         [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$ExpectedAppProcessId,
         [ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode = 'Fifo'
     )
@@ -141,9 +114,8 @@ function Assert-FastTransferWitnessEvidence {
     Assert-FastTransferExactProperties $scenario @(
         'assets_sha256', 'maximum_command_to_reset_arm_milliseconds', 'minimum_duration_seconds',
         'minimum_post_reset_network_position_delta', 'required_command', 'scenario', 'schema',
-        'screenshot_slots', 'target', 'core_extra_arguments'
-    ) 'scenario manifest'
-    if ([string]$scenario.schema -cne 'rust-mcbe-fast-transfer-witness-scenario-v1' -or
+        'screenshot_slots', 'target') 'scenario manifest'
+    if ([string]$scenario.schema -cne 'rust-mcbe-fast-transfer-witness-scenario-v2' -or
         [string]$scenario.scenario -cne 'FastTransferWitness' -or
         [string]$scenario.target -cne 'Lbsg' -or
         [string]$scenario.required_command -cne '/transfer sm3' -or
@@ -155,47 +127,31 @@ function Assert-FastTransferWitnessEvidence {
         'scenario.maximum_command_to_reset_arm_milliseconds' 30000 30000
     Assert-FastTransferNumber $scenario.minimum_post_reset_network_position_delta `
         'scenario.minimum_post_reset_network_position_delta' 0.5 0.5
-    Assert-FastTransferCoreArgumentTokens $scenario.core_extra_arguments `
-        'scenario manifest.core_extra_arguments'
 
     $metadata = ConvertFrom-FastTransferJson (Get-Content -Raw -LiteralPath $RunMetadataPath) 'run metadata'
     Assert-FastTransferExactProperties $metadata @(
-        'app_exit_code', 'app_process_id', 'app_sha256', 'assets_sha256', 'bridge_endpoint', 'build_commit',
-        'core_exit_code', 'core_process_id', 'core_sha256', 'core_terminated_by_launcher',
+        'app_exit_code', 'app_process_id', 'app_sha256', 'assets_sha256', 'build_commit',
         'duration_seconds', 'endpoint', 'run_id', 'scenario', 'schema', 'screenshot_slots', 'source_dirty',
-        'target', 'timed_out', 'core_extra_arguments'
-    ) 'run metadata'
-    if ([string]$metadata.schema -cne 'rust-mcbe-movement-run-v1' -or
+        'target', 'timed_out') 'run metadata'
+    if ([string]$metadata.schema -cne 'rust-mcbe-movement-run-v2' -or
         [string]$metadata.run_id -cne $ExpectedRunId -or
         [string]$metadata.target -cne 'Lbsg' -or
         [string]$metadata.endpoint -cne 'play.lbsg.net:19132' -or
-        [string]$metadata.bridge_endpoint -cne $ExpectedBridgeEndpoint -or
         [string]$metadata.build_commit -cne $ExpectedBuildCommit -or
-        [string]$metadata.core_sha256 -cne $ExpectedCoreSha256 -or
         [string]$metadata.app_sha256 -cne $ExpectedAppSha256 -or
         [string]$metadata.assets_sha256 -cne $ExpectedAssetsSha256 -or
         [string]$metadata.scenario -cne 'FastTransferWitness') {
         throw 'FastTransferWitness run metadata attribution is not exact'
     }
-    foreach ($field in @('source_dirty', 'core_terminated_by_launcher', 'timed_out')) {
+    foreach ($field in @('source_dirty', 'timed_out')) {
         if ($metadata.$field -isnot [bool]) { throw "run metadata.$field must be an exact JSON boolean" }
     }
-    Assert-FastTransferCoreArgumentTokens $metadata.core_extra_arguments `
-        'run metadata.core_extra_arguments'
-    Assert-FastTransferInteger $metadata.core_process_id 'run metadata.core_process_id' 1 ([decimal][int]::MaxValue)
     Assert-FastTransferInteger $metadata.app_process_id 'run metadata.app_process_id' 1 ([decimal][int]::MaxValue)
     Assert-FastTransferInteger $metadata.app_exit_code 'run metadata.app_exit_code' 0 0
     Assert-FastTransferInteger $metadata.duration_seconds 'run metadata.duration_seconds' 600 ([decimal][int]::MaxValue)
-    if ([int]$metadata.core_process_id -ne $ExpectedCoreProcessId -or
-        [int]$metadata.app_process_id -ne $ExpectedAppProcessId -or
+    if ([int]$metadata.app_process_id -ne $ExpectedAppProcessId -or
         [bool]$metadata.source_dirty -or [bool]$metadata.timed_out) {
         throw 'FastTransferWitness process terminal metadata is not clean'
-    }
-    if ($null -ne $metadata.core_exit_code) {
-        Assert-FastTransferInteger $metadata.core_exit_code 'run metadata.core_exit_code' 0 0
-    }
-    elseif (-not [bool]$metadata.core_terminated_by_launcher) {
-        throw 'FastTransferWitness core has neither a clean exit nor launcher termination'
     }
     foreach ($slots in @($scenario.screenshot_slots, $metadata.screenshot_slots)) {
         if ($slots -isnot [System.Array] -or @($slots).Count -ne 2) {
@@ -299,27 +255,23 @@ function Assert-FastTransferWitnessEvidence {
 
     $identity = ConvertFrom-FastTransferJson $identityJson[0] 'identity'
     Assert-FastTransferExactProperties $identity @(
-        'app_process_id', 'breg_sha256', 'bridge_endpoint', 'build_commit', 'candidate_physics',
-        'core_process_id', 'core_sha256', 'endpoint', 'preg_sha256', 'protocol', 'run_id',
+        'app_process_id', 'breg_sha256', 'build_commit', 'candidate_physics',
+        'endpoint', 'preg_sha256', 'protocol', 'run_id',
         'schema', 'session_generation', 'source_dirty', 'target'
     ) 'identity'
-    if ([string]$identity.schema -cne 'rust-mcbe-movement-identity-v1' -or
+    if ([string]$identity.schema -cne 'rust-mcbe-movement-identity-v2' -or
         [string]$identity.build_commit -cne $ExpectedBuildCommit -or
         [string]$identity.target -cne 'Lbsg' -or [string]$identity.endpoint -cne 'play.lbsg.net:19132' -or
-        [string]$identity.bridge_endpoint -cne $ExpectedBridgeEndpoint -or
         [string]$identity.preg_sha256 -cne $ExpectedPregSha256 -or
         [string]$identity.breg_sha256 -cne $ExpectedBregSha256 -or
-        [string]$identity.core_sha256 -cne $ExpectedCoreSha256 -or
         [string]$identity.run_id -cne $ExpectedRunId) {
         throw 'FastTransferWitness production identity attribution is not exact'
     }
     Assert-FastTransferInteger $identity.protocol 'identity.protocol' $ExpectedProtocol $ExpectedProtocol
     Assert-FastTransferInteger $identity.session_generation 'identity.session_generation' 1 ([decimal][uint64]::MaxValue)
-    Assert-FastTransferInteger $identity.core_process_id 'identity.core_process_id' 1 ([decimal][int]::MaxValue)
     Assert-FastTransferInteger $identity.app_process_id 'identity.app_process_id' 1 ([decimal][int]::MaxValue)
     if ($identity.candidate_physics -isnot [bool] -or -not [bool]$identity.candidate_physics -or
         $identity.source_dirty -isnot [bool] -or [bool]$identity.source_dirty -or
-        [int]$identity.core_process_id -ne $ExpectedCoreProcessId -or
         [int]$identity.app_process_id -ne $ExpectedAppProcessId) {
         throw 'FastTransferWitness identity is dirty, non-candidate, or process-unattributed'
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds a signed arm64-v8a APK. The client, Go core, local server and assetc ship as native
-# libraries, the only files Android lets an app execute; the prep kit ships as APK assets. Game
-# assets never enter the APK: first launch downloads and compiles them on the device.
+# Builds a signed arm64-v8a APK. The client, assetc and local server ship as
+# native libraries, the only files Android lets an app execute; the prep kit ships as assets.
+# Game assets never enter the APK: first launch downloads and compiles them on the device.
 #
 # Needs ANDROID_HOME holding the SDK packages runtime.json pins, the aarch64-linux-android Rust
 # target, cargo-ndk, Go, a JDK, zip and librsvg or ImageMagick for the launcher icon.
@@ -43,7 +43,11 @@ libs="$stage/lib/$abi"
 rm -rf "$stage" "$out/classes" "$out/dex"
 mkdir -p "$libs" "$stage/assets" "$out/classes" "$out/dex"
 
-# One commit identifies both the client library and the core, chosen as the Makefile does.
+verifier="$out/platform-verifier"
+rm -rf "$verifier"
+cargo run --locked -p devtool -- prepare-android-verifier --out "$verifier"
+
+# The caller may supply the client build commit when the source mirror has no Git metadata.
 export CINNABAR_BUILD_COMMIT="${CINNABAR_BUILD_COMMIT:-$(git rev-parse HEAD)}"
 
 # 16 KB pages: Android 15 devices may use them, and every LOAD segment must allow it.
@@ -79,20 +83,24 @@ rm -rf "$stage/assets/resources/prep-kit/bin"
 
 # shellcheck source=render-template.sh
 source "$here/render-template.sh"
+mkdir -p "$stage/assets/licenses/android"
+install -m 0644 "$here"/licenses/* "$stage/assets/licenses/android/"
 mkdir -p "$out/java"
 render "$here/AndroidManifest.xml" "$out/AndroidManifest.xml"
 for source in "$here"/*.java; do
     render "$source" "$out/java/$(basename "$source")"
 done
 javac --release 8 -nowarn -classpath "$android_jar" -d "$out/classes" "$out"/java/*.java
-find "$out/classes" -name '*.class' -print0 |
-    xargs -0 "$build_tools/d8" --release --min-api "$min_sdk" --lib "$android_jar" --output "$out/dex"
-cp "$out/dex/classes.dex" "$stage/classes.dex"
+classes=()
+while IFS= read -r -d '' class; do classes+=("$class"); done < <(find "$out/classes" -name '*.class' -print0)
+"$build_tools/d8" --release --min-api "$min_sdk" --lib "$android_jar" --output "$out/dex" \
+    "${classes[@]}" "$verifier"/jars/*.jar
+cp "$out/dex/"*.dex "$stage/"
 
 # shellcheck source=resources.sh
 source "$here/resources.sh"
 link_apk_resources "$out/AndroidManifest.xml" "$stage/assets" "$out"
-(cd "$stage" && zip -q -r "$out/unsigned.apk" classes.dex lib)
+(cd "$stage" && zip -q -r "$out/unsigned.apk" classes*.dex lib)
 "$build_tools/zipalign" -P 16 -f 4 "$out/unsigned.apk" "$out/aligned.apk"
 
 keystore="${CINNABAR_ANDROID_KEYSTORE:-$out/test.keystore}"

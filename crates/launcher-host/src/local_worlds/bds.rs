@@ -16,11 +16,13 @@ use launcher::local_worlds::{
     world::{Generator, World, WorldUpdate},
 };
 
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use super::ports::lan_address;
 use super::{
     Cancel, create_private_dir,
     docker::DOCKER,
     junction::create_world_link,
-    ports::{LOCAL_SERVER_HOST, bds_udp_mapping, free_bds_port, lan_address, loopback},
+    ports::{LOCAL_SERVER_HOST, bds_udp_mapping, free_bds_port, loopback},
     process::{ExitHook, HostGrant, Instance, Launch, Process, Runner, StartSpec, launch},
     provision::{Provisioner, RuntimeKind, install_dir},
     store::LEVEL_DIR,
@@ -170,6 +172,7 @@ impl Runner for BdsRunner {
             install: install.to_path_buf(),
             link,
             unlinked: Once::new(),
+            #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
             lan_address: self.lan_visible.then(|| lan_address(0)),
             max_players,
         });
@@ -230,6 +233,7 @@ struct BdsInstance {
     install: PathBuf,
     link: PathBuf,
     unlinked: Once,
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     lan_address: Option<String>,
     max_players: u32,
 }
@@ -241,6 +245,7 @@ impl BdsInstance {
 }
 
 impl Instance for BdsInstance {
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     fn address(&self) -> &str {
         self.process.address()
     }
@@ -273,6 +278,7 @@ impl Instance for BdsInstance {
         Some(self.max_players)
     }
 
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     fn lan_address(&self) -> Option<&str> {
         self.lan_address.as_deref()
     }

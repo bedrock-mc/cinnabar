@@ -70,6 +70,21 @@ impl RawPacket {
         &self.inner_frame
     }
 
+    /// Bytes retained by this packet's original batch allocation before optional compaction.
+    pub(crate) fn backing_len(&self) -> usize {
+        self.backing_len
+    }
+
+    /// Shares the original encoded header and payload, removing only its validated entry length.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    pub(crate) fn encoded(&self) -> Bytes {
+        let mut reader = wire::Reader::from_shared(&self.inner_frame);
+        reader
+            .read_var_u32()
+            .expect("raw packet retains its validated entry length");
+        self.inner_frame.slice(reader.position()..)
+    }
+
     /// Copies the entry into an allocation of its own, so a queued packet cannot keep its
     /// whole batch resident.
     pub(crate) fn into_compact(self) -> Self {
@@ -99,11 +114,41 @@ impl RawPacket {
 
 /// Splits a batch body, its length-prefixed entries without the `0xfe` marker, into raw packets
 /// sharing its bytes. Bodies over `max_bytes` or holding more than [`MAX_RAW_BATCH_PACKETS`]
-/// entries are refused.
+/// entries are refused. Unknown IDs are skipped; known bodies remain undecoded.
 pub(crate) fn decode_batch_body(
     body: Bytes,
     max_bytes: usize,
 ) -> Result<Vec<RawPacket>, SessionError> {
+    let backing_len = body.len();
+    let mut packets = Vec::new();
+    let mut skipped = 0_usize;
+    for (index, frame) in batch_frames(body, max_bytes)?.enumerate() {
+        let frame = frame?;
+        let header = frame.header();
+        if let Some(mut packet) = raw_packet(frame, backing_len) {
+            packet.trace_position.1 = index as u32;
+            packets.push(packet);
+        } else {
+            skipped += 1;
+            tracing::debug!(id = header.id, skipped, "skipped unused batch packet");
+        }
+    }
+    Ok(packets)
+}
+
+/// Validates opaque outgoing/replacement framing without requiring a known packet type.
+pub(crate) fn validate_batch_body(body: Bytes, max_bytes: usize) -> Result<(), SessionError> {
+    for frame in batch_frames(body, max_bytes)? {
+        frame?;
+    }
+    Ok(())
+}
+
+/// Applies the original aggregate limits and error mapping to the generated frame iterator.
+fn batch_frames(
+    body: Bytes,
+    max_bytes: usize,
+) -> Result<impl Iterator<Item = Result<wire::RawFrame, SessionError>>, SessionError> {
     if body.len() > max_bytes {
         return Err(SessionFailure::BatchTooLarge {
             actual: body.len(),
@@ -111,18 +156,17 @@ pub(crate) fn decode_batch_body(
         }
         .into());
     }
-    let backing_len = body.len();
     let mut offset = 0;
-    let mut packets = Vec::new();
-    for frame in wire::Frames::new(body.clone(), MAX_RAW_BATCH_PACKETS) {
-        let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
-        offset += frame.frame().len();
-        packets.push(raw_packet(frame, backing_len)?);
-    }
-    Ok(packets)
+    Ok(
+        wire::Frames::new(body.clone(), MAX_RAW_BATCH_PACKETS).map(move |frame| {
+            let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
+            offset += frame.frame().len();
+            Ok(frame)
+        }),
+    )
 }
 
-/// Decodes the first packet entry in `cursor` and advances past it.
+/// Decodes the first known fixture packet in `cursor` and advances past it.
 #[cfg(test)]
 pub(crate) fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, SessionError> {
     let backing_len = cursor.len();
@@ -134,7 +178,7 @@ pub(crate) fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, Session
         }))
         .map_err(|error| framing_failure(&cursor[..], error))?;
     let _ = cursor.split_to(frame.frame().len());
-    raw_packet(frame, backing_len)
+    Ok(raw_packet(frame, backing_len).expect("the fixture packet ID is known"))
 }
 
 /// Splits a `0xfe`-marked uncompressed batch, as fixtures capture one, into raw packets.
@@ -153,7 +197,7 @@ pub(crate) fn decode_batch(
 
 /// Maps a framing failure of the entry starting at `rest`: a declared length past the input is
 /// a truncated entry, while a cut-short or overlong length or header varint is malformed.
-fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
+pub(crate) fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
     if let wire::DecodeError::TooManyFrames { limit } = error {
         return SessionFailure::TooManyPackets { max: limit }.into();
     }
@@ -168,11 +212,11 @@ fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
     .into()
 }
 
-/// Names a framed entry's packet; an ID the protocol does not define ends the session.
-fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Result<RawPacket, SessionError> {
+/// Converts a validated frame only when the generated table names its packet ID.
+pub(crate) fn raw_packet(frame: wire::RawFrame, backing_len: usize) -> Option<RawPacket> {
     let header = frame.header();
-    let id = PacketId::from_raw(header.id).ok_or(SessionFailure::UnknownPacketId(header.id))?;
-    Ok(RawPacket {
+    let id = PacketId::from_raw(header.id)?;
+    Some(RawPacket {
         header: GameHeader {
             id,
             from_subclient: u32::from(header.sender_subclient),

@@ -55,7 +55,7 @@ Describe 'Acceptance process cleanup ownership' {
         ($script:cleanupCalls -join ',') | Should Be 'flush first,dispose first,flush second,dispose second'
     }
 
-    It 'attempts core cleanup even when reporting and client cleanup fail' {
+    It 'attempts client cleanup and disposal even when reporting and log completion fail' {
         Mock Write-AcceptanceJson { $script:cleanupCalls.Add('manifest'); throw 'manifest failed' }
         Mock Stop-BoundedProcess {
             $script:cleanupCalls.Add("stop $Kind")
@@ -67,16 +67,13 @@ Describe 'Acceptance process cleanup ownership' {
         }
         $clientProcess = [pscustomobject]@{}
         $clientProcess | Add-Member ScriptMethod Dispose { $script:cleanupCalls.Add('dispose client') }
-        $coreProcess = [pscustomobject]@{}
-        $coreProcess | Add-Member ScriptMethod Dispose { $script:cleanupCalls.Add('dispose core') }
         $client = [pscustomobject]@{ Name = 'client'; Process = $clientProcess }
-        $core = [pscustomobject]@{ Name = 'core'; Process = $coreProcess }
         $parameters = @{ Manifest = @{ status = 'running' }; ManifestPath = 'unused'; RunSucceeded = $false
-            ClientHandle = $client; CoreHandle = $core; ClientLogsCompleted = $false; CoreLogsCompleted = $false }
+            ClientHandle = $client; ClientLogsCompleted = $false }
         { Complete-RemoteAcceptanceRun @parameters } | Should Throw '*Process cleanup failed*'
-        ($script:cleanupCalls -join ',') | Should Be 'manifest,stop app,logs client,dispose client,stop core,logs core,dispose core'
+        ($script:cleanupCalls -join ',') | Should Be 'manifest,stop app,logs client,dispose client'
         $script:cleanupCalls.Clear()
         { Complete-RemoteAcceptanceRun @parameters -PrimaryFailure ([Exception]::new('original run failed')) } | Should Not Throw
-        ($script:cleanupCalls -join ',') | Should Be 'manifest,stop app,logs client,dispose client,stop core,logs core,dispose core'
+        ($script:cleanupCalls -join ',') | Should Be 'manifest,stop app,logs client,dispose client'
     }
 }

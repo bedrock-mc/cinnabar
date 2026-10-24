@@ -40,14 +40,11 @@ fn header_keeps_the_subclients_and_the_entry_bytes() {
 #[test]
 fn every_ten_bit_id_matches_the_packet_table() {
     for id in 0..=0x3ff_u32 {
-        match (
-            decode_packet_raw(&mut entry(id, 0, 0, &[])),
-            PacketId::from_raw(id),
-        ) {
-            (Ok(raw), Some(expected)) => assert_eq!(raw.id, expected, "id={id}"),
-            (Err(SessionError(SessionFailure::UnknownPacketId(unknown))), None) => {
-                assert_eq!(unknown, id);
-            }
+        let bytes = entry(id, 0, 0, &[]);
+        let frame = wire::Frames::new(bytes.clone(), 1).next().unwrap().unwrap();
+        match (raw_packet(frame, bytes.len()), PacketId::from_raw(id)) {
+            (Some(raw), Some(expected)) => assert_eq!(raw.id, expected, "id={id}"),
+            (None, None) => {}
             (actual, expected) => panic!("id={id}: {actual:?} vs {expected:?}"),
         }
     }

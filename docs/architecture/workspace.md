@@ -1,27 +1,35 @@
 # Workspace layout
 
-How the client, the Go core and their libraries fit together, and what each crate and package owns. The crate layering rules are in `tools/architecture/policy.toml`.
+How the client, its Rust networking libraries and local-server integrations fit together,
+and what each crate and package owns. The crate layering rules are in
+`tools/architecture/policy.toml`.
 
 ## Overview
 
 ```text
-cinnabar (Rust)  ── local socket ──  bedrock-core (Go, gophertunnel)
-                                             ├─ go-raknet ──── servers and BDS
-                                             └─ go-nethernet ─ Realms and friend worlds
+cinnabar (Rust)
+  ├─ bedrock-services ── account and online services
+  ├─ bedrock-net ─────── RakNet / NetherNet sessions
+  └─ local worlds ───── Dragonfly (Go) or official BDS
 ```
 
-Rust never implements Xbox authentication, encryption, RakNet or NetherNet; the core owns those
-and relays packets over a local stream.
+Desktop and Android builds enable `native-networking`. Rust owners perform authentication,
+encryption, menu services and RakNet/NetherNet sessions directly. There is no separate Go client
+process or control endpoint. A build without the native socket capability cannot start a desktop
+connection. Local worlds retain their Dragonfly or official BDS process owners. See the
+[native launch instructions](../../README.md#how-it-works).
 
 | Library | Used for |
 | --- | --- |
-| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
-| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. MIT; see `THIRD_PARTY_NOTICES.md`. |
-| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
-| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
-| [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
-| [go-xsapi](https://github.com/df-mc/go-xsapi) | Xbox Live identity, friends, presence and signaling. |
-| [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers). |
+| [bedrock-net](https://github.com/cinnabar-mc/bedrock-net) | Native framing, encryption, Login, resource packs and typed session lifecycle. |
+| [bedrock-client-tokio](https://github.com/cinnabar-mc/bedrock-net/tree/dev/crates/bedrock-client-tokio) | Native-only retained connection/codec/cipher/FIFO and established transport I/O. The separate bedrock-client typestates stay runtime-free on every target. |
+| [bedrock-services](https://github.com/cinnabar-mc/bedrock-services) | Native Microsoft/Xbox authentication, Realms, profiles, presence and signaling. |
+| [raknet](https://github.com/cinnabar-mc/raknet) | Native RakNet protocol core and its runtime adapter. |
+| [nethernet](https://github.com/cinnabar-mc/nethernet) | Native ICE, DTLS and SCTP with explicit Tokio and Bevy adapters. |
+| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Owns the pinned generated Bedrock packet codec shared by the client and bedrock-net. |
+| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Earlier Jolyne session integration; its MIT attribution remains in `THIRD_PARTY_NOTICES.md`. The current session owner uses bedrock-net. |
+| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock protocol support for the Dragonfly local-server integration and Go fixture tools. |
+| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport for the Go local-server integration. |
 | [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
 
 Mojang assets are never committed or embedded. `make assets` fetches Mojang's official
@@ -48,6 +56,7 @@ coordinates work that crosses these owners.
 | `app` | `cinnabar` | Client executable and Bevy composition; use it to launch the client and assemble its plugins. | `client-*` crates own subsystem adapters; domain crates own game rules. |
 | `web/client` | `web-client` | Browser page control, delivery admission and physical input translation. | `assets` owns carrier validation; `web-transport` owns relay sessions; `semantic-input` owns device frames; `cinnabar` owns application startup. |
 | `web/transport` | `web-transport` | Browser WebTransport and WebSocket channels, bounded control and reconnect state; the browser host drives timers and passes prepared play I/O to the existing session. | `bridge` owns framing and the shared relay contract. |
+| `web/gateway` | `web-gateway` | Native browser relay and optional operator; supply accepted connections to `Gateway` or enable the `operator` feature. | `protocol` owns native Login and play; `bridge` owns relay framing; `bedrock-services` owns account services. |
 | `packaging/android/client` | `cinnabar-android` | Android NativeActivity entry and setup-activity natives; build it with `packaging/android/build-apk.sh`. | `cinnabar` runs the client; `launcher` owns the Android install layout; `first-run` prepares carriers. |
 | `crates/client-state` | `client-state` | Shared ECS resource wrappers, frame sets and observations; use these contracts to connect plugins. | Domain crates own transitions; the other `client-*` crates own systems. |
 | `crates/client-runtime` | `client-runtime` | Transport resources, world servicing and session lifecycle adapters; use its runtime plugin and ingress/publication APIs. | `client-session` owns transport; `client-world` and `chunk-pipeline` own world work. |
@@ -82,12 +91,11 @@ coordinates work that crosses these owners.
 
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
-| `crates/bridge` | `bridge` | Framing and I/O for the local stream to the Go core; use its bounded bridge messages. | The Go core owns upstream transports; `protocol` interprets Bedrock packets. |
-| `crates/protocol` | `protocol` | Bedrock packet codecs, shared wire contracts and session adapters; use its packet and codec APIs. | `bridge` owns local framing; `client-session` owns client transport; the codec lives in its vendored tree. |
+| `crates/bridge` | `bridge` | Shared local/web framing and contracts; use its bounded bridge messages. | `web-transport` and `web-gateway` share the framed browser contract; `protocol` interprets Bedrock packets. |
+| `crates/protocol` | `protocol` | Bedrock packet codecs, shared wire contracts and session adapters; use its packet and codec APIs. | `bridge` owns browser framing; the native backend uses `bedrock-client-tokio` directly for connection I/O and retains account admission, UI limits and bridge/tap/trace projection. Pure negotiation and provider validation stay in bedrock-net; the codec is one pinned protocolgen dependency shared with those libraries. |
 | `crates/protocol-ids` | `protocol-ids` | Dependency-free named wire IDs and pinned air identities; import its constants and enums directly. | `protocol` and `assets` share these facts; the editor can consume them on WebAssembly. |
-| `crates/pack-json` | `pack-json` | Shared pack text decoding and JSONC parsing; use its decoder before reading authored pack documents. | Pack admission, compilers and UI readers share this format policy. |
 | `crates/zip-footer` | `zip-footer` | ZIP end-record admission for in-memory archives; run `prepare_zip_bytes` before handing bytes to a ZIP parser. | `resource-pack` and `shaderpack` share this archive policy. |
-| `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | The Go core downloads packs; `pack-runtime` prepares them; the pack compiler owners compile them. |
+| `crates/resource-pack` | `resource-pack` | Bounded archive admission, decryption and pack-stack views; use its read-only admitted packs. | Native protocol I/O acquires packs; `pack-runtime` prepares them; the pack compiler owners compile them. |
 | `crates/shaderpack` | `shaderpack` | Java Edition OptiFine/Iris shader-pack loading, configuration and translation; `ShaderPack` owns options, dimensions, property parsing, program discovery, enable rules and translation to validated naga modules with their binding reflection, while `PackSource` owns bounded source/asset reads and `discover_packs` lists installed packs. See its [contract](../../crates/shaderpack/README.md). | `render` creates pipelines from the modules; `app` lists installed packs for the Video renderer picker; `resource-pack` owns Bedrock packs. |
 | `crates/assets` | `assets` | Pack source readers, compiled carrier formats and the pinned item- and entity-facts owner; use bounded loaders and typed asset data. | The pack compiler owners write carriers; `protocol-ids` supplies query metadata IDs; `pack-runtime` prepares active session stacks. |
 | `crates/pack-compiler` | `pack-compiler` | Terrain, materials and independent carriers such as atmosphere, audio and UI; import its compiler APIs directly. | `pack-compile-input` owns shared inputs; `assets` owns formats. |
@@ -101,6 +109,16 @@ coordinates work that crosses these owners.
 the pinned item tables and typed rules. It contains identifiers and behavior metadata,
 with a checked schema and hash, rather than artwork or executable code. Regenerate it
 through the item-facts compiler; runtime pack carriers remain local inputs.
+
+The external `cinnabar-mc/bedrock-net` workspace owns reusable client pack
+negotiation in `bedrock-client`, and JSONC/text decoding, archive handoffs and
+compressed archive limits in `bedrock-packs`. Cinnabar imports those owners
+directly. Native acquisition retains bounded HTTP/cache I/O, selected install
+paths and application pack admission; rendering and pack compilation stay here.
+The library owns the built-in stack catalog and binds it to its generated codec.
+A consumer conformance check binds its behavioral baseline to the pinned Gophertunnel
+reference used by the retained Dragonfly integration. Login, connection, resource packs
+and spawn use the native typed session owners.
 
 `assets` also owns `crates/assets/data/entity-facts-v2193.bin`, generated by `registryc`
 from pinned entity component metadata and typed compatibility rules. It contains
@@ -156,7 +174,7 @@ the prepared visual data to the GPU.
 | Workspace member | Package | Ownership and caller guidance | Related owners |
 | --- | --- | --- | --- |
 | `crates/launcher` | `launcher` | Bevy-free account, menu and world models plus product identity; use these models across services and screens. | `json-ui` owns vanilla screen names; `launcher-host` owns process and persistence services; `client-shell` integrates them. |
-| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; `resource-pack` validates user pack imports; the Go core owns authentication and upstream services; `client-shell` owns ECS adapters. |
+| `crates/launcher-host` | `launcher-host` | Launcher processes, platform services, persistence and background work; use its service APIs without Bevy. | `launcher` owns models; `resource-pack` validates user pack imports; the native account owner consumes `bedrock-services` and owns bounded provider-key acquisition; `client-shell` owns ECS adapters. |
 | `crates/first-run` | `first-run` | Consent, download and preparation of local asset carriers, with the setup window; use its setup runner before launching the game window. | `asset-compiler` builds carriers; `bootstrap-ui` draws the setup window; `launcher-host` owns ordinary launcher services. |
 | `crates/bootstrap-ui` | `bootstrap-ui` | The shared pre-game window stack for the setup and crash windows: panorama presenter, CPU-drawn OreUI canvas and controls, focus input, preferences, window attributes and the UI font lookup; build Bevy-free windows on it. | `first-run` owns the setup window; `crash-monitor` owns the crash window; `ui` owns the OreUI theme; `render-model` owns the panorama shader. |
 | `crates/crash-monitor` | `crash-monitor` | The `--crash-monitor` process: minidump server watching the client, crash report folders, the crash window and native-dialog fallback; run it beside the client and show reports through its window API. | `crash-report` owns the report format; `launcher-host` installs in-process crash handlers; `bootstrap-ui` draws the window. |
@@ -201,21 +219,15 @@ the SDK for their own host contract; they do not import client runtime authority
 | `tools/dist` | `dist-local` | Distribution staging, layout and hashes; use its CLI to assemble distributable bundles. | `launcher` owns install layout; `release-manifest` signs the published update manifest. |
 | `tools/release-manifest` | `release-manifest` | Release key generation and manifest signing; use its CLI in release publishing. | `update-manifest` owns the format and verification; `dist-local` stages artifacts. |
 | `tools/cxb` | `cinnabar-cxb` | Experience seeds, bundles, cache seeding and fixtures; use its publisher CLI. | `server-experience` owns formats, domains and limits; server tooling consumes its fixtures. |
-| `tools/bedrock-replay` | `bedrock-replay` | Offline replay of saved server packets through a local session endpoint; use its replay CLI. | `bridge` owns framing; `protocol` owns packets; `client-session` consumes the replay. |
 | `tools/jsonui-editor` | `jsonui-editor` | Shared JSON-UI editor API and browser frontend; use its editing, layout, rasterization and export APIs. | `ui-engine` owns screen resources; `json-ui` owns resolution; `jsonui-mcp` wraps the API. |
 | `tools/jsonui-mcp` | `jsonui-mcp` | Stdio MCP frontend for JSON-UI editing and rendering; use its editor tools. | `jsonui-editor` owns editing operations; `mcp-stdio` owns the wire protocol. |
 | `tools/ui-snapshot` | `ui-snapshot` | Named offline UI fixtures and PNG captures; use `--list` and `--state NAME --out PNG`. | `oreui` and `ui-screens` paint screens; `jsonui-editor` supplies the CPU target. |
 | `tools/cinnabar-mcp` | `cinnabar-mcp` | Stdio MCP frontend that launches and drives a developer client; use its input, state, capture and recording tools. | `developer-control` owns loopback commands; `mcp-stdio` owns the wire protocol. |
 | `tools/mcp-stdio` | `mcp-stdio` | Shared newline-delimited JSON-RPC MCP serving; implement its tool-server trait for a new stdio frontend. | `jsonui-mcp` and `cinnabar-mcp` own their tool definitions. |
 
-| Go package (`core/`) | What it does |
-| --- | --- |
-| `cmd/bedrock-core` | The core binary. |
-| `proxy` | Upstream session, resource-pack download and packet relay. |
-| `authflow`, `authcache` | Microsoft device sign-in and token cache. |
-| `catalog`, `launcher`, `control`, `xboxpresence` | Menu data and services: featured servers, Realms, friends and presence. |
-| `localworld` | The launcher's open local world as the core routes it; `proxy` hosts it for Xbox friends. |
-| `packcache` | On-disk cache of server packs. |
+The standalone `tools/localserver` Go module owns the Dragonfly integration and its
+local hosting contract. Go registry and fixture generators remain standalone tools;
+client authentication, service projection and server sessions are Rust-owned.
 
 Cross-crate re-exports are forbidden: consumers import the owning crate directly.
 Named exports must also have unambiguous ownership across Rust namespaces. Use

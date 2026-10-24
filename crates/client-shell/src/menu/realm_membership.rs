@@ -5,7 +5,7 @@ use launcher::menu::realm_membership::{Action, State};
 use launcher_host::account_control::AccountControl;
 use {
     super::MenuRuntime,
-    launcher::menu::{MenuAction, MenuField, MenuScreen, auth::AuthState, view::MenuRealmCard},
+    launcher::menu::{MenuField, MenuScreen, auth::AuthState, view::MenuRealmCard},
 };
 
 /// A request generation prevents a closed or reopened flow from consuming an old answer.
@@ -82,12 +82,16 @@ impl MenuRuntime {
             Action::Play if state.can_play() => {
                 let target = state.realm.as_ref().map(|realm| realm.target.clone());
                 self.close_realm_membership();
-                if let Some(index) = self
-                    .realms
-                    .iter()
-                    .position(|realm| Some(&realm.target) == target.as_ref())
+                #[cfg(feature = "native-networking")]
                 {
-                    self.activate(MenuAction::PlayRealm(index));
+                    if let Some(target) = target {
+                        self.request_connect(target);
+                    }
+                }
+                #[cfg(not(feature = "native-networking"))]
+                {
+                    let _ = target;
+                    self.message = Some("Native networking is unavailable in this build.".into());
                 }
             }
             _ => {}
@@ -154,6 +158,11 @@ impl MenuRuntime {
         };
         let success = state.finish(accept, result);
         self.focused = 0;
+        #[cfg(feature = "native-networking")]
+        if success && accept {
+            self.native_catalog.refresh();
+            return;
+        }
         if success
             && accept
             && let Some(realm) = &state.realm

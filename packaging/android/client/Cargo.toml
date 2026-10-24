@@ -17,9 +17,10 @@ doctest = false
 anyhow.workspace = true
 assets = { path = "../../../crates/assets" }
 bevy = { workspace = true, features = ["android-native-activity"] }
-cinnabar = { path = "../../../app", default-features = false }
+cinnabar = { path = "../../../app", default-features = false, features = ["native-networking"] }
 first-run = { path = "../../../crates/first-run" }
-jni = "=0.21.1"
+jni = "=0.22.4"
+rustls-platform-verifier = "=0.7.1"
 launcher = { path = "../../../crates/launcher" }
 launcher-host = { path = "../../../crates/launcher-host" }
 # Oboe, below cpal, links the C++ runtime the APK ships instead of a private copy.

@@ -59,7 +59,7 @@ sha256_file() {
 resolve_pinned_gophertunnel_commit() {
     local root=$1
     python3 - "$root" <<'PYCODE'
-import datetime, json, pathlib, re, subprocess, sys
+import datetime, json, os, pathlib, re, subprocess, sys
 
 root = pathlib.Path(sys.argv[1])
 module_path = "github.com/sandertv/gophertunnel"
@@ -74,7 +74,7 @@ def go_json(arguments, label):
     try:
         result = subprocess.run(
             ["go", *arguments], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            timeout=30, check=False,
+            timeout=30, check=False, env={**os.environ, "GOWORK": "off"},
         )
     except subprocess.TimeoutExpired as error:
         raise SystemExit(f"{label} timed out while verifying gophertunnel") from error
@@ -90,17 +90,17 @@ def go_json(arguments, label):
         raise SystemExit(f"{label} returned a non-object gophertunnel result")
     return value
 
-manifest = go_json(["-C", str(root / "core"), "mod", "edit", "-json"], "go mod edit")
+manifest = go_json(["-C", str(root / "tools" / "localserver"), "mod", "edit", "-json"], "go mod edit")
 replacements = manifest.get("Replace")
 if not isinstance(replacements, list):
-    raise SystemExit("core/go.mod has no pinned gophertunnel replacement")
+    raise SystemExit("tools/localserver/go.mod has no pinned gophertunnel replacement")
 matching = [entry for entry in replacements if isinstance(entry, dict)
             and isinstance(entry.get("Old"), dict) and entry["Old"].get("Path") == module_path]
 if len(matching) != 1 or ("Version" in matching[0]["Old"] and matching[0]["Old"]["Version"] != ""):
-    raise SystemExit("core/go.mod must own one unversioned gophertunnel replacement")
+    raise SystemExit("tools/localserver/go.mod must own one unversioned gophertunnel replacement")
 expected = matching[0].get("New")
 if not isinstance(expected, dict) or expected.get("Path") != fork_path:
-    raise SystemExit("core/go.mod pins a different gophertunnel source")
+    raise SystemExit("tools/localserver/go.mod pins a different gophertunnel source")
 expected_version = expected.get("Version")
 match = re.fullmatch(
     r"v(?:0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)\.(?P<patch>0|[1-9][0-9]*)-"
@@ -108,7 +108,7 @@ match = re.fullmatch(
     expected_version if isinstance(expected_version, str) else "",
 )
 if not match:
-    raise SystemExit("core/go.mod gophertunnel replacement is not pinned to a commit pseudo-version")
+    raise SystemExit("tools/localserver/go.mod gophertunnel replacement is not pinned to a commit pseudo-version")
 prefix = match.group("prefix")
 valid_prefix = (prefix is None and match.group("minor") == match.group("patch") == "0"
                 or prefix == "0" and match.group("patch") != "0")
@@ -117,19 +117,19 @@ if prefix and prefix.endswith(".0"):
     valid_prefix = all(re.fullmatch(r"[0-9A-Za-z-]+", value)
                        and not re.fullmatch(r"0[0-9]+", value) for value in identifiers)
 if not valid_prefix:
-    raise SystemExit("core/go.mod gophertunnel replacement is not a valid pinned pseudo-version")
+    raise SystemExit("tools/localserver/go.mod gophertunnel replacement is not a valid pinned pseudo-version")
 try:
     datetime.datetime.strptime(match.group("timestamp"), "%Y%m%d%H%M%S")
 except ValueError as error:
-    raise SystemExit("core/go.mod gophertunnel pseudo-version has an invalid timestamp") from error
+    raise SystemExit("tools/localserver/go.mod gophertunnel pseudo-version has an invalid timestamp") from error
 revision = match.group("revision")
-module = go_json(["-C", str(root), "list", "-m", "-json", module_path], "go list -m")
+module = go_json(["-C", str(root / "tools" / "localserver"), "list", "-m", "-json", module_path], "go list -m")
 replacement = module.get("Replace")
 if (module.get("Path") != module_path or not isinstance(replacement, dict)
     or replacement.get("Path") != expected["Path"] or replacement.get("Version") != expected_version):
     raise SystemExit("go list -m resolved a different gophertunnel module or replacement version")
 download = go_json(
-    ["-C", str(root), "mod", "download", "-json", expected["Path"] + "@" + expected_version],
+    ["-C", str(root / "tools" / "localserver"), "mod", "download", "-json", expected["Path"] + "@" + expected_version],
     "go mod download",
 )
 origin = download.get("Origin")
@@ -250,7 +250,7 @@ for dependency_name, expected_features in expected_dependencies.items():
     dependency = matches[0]
     required_fields = {
         "name", "source", "kind", "rename", "optional", "uses_default_features",
-        "features", "target", "path",
+        "features", "target",
     }
     missing = sorted(required_fields.difference(dependency))
     if missing:
@@ -262,24 +262,20 @@ for dependency_name, expected_features in expected_dependencies.items():
             f"protocol dependency provenance drifted: {dependency_name} must not be renamed"
         )
     if (
-        dependency["source"] is not None
-        or dependency["kind"] is not None
+        dependency["kind"] is not None
         or dependency["target"] is not None
         or dependency["optional"] is not False
         or not isinstance(dependency["uses_default_features"], bool)
     ):
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional local dependency"
+            f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional Git dependency"
         )
-    vendored_manifest = root / f"crates/protocol/vendor/{dependency_name}/Cargo.toml"
-    if not vendored_manifest.is_file():
+    expected_source = f"git+https://github.com/cinnabar-mc/protocolgen?rev={protocolgen_revision}"
+    if dependency.get("path") is not None or dependency["source"] not in (
+        expected_source, expected_source + "#" + protocolgen_revision
+    ):
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} vendored path has no Cargo.toml"
-        )
-    dependency_path = dependency["path"]
-    if dependency_path is None or pathlib.Path(dependency_path).resolve() != vendored_manifest.parent.resolve():
-        raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} does not resolve to its canonical vendored path"
+            f"protocol dependency provenance drifted: {dependency_name} must use the canonical pinned Git source"
         )
     actual_features = dependency["features"]
     if (
@@ -308,31 +304,26 @@ if actual_license_sha256 != license_sha256:
         f"protocol dependency retained license SHA-256 drifted: expected {license_sha256}, got {actual_license_sha256}"
     )
 
-resolved = set()
+resolved = []
 lock = lock_path.read_text(encoding="utf-8-sig")
+expected_lock_source = (
+    f"git+https://github.com/cinnabar-mc/protocolgen?rev={protocolgen_revision}#{protocolgen_revision}"
+)
 for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
     name_match = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"\s*$', block)
-    if not name_match:
+    if not name_match or name_match.group(1) != "bedrock-protocol-1-26-51":
         continue
     name = name_match.group(1)
-    if name != "bedrock-protocol-1-26-51":
-        continue
-    resolved.add(name)
-    resolution_key = re.search(r"(?m)^\s*(source|checksum)\s*=", block)
-    if resolution_key:
-        raise SystemExit(
-            f"Cargo.lock local package {name} has a {resolution_key.group(1)} entry"
-        )
-for dependency in ("bedrock-protocol-1-26-51",):
-    if dependency not in resolved:
-        raise SystemExit(f"Cargo.lock does not contain local package {dependency}")
-PY
-}
+    resolved.append(name)
+    if re.search(r"(?m)^\s*checksum\s*=", block):
+        raise SystemExit(f"Cargo.lock Git package {name} must not contain a checksum")
+    sources = re.findall(r'(?m)^\s*source\s*=\s*"([^"]+)"\s*$', block)
+    if sources != [expected_lock_source]:
+        raise SystemExit(f"Cargo.lock Git package {name} must resolve the exact canonical revision")
+if resolved != ["bedrock-protocol-1-26-51"]:
+    raise SystemExit("Cargo.lock must contain exactly one pinned generated codec package")
 
-# Wait for the core's own publication signal, including hashed Unix endpoints.
-wait_for_core_ready() {
-    local log=$1 pid=$2 timeout=${3:-30}
-    wait_for_marker "$log" 'msg="listener ready; waiting for local Rust client"' "$timeout" "$pid"
+PY
 }
 
 # An already published marker is ready even when the timeout has elapsed.
@@ -698,9 +689,7 @@ if [[ $dry_run == false ]]; then
     run_name="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 fi
 run_dir="$project_root/.local/acceptance/$run_name"
-socket_dir="$run_dir/socket"
 canonical_metrics="$run_dir/app-metrics.json"
-core_executable="$project_root/target/release/bedrock-core$exe_suffix"
 app_executable="$project_root/target/release/cinnabar$exe_suffix"
 runtime_dir=''
 if [[ -n $bds_dir ]]; then
@@ -713,15 +702,13 @@ else
     initial_upstream=$upstream
     bds_command=(external-upstream "$upstream")
 fi
-core_command=("$core_executable" -socket-dir "$socket_dir" -upstream "$initial_upstream")
-app_command=("$app_executable" --socket-dir "$socket_dir" --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly)
+app_command=("$app_executable" --address "$initial_upstream" --native-networking raknet --display-name AcceptanceGuest --acceptance-seconds "$duration" --metrics-out "$canonical_metrics" --auto-fly)
 if [[ $no_vsync == true ]]; then
     app_command+=(--no-vsync)
 fi
 
 if [[ $dry_run == true ]]; then
     printf 'BDS_COMMAND=%s\n' "$(format_command "${bds_command[@]}")"
-    printf 'CORE_COMMAND=%s\n' "$(format_command "${core_command[@]}")"
     printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
     printf 'BUILD_PROFILE=release\n'
     if [[ $no_vsync == true ]]; then
@@ -747,11 +734,9 @@ fi
 lease_pid=''
 lease_fd_open=false
 bds_pid=''
-core_pid=''
 app_pid=''
 mutation_pid=''
 bds_fd_open=false
-core_fd_open=false
 port_fd_open=false
 port_helper_pid=''
 
@@ -790,25 +775,6 @@ cleanup() {
             cleanup_failed=1
         else
             wait "$app_pid" 2>/dev/null
-        fi
-    fi
-    if [[ $core_fd_open == true ]]; then
-        exec 8>&-
-        core_fd_open=false
-    fi
-    if [[ -n $core_pid ]]; then
-        if kill -0 "$core_pid" 2>/dev/null && ! wait_for_exit "$core_pid" 10; then
-            printf 'acceptance: core did not stop on stdin EOF; forcing termination\n' >&2
-            kill -KILL "$core_pid" 2>/dev/null
-            if ! wait_for_exit "$core_pid" 5; then
-                printf 'acceptance: core remained alive after forced termination\n' >&2
-                cleanup_failed=1
-            fi
-        fi
-        if kill -0 "$core_pid" 2>/dev/null; then
-            cleanup_failed=1
-        else
-            wait "$core_pid" 2>/dev/null
         fi
     fi
     if [[ $bds_fd_open == true ]]; then
@@ -893,7 +859,6 @@ write_command_manifest() {
     {
         printf 'REPO_COMMIT=%s\n' "$repo_commit"
         printf 'BDS_COMMAND=%s\n' "$(format_command "${bds_command[@]}")"
-        printf 'CORE_COMMAND=%s\n' "$(format_command "${core_command[@]}")"
         printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
         printf 'MUTATION_COMMAND=%s\n' "${mutation_command:-local-bds-stdin}"
     } >"$temporary"
@@ -912,7 +877,6 @@ write_metadata() {
     export CINNABAR_META_JOLYNE_LICENSE="$pinned_jolyne_license_sha256"
     export CINNABAR_META_BDS_HASH="$bds_hash"
     export CINNABAR_META_BDS_COMMAND="$(format_command "${bds_command[@]}")"
-    export CINNABAR_META_CORE_COMMAND="$(format_command "${core_command[@]}")"
     export CINNABAR_META_APP_COMMAND="$(format_command "${app_command[@]}")"
     export CINNABAR_META_MUTATION_COMMAND="${mutation_command:-local-bds-stdin}"
     export CINNABAR_META_MACHINE="$machine"
@@ -934,7 +898,6 @@ keys = {
     "pinned_jolyne_license_sha256": "CINNABAR_META_JOLYNE_LICENSE",
     "bds_sha256": "CINNABAR_META_BDS_HASH",
     "bds_command": "CINNABAR_META_BDS_COMMAND",
-    "core_command": "CINNABAR_META_CORE_COMMAND",
     "app_command": "CINNABAR_META_APP_COMMAND",
     "mutation_command": "CINNABAR_META_MUTATION_COMMAND",
     "machine": "CINNABAR_META_MACHINE",
@@ -944,11 +907,10 @@ keys = {
 }
 metadata = {name: os.environ[source] for name, source in keys.items()}
 metadata.update({
-    "protocol_dependency_resolution": "vendored-path",
+    "protocol_dependency_resolution": "git-revision",
     "duration_seconds": int(os.environ["CINNABAR_META_DURATION"]),
     "build_app_command": "cargo build --release -p cinnabar --locked",
     "build_profile": "release",
-    "build_core_command": 'go build -trimpath -ldflags "$(CINNABAR_BUILD_COMMIT="$repo_commit" bash packaging/common/core-ldflags.sh)" -o target/release/bedrock-core ./core/cmd/bedrock-core',
     "use_vsync": os.environ["CINNABAR_META_NO_VSYNC"] != "true",
     "no_vsync_ab": os.environ["CINNABAR_META_NO_VSYNC"] == "true",
     "requested_present_mode": "Immediate" if os.environ["CINNABAR_META_NO_VSYNC"] == "true" else "Fifo",
@@ -989,19 +951,17 @@ if [[ -n $bds_dir ]]; then
     start_udp_port_helper "$port_control" "$port_output" "$port_error"
     upstream="127.0.0.1:$port"
     configure_server_properties "$runtime_dir/server.properties" "$port" "$port_v6"
-    core_command=("$core_executable" -socket-dir "$socket_dir" -upstream "$upstream")
+    app_command[2]="$upstream"
     bds_command=("$bds_executable")
 fi
 
 printf 'BDS_COMMAND=%s\n' "$(format_command "${bds_command[@]}")"
-printf 'CORE_COMMAND=%s\n' "$(format_command "${core_command[@]}")"
 printf 'APP_COMMAND=%s\n' "$(format_command "${app_command[@]}")"
 
 write_command_manifest
 write_metadata building
 
 (cd "$project_root" && cargo build --release -p cinnabar --locked) >"$run_dir/build-app.log" 2>&1 || die "release app build failed (log: $run_dir/build-app.log)"
-(cd "$project_root" && go build -trimpath -ldflags "$(CINNABAR_BUILD_COMMIT="$repo_commit" bash packaging/common/core-ldflags.sh)" -o "$core_executable" ./core/cmd/bedrock-core) >"$run_dir/build-core.log" 2>&1 || die "release core build failed (log: $run_dir/build-core.log)"
 write_metadata launching
 
 if [[ -n $bds_dir ]]; then
@@ -1029,15 +989,7 @@ else
     wait_for_external_bds "$upstream" "$run_dir/bds.stdout.log" "$run_dir/bds.stderr.log" || die "external BDS did not become ready (log: $run_dir/bds.stderr.log)"
 fi
 
-core_stdin="$run_dir/core.stdin"
-mkfifo -- "$core_stdin"
-(cd "$project_root" && exec "$core_executable" -socket-dir "$socket_dir" -upstream "$upstream" <"$core_stdin" >"$run_dir/core.stdout.log" 2>"$run_dir/core.stderr.log" 6>&- 9>&-) &
-core_pid=$!
-exec 8>"$core_stdin"
-core_fd_open=true
-wait_for_core_ready "$run_dir/core.stderr.log" "$core_pid"
-
-(cd "$project_root" && CINNABAR_BUILD_COMMIT="$repo_commit" exec "${app_command[@]}" >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 8>&- 9>&-) &
+(cd "$project_root" && CINNABAR_USER_ROOT="$run_dir/guest-user" CINNABAR_BUILD_COMMIT="$repo_commit" exec "${app_command[@]}" >"$run_dir/app.stdout.log" 2>"$run_dir/app.stderr.log" 6>&- 9>&-) &
 app_pid=$!
 wait_for_marker "$run_dir/app.stdout.log" 'CINNABAR_MUTATION_COORDINATE=' 180 "$app_pid"
 wait_for_marker "$run_dir/app.stdout.log" 'CINNABAR_WORLD_READY ' 180 "$app_pid"
@@ -1059,7 +1011,7 @@ while kill -0 "$app_pid" 2>/dev/null; do
         if [[ -n $bds_pid ]]; then
             printf '%s\n' "$command" >&9
         else
-            "$mutation_command" "$command" >>"$run_dir/mutation-command.stdout.log" 2>>"$run_dir/mutation-command.stderr.log" 6>&- 8>&- 9>&- &
+            "$mutation_command" "$command" >>"$run_dir/mutation-command.stdout.log" 2>>"$run_dir/mutation-command.stderr.log" 6>&- 9>&- &
             mutation_pid=$!
             if ! wait_for_exit "$mutation_pid" 5; then
                 kill -TERM "$mutation_pid" 2>/dev/null

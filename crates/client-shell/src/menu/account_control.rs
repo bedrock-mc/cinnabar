@@ -1,13 +1,11 @@
-//! The menu's view of the core's account control surface, so the play and
-//! sign-in screens never see the transport. Without a launcher core the
-//! account catalog and the auth supervisor keep feeding the menu.
+//! Native account feeds and session-owned trust presentation.
 
 use super::MenuRuntime;
-#[cfg(test)]
-use launcher::menu::view::{JoinStage, ServerDetails, ServerTrustPrompt};
 use launcher::menu::view::{MenuHome, MenuProfile};
+#[cfg(test)]
+use launcher::menu::view::{ServerDetails, ServerTrustPrompt};
 
-use launcher_host::account_control::{AccountControl, AccountEvent};
+use launcher_host::account_control::AccountControl;
 
 impl MenuRuntime {
     /// Answers the shown trust prompt; "Don't Trust" also cancels the join.
@@ -21,69 +19,22 @@ impl MenuRuntime {
         }
     }
 
-    /// Shows a per-session core's trust question while joining and sends it the answer.
+    /// Shows the current session's trust question and returns its answer to that owner.
     pub fn sync_session_trust(&mut self, source: &dyn super::server_trust::TrustSource) {
-        if let Some((prompt, trusted)) = self
-            .feeds
-            .server_trust_answer
-            .take_if(|(prompt, _)| prompt.from_session_core)
-        {
+        if let Some((prompt, trusted)) = self.feeds.server_trust_answer.take() {
             source.answer(prompt.id, trusted);
         }
-        match source.prompt().filter(|_| self.is_connecting()) {
-            Some(prompt) => self.feeds.server_trust = Some(prompt),
-            None if self.server_trust_from_session_core() => self.feeds.server_trust = None,
-            None => {}
-        }
+        self.feeds.server_trust = source.prompt().filter(|_| self.is_connecting());
     }
 
-    /// Drops a per-session core's question and any answer to it once that core is gone, so neither
-    /// reaches the next join's core, whose prompt ids start over.
+    /// Discards the retired session's prompt and answer before another session can reuse its id.
     pub fn forget_session_trust(&mut self) {
-        self.feeds
-            .server_trust_answer
-            .take_if(|(prompt, _)| prompt.from_session_core);
-        if self.server_trust_from_session_core() {
-            self.feeds.server_trust = None;
-        }
+        self.feeds.server_trust_answer = None;
+        self.feeds.server_trust = None;
     }
 
-    /// Drops the launcher core's question and any answer to it when that core is retired, so a
-    /// restarted core, whose prompt ids start over, never receives them.
-    pub fn forget_launcher_trust(&mut self) {
-        self.feeds
-            .server_trust_answer
-            .take_if(|(prompt, _)| !prompt.from_session_core);
-        if self
-            .feeds
-            .server_trust
-            .as_ref()
-            .is_some_and(|prompt| !prompt.from_session_core)
-        {
-            self.feeds.server_trust = None;
-        }
-    }
-
-    fn server_trust_from_session_core(&self) -> bool {
-        self.feeds
-            .server_trust
-            .as_ref()
-            .is_some_and(|prompt| prompt.from_session_core)
-    }
-
-    /// Pull the core's account state into the menu: lists replace the catalog's,
-    /// the status overrides the auth supervisor's, events surface on screen, and
-    /// a pending sign-out request is sent.
+    /// Applies account-worker results and forwards requests to the same native service owner.
     pub fn sync_account_control(&mut self, control: &mut dyn AccountControl) {
-        if let Some(realms) = control.realms() {
-            self.realms.replace(realms);
-        }
-        if let Some(mut friends) = control.friends() {
-            // The friends service can list one session twice; show each host's world once.
-            let mut seen = std::collections::HashSet::new();
-            friends.retain(|friend| seen.insert((friend.xuid.clone(), friend.world_name.clone())));
-            self.friends.replace(friends);
-        }
         if let Some(featured) = control.featured() {
             let selected = self
                 .feeds
@@ -93,10 +44,21 @@ impl MenuRuntime {
             self.feeds.details.extend(
                 featured
                     .iter()
-                    .map(|(card, details)| (card.address.clone(), details.clone())),
+                    .map(|row| (row.card.address.clone(), row.details.clone())),
             );
+            #[cfg(feature = "native-networking")]
+            {
+                self.native_gatherings = featured
+                    .iter()
+                    .filter_map(|row| {
+                        row.gathering
+                            .clone()
+                            .map(|selection| (row.card.address.clone(), selection))
+                    })
+                    .collect();
+            }
             self.featured
-                .replace(featured.into_iter().map(|(card, _)| card).collect());
+                .replace(featured.into_iter().map(|row| row.card).collect());
             if let Some(address) = selected {
                 self.feeds.selected_featured = self
                     .featured
@@ -141,33 +103,11 @@ impl MenuRuntime {
             self.feeds.pings.extend(pings);
         }
         control.set_joining(self.is_connecting());
-        if self.is_connecting() {
-            self.feeds.join.observe(control.join_stage());
-        }
-        if let Some((prompt, trusted)) = self
-            .feeds
-            .server_trust_answer
-            .take_if(|(prompt, _)| !prompt.from_session_core)
-        {
-            control.answer_server_trust(prompt.id, trusted);
-        }
-        let asked = control.server_trust().filter(|_| self.is_connecting());
-        if asked.is_some() || !self.server_trust_from_session_core() {
-            self.feeds.server_trust = asked;
-        }
         if let Some(status) = control.account_status() {
             self.apply_control_auth(status);
         }
-        while let Some(event) = control.poll_event() {
-            match event {
-                AccountEvent::Auth(state) => self.apply_control_auth(state),
-                AccountEvent::Disconnected { reason } => {
-                    self.disconnect_message =
-                        Some(launcher::menu::disconnect::from_server(&reason));
-                }
-            }
-        }
-        if std::mem::take(&mut self.sign_out_requested) {
+        if self.sign_out_requested {
+            self.sign_out_requested = false;
             control.sign_out();
             self.finish_sign_out();
         }
@@ -175,26 +115,26 @@ impl MenuRuntime {
         self.sync_realm_membership(control);
     }
 
-    /// Sign out without a launcher core: the saved tokens are removed here.
+    /// Queues sign-out when account services are absent; the storage worker owns its leases.
     pub fn sign_out_locally(&mut self) {
-        if std::mem::take(&mut self.sign_out_requested) {
-            let _ = std::fs::remove_file(self.layout.auth_cache());
+        if self.sign_out_requested {
+            self.sign_out_requested = false;
             self.finish_sign_out();
         }
     }
 
-    /// Forget the validated sign-in and return to the signed-out profile; the
-    /// launcher core then restarts offline and signing in again runs the
-    /// device-code helper.
+    /// Retires validated presentation and queues the original credential-store sign-out.
     fn finish_sign_out(&mut self) {
+        self.cancel_join();
         self.retry_target = None;
         self.accounts.operation = Some(launcher_host::accounts::Operation::SignOut);
         self.feeds.account_active_id = None;
-        self.auth_process = None;
+        #[cfg(feature = "native-networking")]
+        {
+            self.auth_process = None;
+        }
         self.auth_attempted = true;
         self.control_auth = None;
-        self.stop_catalog();
-        self.catalog_started = false;
         self.realms.replace(Vec::new());
         self.friends.replace(Vec::new());
         for details in self.feeds.details.values_mut() {
@@ -235,31 +175,20 @@ fn ping_targets<'a>(addresses: impl IntoIterator<Item = &'a str>) -> Vec<String>
 #[cfg(test)]
 mod tests {
     use launcher::menu::MenuAction;
-    use {
-        super::*,
-        launcher::menu::auth::AuthState,
-        launcher::menu::view::{MenuFriendCard, MenuRealmCard, MenuServerCard},
-    };
+    use {super::*, launcher::menu::auth::AuthState, launcher::menu::view::MenuServerCard};
 
     struct Catalog(Option<Vec<(MenuServerCard, ServerDetails)>>);
     impl AccountControl for Catalog {
         fn account_status(&mut self) -> Option<AuthState> {
             None
         }
-        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
-            None
-        }
-        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
-            None
-        }
         fn sign_out(&mut self) -> bool {
             false
         }
-        fn poll_event(&mut self) -> Option<AccountEvent> {
-            None
-        }
-        fn featured(&mut self) -> Option<Vec<(MenuServerCard, ServerDetails)>> {
-            self.0.take()
+        fn featured(&mut self) -> Option<Vec<launcher_host::account_control::FeaturedRow>> {
+            self.0
+                .take()
+                .map(|rows| rows.into_iter().map(Into::into).collect())
         }
     }
 
@@ -304,7 +233,7 @@ mod tests {
     }
 
     #[test]
-    fn equal_core_catalog_deliveries_keep_list_storage_and_refresh_details() {
+    fn equal_account_catalog_deliveries_keep_list_storage_and_refresh_details() {
         let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
         let card = MenuServerCard {
             name: "Featured".into(),
@@ -366,190 +295,8 @@ mod tests {
         menu.visible = false;
         assert!(!menu.experience_counts_visible());
         menu.visible = true;
-        menu.observe_session(client_state::SessionStatus {
-            connecting: true,
-            owns_directory: false,
-        });
+        menu.observe_session(client_state::SessionStatus { connecting: true });
         assert!(!menu.experience_counts_visible());
-    }
-
-    struct Fake {
-        events: Vec<AccountEvent>,
-        signed_out: bool,
-    }
-
-    impl AccountControl for Fake {
-        fn account_status(&mut self) -> Option<AuthState> {
-            Some(AuthState::Authenticated)
-        }
-        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
-            None
-        }
-        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
-            Some(vec![MenuFriendCard {
-                gamertag: "Alex".into(),
-                world_name: "Base".into(),
-                members: "1 players".into(),
-                xuid: "1".into(),
-                max_members: 0,
-            }])
-        }
-        fn sign_out(&mut self) -> bool {
-            self.signed_out = true;
-            true
-        }
-        fn poll_event(&mut self) -> Option<AccountEvent> {
-            self.events.pop()
-        }
-    }
-
-    struct Staged(Option<JoinStage>);
-
-    impl AccountControl for Staged {
-        fn account_status(&mut self) -> Option<AuthState> {
-            None
-        }
-        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
-            None
-        }
-        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
-            None
-        }
-        fn sign_out(&mut self) -> bool {
-            false
-        }
-        fn poll_event(&mut self) -> Option<AccountEvent> {
-            None
-        }
-        fn join_stage(&mut self) -> Option<JoinStage> {
-            self.0
-        }
-    }
-
-    // The core's stages drive the join until its report vanishes at the handoff,
-    // and a failed join's Disconnect lands on the disconnect screen in vanilla's words.
-    #[test]
-    fn join_progress_follows_the_core_until_handoff() {
-        use launcher::menu::view::{JoinKind, JoinProgress};
-        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-        menu.observe_session(client_state::SessionStatus {
-            connecting: true,
-            owns_directory: false,
-        });
-        menu.feeds.join = JoinProgress::new(JoinKind::Realm);
-        let mut control = Staged(None);
-        let mut step = |menu: &mut MenuRuntime, stage| {
-            control.0 = stage;
-            menu.sync_account_control(&mut control);
-            menu.view().feeds.join.stage
-        };
-        assert_eq!(step(&mut menu, None), JoinStage::Connecting);
-        assert_eq!(step(&mut menu, Some(JoinStage::Realm)), JoinStage::Realm);
-        let downloading = |received_bytes| JoinStage::Packs {
-            done: 0,
-            total: 2,
-            received_bytes,
-            total_bytes: 100,
-        };
-        assert_eq!(step(&mut menu, Some(downloading(10))), downloading(10));
-        assert_eq!(step(&mut menu, Some(downloading(60))), downloading(60));
-        assert_eq!(step(&mut menu, None), JoinStage::Generating);
-
-        let error = client_session::session_failure_display(
-            "Bedrock session failed: Server disconnected during login: Unknown",
-            Some(&protocol::ServerDisconnectEvent {
-                reason: "Unknown".to_owned(),
-                message: Some("disconnectionScreen.cantConnectToRealm".to_owned()),
-                filtered_message: None,
-            }),
-        );
-        assert!(menu.absorb_session_failure(&error));
-        let view = menu.view();
-        assert_eq!(
-            launcher::menu::disconnect::describe(&view.disconnect_message.unwrap()).body,
-            launcher::menu::disconnect::DisconnectBody::Key(
-                "disconnectionScreen.cantConnectToRealm"
-            )
-        );
-    }
-
-    struct Trusting {
-        prompt: Option<ServerTrustPrompt>,
-        answers: Vec<(u64, bool)>,
-    }
-
-    impl AccountControl for Trusting {
-        fn account_status(&mut self) -> Option<AuthState> {
-            None
-        }
-        fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
-            None
-        }
-        fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
-            None
-        }
-        fn sign_out(&mut self) -> bool {
-            false
-        }
-        fn poll_event(&mut self) -> Option<AccountEvent> {
-            None
-        }
-        fn server_trust(&mut self) -> Option<ServerTrustPrompt> {
-            self.prompt.clone()
-        }
-        fn answer_server_trust(&mut self, id: u64, trusted: bool) {
-            self.answers.push((id, trusted));
-        }
-    }
-
-    // The core's trust question shows while connecting; "Trust and Join" answers it and keeps the
-    // join, while "Don't Trust" and Back answer no and cancel the join.
-    #[test]
-    fn server_trust_prompt_shows_while_joining_and_forwards_the_answer() {
-        let prompt = ServerTrustPrompt {
-            id: 4,
-            url: "http://127.0.0.1:19132".into(),
-            from_session_core: false,
-        };
-        for (answer, trusted, cancels) in [
-            (MenuAction::ServerTrust(true), true, false),
-            (MenuAction::ServerTrust(false), false, true),
-            (MenuAction::AddBack, false, true),
-        ] {
-            let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-            let mut control = Trusting {
-                prompt: Some(prompt.clone()),
-                answers: Vec::new(),
-            };
-            menu.sync_account_control(&mut control);
-            assert!(
-                menu.view().feeds.server_trust.is_none(),
-                "shown outside a join"
-            );
-            menu.observe_session(client_state::SessionStatus {
-                connecting: true,
-                owns_directory: false,
-            });
-            menu.sync_account_control(&mut control);
-            assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&prompt));
-            assert_eq!(
-                menu.focus_actions(),
-                vec![
-                    MenuAction::ServerTrust(true),
-                    MenuAction::ServerTrust(false)
-                ]
-            );
-            if answer == MenuAction::AddBack {
-                menu.go_back();
-            } else {
-                menu.activate(answer);
-            }
-            control.prompt = None;
-            menu.sync_account_control(&mut control);
-            assert_eq!(control.answers, vec![(4, trusted)]);
-            assert_eq!(menu.take_disconnect_request(), cancels);
-            assert!(menu.view().feeds.server_trust.is_none());
-        }
     }
 
     struct SessionSource {
@@ -567,32 +314,20 @@ mod tests {
         }
     }
 
-    // A per-session core's question shows like the launcher core's, and its answer goes back to the
-    // core that asked even though the launcher core reports nothing.
+    // An answer belongs to the original session, including across prompt-id reuse.
     #[test]
-    fn session_core_trust_answers_return_to_the_session_core() {
+    fn session_trust_answers_return_only_to_the_original_session() {
         let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-        menu.observe_session(client_state::SessionStatus {
-            connecting: true,
-            owns_directory: true,
-        });
+        menu.observe_session(client_state::SessionStatus { connecting: true });
         let asked = ServerTrustPrompt {
             id: 1,
             url: "http://127.0.0.1:19132".into(),
-            from_session_core: true,
         };
         let session = SessionSource {
             prompt: std::cell::RefCell::new(Some(asked.clone())),
             answers: Default::default(),
         };
-        let mut launcher = Trusting {
-            prompt: None,
-            answers: Vec::new(),
-        };
-        let mut frame = |menu: &mut MenuRuntime| {
-            menu.sync_account_control(&mut launcher);
-            menu.sync_session_trust(&session);
-        };
+        let frame = |menu: &mut MenuRuntime| menu.sync_session_trust(&session);
         frame(&mut menu);
         assert_eq!(menu.view().feeds.server_trust.as_ref(), Some(&asked));
         frame(&mut menu);
@@ -601,12 +336,7 @@ mod tests {
         frame(&mut menu);
         assert!(menu.view().feeds.server_trust.is_none());
         assert_eq!(*session.answers.borrow(), vec![(1, true)]);
-        assert!(
-            launcher.answers.is_empty(),
-            "the launcher core got the session core's answer"
-        );
-
-        // An answer left when its core is gone is dropped rather than sent to the next core.
+        // Retiring a session drops its unanswered prompt before the next session.
         session.prompt.replace(Some(asked.clone()));
         menu.sync_session_trust(&session);
         menu.activate(MenuAction::ServerTrust(false));
@@ -618,63 +348,8 @@ mod tests {
         menu.sync_session_trust(&next);
         assert!(
             next.answers.borrow().is_empty(),
-            "an old answer reached the next core"
+            "an old answer reached the next session"
         );
-
-        // Likewise a launcher answer left when its core is retired never reaches the restarted one.
-        let mut launcher = Trusting {
-            prompt: Some(ServerTrustPrompt {
-                id: 1,
-                url: "http://127.0.0.1:19132".into(),
-                from_session_core: false,
-            }),
-            answers: Vec::new(),
-        };
-        menu.sync_account_control(&mut launcher);
-        menu.activate(MenuAction::ServerTrust(true));
-        menu.forget_launcher_trust();
-        let mut restarted = Trusting {
-            prompt: None,
-            answers: Vec::new(),
-        };
-        menu.sync_account_control(&mut restarted);
-        assert!(
-            restarted.answers.is_empty(),
-            "a retired core's answer reached its replacement"
-        );
-    }
-
-    #[test]
-    fn control_state_feeds_the_menu_view() {
-        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-        let mut control = Fake {
-            events: vec![AccountEvent::Disconnected {
-                reason: "Server closed".into(),
-            }],
-            signed_out: false,
-        };
-        menu.sync_account_control(&mut control);
-        let view = menu.view();
-        assert_eq!(view.auth_state, AuthState::Authenticated);
-        assert_eq!(view.friends.len(), 1);
-        let error = view.disconnect_message.as_deref().unwrap();
-        assert_eq!(
-            launcher::menu::disconnect::describe(error).body,
-            launcher::menu::disconnect::DisconnectBody::Server("Server closed".to_owned())
-        );
-        menu.sync_account_control(&mut control);
-        assert!(view.friends.shares_storage(&menu.view().friends));
-        menu.activate(launcher::menu::MenuAction::SignOut);
-        menu.sync_account_control(&mut control);
-        assert!(control.signed_out);
-        assert!(menu.friends.is_empty());
-        assert_eq!(
-            view.friends.len(),
-            1,
-            "sign-out must not rewrite a retained view"
-        );
-        assert!(!view.friends.shares_storage(&menu.view().friends));
-        assert_eq!(menu.view().screen, launcher::menu::MenuScreen::Profile);
     }
 
     #[test]

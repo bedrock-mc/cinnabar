@@ -246,7 +246,7 @@ pub struct EffectDef {
 /// Parses one `particle_effect` document; `None` when it lacks the required structure.
 #[must_use]
 pub fn parse_effect(bytes: &[u8]) -> Option<EffectDef> {
-    let root: Value = pack_json::parse_jsonc(bytes).ok()?;
+    let root: Value = bedrock_packs::jsonc::parse_jsonc(bytes).ok()?;
     let effect = root.get("particle_effect")?;
     let description = effect.get("description")?;
     let identifier = description.get("identifier")?.as_str()?;

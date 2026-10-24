@@ -31,10 +31,17 @@ fn launch(profile: &str, experiences: bool) -> String {
 }
 
 #[test]
-fn dev_profile_places_go_binaries_beside_the_debug_client() {
+fn dev_profile_places_the_registered_go_helpers_beside_the_client() {
     for (profile, directory) in [("dev", "debug"), ("play", "play"), ("release", "release")] {
         let commands = launch(profile, false);
-        for binary in ["bedrock-core", "bedrock-local-server"] {
+        for binary in include_str!("../../../packaging/common/runtime-binaries.txt")
+            .lines()
+            .filter_map(|row| {
+                let mut fields = row.split_whitespace();
+                let name = fields.next()?;
+                (fields.next()? == "-").then_some(name)
+            })
+        {
             assert!(
                 commands.contains(&format!("target/{directory}/{binary}")),
                 "{commands}"

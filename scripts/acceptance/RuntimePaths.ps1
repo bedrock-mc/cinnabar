@@ -273,7 +273,6 @@ function Assert-PrebuiltClientPathSafe {
         [Parameter(Mandatory = $true)][string]$ClientExecutable,
         [Parameter(Mandatory = $true)][string]$RuntimeDirectory,
         [Parameter(Mandatory = $true)][string]$RunDirectory,
-        [Parameter(Mandatory = $true)][string]$CoreExecutable,
         [Parameter(Mandatory = $true)][string]$MetricsOut
     )
 
@@ -285,7 +284,6 @@ function Assert-PrebuiltClientPathSafe {
     $client = Get-CanonicalFileTargetPath -Path $clientItem.FullName
     $runtime = Get-CanonicalPathThroughExistingParent -Path $RuntimeDirectory
     $run = Get-CanonicalPathThroughExistingParent -Path $RunDirectory
-    $core = Get-CanonicalFileTargetPath -Path $CoreExecutable
     $metrics = Get-CanonicalFileTargetPath -Path $MetricsOut
     $runtimeLock = Get-CanonicalFileTargetPath -Path ($RuntimeDirectory + '.lock')
     $comparison = [StringComparison]::OrdinalIgnoreCase
@@ -298,9 +296,6 @@ function Assert-PrebuiltClientPathSafe {
     }
     if (Test-RuntimePathContains -Parent $run -Candidate $client) {
         throw "prebuilt client overlaps acceptance run output: client=$client run=$run"
-    }
-    if ($client.Equals($core, $comparison)) {
-        throw "prebuilt client aliases generated core executable: $client"
     }
     if ($client.Equals($metrics, $comparison)) {
         throw "prebuilt client aliases requested metrics output: $client"

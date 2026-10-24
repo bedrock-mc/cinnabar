@@ -18,6 +18,7 @@ reads = [
 anyhow.workspace = true
 arc-swap = "1.9"
 assets = { path = "../assets" }
+bedrock-packs.workspace = true
 bevy.workspace = true
 client-state = { path = "../client-state" }
 client-ui = { path = "../client-ui" }

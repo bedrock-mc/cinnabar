@@ -11,11 +11,10 @@ shares a report only by copying it or attaching its folder. Operational details 
 | --- | --- |
 | `diagnostics` | The process subscriber (`logging::install`), log categories, the console writer thread, session log files, the flight recorder, rate-limit macros, `Secret`, and `session` identity. Bevy-free. |
 | `crash-report` | The report schema, `crashes/<UTC time>-<id>/` folders, log sections, the packet header ring layout, and the shared redaction rules (`data/redaction-rules.json`). |
-| `launcher-host` | Crash capture in the client (`crash-handler`, the monitor connection, game-state messages, in-process fallback writers), native dialogs, and the Go core's process wiring and `core` reports. |
+| `launcher-host` | Crash capture in the client (`crash-handler`, the monitor connection, game-state messages, in-process fallback writers), native dialogs, and local-world process reports. |
 | `crash-monitor` | The `--crash-monitor` process: minidump server, client watch, hang detection, report writing and the crash window. |
 | `bootstrap-ui` | The pre-game window stack shared by first-run setup and the crash window. |
 | `client-session`, `protocol` | Packet tap, decode-failure samples and opt-in capture. |
-| `core/internal/redact`, `core/internal/corelog` | Go redaction (an embedded copy of the shared rules, checked for drift) and the core's root logger and crash output. |
 
 ## Logging
 
@@ -26,8 +25,8 @@ Android logcat and any caller layer such as Tracy. Categories (`net`, `world`, `
 `ui`, `packs`, `audio`, `input`, `core`, `session`) map to crate targets in one table; a test
 fails when a crate that logs belongs to none. The console writer thread is the only writer:
 warnings and errors use reserved record and byte capacity. Overflow is counted, and an error
-waits only a bounded time for room. The Go core receives
-its level from the `core` category and labels every line with its process role.
+waits only a bounded time for room. The `core` category remains available for launcher and
+local-world lifecycle diagnostics.
 
 ## Crash flow
 
@@ -41,7 +40,7 @@ panic cascade. It reads that report's saved logs from the same folder. A main-th
 loading phases produces a `hang` report while the game keeps running. Before the monitor
 connects, and on Android, in-process writers produce the same folder layout.
 
-Every folder holds `report.json`, the session's `client.log` and `core.log` sections,
+Every folder holds `report.json`, the session's available client and local-world log sections,
 `crash.dmp` when a dump exists, `packets.txt`, `decode-samples/` and `flight.log`. The
 packet and log rings are file-backed mappings in `crashes/.live-<session id>/`, so they
 survive native crashes. Copy report and `devtool diag` scrub text with the shared rules.

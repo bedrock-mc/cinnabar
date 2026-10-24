@@ -103,7 +103,12 @@ impl Preparer for Fixture {
 
 /// Uses the Android install layout with temporary private roots on every test host.
 fn layout(data: &Dir) -> InstallLayout {
-    InstallLayout::android(data.path(), data.path().join("native/core.so")).with_prepared_assets()
+    InstallLayout::android(
+        data.path(),
+        &data.path().join("native"),
+        "libheadless-fixture.so",
+    )
+    .with_prepared_assets()
 }
 
 /// Reads the status Android setup publishes for the current attempt.

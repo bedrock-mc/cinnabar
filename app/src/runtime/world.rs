@@ -426,7 +426,11 @@ pub(crate) fn reconcile_world_stream_before_physics(
             Some(network) => network.send_dimension_packet(packet),
             None => Err(client_session::PacketSendError::Full(packet)),
         }) {
-            if error.is_closed() {
+            if error.is_closed()
+                && !network
+                    .as_ref()
+                    .is_some_and(|network| network.closed_command_has_pending_control())
+            {
                 record_fatal_error(&mut fatal_error.0, format!("respawn completion: {error}"));
             }
             movement.set_control_fence_pending(true);

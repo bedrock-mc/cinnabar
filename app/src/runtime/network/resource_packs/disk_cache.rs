@@ -67,8 +67,8 @@ fn key(
     for (id, version, subpack, content) in stack {
         for bytes in [
             id.as_bytes(),
-            version.as_bytes(),
-            subpack.as_bytes(),
+            version.as_slice(),
+            subpack.as_slice(),
             content,
         ] {
             part(&mut key, bytes);

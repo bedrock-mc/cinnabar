@@ -44,6 +44,8 @@ fn realm_membership_requires_preview_then_confirmation_before_publishing() {
     );
     assert!(menu.realms.is_empty());
     let before_accept = menu.view();
+    #[cfg(feature = "native-networking")]
+    let before_epoch = menu.catalog_epoch();
     menu.activate_realm_membership(Action::Accept);
     let ticket = menu.realm_membership.ticket;
     menu.receive_realm_membership(ticket, true, Ok(("fixture-code".into(), realm())));
@@ -51,6 +53,22 @@ fn realm_membership_requires_preview_then_confirmation_before_publishing() {
         menu.realm_membership.state.as_ref().unwrap().stage,
         Stage::Complete
     );
+    #[cfg(feature = "native-networking")]
+    {
+        assert_ne!(
+            menu.catalog_epoch(),
+            before_epoch,
+            "acceptance must fence the previous catalog read"
+        );
+        assert!(
+            menu.realms.is_empty(),
+            "the invitation preview is not an authoritative catalog row"
+        );
+        menu.apply_fixture_catalog(launcher_host::native_account::CatalogCards {
+            realms: Ok(vec![realm()]),
+            friends: Ok(Vec::new()),
+        });
+    }
     assert_eq!(menu.realms.as_slice(), [realm()]);
     assert!(before_accept.realms.is_empty());
     assert!(!before_accept.realms.shares_storage(&menu.view().realms));
@@ -136,17 +154,8 @@ impl AccountControl for ChangingAccount {
     fn account_generation(&mut self) -> Option<u64> {
         Some(self.generation)
     }
-    fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
-        None
-    }
-    fn friends(&mut self) -> Option<Vec<launcher::menu::view::MenuFriendCard>> {
-        None
-    }
     fn sign_out(&mut self) -> bool {
         false
-    }
-    fn poll_event(&mut self) -> Option<launcher_host::account_control::AccountEvent> {
-        None
     }
     fn request_realm_membership(&mut self, _: u64, _: String, _: bool) -> bool {
         true

@@ -8,7 +8,7 @@ network transports. This migration does not introduce a frame of command latency
 
 | Crate | Owns | App adapter |
 | --- | --- | --- |
-| `launcher` | Menu actions and views, screen identities, account state, settings models, local-world forms/progress and installation paths | `MenuRuntime`, account/core processes, filesystem operations and world service drivers |
+| `launcher` | Menu actions and views, screen identities, account state, settings models, local-world forms/progress and installation paths | `MenuRuntime`, account service drivers, filesystem operations and world process owners |
 | `client-ui` | Retained HUD/chat/forms/screens, JSON-UI bindings, UI gesture state, item/player previews and presentation | Existing Bevy input, transport, world-query and publication systems |
 | `ui-engine` | The portable JSON-UI engine: screen registration, catalog policy, layout caches, painting, texture lookup and the on-demand atlas | `client-ui` supplies the installed vanilla pack and remote downloads through its source interfaces |
 | `oreui` | OreUI screens drawn in our own code: design canvas, widgets, motion, transitions, presentation state, artwork loading and shipped fonts | `client-ui` projects menu, loading and bed state into its typed inputs and applies its hits, focus and geometry |

@@ -38,7 +38,7 @@ fn custom_mining_prepared_state_overrides_reach_both_overlay_modes() {
         ..Default::default()
     };
     let prepared = pack_runtime::prepare_session_packs(
-        protocol::ResourcePackHandoff::from_archives(vec![]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![]),
         &data,
         u64::MAX,
     );
@@ -157,7 +157,7 @@ fn custom_lucky_block_with_odd_entries_and_absent_states_breaks_at_its_value() {
     };
     assert_eq!(data.custom_blocks.blocks[0].state_count, 2);
     let prepared = pack_runtime::prepare_session_packs(
-        protocol::ResourcePackHandoff::from_archives(vec![]),
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![]),
         &data,
         u64::MAX,
     );

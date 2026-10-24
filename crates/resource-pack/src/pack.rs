@@ -9,7 +9,7 @@ use std::{
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
-use pack_json::validate_jsonc;
+use bedrock_packs::jsonc::validate_jsonc;
 
 use crate::{
     AdmissionError,
@@ -45,8 +45,8 @@ pub(crate) struct EntryIndex {
 #[derive(Clone)]
 pub struct ValidatedPack {
     pub(crate) pack_id: Uuid,
-    pub(crate) version: Box<str>,
-    pub(crate) sub_pack_name: Box<str>,
+    pub(crate) version: Box<[u8]>,
+    pub(crate) sub_pack_name: Box<[u8]>,
     pub(crate) archive_bytes: usize,
     pub(crate) declared_bytes: u64,
     pub(crate) zip: PackZip,
@@ -77,13 +77,15 @@ impl ValidatedPack {
         self.pack_id
     }
 
+    /// Exact selected version bytes, including any opaque suffix.
     #[must_use]
-    pub fn version(&self) -> &str {
+    pub fn version(&self) -> &[u8] {
         &self.version
     }
 
+    /// Exact selected subpack bytes, or the device-selected manifest folder.
     #[must_use]
-    pub fn sub_pack_name(&self) -> &str {
+    pub fn sub_pack_name(&self) -> &[u8] {
         &self.sub_pack_name
     }
 
@@ -355,8 +357,8 @@ impl ValidatedPackStack {
                 .map(|pack| {
                     (
                         pack.pack_id.to_string(),
-                        pack.version.to_string(),
-                        pack.sub_pack_name.to_string(),
+                        pack.version.to_vec(),
+                        pack.sub_pack_name.to_vec(),
                         pack.content_hash.get(&pack.archive_bytes()),
                     )
                 })

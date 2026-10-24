@@ -7,18 +7,14 @@ use launcher::local_worlds::world::{Generator, NewWorld};
     clippy::field_reassign_with_default,
     reason = "LocalWorlds implements Drop, so struct update cannot move its fields"
 )]
-fn queued_worlds(
-    manager: Manager,
-    socket_dir: PathBuf,
-) -> (LocalWorlds, Receiver<Request>, Sender<Reply>) {
-    let core = CoreLink::spawn(manager.clone(), socket_dir).unwrap();
+fn queued_worlds(manager: Manager) -> (LocalWorlds, Receiver<Request>, Sender<Reply>) {
     let (effects, requests) = unbounded();
     let (replies, events) = unbounded();
     let client = WorldsClient {
         effects,
         events,
         revoked: Arc::new(Mutex::new(false)),
-        _core: core,
+        worker: None,
     };
     let mut worlds = LocalWorlds::default();
     worlds.manager = Some(manager);
@@ -39,8 +35,7 @@ fn saving_a_thumbnail_queues_disk_work_and_publishes_pixels_immediately() {
         })
         .unwrap();
     manager.save_thumbnail(&world.id, b"old view").unwrap();
-    let (mut worlds, requests, _replies) =
-        queued_worlds(manager.clone(), dir.path().join("no-core"));
+    let (mut worlds, requests, _replies) = queued_worlds(manager.clone());
     worlds.save_thumbnail(&world.id, b"new view".to_vec());
     assert_eq!(&*worlds.thumbnail(&world.id).unwrap().image, b"new view");
     assert_eq!(manager.thumbnail(&world.id).unwrap(), b"old view");
@@ -64,7 +59,7 @@ fn pump_uses_worker_pixels_and_keeps_a_newer_capture_over_an_older_list_reply() 
         })
         .unwrap();
     manager.save_thumbnail(&world.id, b"disk view").unwrap();
-    let (mut worlds, _requests, replies) = queued_worlds(manager, dir.path().join("no-core"));
+    let (mut worlds, _requests, replies) = queued_worlds(manager);
     replies
         .send(Reply {
             event: Event::Listed(vec![world.clone()]),
@@ -110,7 +105,7 @@ fn worker_reads_and_persists_thumbnail_bytes_in_request_order() {
             ..Default::default()
         })
         .unwrap();
-    let client = WorldsClient::spawn(manager.clone(), dir.path().join("no-core")).unwrap();
+    let client = WorldsClient::spawn(manager.clone()).unwrap();
     client.save_thumbnail(world.id.clone(), Arc::from(&b"saved view"[..]));
     client.send(Effect::List);
     let mut replies = Vec::new();

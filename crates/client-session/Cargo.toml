@@ -7,14 +7,17 @@ publish = false
 
 [features]
 test-support = []
+native-networking = ["protocol/native-networking"]
 
 [dependencies]
+bedrock-packs.workspace = true
 render-api = { path = "../render-api" }
 simulation-clock = { path = "../simulation-clock" }
 bridge = { path = "../bridge" }
 crossbeam-channel = "0.5"
 bytes.workspace = true
 protocol = { path = "../protocol" }
+resource-pack = { path = "../resource-pack" }
 server-experience = { path = "../server-experience", default-features = false }
 serde_json = "1"
 thiserror.workspace = true
@@ -24,9 +27,14 @@ web-time.workspace = true
 world = { path = "../world" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio-util = { workspace = true, features = ["rt"] }
 crash-report = { path = "../crash-report" }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
 [dev-dependencies]
+protocol = { path = "../protocol", features = ["test-support"] }
 protocol-ids = { path = "../protocol-ids" }
 test-alloc = { path = "../test-alloc" }
 tracing-subscriber.workspace = true

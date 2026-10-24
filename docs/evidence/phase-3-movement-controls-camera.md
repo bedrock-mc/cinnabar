@@ -4,7 +4,7 @@ Status: candidate implementation focused tests and fixture-only evidence-harness
 
 ## Implemented contract
 
-- Physics remains `ProductionDisabled` unless the explicit Phase 3 candidate flag is present. The `CandidatePhysics` scenario adds `--phase3-candidate-physics` and never adds `--auto-fly`; the independent `FreeCameraSilence` scenario adds `--auto-fly` and never enables candidate Physics.
+- Physics remains `ProductionDisabled` unless the explicit Phase 3 candidate flag is present. The `CandidatePhysics` scenario adds `--movement-candidate-physics` and never adds `--auto-fly`; the independent `FreeCameraSilence` scenario adds `--auto-fly` and never enables candidate Physics.
 - Completed fixed physics ticks enter one bounded FIFO. Successful command admission stages the complete immutable per-tick evidence context (FIFO and pose generations, dimension, perspective, camera/avatar state, look input, authority, and queue counters) beside the exact tick input. Only the later successful socket-write acknowledgement publishes that staged record; render-frame state changes while the write is pending cannot rewrite its evidence. A render update that catches up multiple ticks publishes one evidence frame for every acknowledged tick, with non-retrograde pose generations permitted across ticks admitted from the same rendered pose.
 - Replay corrections are transactional and retain exact collision-world identity. Teleports, MovePlayer controls, and dimension reanchors use the snap path. A snap aligns to `max(server_tick + 1, existing_next_tick)`, including missing or negative MovePlayer source ticks, so the local ticker cannot move backward.
 - Correction evidence is emitted only after a successful candidate correction. Each record names `replayed` or `snapped`, records corrected/replayed ticks, and carries a finite bounded correction magnitude.
@@ -14,7 +14,7 @@ Status: candidate implementation focused tests and fixture-only evidence-harness
 
 ## Identity and orchestration
 
-`scripts/acceptance/Phase3Launcher.ps1` maps the reviewed targets exactly:
+`scripts/acceptance/MovementLauncher.ps1` maps the reviewed targets exactly:
 
 - Lunar: `pvp.lunarbedrock.com:19134`
 - Zeqa: `zeqa.net:19132`
@@ -22,27 +22,36 @@ Status: candidate implementation focused tests and fixture-only evidence-harness
 - Zeno: `zenomc.org:19197`
 - BDS: supplied endpoint, defaulting to `127.0.0.1:19132` (the BDS process must already be available)
 
-The launcher refuses tracked dirty source, builds and hashes the core and client from the exact clean `HEAD`, and creates a run ID. Its run directory must be newly created or empty. Before launching the core it proves that the unique socket directory contains no `game.addr`; afterward it accepts only a fresh publication while that exact core process remains alive and binds the witness to that core PID. It then launches the selected client scenario with that `HEAD` and `CINNABAR_SOURCE_DIRTY=false` in its environment. On Windows the reviewed executable is always `target/debug/cinnabar.exe`; the launcher does not copy or rename it. In-process identity markers bind the build, run ID, upstream endpoint, PREG/BREG, core SHA/process ID, and app process ID. The launcher re-checks the clean `HEAD` around each build and records the hash of the binary it launches, and a client started without the explicit clean-source marker cannot emit candidate identity.
+The launcher refuses dirty source, builds and hashes the Rust client from the exact clean
+`HEAD`, and creates a run ID. Its run directory must be newly created or empty. The
+native client connects directly to the selected endpoint. In-process identity v2 markers
+bind the build, run ID, upstream endpoint, PREG/BREG and actual app process ID; the launcher
+also records the hash of the executable it launches. The launcher re-checks the clean
+`HEAD` around the build, and a client without the explicit clean-source marker cannot
+emit candidate identity.
 
-Lunar, Zeqa, LBSG, and Zeno runs require an existing authentication cache beneath `.local`, pass its resolved path to the core as `-auth-cache`, and reject durations below 300 seconds. BDS remains the only offline target and may use a shorter local diagnostic duration.
+Remote targets use the normal selected account in the private per-user store and reject
+durations below 300 seconds. There is no credential-path override. BDS is the offline
+target: its client uses a fresh guest user directory and an explicit RakNet route.
+These updated orchestration paths require fresh native runtime qualification.
 
 Operating caveats to record and review before a live run:
 
 - The wall, corner, and ceiling manifest checks only prevent weakening the three named controlled scenarios. They do not prove those geometries were exercised: a valid aggregate is not evidence that the scenarios occurred, so the generated artifacts require manual review.
-- `phase3-final.json` has no dedicated server-version field. Record the server-reported version separately during each live run.
+- `movement-final.json` has no dedicated server-version field. Record the server-reported version separately during each live run.
 - Static inspection does not verify Zeno's designation as official BDS. Confirm that designation, endpoint reachability, and authentication on the first Zeno live run.
 - `FastTransferWitness` remains LBSG-only, requires at least 600 seconds and the compiled vanilla asset carrier, and requires the operator to run `/transfer sm3`.
 
 Example from a clean committed branch:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/acceptance/Phase3Launcher.ps1 -Target Lunar -DurationSeconds 300 -Scenario CandidatePhysics -AuthCache .local/auth/microsoft-token.json
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/acceptance/MovementLauncher.ps1 -Target Lunar -DurationSeconds 300 -Scenario CandidatePhysics
 ```
 
 Run the network-silence witness separately; it cannot borrow authorized Physics frames from the candidate run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/acceptance/Phase3Launcher.ps1 -Target Lunar -DurationSeconds 300 -Scenario FreeCameraSilence -AuthCache .local/auth/microsoft-token.json
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/acceptance/MovementLauncher.ps1 -Target Lunar -DurationSeconds 300 -Scenario FreeCameraSilence
 ```
 
 During each `CandidatePhysics` run, produce every required marker-backed witness declared by `scenario-manifest.json`: keyboard/mouse and gamepad input; the exact First/Back/Front/First perspective wrap; replay and snap corrections; a grounded flat walk of at least `0.25` magnitude; a grounded diagonal walk with at least `0.25` on each axis; one non-repeated grounded single-jump start distinct from the held-space landing/re-jump; release before landing; camera obstruction and fallback; and both hidden and visible local-avatar states. By owner decision Touch is an explicitly named `Deferred` witness that does not gate the scenario verdict; the final aggregate records its disposition, observed state, and deferral reason, and this does not close touch parity. Walk witnesses exclude held/start/repeated/released jump frames, and the aggregate rejects missing or all-zero movement evidence. The validator rejects a run if any required marker witness is absent; it does not infer one from elapsed time.
@@ -51,9 +60,9 @@ The same manifest and final aggregate also carry the complete required controlle
 
 The wall, corner, and ceiling outcomes are deliberately not aliases for the generic `camera_blocked` or `camera_fallback` marker bits. The marker harness cannot automatically identify which world geometry caused those bits, so the three named fields preserve distinct controlled live scenarios without claiming fixture-derived proof. These fields are named `required_controlled_matrix`: they record what the controlled live run must execute, not an automatic claim that a fixture or elapsed session performed it. Scenario-specific completion still requires reviewed live artifacts for each geometry and the native comparison listed below.
 
-`scripts/acceptance/Phase3.ps1` validates the bounded marker stream and writes `phase3-final.json`. The deterministic aggregate contains:
+`scripts/acceptance/MovementEvidence.ps1` validates the bounded marker stream and writes `movement-final.json`. The deterministic aggregate contains:
 
-- build/target/endpoint/run/process/core/app and PREG/BREG identities;
+- build/target/endpoint/run/app and PREG/BREG identities;
 - selected scenario, candidate and production-default flags;
 - input modes, physics tick range/count, correction/replay/snap counts, maximum correction magnitude, outbox high-water/drops, free-camera packet count, marker-backed flat/diagonal walk counts, the distinct non-repeated single-jump count, held landing/re-jump, and release-before-landing results;
 - exact perspective-wrap sequence, camera blocked/fallback counts, and avatar visible/hidden counts;
@@ -79,13 +88,13 @@ acceptance_terminal_runs_after_the_authoritative_network_send_stage: 1 passed
 
 The affected broad suites are green with `cargo test --locked -p sim -p semantic-input -p cinnabar`. The scoped strict lint gate is also green: `cargo clippy --locked -p sim -p semantic-input -p cinnabar --all-targets --all-features -- -D warnings`. The acceptance shutdown system uses a bounded Bevy `SystemParam`; no lint suppression was added.
 
-Fixture-only PowerShell validation is green:
+The prior harness revision recorded fixture-only PowerShell validation:
 
 ```text
 scripts/tests/acceptance/Phase3.Tests.ps1: 93 passed, 0 failed
 ```
 
-These tests cover authenticated target launcher flags and minimum durations, the stable debug path, new-or-empty run directories, fresh core-attributed endpoint publication, equal-pose catch-up, replay/snap aggregation, the full required-matrix schema, exact perspective wrap, authoritative terminal queue reconciliation, an independent zero-frame FreeCamera terminal, exact schema/correlation, dirty and mismatched run/process/core rejection, and isolated fail-closed negative gates. The negatives independently reject missing flat/diagonal movement, all-zero movement, a missing distinct single jump, weakened movement/jump minima, and weakened wall/corner/ceiling outcomes. They validate the harness contract and synthetic marker fixtures only; they do not claim that a live controlled matrix, geometry-specific camera collision scenario, or native comparison has run. Debug-client timing in a generated aggregate is diagnostic evidence, not a release-performance acceptance claim.
+These tests cover authenticated target launcher flags and minimum durations, the stable debug path, new-or-empty run directories, equal-pose catch-up, replay/snap aggregation, the full required-matrix schema, exact perspective wrap, authoritative terminal queue reconciliation, an independent zero-frame FreeCamera terminal, exact schema/correlation, dirty and mismatched run/process rejection, and isolated fail-closed negative gates. The negatives independently reject missing flat/diagonal movement, all-zero movement, a missing distinct single jump, weakened movement/jump minima, and weakened wall/corner/ceiling outcomes. They validate the harness contract and synthetic marker fixtures only; they do not claim that a live controlled matrix, geometry-specific camera collision scenario, or native comparison has run. Debug-client timing in a generated aggregate is diagnostic evidence, not a release-performance acceptance claim.
 
 ## Gates still required before closure
 
@@ -93,6 +102,6 @@ These tests cover authenticated target launcher flags and minimum durations, the
 - Controlled local BDS movement/correction/single-jump/held-jump/perspective matrix, with separate wall, corner, and ceiling third-person camera-collision artifacts.
 - Separate five-minute authenticated `CandidatePhysics` and `FreeCameraSilence` runs on Lunar, Zeqa, LBSG, and Zeno.
 - Native Bedrock comparison for movement cadence, special surfaces, camera collision, local-avatar visibility, and controller equivalence. Touch parity remains open but is owner-deprioritized and does not gate Phase 3 acceptance.
-- Review of each generated `phase3-final.json` before the separate production Physics enable change.
+- Review of each generated `movement-final.json` before the separate production Physics enable change.
 
 Until those gates are attached and reviewed, `P3-MOVEMENT`, `P3.4-INPUT-CAMERA`, and Phase 3 remain open.

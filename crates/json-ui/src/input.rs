@@ -158,9 +158,30 @@ pub struct HitRegion {
     /// The Cinnabar paint transform from `rect`'s layout coordinates to where it is drawn;
     /// `clip` is already in drawn coordinates.
     pub transform: Option<crate::transform::Affine>,
+    /// Layout's geometry animations, consumed when projecting this region for a painted frame.
+    pub anim: Option<std::sync::Arc<crate::anim::NodeAnim>>,
 }
 
 impl HitRegion {
+    /// Projects a raw layout region from its paint's already-sampled writes and clocks.
+    /// The returned region keeps the affine inverse and cannot apply the animation twice.
+    pub fn animate(
+        &self,
+        animator: &crate::Animator,
+        now: f64,
+        clocks: Option<&std::collections::BTreeMap<String, f64>>,
+    ) -> Self {
+        let mut region = self.clone();
+        if let Some(anim) = region.anim.take() {
+            let mut written = |mover: &std::sync::Arc<crate::anim::ControlAnims>| {
+                animator.sampled(mover, now, clocks).unwrap_or_default()
+            };
+            region.rect = anim.project_rect(region.rect, &mut written);
+            region.clip = anim.project_clip(region.clip, &mut written);
+        }
+        region
+    }
+
     /// Whether `point` hits the region where it is drawn: inside its transformed rect and
     /// its clip. A transform that collapses an axis leaves nothing to hit.
     pub fn contains(&self, point: [f64; 2]) -> bool {
@@ -396,6 +417,11 @@ pub(crate) fn region(
         input,
         modal_root: inner.modal_root.clone(),
         transform: node.paint.transform,
+        anim: node
+            .anim
+            .as_ref()
+            .filter(|anim| anim.moves_geometry())
+            .cloned(),
     };
     *order += 1;
     Some(region)

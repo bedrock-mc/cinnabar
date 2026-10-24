@@ -15,8 +15,6 @@ fn invalid_local_assets_startup_child() {
         OsString::from("cinnabar"),
         OsString::from("--assets"),
         directory.join("invalid.mcbea").into_os_string(),
-        OsString::from("--socket-dir"),
-        directory.join("no-bridge").into_os_string(),
     ];
     if std::env::var(DIRECT_CONNECTION).as_deref() == Ok("true") {
         arguments.extend([OsString::from("--address"), OsString::from("127.0.0.1:1")]);
@@ -54,7 +52,6 @@ fn invalid_local_assets_fail_before_connection_startup() {
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains("load startup block assets"), "{stderr}");
-        assert!(!stderr.contains("spawn Go core"), "{stderr}");
-        assert!(!stderr.contains("wait for Go core"), "{stderr}");
+        assert!(!stderr.contains("Bedrock session failed"), "{stderr}");
     }
 }

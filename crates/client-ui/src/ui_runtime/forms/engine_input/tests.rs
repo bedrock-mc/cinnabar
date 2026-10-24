@@ -80,6 +80,135 @@ fn complete_large_menu_final_button_sends_its_original_wire_index() {
     }
 }
 
+#[test]
+fn an_animated_form_button_answers_only_at_its_painted_position() {
+    use crate::ui_runtime::presentation::forms::snapshot;
+
+    let mut answers = Vec::new();
+    let mut expected = Vec::new();
+    for click_moved in [false, true] {
+        let mut player = player_state::PlayerState::new(1);
+        let mut runtime = pack_harness::action_form(&mut player, "Moving choice", &["Choose"]);
+        let mut presentation = mini_engine_presentation();
+        presentation.set_gui_scale_preference(Some(1));
+        presentation.set_server_ui_pack(&ServerUiPack {
+            ui_layers: vec![vec![(
+                "ui/server_form.json".into(),
+                br#"{
+                "namespace":"server_form",
+                "slide":{"anim_type":"offset","from":[10,10],"to":[90,10],"duration":1},
+                "main_screen_content":{"type":"panel","size":["100%","100%"],
+                    "anchor_from":"top_left","anchor_to":"top_left","controls":[
+                        {"server_form_factory":{"type":"factory","control_ids":{
+                            "long_form":"@server_form.moving_menu"
+                        }}}
+                    ]},
+                "moving_menu":{"type":"panel","size":[200,100],"clips_children":true,
+                    "anchor_from":"top_left","anchor_to":"top_left",
+                    "collection_name":"form_buttons","factory":{"name":"buttons",
+                        "control_ids":{"button":"@server_form.moving_button"}}},
+                "moving_button":{"type":"button","size":[40,30],"offset":"@server_form.slide",
+                    "anchor_from":"top_left","anchor_to":"top_left",
+                    "button_mappings":[{"from_button_id":"button.menu_select",
+                        "to_button_id":"button.form_button_click","mapping_type":"pressed"}],
+                    "bindings":[{"binding_type":"collection_details",
+                        "binding_collection_name":"form_buttons"}],
+                    "controls":[{"face":{"type":"image","size":["100%","100%"],
+                        "color":[0,1,0,1]}}]}
+            }"#
+                .to_vec(),
+            )]],
+            ..Default::default()
+        });
+        let mut frames = Vec::new();
+        for millis in [0, 2_000] {
+            let input = presentation
+                .build(
+                    &player,
+                    &runtime,
+                    millis,
+                    [200, 100],
+                    ui::DpiScale::new(1.0).unwrap(),
+                )
+                .unwrap();
+            frames.push(snapshot::rasterize(&input));
+        }
+        let centers: Vec<_> = frames
+            .iter()
+            .map(|image| {
+                let bounds = image
+                    .enumerate_pixels()
+                    .filter(|(_, _, pixel)| pixel.0 == [0, 255, 0, 255])
+                    .map(|(x, y, _)| [x, y, x, y])
+                    .reduce(|a, b| {
+                        [
+                            a[0].min(b[0]),
+                            a[1].min(b[1]),
+                            a[2].max(b[2]),
+                            a[3].max(b[3]),
+                        ]
+                    })
+                    .expect("the original synthetic button is painted");
+                [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2]
+            })
+            .collect();
+        assert_ne!(centers[0], centers[1], "the real animator moves the button");
+        assert_ne!(
+            frames[1].get_pixel(centers[0][0], centers[0][1]).0,
+            [0, 255, 0, 255],
+            "the old point no longer paints the button"
+        );
+        let [x, y] = centers[usize::from(click_moved)];
+        let cursor = UiPoint::new(x as f32, y as f32).unwrap();
+        let identity = runtime.server_forms().active().unwrap().identity;
+        expected.push(if click_moved {
+            vec![protocol::modal_form_submit_response(
+                identity.form_id,
+                protocol::ModalFormResponseSelection::ButtonIndex(0),
+            )]
+        } else {
+            Vec::new()
+        });
+        let frame = presentation.form_engine_frame(identity).unwrap().clone();
+        for down in [true, false] {
+            drive(
+                &mut runtime,
+                &frame,
+                EngineInput {
+                    touch: false,
+                    cursor: Some(cursor),
+                    keys: &[],
+                    pointer: PointerButtons {
+                        pressed: down,
+                        released: !down,
+                        held: down,
+                    },
+                    pointer_edges: vec![down],
+                    wheel: Vec::new(),
+                    typed: Vec::new(),
+                    now: if down { 2.0 } else { 2.01 },
+                    animator: presentation.form_animator(),
+                },
+            );
+        }
+        let mut sent = Vec::new();
+        super::super::flush_form_response(
+            &mut runtime,
+            |_| false,
+            |packet| {
+                sent.push(packet);
+                Ok(())
+            },
+        )
+        .unwrap();
+        answers.push(sent);
+    }
+    assert_eq!(
+        answers, expected,
+        "only a click on the actual animated button may answer the form"
+    );
+}
+
 /// Supplies a synthetic screen-level cancel mapping above the rendered content subtree.
 /// The inherited screen and form buttons exercise the real JSON-UI presentation without assets.
 fn cancel_presentation() -> UiPresentationRuntime {

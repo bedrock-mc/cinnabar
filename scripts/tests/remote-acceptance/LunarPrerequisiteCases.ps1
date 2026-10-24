@@ -100,7 +100,7 @@ It 'requires an exact completed Lunar manifest schema and exact integral numeric
         }
         $performanceIntegralFields = [ordered]@{
             warmup_seconds = 30; steady_seconds = 120; resource_sample_count = 120
-            max_combined_rss_bytes = 681574400
+            max_client_rss_bytes = 681574400
         }
         foreach ($field in $performanceIntegralFields.Keys) {
             $expected = $performanceIntegralFields[$field]

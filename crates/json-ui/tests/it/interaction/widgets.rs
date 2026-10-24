@@ -605,6 +605,67 @@ fn dropdown_content_is_clamped_into_its_area() {
     assert_eq!(find(&laid, "content").rect.y, 120.0);
 }
 
+#[test]
+fn animated_dropdown_content_keeps_its_named_ancestor_clip() {
+    use json_ui::{Animator, Catalog, Context, emit, resolve};
+
+    let source = br#"{
+        "namespace": "audit",
+        "show": { "anim_type": "alpha", "from": 1, "to": 1, "duration": 1 },
+        "root": { "type": "panel", "size": [200, 200], "controls": [
+            { "area": { "type": "panel", "size": [200, 200], "controls": [
+                { "row": { "type": "panel", "size": [100, 20], "offset": [0, 180],
+                    "anchor_from": "top_left", "anchor_to": "top_left", "clips_children": true,
+                    "controls": [
+                        { "drop": { "type": "dropdown", "size": [100, 20],
+                            "anchor_from": "top_left", "anchor_to": "top_left",
+                            "dropdown_name": "drop", "dropdown_area": "area",
+                            "dropdown_content_control": "content" } },
+                        { "content": { "type": "panel", "size": [100, 80],
+                            "anchor_from": "top_left", "anchor_to": "top_left", "controls": [
+                                { "image": { "type": "image", "size": [100, 80],
+                                    "texture": "textures/ui/test", "alpha": "@audit.show" } }
+                            ] } }
+                    ] } }
+            ] } }
+        ] }
+    }"#;
+    let catalog = Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/audit.json"]}"#.as_slice(),
+        ),
+        ("ui/audit.json", source.as_slice()),
+    ])
+    .expect("catalog");
+    let root = resolve(&catalog, "audit.root", &Context::desktop())
+        .control
+        .expect("control");
+    let env = env();
+    let (laid, _) = layout_with(&root, [200.0, 200.0], &env, &ViewState::default());
+    let nodes = emit(&laid, &env);
+    let image = nodes
+        .iter()
+        .find(|node| node.name == "image")
+        .expect("image");
+    let mut animator = Animator::new();
+    image.animate(&mut animator, 0.0, None, None);
+    let painted = image.animate(&mut animator, 0.5, None, None);
+    assert_eq!([painted.dest.y, painted.dest.h], [120.0, 80.0]);
+    assert!(painted.opacity > 0.0);
+    assert!(painted.clip.x >= 0.0 && painted.clip.y >= 0.0);
+    assert!(painted.clip.x + painted.clip.w <= 200.0);
+    assert!(painted.clip.y + painted.clip.h <= 200.0);
+    assert!(
+        painted.dest.x >= painted.clip.x
+            && painted.dest.y >= painted.clip.y
+            && painted.dest.x + painted.dest.w <= painted.clip.x + painted.clip.w
+            && painted.dest.y + painted.dest.h <= painted.clip.y + painted.clip.h,
+        "the popup must escape its row while staying in its named area: {painted:?}"
+    );
+}
+
 // T4: a default manager restores each radio group to its default-selected member.
 #[test]
 fn default_managers_select_the_group_default() {

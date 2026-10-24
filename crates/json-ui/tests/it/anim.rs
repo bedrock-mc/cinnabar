@@ -161,6 +161,166 @@ fn every_property_type_animates() {
 }
 
 #[test]
+fn animated_clipped_page_enters_the_original_viewport() {
+    let nodes = draws(
+        r#""slide": { "anim_type": "offset", "from": [0, 0], "to": [0, "-100%"], "duration": 1 },
+        "screen": { "type": "panel", "size": ["100%", "100%"], "clips_children": true,
+            "controls": [{ "pages": { "type": "stack_panel", "size": ["100%", "100%"],
+                "anchor_from": "top_left", "anchor_to": "top_left", "offset": "@audit.slide",
+                "controls": [
+                    { "intro": { "type": "panel", "size": ["100%", "100%"] } },
+                    { "content": { "type": "panel", "size": ["100%", "100%"],
+                        "clips_children": true, "controls": [
+                            { "image": { "type": "image", "texture": "textures/ui/test",
+                                "anchor_from": "top_left", "anchor_to": "top_left",
+                                "offset": [10, 10], "size": [20, 20] } }
+                        ] } }
+                ] } }] }"#,
+        "screen",
+    );
+    let image = node(&nodes, "image");
+    let mut animator = Animator::new();
+    let first = image.animate(&mut animator, 0.0, None, Some(&Strip));
+    assert!(
+        first.dest.y >= 200.0,
+        "second page starts below the viewport"
+    );
+    let finished = play(&mut animator, image, 0.0, 2.0);
+    assert_eq!([finished.dest.x, finished.dest.y], [10.0, 10.0]);
+    assert!(finished.clip.x >= 0.0 && finished.clip.y >= 0.0);
+    assert!(finished.clip.x + finished.clip.w <= 200.0);
+    assert!(finished.clip.y + finished.clip.h <= 200.0);
+    assert!(
+        finished.clip.w > 0.0
+            && finished.clip.h > 0.0
+            && finished.dest.x >= finished.clip.x
+            && finished.dest.y >= finished.clip.y
+            && finished.dest.x + finished.dest.w <= finished.clip.x + finished.clip.w
+            && finished.dest.y + finished.dest.h <= finished.clip.y + finished.clip.h,
+        "the animated page must draw inside its original viewport: {finished:?}"
+    );
+}
+
+#[test]
+fn animated_scroll_ancestor_keeps_the_card_image_and_label() {
+    use json_ui::{MeasureCache, ViewState, render_bound, render_bound_gated};
+    use serde_json::json;
+
+    let mut document: serde_json::Value = serde_json::from_str(
+        r#"{
+        "namespace":"scroll_entry",
+        "slide":{"anim_type":"offset","from":[0,200],"to":[0,0],"duration":1},
+        "screen":{"type":"panel","size":[200,200],"clips_children":true,"controls":[
+            {"moving":{"type":"panel","size":[200,200],
+                "anchor_from":"top_left","anchor_to":"top_left","controls":[
+                    {"view":{"type":"scroll_view","size":[200,200],"clips_children":true,
+                        "anchor_from":"top_left","anchor_to":"top_left",
+                        "scroll_content":"content","scroll_view_port":"viewport",
+                        "scrollbar_track":"track","scrollbar_box":"box",
+                        "scroll_box_and_track_panel":"bars","controls":[
+                            {"viewport":{"type":"panel","size":[190,200],
+                                "anchor_from":"top_left","anchor_to":"top_left","controls":[
+                                    {"content":{"type":"panel","size":[190,400],
+                                        "anchor_from":"top_left","anchor_to":"top_left","controls":[
+                                            {"card_image":{"type":"image","texture":"textures/ui/test",
+                                                "anchor_from":"top_left","anchor_to":"top_left",
+                                                "offset":[10,10],"size":[20,20]}},
+                                            {"card_label":{"type":"label","text":"Card","localize":false,
+                                                "anchor_from":"top_left","anchor_to":"top_left",
+                                                "offset":[10,40],"size":[80,10]}},
+                                            {"offscreen":{"type":"image","texture":"textures/ui/test",
+                                                "anchor_from":"top_left","anchor_to":"top_left",
+                                                "offset":[10,300],"size":[20,20]}}
+                                        ]}}
+                                ]}},
+                            {"bars":{"type":"panel","size":[10,200],
+                                "anchor_from":"top_left","anchor_to":"top_left","offset":[190,0],
+                                "controls":[
+                                    {"track":{"type":"scroll_track","size":[10,200]}},
+                                    {"box":{"type":"scrollbar_box","size":[10,20],"draggable":"vertical"}}
+                                ]}}
+                        ]}}
+                ]}}
+        ]}
+    }"#,
+    )
+    .unwrap();
+    for moving in [false, true] {
+        document["screen"]["controls"][0]["moving"]["offset"] = if moving {
+            json!("@scroll_entry.slide")
+        } else {
+            json!([0, 0])
+        };
+        let bytes = serde_json::to_vec(&document).unwrap();
+        let catalog = Catalog::from_files([
+            ("ui/_global_variables.json", b"{}".as_slice()),
+            (
+                "ui/_ui_defs.json",
+                br#"{"ui_defs":["ui/scroll_entry.json"]}"#.as_slice(),
+            ),
+            ("ui/scroll_entry.json", bytes.as_slice()),
+        ])
+        .unwrap();
+        let bound = resolve(&catalog, "scroll_entry.screen", &Context::desktop())
+            .control
+            .unwrap();
+        let reference = render_bound(bound.clone(), [200.0, 200.0], &env(), &ViewState::default());
+        let gated = render_bound_gated(
+            bound,
+            [200.0, 200.0],
+            &env(),
+            &ViewState::default(),
+            &mut MeasureCache::default(),
+        );
+        let metrics = gated
+            .report
+            .scrolls
+            .values()
+            .next()
+            .expect("real scroll view");
+        assert_eq!(
+            [metrics.content, metrics.viewport, metrics.offset],
+            [400.0, 200.0, 0.0]
+        );
+        if !moving {
+            assert!(
+                !gated.nodes.iter().any(|draw| draw.name == "offscreen"),
+                "static offscreen content must remain culled"
+            );
+        }
+        for name in ["card_image", "card_label"] {
+            let original = node(&reference.nodes, name);
+            assert!(matches!(
+                &original.draw,
+                Draw::Sprite { .. } | Draw::Text { .. }
+            ));
+            let mut animator = Animator::new();
+            let first = original.animate(&mut animator, 0.0, None, Some(&Strip));
+            assert_eq!(first.dest.y >= 200.0, moving, "initial card placement");
+            let expected = play(&mut animator, original, 0.0, 2.0);
+            assert!(!expected.hidden && expected.opacity > 0.0);
+            assert!(
+                expected.dest.x < expected.clip.x + expected.clip.w
+                    && expected.dest.x + expected.dest.w > expected.clip.x
+                    && expected.dest.y < expected.clip.y + expected.clip.h
+                    && expected.dest.y + expected.dest.h > expected.clip.y,
+                "the original card paints inside the viewport: {expected:?}"
+            );
+            let actual = gated
+                .nodes
+                .iter()
+                .find(|draw| draw.name == name)
+                .map(|draw| play(&mut Animator::new(), draw, 0.0, 2.0));
+            assert_eq!(
+                actual,
+                Some(expected),
+                "gated paint lost {name}, moving={moving}"
+            );
+        }
+    }
+}
+
+#[test]
 fn repeated_sprite_clip_animation_keeps_the_source_region_and_tile_phase() {
     let nodes = draws(
         r#""reveal": { "anim_type": "clip", "from": 0.5, "to": 0.5, "duration": 1 },

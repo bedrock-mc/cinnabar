@@ -94,6 +94,8 @@ impl MenuRuntime {
             initial.feeds.account_adding = true;
         }
         Self {
+            #[cfg(not(target_arch = "wasm32"))]
+            native_io: None,
             // The launcher owns the session lifecycle only when the client
             // started on the menu. `--address` keeps the historical behaviour
             // of exiting the process when its one session fails.
@@ -158,16 +160,17 @@ impl MenuRuntime {
             intents: SessionIntents::default(),
             session: SessionStatus::default(),
             featured: initial.featured,
+            #[cfg(feature = "native-networking")]
+            native_gatherings: Default::default(),
             realms: initial.realms,
             friends: initial.friends,
             catalog_message: initial.catalog_message,
-            catalog_started: false,
-            catalog: launcher_host::catalog::Catalog::new(layout.catalog_file(std::process::id())),
-            catalog_art: None,
+            #[cfg(feature = "native-networking")]
             auth_process: None,
+            #[cfg(feature = "native-networking")]
+            native_catalog: Default::default(),
             auth_attempted: false,
             auth_restart_requested: false,
-            account_core: None,
             layout,
             default_player_skin: player_skin
                 .default_fallback

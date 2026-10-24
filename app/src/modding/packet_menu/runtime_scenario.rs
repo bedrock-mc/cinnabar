@@ -72,13 +72,13 @@ struct Pointer {
 
 /// Collects the real pack definitions and original textures returned by guest startup.
 fn pack(
-    packs: Vec<protocol::RelayPack>,
+    packs: Vec<bedrock_packs::RelayPack>,
 ) -> (
     ServerUiPack,
     Option<Arc<client_ui::ui_runtime::presentation::SessionGlyphSheets>>,
 ) {
     let mut result = ServerUiPack::default();
-    let base = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let base = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
     let (stack, errors) = resource_pack::compose_added_packs(
         &base,
         packs

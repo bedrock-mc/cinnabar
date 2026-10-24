@@ -306,6 +306,32 @@ impl Default for FarTerrainFeed {
 }
 
 impl WorldStream {
+    /// Observes retained work only when an owning test's unchanged progress deadline fails.
+    #[cfg(test)]
+    pub(super) fn far_summary_progress(&self) -> String {
+        let feed = &self.far_terrain;
+        let inbox = &feed.inbox;
+        let usage = inbox.producer.admission.usage();
+        let policy = inbox.producer.admission.policy();
+        let prepared_ready = feed
+            .prepared
+            .as_ref()
+            .map(|assets| assets.colours().is_some());
+        format!(
+            "retiring={}, pending={}, sources={}, issued={}, queued_results={}, deferred_result={}, prepared_ready={prepared_ready:?}, admitted_jobs={}/{}, admitted_bytes={}/{}",
+            feed.retiring.len(),
+            feed.pending.len(),
+            inbox.producer.sources.len(),
+            inbox.issued.len(),
+            inbox.rx.len(),
+            inbox.deferred.is_some(),
+            usage.jobs,
+            policy.jobs,
+            usage.bytes,
+            policy.bytes,
+        )
+    }
+
     /// Ends delivery from the previous dimension, including eviction snapshots and late workers.
     pub(super) fn reset_far_terrain_dimension(&mut self) {
         let feed = &mut self.far_terrain;

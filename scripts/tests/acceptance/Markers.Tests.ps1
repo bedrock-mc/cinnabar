@@ -370,8 +370,10 @@ $writer.Dispose()
             -WorkingDirectory $TempRoot `
             -StdoutPath (Join-Path $TempRoot 'eof.stdout.log') `
             -StderrPath (Join-Path $TempRoot 'eof.stderr.log')
-        Stop-BoundedProcess -Handle $eofHelper -Kind 'core'
-        Assert-True $eofHelper.Process.HasExited 'core-style EOF cleanup left its child running'
+        Stop-BoundedProcess -Handle $eofHelper -Kind 'bds' `
+            -BdsConsoleLogPath (Join-Path $TempRoot 'eof.console.log')
+        Assert-True $eofHelper.Process.HasExited 'BDS stdin EOF cleanup left its child running'
+        Assert-Equal 0 $eofHelper.Process.ExitCode 'BDS stdin EOF helper did not exit normally'
     }
     finally {
         try {

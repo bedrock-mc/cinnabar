@@ -7,7 +7,6 @@ use bevy::prelude::{
     App, AppExit, IntoScheduleConfigs, MinimalPlugins, Quat, Transform, Update, Vec3,
 };
 use bevy::window::WindowCloseRequested;
-use bridge::{bridge_endpoint_exists, session_endpoint_path as bridge_endpoint_path};
 use client_state::PlayerRuntime;
 use meshing::{
     ChunkBiomeTintIdentity, ChunkMesh, DiagnosticGeometryCount, DiagnosticGeometrySummary,
@@ -23,7 +22,6 @@ use render_model::{
     GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot, VisibilityKeyDigest,
 };
 use std::{
-    path::Path,
     sync::{Arc, mpsc},
     time::{Duration, Instant},
 };
@@ -103,7 +101,6 @@ use {
         },
     },
     client_runtime::{
-        endpoint::{preflight_bridge_endpoint, resolve_socket_dir_from},
         ingress::{
             OUTBOUND_SEND_BUDGET_PER_FRAME, WORLD_INGRESS_DRAIN_BUDGET, WorldIngressDrain,
             drain_network_controls, drain_network_ingress,

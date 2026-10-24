@@ -5,13 +5,14 @@
 //! in memory with a bounded shared read cache. Compiled outputs derived from any
 //! server pack, encrypted ones included, may persist in the install's local compile cache.
 
+use bedrock_packs::ResourcePackHandoff;
 use std::sync::Arc;
 
-#[cfg(feature = "handoff")]
-use protocol::ResourcePackHandoff;
 use thiserror::Error;
 
 mod added;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod cache;
 mod crypto;
 mod dependencies;
 mod fingerprint;
@@ -23,7 +24,7 @@ mod pack;
 mod parser;
 mod read_cache;
 pub mod subpacks;
-#[cfg(all(feature = "handoff", any(test, feature = "test-support")))]
+#[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 mod view;
 
@@ -39,18 +40,18 @@ pub use library::{
 };
 pub use merge::{MAX_MERGED_ENTRIES, MAX_WINNING_BYTES, MAX_WINNING_FILES};
 pub use pack::{PackRejection, ValidatedPack, ValidatedPackStack};
-pub use parser::validate_archive_bytes;
+pub use parser::{ArchiveKind, validate_archive_bytes, verify_archive_identity};
 pub use view::LayeredPackView;
 
 /// Maximum compressed source bytes decoded for one pack texture.
 pub const MAX_PACK_TEXTURE_BYTES: u64 = 4 * 1024 * 1024;
 
 /// Maximum number of globally selected local packs; server selections are independent.
-pub const MAX_PACKS: usize = 32;
+pub const MAX_LOCAL_PACKS: usize = 32;
 /// Maximum compressed archive bytes accepted by local import readers.
-pub const MAX_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_LOCAL_ARCHIVE_BYTES: usize = 64 * 1024 * 1024;
 /// Maximum compressed archive bytes accepted in one local import.
-pub const MAX_STACK_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
+pub const MAX_LOCAL_STACK_ARCHIVE_BYTES: usize = 128 * 1024 * 1024;
 /// Explicit read allowance for local import metadata and skin manifests.
 pub const MAX_MANIFEST_BYTES: usize = 256 * 1024;
 /// Explicit name allowance for stored global selections and local skin import.
@@ -135,14 +136,12 @@ pub enum PackAdmission {
 }
 
 /// Admits a highest-priority-first server handoff into lowest-priority-first layers.
-#[cfg(feature = "handoff")]
 #[must_use]
 pub fn validate_handoff(handoff: ResourcePackHandoff) -> Arc<ValidatedPackStack> {
     Arc::new(parser::validate_stack(handoff.into_archives(), None))
 }
 
 /// Admits server packs using the device's physical RAM for automatic subpack selection.
-#[cfg(feature = "handoff")]
 #[must_use]
 pub fn validate_handoff_for_device(
     handoff: ResourcePackHandoff,
@@ -154,7 +153,7 @@ pub fn validate_handoff_for_device(
     ))
 }
 
-#[cfg(all(test, feature = "handoff"))]
+#[cfg(test)]
 mod handoff_tests;
 
 #[cfg(test)]

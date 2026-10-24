@@ -7,8 +7,6 @@ publish = false
 
 [package.metadata.cinnabar]
 platform-specific = ["macos", "windows"]
-# The Go core's embedded copy of `data/redaction-rules.json`, checked byte-for-byte.
-reads = ["core/internal/redact/rules.json"]
 
 [lib]
 doctest = false

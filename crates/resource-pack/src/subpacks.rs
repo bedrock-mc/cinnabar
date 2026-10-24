@@ -40,10 +40,10 @@ pub(crate) fn manifest_memory_tier(subpack: &Value) -> u32 {
 }
 
 /// Keeps a supported explicit selection; otherwise chooses the best supported option.
-pub(crate) fn supported<'a>(subpacks: &'a [Subpack], requested: &str, memory: u32) -> &'a str {
+pub(crate) fn supported<'a>(subpacks: &'a [Subpack], requested: &[u8], memory: u32) -> &'a str {
     subpacks
         .iter()
-        .find(|pack| pack.folder == requested && pack.memory_tier <= memory)
+        .find(|pack| pack.folder.as_bytes() == requested && pack.memory_tier <= memory)
         .map_or_else(|| select(subpacks, memory), |pack| pack.folder.as_str())
 }
 

@@ -6,7 +6,6 @@ use launcher::menu::{MenuAction, MenuView};
 /// Creates populated owners without starting any catalog or account worker.
 fn menu() -> MenuRuntime {
     let mut menu = MenuRuntime::new(true, 2, "Fixture".into());
-    menu.catalog_started = true;
     menu.servers = vec![SavedServer {
         name: "Saved".into(),
         address: "saved.example.test:19132".into(),

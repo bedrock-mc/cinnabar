@@ -26,8 +26,6 @@ use client_presentation::environment::{
 use client_runtime::blob_cache::ClientBlobCacheOwner;
 use client_runtime::network::NetworkHandle;
 use client_state::ClientFrameSet;
-use launcher_host::core_process::{CoreProcessGuard, spawn_core_for_address, wait_for_core};
-use launcher_host::session_cleanup::reclaim_stale_session_directories;
 use render_api::PublicationServiceConfig;
 use std::io::Write;
 use std::{ffi::OsStr, path::Path, sync::Arc};
@@ -46,7 +44,6 @@ use {
 pub(crate) mod logging;
 pub(crate) mod session;
 pub(crate) mod startup;
-use startup::bind_direct_session_directory;
 
 use crate::runtime::telemetry::AcceptanceRuntimeConfig;
 use client_presentation::{camera::FlyCameraUpdateSet, local_player::LocalPlayerFrameSet};
@@ -91,7 +88,6 @@ use {
         session::{
             SessionController, drive_session, follow_server_transfer, recover_session_failure,
         },
-        shell_adapters::drive_menu_services,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
             drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
@@ -108,12 +104,11 @@ use {
         PhysicsAuthorityGate,
     },
     client_runtime::{
-        endpoint::{preflight_bridge_endpoint, resolve_socket_dir},
         pack_admission::ResourcePackAdmissionState,
         publication::PublicationController,
         shutdown::{
             SHUTDOWN_WATCHDOG_TIMEOUT, ShutdownWatchdog, TeardownWatchdog, app_exit_code,
-            arm_shutdown_watchdog,
+            arm_shutdown_watchdog, begin_bounded_shutdown,
         },
     },
     client_shell::menu::MenuRuntime,
@@ -294,14 +289,16 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     if let Some(timing) = render_scene::startup_timing::current() {
         timing.configure_menu(!args.connection_requested(), offscreen_startup);
     }
+    // Reverse local-drop order keeps the actual reactor alive beyond App on startup error/unwind.
+    let io =
+        crate::runtime::network::io::IoOwner::new().context("create application I/O runtime")?;
+
     let feedback = crate::startup_feedback::Feedback::start();
     let app = App::new();
     #[cfg(feature = "enhanced-diagnostics")]
     let diagnostic_budget = crate::enhanced_diagnostics::configure(&args)?;
     #[cfg(feature = "developer-control")]
-    crate::developer_control::prepare_native_application(
-        args.address.is_some() || args.socket_dir_explicit,
-    )?;
+    crate::developer_control::prepare_native_application(args.address.is_some())?;
     crate::thread_budget::ThreadBudget::configure_global_rayon();
     // Keep the clipboard hook registered until the child guard runs on return or unwind.
     let _clipboard_exit =
@@ -319,26 +316,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     pack_runtime::compile_cache::set_compile_cache_dir(layout.compiled_pack_cache_dir());
     pack_runtime::entity_pack::set_vanilla_pack_dir(layout.vanilla_pack_dir());
     let far_terrain_dir = layout.far_terrain_cache_dir();
-    // Reclaim leftovers of crashed earlier sessions before this process
-    // binds anything new; failures are logged and never fatal.
-    reclaim_stale_session_directories(&layout);
     let connection_requested = args.connection_requested();
-    let socket_dir = if args.address.is_some() && !args.socket_dir_explicit {
-        layout.direct_socket_dir(std::process::id())
-    } else if !args.socket_dir_explicit {
-        layout.runtime_root.clone()
-    } else {
-        resolve_socket_dir(&args.socket_dir)
-    };
-    // Owned before any core spawn so the direct-connect path below derives
-    // the upstream client-cache advertisement from the same cache it later
-    // hands to the network session.
     let client_blob_cache = ClientBlobCacheOwner::persistent(layout.client_blob_cache_file());
-    // Bound before the core guard is declared so Rust's reverse local-drop
-    // order always stops the core before releasing this directory, including
-    // every startup `?` before the app takes ownership of the guard.
-    let _direct_session_directory = bind_direct_session_directory(&args, socket_dir.clone())?;
-    let mut core_process = CoreProcessGuard::default();
     let selected_assets =
         select_asset_path_from_environment(args.assets.as_deref(), &layout.world_assets());
     let carriers = startup::begin(
@@ -439,47 +418,17 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let world_preparation =
         startup::world::WorldPreparation::new(carriers.world, world_ui, connection_requested)?;
 
+    let endpoint = connection_requested
+        .then(|| args.session_endpoint())
+        .transpose()?;
+    #[cfg(feature = "native-networking")]
+    let (endpoint, initial_trust) = crate::session::native_trust::initial(endpoint, &layout)?;
+    #[cfg(not(feature = "native-networking"))]
+    let initial_trust = None;
     let client_random_id = connection_requested
         .then(|| launcher_host::client_random_id::load(&layout.user_data_root))
         .transpose()
         .context("load persistent login client ID")?;
-
-    // Validate local carriers before admitting a connection, including a cancelled launch.
-    if let Some(address) = args.address.as_deref() {
-        let admitted = crate::startup_feedback::while_active(
-            || feedback.cancelled(),
-            || {
-                let child = spawn_core_for_address(
-                    &layout,
-                    &socket_dir,
-                    address,
-                    None,
-                    client_blob_cache.enables_upstream_client_cache(),
-                    false,
-                )
-                .with_context(|| format!("spawn Go core for direct connection to {address}"))?;
-                core_process.replace(child);
-                wait_for_core(&socket_dir)
-                    .with_context(|| format!("wait for Go core endpoint for {address}"))
-            },
-        );
-        match admitted {
-            Ok(Some(())) => {}
-            outcome => {
-                launcher_host::core_process::stop_core_then(&mut core_process, |_| ());
-                outcome?;
-                return Ok(());
-            }
-        }
-    } else if connection_requested
-        && crate::startup_feedback::while_active(
-            || feedback.cancelled(),
-            || preflight_bridge_endpoint(&socket_dir),
-        )?
-        .is_none()
-    {
-        return Ok(());
-    }
 
     // The local player's own skin, loaded once here and shared by Arc into the login upload, the
     // menu's reconnection config, and the render feed resource below. Cosmetic: never fatal.
@@ -493,7 +442,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
             bundled
         } else {
             layout
-                .core_executable
+                .local_server_executable
                 .with_file_name(bundled.file_name().context("asset compiler basename")?)
         }
     };
@@ -507,8 +456,30 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         local_player_skin.clone(),
         minecraft_import,
     )
+    .with_io(io.execution())
     .with_language_assets(carriers.path.clone(), args.language.as_deref());
+    let mut menu = menu;
+    if initial_trust.is_some() {
+        menu.show_connecting();
+    }
+    let mut session_controller = SessionController::new()
+        .with_native_transport(args.native_transport)
+        .with_parallel_resource_pack_urls(args.parallel_resource_pack_urls)
+        .with_client_random_id(client_random_id)
+        .with_address(args.address.as_deref())
+        .with_initial_trust(initial_trust);
+    #[cfg(feature = "native-networking")]
+    let native_account = session_controller
+        .native_startup_account(&mut menu, endpoint.as_ref())
+        .context("capture the initial native account selection")?;
+
     crate::runtime::network::await_overlay_texture_device();
+    session_controller = session_controller.with_startup_endpoint(
+        endpoint,
+        args.address.as_deref(),
+        #[cfg(feature = "native-networking")]
+        native_account,
+    );
     let packet_mods = crate::modding::packets::from_environment();
     let network = NetworkHandle::<PackApplication>::disconnected();
     let movement_ticker = client_interaction::movement::MovementTicker::with_epoch_publisher(
@@ -606,8 +577,9 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         screenshots_dir,
         debug_overlay: args.dev_debug_overlay,
     });
-    // Account feeds also serve Profile in direct-address and external-socket runs.
-    app.init_resource::<client_shell::menu::LauncherCoreSlot>();
+    // Account feeds also serve Profile in direct-address sessions.
+    #[cfg(feature = "native-networking")]
+    app.init_resource::<client_shell::menu::LauncherServices>();
     app.add_plugins(render::PresentModePolicyPlugin::new(present_mode_policy));
     if diagnostics_enabled {
         app.add_plugins(RenderDiagnosticsPlugin);
@@ -626,15 +598,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     .insert_resource(shutdown_watchdog.clone())
     .insert_resource(TeardownWatchdog(shutdown_watchdog.clone()))
     .insert_resource(present_mode_runtime)
-    .insert_resource(
-        SessionController::new(core_process)
-            .with_client_random_id(client_random_id)
-            .with_address(args.address.as_deref())
-            .with_startup_endpoint(
-                connection_requested.then_some(socket_dir),
-                args.address.as_deref(),
-            ),
-    )
+    .insert_resource(session_controller)
     .insert_resource(ui_catalog)
     .insert_resource(client_blob_cache)
     .insert_resource(network)
@@ -871,22 +835,39 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     let terminal_cause = TerminalCause::install(&mut app);
     feedback.progress(launcher::startup::Stage::WaitingForContent);
     let exit = crate::runtime::frame_profile::run(&mut app);
+    bevy::log::info!(shutdown_phase = "frame_profile_run_returned");
+    begin_bounded_shutdown(&shutdown_watchdog, &exit);
+    bevy::log::info!(shutdown_phase = "clipboard_shutdown_begin");
     PlatformClipboard::shutdown();
+    bevy::log::info!(shutdown_phase = "clipboard_shutdown_done");
+    bevy::log::info!(shutdown_phase = "discord_shutdown_begin");
     client_shell::discord_presence::shutdown(&mut app);
+    bevy::log::info!(shutdown_phase = "discord_shutdown_done");
+    bevy::log::info!(shutdown_phase = "network_resource_shutdown_begin");
     if let Some(mut network) = app
         .world_mut()
         .remove_resource::<NetworkHandle<PackApplication>>()
     {
         network.shutdown();
     }
+    bevy::log::info!(shutdown_phase = "network_resource_shutdown_done");
+    bevy::log::info!(shutdown_phase = "app_shell_drop_begin");
     drop(app);
+    bevy::log::info!(shutdown_phase = "app_shell_drop_done");
+    bevy::log::info!(shutdown_phase = "io_finish_begin");
+    io.finish();
+    bevy::log::info!(shutdown_phase = "io_finish_done");
+    bevy::log::info!(shutdown_phase = "latency_trace_finish_begin");
     bridge::latency_trace::finish();
+    bevy::log::info!(shutdown_phase = "latency_trace_finish_done");
     let _ = writeln!(
         diagnostics::console::stderr(),
         "{SHUTDOWN_COMPLETED} exit_code={}",
         app_exit_code(&exit)
     );
+    bevy::log::info!(shutdown_phase = "console_exit_flush_begin");
     diagnostics::console::flush_before_exit();
+    bevy::log::info!(shutdown_phase = "console_exit_flush_done");
     shutdown_watchdog.complete();
     if exit.is_error() {
         bail!("{}", terminal_cause.exit_message());

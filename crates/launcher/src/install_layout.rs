@@ -1,8 +1,11 @@
+use env_compat::markers;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 mod android;
+mod executables;
 pub use android::configure_android;
+use executables::local_server_filename;
 
 const APP_DIR: &str = crate::PRODUCT_NAME;
 
@@ -58,7 +61,8 @@ pub struct InstallLayout {
     pub resource_root: PathBuf,
     pub compiled_assets: PathBuf,
     pub physics_registry: PathBuf,
-    pub core_executable: PathBuf,
+    /// The executable for the allowed Dragonfly local-server integration.
+    pub local_server_executable: PathBuf,
     pub user_config_root: PathBuf,
     pub user_data_root: PathBuf,
     pub runtime_root: PathBuf,
@@ -85,7 +89,7 @@ impl InstallLayout {
                 physics_registry: local
                     .join("assets/compiled")
                     .join(assets::carriers::physics_registry_basename()),
-                core_executable: binary_dir.join(core_filename(platform)),
+                local_server_executable: binary_dir.join(local_server_filename(platform)),
                 user_config_root: config,
                 user_data_root: data,
                 runtime_root: runtime.clone(),
@@ -101,11 +105,8 @@ impl InstallLayout {
             .executable
             .parent()
             .ok_or(LayoutError::MissingExecutable)?;
-        let (resource_root, core_executable) = match platform {
-            Platform::Windows => (
-                executable_dir.join("resources"),
-                executable_dir.join(core_filename(platform)),
-            ),
+        let resource_root = match platform {
+            Platform::Windows => executable_dir.join("resources"),
             Platform::Linux => {
                 let prefix = executable_dir
                     .parent()
@@ -113,10 +114,7 @@ impl InstallLayout {
                     .ok_or_else(|| {
                         LayoutError::InvalidLinuxLayout(environment.executable.clone())
                     })?;
-                (
-                    prefix.join("share/cinnabar"),
-                    executable_dir.join(core_filename(platform)),
-                )
+                prefix.join("share/cinnabar")
             }
             Platform::MacOs => {
                 let contents = executable_dir
@@ -134,10 +132,7 @@ impl InstallLayout {
                     .ok_or_else(|| {
                         LayoutError::InvalidMacOsBundle(environment.executable.clone())
                     })?;
-                (
-                    contents.join("Resources"),
-                    executable_dir.join(core_filename(platform)),
-                )
+                contents.join("Resources")
             }
         };
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
@@ -147,7 +142,7 @@ impl InstallLayout {
                 .join("assets")
                 .join(assets::carriers::physics_registry_basename()),
             resource_root,
-            core_executable,
+            local_server_executable: executable_dir.join(local_server_filename(platform)),
             user_config_root,
             user_data_root,
             transient_runtime_root: runtime_root.clone(),
@@ -170,7 +165,7 @@ impl InstallLayout {
                         .map(PathBuf::from)
                         .as_deref(),
                 ),
-                user_root: std::env::var_os("CINNABAR_USER_ROOT").map(PathBuf::from),
+                user_root: std::env::var_os(markers::USER_ROOT).map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
                 xdg_config_home: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
@@ -278,7 +273,7 @@ impl InstallLayout {
         self.auth_cache().with_file_name("device.json")
     }
 
-    /// Downloaded launcher artwork, beside the auth cache with the core's persona art.
+    /// Downloaded launcher artwork beside the preserved account cache.
     #[must_use]
     pub fn launcher_artwork_dir(&self) -> PathBuf {
         self.auth_cache()
@@ -373,35 +368,10 @@ impl InstallLayout {
         self.user_config_root.join("graphics.json")
     }
 
-    #[must_use]
-    pub fn catalog_file(&self, process_id: u32) -> PathBuf {
-        self.transient_runtime_root
-            .join(format!("catalog-{process_id}.json"))
-    }
-
-    /// Root holding per-session runtime directories and endpoint artifacts.
+    /// Root holding transient local helper and session artifacts.
     #[must_use]
     pub fn transient_runtime_root(&self) -> &Path {
         &self.transient_runtime_root
-    }
-
-    #[must_use]
-    pub fn direct_socket_dir(&self, process_id: u32) -> PathBuf {
-        self.transient_runtime_root
-            .join(format!("direct-{process_id}"))
-    }
-
-    /// Account-core incarnations have separate endpoints from each other and game sessions.
-    #[must_use]
-    pub fn account_socket_dir(&self, pid: u32, incarnation: u64) -> PathBuf {
-        self.transient_runtime_root
-            .join(format!("account-{pid}-{incarnation}"))
-    }
-
-    #[must_use]
-    pub fn connect_socket_dir(&self, process_id: u32, generation: u64) -> PathBuf {
-        self.transient_runtime_root
-            .join(format!("connect-{process_id}-{generation}"))
     }
 }
 
@@ -461,7 +431,7 @@ fn isolated_user_roots(
         Platform::Linux => "Linux",
         Platform::MacOs => "macOS",
     };
-    require_absolute(root, platform, "CINNABAR_USER_ROOT", name)?;
+    require_absolute(root, platform, markers::USER_ROOT, name)?;
     Ok(Some((
         root.join("config"),
         root.join("data"),
@@ -576,13 +546,6 @@ fn absolute_for(platform: Platform, path: &Path) -> bool {
                 || value.starts_with("//")
         }
         Platform::Linux | Platform::MacOs => value.starts_with('/'),
-    }
-}
-
-const fn core_filename(platform: Platform) -> &'static str {
-    match platform {
-        Platform::Windows => "bedrock-core.exe",
-        Platform::Linux | Platform::MacOs => "bedrock-core",
     }
 }
 

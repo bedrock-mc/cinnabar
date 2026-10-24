@@ -1,14 +1,12 @@
 //! Fixture setup for app tests that exercise the real session controller.
 use super::MenuRuntime;
 
-/// Prevents catalog workers from starting in an isolated session fixture.
-pub fn suppress_catalog(menu: &mut MenuRuntime) {
-    menu.catalog_started = true;
-}
+#[cfg(feature = "native-networking")]
+pub mod friend;
 
-/// Points a fixture at a missing core without changing its user directories.
-pub fn use_missing_core(menu: &mut MenuRuntime) {
-    menu.layout.core_executable = menu.layout.user_data_root.join("missing-test-core");
+/// Observes admission of the real account-store worker, without starting or completing it.
+pub fn account_storage_started(menu: &MenuRuntime) -> bool {
+    menu.accounts.work.is_some()
 }
 
 /// Publishes a controlled external join stage for teardown fixtures.

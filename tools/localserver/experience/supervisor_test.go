@@ -93,7 +93,13 @@ func startFake(t *testing.T, mode string, log *slog.Logger, opts startOptions) (
 	// Called with the supervisor's lock held, or before StartSupervisor returns; Close orders
 	// every call before the cleanup's read.
 	var spawned []*helper
-	opts.spawned = func(h *helper) { spawned = append(spawned, h) }
+	observeSpawn := opts.spawned
+	opts.spawned = func(h *helper) {
+		spawned = append(spawned, h)
+		if observeSpawn != nil {
+			observeSpawn(h)
+		}
+	}
 	s, loaded, err := startSupervisor(fakeHelperBinary, t.TempDir(), log, opts)
 	if err != nil {
 		t.Fatalf("starting the fake helper in mode %s: %v", mode, err)
@@ -209,14 +215,74 @@ func TestProbeCallbackRoundTrip(t *testing.T) {
 
 // A helper that never answers is killed, reaped and replaced after its callback times out.
 func TestHangIsKilledAndRestarted(t *testing.T) {
-	log, _ := testLog(t)
-	s, _ := startFake(t, "hang", log, startOptions{})
-	old := currentHelper(s)
+	log, logs := testLog(t)
+	var old *helper
+	var retired, replacementStarted time.Time
+	s, _ := startFake(t, "hang", log, startOptions{
+		now: func() time.Time {
+			now := time.Now()
+			// The original strike-window clock is read after kill has reaped the helper.
+			if old != nil && retired.IsZero() {
+				select {
+				case <-old.exited:
+					retired = now
+				default:
+				}
+			}
+			return now
+		},
+		spawned: func(*helper) {
+			if old != nil {
+				replacementStarted = time.Now()
+			}
+		},
+	})
+	old = currentHelper(s)
+	start := time.Now()
 	_, err := s.Call(probeInteract(probeCount))
+	elapsed := time.Since(start)
+	logHangRecoveryPhases(t, logs, start, elapsed, retired, replacementStarted)
 	if !errors.Is(err, errHelperFault) {
 		t.Fatalf("Call: %v, want errHelperFault", err)
 	}
 	assertRestarted(t, s, old)
+}
+
+// logHangRecoveryPhases reports existing owner boundaries after the timed Call, without new waits.
+func logHangRecoveryPhases(t *testing.T, logs *logBuffer, start time.Time, elapsed time.Duration, retired, replacementStarted time.Time) {
+	t.Helper()
+	var fault, restarted time.Time
+	for _, line := range strings.Split(logs.String(), "\n") {
+		var record struct {
+			Time    time.Time `json:"time"`
+			Message string    `json:"msg"`
+		}
+		if json.Unmarshal([]byte(line), &record) != nil {
+			continue
+		}
+		switch record.Message {
+		case "helper fault":
+			fault = record.Time
+		case "helper restarted":
+			restarted = record.Time
+		}
+	}
+	t.Logf("helper recovery: call_ns=%d", elapsed.Nanoseconds())
+	for _, phase := range []struct {
+		name string
+		at   time.Time
+	}{
+		{"fault_logged", fault},
+		{"retirement_observed", retired},
+		{"replacement_started", replacementStarted},
+		{"restart_logged", restarted},
+	} {
+		if phase.at.IsZero() {
+			t.Logf("helper recovery: phase=%s observed=false", phase.name)
+		} else {
+			t.Logf("helper recovery: phase=%s observed=true elapsed_ns=%d", phase.name, phase.at.Sub(start).Nanoseconds())
+		}
+	}
 }
 
 // assertPromptFault checks that the fake helper in mode faults the first Call without waiting

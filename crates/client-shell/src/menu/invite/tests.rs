@@ -1,40 +1,25 @@
 use launcher::menu::invite::{Friend, Section};
 
+use launcher::menu::auth::AuthState;
 use {
     super::*,
     launcher::menu::{MenuAction, MenuScreen},
 };
-use {
-    launcher::menu::{
-        auth::AuthState,
-        view::{MenuFriendCard, MenuRealmCard},
-    },
-    launcher_host::account_control::AccountEvent,
-};
 
-/// A core that records what the menu asks of it and answers the friends list when told.
+/// An account control that records what the menu asks of it and answers the friends list when told.
 #[derive(Default)]
-struct Core {
+struct Control {
     requests: usize,
     answer: Option<Result<Vec<Friend>, ()>>,
     sent: Vec<Vec<String>>,
 }
 
-impl AccountControl for Core {
+impl AccountControl for Control {
     fn account_status(&mut self) -> Option<AuthState> {
-        None
-    }
-    fn realms(&mut self) -> Option<Vec<MenuRealmCard>> {
-        None
-    }
-    fn friends(&mut self) -> Option<Vec<MenuFriendCard>> {
         None
     }
     fn sign_out(&mut self) -> bool {
         false
-    }
-    fn poll_event(&mut self) -> Option<AccountEvent> {
-        None
     }
     fn request_people(&mut self) {
         self.requests += 1;
@@ -68,16 +53,16 @@ fn paused(hosted: bool) -> MenuRuntime {
 }
 
 /// The invite screen open over a hosted world, listing friends A and C online and B offline.
-fn listing(core: &mut Core) -> MenuRuntime {
+fn listing(control: &mut Control) -> MenuRuntime {
     let mut menu = paused(true);
     menu.activate(MenuAction::Invite(Action::Open));
-    menu.sync_account_control(core);
-    core.answer = Some(Ok(vec![
+    menu.sync_account_control(control);
+    control.answer = Some(Ok(vec![
         friend("A", true),
         friend("B", false),
         friend("C", true),
     ]));
-    menu.sync_account_control(core);
+    menu.sync_account_control(control);
     menu
 }
 
@@ -100,9 +85,9 @@ fn only_a_hosted_world_offers_invites() {
 
 #[test]
 fn opening_asks_for_the_friends_once_and_shows_the_answer() {
-    let mut core = Core::default();
-    let menu = listing(&mut core);
-    assert_eq!(core.requests, 1);
+    let mut control = Control::default();
+    let menu = listing(&mut control);
+    assert_eq!(control.requests, 1);
     let invite = menu.view().invite.expect("invite screen state");
     assert!(!invite.loading());
     assert_eq!(invite.section(Section::Online).count(), 2);
@@ -111,8 +96,8 @@ fn opening_asks_for_the_friends_once_and_shows_the_answer() {
 
 #[test]
 fn send_invites_exactly_the_picked_friends_and_returns_to_pause() {
-    let mut core = Core::default();
-    let mut menu = listing(&mut core);
+    let mut control = Control::default();
+    let mut menu = listing(&mut control);
     for toggle in [
         Action::Toggle(Section::Online, 1),
         Action::Toggle(Section::Offline, 0),
@@ -124,32 +109,32 @@ fn send_invites_exactly_the_picked_friends_and_returns_to_pause() {
     menu.activate(MenuAction::Invite(Action::Send));
     assert_eq!(menu.screen(), MenuScreen::Pause);
     assert!(menu.view().invite.is_none());
-    menu.sync_account_control(&mut core);
-    menu.sync_account_control(&mut core);
-    assert_eq!(core.sent, [["C", "B"]]);
+    menu.sync_account_control(&mut control);
+    menu.sync_account_control(&mut control);
+    assert_eq!(control.sent, [["C", "B"]]);
 }
 
 #[test]
 fn leaving_without_sending_invites_no_one() {
-    let mut core = Core::default();
-    let mut menu = listing(&mut core);
+    let mut control = Control::default();
+    let mut menu = listing(&mut control);
     menu.activate(MenuAction::Invite(Action::Toggle(Section::Online, 0)));
     menu.activate(MenuAction::AddBack);
     assert_eq!(menu.screen(), MenuScreen::Pause);
     menu.activate(MenuAction::Invite(Action::Open));
     menu.activate(MenuAction::Invite(Action::Send));
-    menu.sync_account_control(&mut core);
-    assert!(core.sent.is_empty(), "{:?}", core.sent);
-    assert_eq!(core.requests, 2, "each opening asks again");
+    menu.sync_account_control(&mut control);
+    assert!(control.sent.is_empty(), "{:?}", control.sent);
+    assert_eq!(control.requests, 2, "each opening asks again");
 }
 
 #[test]
 fn a_failed_friends_list_stops_loading() {
-    let mut core = Core::default();
+    let mut control = Control::default();
     let mut menu = paused(true);
     menu.activate(MenuAction::Invite(Action::Open));
-    core.answer = Some(Err(()));
-    menu.sync_account_control(&mut core);
+    control.answer = Some(Err(()));
+    menu.sync_account_control(&mut control);
     let invite = menu.view().invite.expect("invite screen state");
     assert!(invite.failed() && !invite.loading());
 }

@@ -62,8 +62,7 @@ fn a_detach_mid_import_ends_the_import_modal() {
     let manager =
         launcher_host::local_worlds::open_store(dir.path().join("worlds")).expect("manager");
     let mut worlds = LocalWorlds::default();
-    worlds.client =
-        Some(WorldsClient::spawn(manager, dir.path().join("no-core-here")).expect("worker"));
+    worlds.client = Some(WorldsClient::spawn(manager).expect("worker"));
     worlds.input(Input::ImportFiles(vec![dir.path().join("Home.mcworld")]));
     assert_eq!(worlds.menu().screen(), Screen::Importing);
     worlds.detach();

@@ -135,16 +135,16 @@ fn legacy_view(layers: &[Value]) -> LayeredPackView {
                     .unwrap();
                 writer.write_all(&png(2, 2, |_, _| color)).unwrap();
             }
-            protocol::ResourcePackArchive::unencrypted(
+            bedrock_packs::ResourcePackArchive::unencrypted(
                 id.parse().unwrap(),
                 "1.0.0".into(),
-                String::new(),
+                Vec::new(),
                 writer.finish().unwrap().into_inner(),
             )
         })
         .collect();
     LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(archives),
+        bedrock_packs::ResourcePackHandoff::from_archives(archives),
     ))
 }
 

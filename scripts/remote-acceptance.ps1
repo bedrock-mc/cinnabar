@@ -4,7 +4,6 @@ param(
     [Parameter(Mandatory = $true)][ValidateSet('Diagnostic', 'Candidate', 'Final')][string]$Mode,
     [Parameter(Mandatory = $true)][string]$RunId,
     [Parameter(Mandatory = $true)][int]$DurationSeconds,
-    [Parameter(Mandatory = $true)][string]$AuthCache,
     [Parameter(Mandatory = $true)][int]$InitialRadius,
     [Parameter(Mandatory = $true)][ValidateSet('Fifo')][string]$PresentMode,
     [switch]$FullViewTeleportGate,
@@ -30,7 +29,6 @@ if ($OpenSettingsOverlay) {
 if ($SkipClientBuild -and [string]::IsNullOrWhiteSpace($ClientExecutable)) {
     throw 'SkipClientBuild requires ClientExecutable'
 }
-$AuthCacheFull = Resolve-AcceptanceContainedPath -ProjectRoot $ProjectRoot -Path $AuthCache -Scope Local
 $lunarPrerequisite = $null
 if ($Server -eq 'Zeqa') {
     if ($Mode -cne 'Diagnostic' -and -not $FullViewTeleportGate) {
@@ -48,7 +46,7 @@ $RunDirectory = New-AcceptanceRunDirectory -ProjectRoot $ProjectRoot -Kind remot
 $upstream = if ($Server -eq 'Lunar') { 'pvp.lunarbedrock.com:19134' } else { 'zeqa.net:19132' }
 $clientAcceptanceSeconds = $DurationSeconds + 5
 $clientArguments = @(
-    '--socket-dir', (Join-Path $RunDirectory 'socket'),
+    '--address', $upstream,
     '--assets', $Assets,
     '--acceptance-seconds', $clientAcceptanceSeconds,
     '--metrics-out', (Join-Path $RunDirectory 'metrics.json')
@@ -96,16 +94,11 @@ if ($ValidateOnly) {
 
 . (Join-Path $PSScriptRoot 'acceptance\Common.ps1')
 . (Join-Path $PSScriptRoot 'acceptance\Process.ps1')
-$coreHandle = $null
 $clientHandle = $null
 $runSucceeded = $false
 $runFailure = $null
 $clientLogsCompleted = $false
-$coreLogsCompleted = $false
 try {
-    $CoreExecutable = Join-Path $ProjectRoot 'target\release\bedrock-core.exe'
-    Invoke-CheckedBuild -Executable 'go' -Arguments @('build', '-trimpath', '-o', $CoreExecutable, './core/cmd/bedrock-core') `
-        -LogPath (Join-Path $RunDirectory 'build-core.log') -WorkingDirectory $ProjectRoot
     if (-not $SkipClientBuild) {
         Invoke-CheckedBuild -Executable 'cargo' -Arguments @('build', '-p', 'cinnabar', '--release', '--locked') `
             -LogPath (Join-Path $RunDirectory 'build-client.log') -WorkingDirectory $ProjectRoot
@@ -119,17 +112,11 @@ try {
     else {
         [IO.Path]::GetFullPath((Join-Path $ProjectRoot $ClientExecutable))
     }
-    foreach ($executable in @($CoreExecutable, $ClientExecutableFull)) {
+    foreach ($executable in @($ClientExecutableFull)) {
         if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
             throw "required release executable is missing"
         }
     }
-    $socketDirectory = Join-Path $RunDirectory 'socket'
-    $coreHandle = Start-LoggedProcess -Executable $CoreExecutable `
-        -Arguments @('-socket-dir', $socketDirectory, '-upstream', $upstream, '-auth-cache', $AuthCacheFull) `
-        -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'core.stdout.log') `
-        -StderrPath (Join-Path $RunDirectory 'core.stderr.log')
-    $null = Wait-CoreReady -Handle $coreHandle -TimeoutSeconds 30
     $joinStopwatch = [Diagnostics.Stopwatch]::StartNew()
     $clientHandle = Start-LoggedProcess -Executable $ClientExecutableFull -Arguments $clientArguments `
         -WorkingDirectory $ProjectRoot -StdoutPath (Join-Path $RunDirectory 'client.stdout.log') `
@@ -139,7 +126,7 @@ try {
     }
     catch {
         if ($Mode -cne 'Diagnostic') { throw }
-        if ($clientHandle.Process.HasExited -or $coreHandle.Process.HasExited -or
+        if ($clientHandle.Process.HasExited -or
             -not $_.Exception.Message.StartsWith("timed out waiting for 'CINNABAR_WORLD_READY '", [StringComparison]::Ordinal)) {
             throw
         }
@@ -147,12 +134,9 @@ try {
         Stop-BoundedProcess -Handle $clientHandle -Kind app
         Complete-ProcessLogs $clientHandle
         $clientLogsCompleted = $true
-        Stop-BoundedProcess -Handle $coreHandle -Kind core
-        Complete-ProcessLogs $coreHandle
-        $coreLogsCompleted = $true
         Complete-PublicationDiagnosticEvidence -Manifest $manifest `
             -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') `
-            -CoreLogPath (Join-Path $RunDirectory 'core.stderr.log') `
+            -SourceLogPath (Join-Path $RunDirectory 'client.stdout.log') `
             -ExpectedPresentMode $PresentMode -WorldReadyObserved:$false -Server $Server
         Write-AcceptanceJson -Path (Join-Path $RunDirectory 'manifest.json') -Value $manifest
         $runSucceeded = $true
@@ -163,17 +147,14 @@ try {
     $joinMilliseconds = $joinStopwatch.Elapsed.TotalMilliseconds
     $manifest.world_ready_observed = $true
     $resourcesPath = Join-Path $RunDirectory 'resources.json'
-    $null = Measure-PublicationResources -ClientHandle $clientHandle -CoreHandle $coreHandle -OutputPath $resourcesPath
+    $null = Measure-PublicationResources -ClientHandle $clientHandle -OutputPath $resourcesPath
     if (-not $clientHandle.Process.WaitForExit(($DurationSeconds + 30) * 1000)) {
         throw 'client did not exit after its bounded acceptance session'
     }
-    Stop-BoundedProcess -Handle $coreHandle -Kind core
     Complete-ProcessLogs $clientHandle
     $clientLogsCompleted = $true
-    Complete-ProcessLogs $coreHandle
-    $coreLogsCompleted = $true
     $manifest.cache_boundary_evidence = Get-CacheBoundaryEvidence `
-        -CoreLogPath (Join-Path $RunDirectory 'core.stderr.log')
+        -SourceLogPath (Join-Path $RunDirectory 'client.stdout.log')
     $evidence = Assert-PublicationEvidence -MetricsPath (Join-Path $RunDirectory 'metrics.json') `
         -ResourcesPath $resourcesPath -ClientLogPath (Join-Path $RunDirectory 'client.stdout.log') `
         -ExpectedPresentMode $PresentMode -JoinMilliseconds $joinMilliseconds `
@@ -213,7 +194,7 @@ catch {
 }
 finally {
     Complete-RemoteAcceptanceRun -Manifest $manifest -ManifestPath (Join-Path $RunDirectory 'manifest.json') `
-        -RunSucceeded $runSucceeded -ClientHandle $clientHandle -CoreHandle $coreHandle `
-        -ClientLogsCompleted $clientLogsCompleted -CoreLogsCompleted $coreLogsCompleted `
+        -RunSucceeded $runSucceeded -ClientHandle $clientHandle `
+        -ClientLogsCompleted $clientLogsCompleted `
         -PrimaryFailure $runFailure
 }

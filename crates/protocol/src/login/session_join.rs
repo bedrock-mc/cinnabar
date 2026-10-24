@@ -1,6 +1,6 @@
-//! Joins through the core's session endpoint: the core makes the only login and acquires the packs,
-//! and this client continues from StartGame with its own spawn sequence.
+//! Continues a Rust gateway's framed handoff with the shared client spawn sequence.
 
+use bedrock_packs::{ResourcePackArchive, ResourcePackHandoff};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -14,10 +14,9 @@ use super::{LoginSequence, PlaySession};
 use crate::codec::SessionFailure;
 use crate::disconnect::{disconnect_reason, join_disconnect};
 use crate::packet_tap::{PacketOutcome, PacketTap};
-use crate::session_transport::{MAX_READ_AHEAD_BYTES, SessionTransport};
+use crate::session_transport::{MAX_READ_AHEAD_BYTES, PreparationFailure, SessionTransport};
 use crate::{
-    ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ResourcePackArchive,
-    ResourcePackHandoff, ServerTransferEvent,
+    ClientBlobCache, ClientSkin, GameData, PROTOCOL_VERSION, ProtocolError, ServerTransferEvent,
 };
 
 /// Prepared ordered play I/O and the host's timer registration function.
@@ -39,6 +38,9 @@ pub struct SessionLogin<'a> {
     #[cfg(not(target_arch = "wasm32"))]
     pub relay: Option<Arc<dyn crate::PacketRelay>>,
     pub target: Option<bridge::ConnectTarget>,
+    /// Optional native host execution and its final process-stop observation.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub execution: Option<&'a bridge::tasks::NativeExecution>,
 }
 
 /// Schedules the two startup jobs while login continues reading the ordered play stream.
@@ -66,15 +68,16 @@ impl LoginSequence {
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession<R>, P), ProtocolError> {
         let profile = bridge::join_profile::JoinProfile::current();
-        let handoff_stage = profile.stage("upstream_login_and_pack_handoff");
-        send_connect(&io.frames, &login).await?;
-        let (handoff, archives) = receive_handoff(
-            &mut io.reader,
-            login.settings.resource_pack_cache_dir.as_deref(),
-            preparation,
-        )
-        .await?;
-        drop(handoff_stage);
+        let (handoff, archives) = {
+            let _handoff_stage = profile.stage("upstream_login_and_pack_handoff");
+            send_connect(&io.frames, &login).await?;
+            receive_handoff(
+                &mut io.reader,
+                login.settings.resource_pack_cache_dir.as_deref(),
+                preparation,
+            )
+            .await?
+        };
         Self::continue_handoff(io, login, preparation, prepare, handoff, archives).await
     }
 
@@ -132,41 +135,41 @@ impl LoginSequence {
             packs
         };
         let mut prepared_job = None;
-        let spawn_stage = profile.stage("spawn_prerequisites");
-        let spawned = match super::startup::await_spawn(
-            &mut transport,
-            settings.view_distance_chunks,
-            |start_game, item_registry| {
-                prepared_job = Some(preparation.submit(move || {
-                    prepare(packs, GameData::from_wire(&start_game, &item_registry))
-                }));
-            },
-        )
-        .await
-        {
-            Ok(spawned) => spawned,
-            Err(error) => {
-                if let ProtocolError::Session(session) = &error
-                    && session.0.is_packet_failure()
-                {
-                    transport.reject_current(PacketOutcome::Failed);
+        let initialization = {
+            let _spawn_stage = profile.stage("spawn_prerequisites");
+            match super::startup::await_spawn(
+                &mut transport,
+                settings.view_distance_chunks,
+                |start_game, item_registry| {
+                    prepared_job = Some(preparation.submit(move || {
+                        prepare(packs, GameData::from_wire(&start_game, &item_registry))
+                    }));
+                },
+            )
+            .await
+            {
+                Ok(spawned) => spawned,
+                Err(error) => {
+                    if let ProtocolError::Session(session) = &error
+                        && session.0.is_packet_failure()
+                    {
+                        transport.reject_current(PacketOutcome::Failed);
+                    }
+                    return Err(error);
                 }
-                return Err(error);
             }
         };
         transport.finish_startup();
-        drop(spawn_stage);
         let pack_wait = profile.stage("remaining_pack_preparation");
         let preparation = prepared_job.expect("spawn waits for StartGame and the item registry");
         let prepared = prepare_with_read_ahead(&mut transport, preparation).await?;
+        #[allow(
+            clippy::drop_non_drop,
+            reason = "inert builds omit Drop; retain the original guard order after preparation on cancellation"
+        )]
         drop(pack_wait);
         profile.mark("session_ready");
-        let mut session = PlaySession::new(
-            transport,
-            cache,
-            spawned.runtime_id,
-            spawned.terrain_before_spawn,
-        );
+        let mut session = PlaySession::new(transport, cache, initialization);
         session.identity = handoff.identity;
         Ok((session, prepared))
     }
@@ -174,22 +177,35 @@ impl LoginSequence {
 
 /// Keeps bounded play frames in order while preparation runs, abandoning obsolete work on a
 /// usable core terminal. An unusable transfer retains its ordinary later handling.
-async fn prepare_with_read_ahead<R: FrameRead, P>(
+pub(super) async fn prepare_with_read_ahead<R: FrameRead, P>(
     transport: &mut SessionTransport<R>,
     preparation: impl Future<Output = P>,
 ) -> Result<P, ProtocolError> {
     tokio::pin!(preparation);
-    tokio::select! {
-        prepared = &mut preparation => Ok(prepared),
-        () = transport.read_ahead(MAX_READ_AHEAD_BYTES) => {
-            if let Some(terminal) = transport.buffered_startup_terminal()?
+    let prepared = tokio::select! {
+        prepared = &mut preparation => prepared,
+        result = transport.read_ahead_during_preparation(MAX_READ_AHEAD_BYTES) => {
+            let terminal = match result {
+                Ok(terminal) => terminal,
+                Err(PreparationFailure::Input(error)) => return Err(error.into()),
+                Err(PreparationFailure::Write(error)) => {
+                    return Err(super::startup::startup_write_failure(
+                        transport,
+                        error,
+                        super::WRITE_FAILURE_DRAIN,
+                    ).await);
+                }
+            };
+            if let Some(terminal) = terminal
                 && let Ok(error) = super::startup::terminal_error(terminal)
             {
                 return Err(error);
             }
-            Ok(preparation.await)
+            preparation.await
         },
-    }
+    };
+    transport.complete_preparation();
+    Ok(prepared)
 }
 
 /// Sends the same login request through native or injected web play I/O.
@@ -307,8 +323,8 @@ fn resource_pack_handoff(
                 .map_err(|_| unexpected("handoff pack identity is not a UUID"))?;
             Ok(ResourcePackArchive::with_content_key(
                 id,
-                pack.version.clone(),
-                pack.sub_pack.clone(),
+                pack.version.as_bytes().to_vec(),
+                pack.sub_pack.as_bytes().to_vec(),
                 archive,
                 pack.content_key.expose().as_bytes().to_vec(),
             ))

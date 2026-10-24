@@ -69,7 +69,7 @@ $MetricsPinnedSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'as
     $steadyArtifactSamples = @(1..30 | ForEach-Object {
         [pscustomobject]@{
             elapsed_seconds = [double]$_
-            combined_rss_bytes = 350MB
+            client_rss_bytes = 350MB
             cpu_percent = 10.0
         }
     })
@@ -393,7 +393,7 @@ $MetricsPinnedSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'as
         [Text.UTF8Encoding]::new($false)
     )
     $tamperedResourceArtifact = $steadyArtifact | ConvertTo-Json -Depth 10 | ConvertFrom-Json
-    $tamperedResourceArtifact.summary.max_combined_rss_bytes = 1
+    $tamperedResourceArtifact.summary.max_client_rss_bytes = 1
     $tamperedResourceArtifact.summary.mean_cpu_percent = 0.0
     $tamperedResourceArtifact.summary.p95_cpu_percent = 0.0
     [IO.File]::WriteAllText(
@@ -626,12 +626,12 @@ $MetricsPinnedSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'as
     $metrics.teleport_proof.publisher_ms = 100.0
 
     $resourceSamples = @(
-        [pscustomobject]@{ combined_rss_bytes = 300MB; cpu_percent = 5.0 },
-        [pscustomobject]@{ combined_rss_bytes = 400MB; cpu_percent = 10.0 },
-        [pscustomobject]@{ combined_rss_bytes = 350MB; cpu_percent = 15.0 }
+        [pscustomobject]@{ client_rss_bytes = 300MB; cpu_percent = 5.0 },
+        [pscustomobject]@{ client_rss_bytes = 400MB; cpu_percent = 10.0 },
+        [pscustomobject]@{ client_rss_bytes = 350MB; cpu_percent = 15.0 }
     )
     $resourceSummary = Get-SteadyResourceSummary -Samples $resourceSamples
-    Assert-Equal (400MB) $resourceSummary.max_combined_rss_bytes 'resource summary chose the wrong RSS maximum'
+    Assert-Equal (400MB) $resourceSummary.max_client_rss_bytes 'resource summary chose the wrong RSS maximum'
     Assert-Equal 10.0 $resourceSummary.mean_cpu_percent 'resource summary chose the wrong CPU mean'
     Assert-Equal 15.0 $resourceSummary.p95_cpu_percent 'resource summary chose the wrong CPU p95'
     $resourceTrigger = New-FullViewResourceTrigger `
@@ -641,7 +641,7 @@ $MetricsPinnedSource = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot 'as
         -Samples $resourceSamples `
         -DurationSeconds 30 `
         -Trigger $resourceTrigger
-    Assert-Equal 'rust-mcbe-steady-resources-v2' $resourceDocument.schema 'steady-resource schema did not identify trigger provenance'
+    Assert-Equal 'rust-mcbe-steady-resources-v3' $resourceDocument.schema 'steady-resource schema did not identify trigger provenance'
     Assert-Equal 'FullViewPresented' $resourceDocument.trigger.kind 'steady-resource trigger kind changed'
     Assert-Equal '0:65:65:16' $resourceDocument.trigger.target 'steady-resource trigger lost its exact target'
     Assert-Equal 7 $resourceDocument.trigger.teleport_view_generation 'steady-resource trigger lost teleport generation'

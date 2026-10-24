@@ -478,14 +478,19 @@ mod tests {
     #[test]
     fn declared_reads_of_go_sources_still_run_everything() {
         let mut packages = workspace();
-        packages.push(Package::new("bridge", "crates/bridge", &[]).with_reads(vec!["core".into()]));
+        packages.push(
+            Package::new("cosmetics", "crates/cosmetics", &[]).with_reads(vec![
+                "tools/localserver".into(),
+                "crates/bridge/data/cinnabar-api/v1.json".into(),
+            ]),
+        );
         assert_eq!(
-            select_packages(&["core/session/relay.go"], &packages),
+            select_packages(&["tools/localserver/main.go"], &packages),
             Selection::Workspace
         );
         assert_eq!(
-            select_packages(&["core/catalog/artwork_limit.txt"], &packages),
-            Selection::Packages(vec!["bridge".into()])
+            select_packages(&["crates/bridge/data/cinnabar-api/v1.json"], &packages),
+            Selection::Packages(vec!["cosmetics".into()])
         );
     }
 

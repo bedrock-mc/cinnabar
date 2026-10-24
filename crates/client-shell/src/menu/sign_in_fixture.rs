@@ -153,7 +153,7 @@ mod tests {
             matches!(view.auth_state, AuthState::AwaitingCode { code, .. } if code == PLACEHOLDER_CODE)
         );
         assert!(menu.activate_sign_in_fixture(MenuAction::StartSignIn));
-        assert!(menu.auth_process.is_none());
+        assert!(menu.owned_auth().is_none());
         assert!(menu.accounts.operation.is_none());
         assert_eq!(menu.sign_in_fixture, Some(SignInFixtureState::Waiting));
     }
@@ -169,7 +169,7 @@ mod tests {
         assert!(!view.popup_open());
         assert_eq!(view.auth_state, AuthState::SignedOut);
         assert!(!menu.focus_actions().contains(&MenuAction::OpenSignInLink));
-        assert!(menu.auth_process.is_none());
+        assert!(menu.owned_auth().is_none());
         assert!(menu.accounts.operation.is_none());
     }
 
@@ -199,7 +199,7 @@ mod tests {
         );
         menu.activate_focused();
         assert_eq!(menu.sign_in_fixture, Some(SignInFixtureState::Waiting));
-        assert!(menu.auth_process.is_none());
+        assert!(menu.owned_auth().is_none());
         assert!(menu.accounts.operation.is_none());
     }
 }

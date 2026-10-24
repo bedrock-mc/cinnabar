@@ -620,11 +620,15 @@ fn review_final_directory_removal_failure_preserves_retry_authority() {
 }
 
 #[test]
-fn account_core_directories_are_owned_and_retiring_one_keeps_the_next() {
+fn owned_session_directories_retire_without_removing_the_next() {
     let layout = launcher::test_support::scratch("account-incarnations");
     let _root = TempRoot(layout.runtime_root.clone());
-    let first = layout.account_socket_dir(process::id(), 1);
-    let second = layout.account_socket_dir(process::id(), 2);
+    let first = layout
+        .runtime_root
+        .join(format!("connect-{}-1", process::id()));
+    let second = layout
+        .runtime_root
+        .join(format!("connect-{}-2", process::id()));
     let old = SessionDirectoryGuard::bind(first.clone()).unwrap();
     let new = SessionDirectoryGuard::bind(second.clone()).unwrap();
     assert!(first.is_dir());

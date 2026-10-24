@@ -19,18 +19,29 @@ mod inventory;
 mod item;
 mod item_capacity;
 mod login;
+mod server_status;
+mod session_endpoint;
+pub use server_status::ServerListStatus;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use session_endpoint::{
+    MAX_NATIVE_JOIN_NONCE_BYTES, NATIVE_JOIN_TIMEOUT, NativeMessagingTarget, NativeRawTarget,
+    NativeServerTrust,
+};
+pub use session_endpoint::{NativeConnectionTarget, NativeTransport, SessionEndpoint};
 mod movement;
 mod nbt_tree;
 mod packet;
 mod packet_relay;
+pub use packet_relay::{PacketRelay, RELAY_TICK, RelayOutput};
 pub mod packet_tap;
-pub use packet_relay::{PacketRelay, RELAY_TICK, RelayOutput, RelayPack};
 mod particle;
 mod permissions;
 mod primitive_shapes;
 mod raw_packet;
 mod raw_text;
 mod respawn;
+mod round_trip_time;
+pub use round_trip_time::RoundTripTime;
 mod settings;
 mod skin_change;
 pub use skin_change::{
@@ -38,6 +49,8 @@ pub use skin_change::{
     set_skin_packet_engine_version, set_skin_packet_uuid,
 };
 mod session_transport;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use session_transport::native::delay::NativePacketDelay;
 pub mod session_wire;
 mod transfer;
 mod translation_parameter;
@@ -120,60 +133,44 @@ pub use inventory::recipes::{
     vanilla_tag_contains,
 };
 pub use inventory::{
-    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
-    CONTAINER_NAME_HOTBAR, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, ContainerWindow, CraftResult,
-    LAST_CONTAINER_NAME, LEGACY_TRADE_SLOTS, MAX_STACK_REQUEST_ACTIONS, MAX_STACK_REQUEST_AMOUNT,
-    MODERN_TRADE_SLOTS, NO_CONTAINER_WINDOW_TYPE, StackItemDescriptor, TradeEvent, TradeItem,
-    TradeOffer, WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
-};
-pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
-    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
-};
-pub use inventory::{
-    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
-    CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
-    CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
-    ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, DYNAMIC_STORAGE_WINDOW_ID,
-    InventoryAuthority, InventoryContentEvent, InventoryEvent, InventoryPacketError,
-    InventorySlotEvent, InventoryTransactionEvent, ItemStackResponseEvent, MAX_CONTAINER_SLOTS,
-    MAX_FILTER_STRINGS, MAX_ITEM_NBT_BYTES, MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES,
-    MAX_STACK_RESPONSES, NormalInventoryChange, NormalInventorySource, OFFHAND_WINDOW_ID,
-    PLAYER_INVENTORY_SLOTS, PLAYER_INVENTORY_WINDOW_ID, SelectedSlotEvent, SlotIdentity,
+    ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, BookEdit, CONTAINER_NAME_ARMOR,
+    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
+    CONTAINER_NAME_CREATED_OUTPUT, CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC,
+    CONTAINER_NAME_HOTBAR, CONTAINER_NAME_INVENTORY, CONTAINER_NAME_LEVEL_ENTITY,
+    CONTAINER_NAME_OFFHAND, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CanonicalCell,
+    ContainerCloseEvent, ContainerDataEvent, ContainerIdentity, ContainerOpenEvent,
+    ContainerWindow, CraftResult, CraftingRules, CreativeCategory, CreativeContentEvent,
+    CreativeGroup, CreativeItem, DYNAMIC_STORAGE_WINDOW_ID, EnchantOption, EnchantOptionsEvent,
+    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    IngredientObservation, InventoryAuthority, InventoryContentEvent, InventoryEvent,
+    InventoryLayout, InventoryOptions, InventoryPacketError, InventoryRightTab, InventorySlotEvent,
+    InventoryTab, InventoryTransactionEvent, ItemStackResponseEvent, LAST_CONTAINER_NAME,
+    LEGACY_TRADE_SLOTS, MAX_BOOK_PAGE_BYTES, MAX_CONTAINER_SLOTS, MAX_CREATIVE_GROUPS,
+    MAX_CREATIVE_ITEMS, MAX_ENCHANT_OPTIONS, MAX_FILTER_STRINGS, MAX_GENERIC_STORAGE_SLOTS,
+    MAX_ITEM_NBT_BYTES, MAX_RECIPE_OBSERVATIONS, MAX_RESPONSE_CONTAINERS, MAX_RESPONSE_NAME_BYTES,
+    MAX_STACK_REQUEST_ACTIONS, MAX_STACK_REQUEST_AMOUNT, MAX_STACK_RESPONSES, MODERN_TRADE_SLOTS,
+    MineBlockRequest, MineBlockRequestError, NO_CONTAINER_WINDOW_TYPE, NormalInventoryChange,
+    NormalInventorySource, OFFHAND_WINDOW_ID, OpenCells, PLAYER_INVENTORY_SLOTS,
+    PLAYER_INVENTORY_WINDOW_ID, RecipeObservation, RecipeObservations, RecipeRegistryError,
+    RecipeRegistrySnapshot, SelectedSlotEvent, SlotIdentity, StackItemDescriptor,
     StackRequestAction, StackRequestContainer, StackRequestSlot, StackResponse,
-    StackResponseContainer, StackResponseSlot, StackResponseStatus, UI_INVENTORY_WINDOW_ID,
-    VerifiedNetworkItemStack, container_close_packet, inventory_drop_transaction_packet,
-    is_legacy_request_id, item_stack_request_batch, item_stack_request_packet,
-    item_stack_request_packet_filtered, next_legacy_request_id,
-    normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
-    personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
-    repeated_container_open_warning_packet, validate_item_nbt_size,
-};
-pub use inventory::{
-    CraftingRules, FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
-    furnace_options_packet,
-};
-pub use inventory::{
-    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
-    MAX_CREATIVE_ITEMS,
-};
-pub use inventory::{
-    EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, MAX_GENERIC_STORAGE_SLOTS, OpenCells,
-    UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
-    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
-    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
-    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
-    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
-    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
-    is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
-    ui_slot_for_name, ui_slot_request_container,
-};
-pub use inventory::{
-    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
-};
-pub use inventory::{
-    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
-    MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
+    StackResponseContainer, StackResponseSlot, StackResponseStatus, TradeEvent, TradeItem,
+    TradeOffer, UI_INVENTORY_WINDOW_ID, UI_SLOT_COUNT, VerifiedNetworkItemStack, WINDOW_TYPE_ANVIL,
+    WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE, WINDOW_TYPE_BREWING_STAND,
+    WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER,
+    WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE,
+    WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM,
+    WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_TRADE,
+    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, actor_pick_request_packet,
+    block_pick_request_packet, book_edit_packet, container_close_packet, container_window,
+    crafter_slot_toggle_packet, furnace_options_packet, inventory_drop_transaction_packet,
+    inventory_options_packet, is_chest_like_name, is_legacy_request_id, is_open_window_name,
+    is_personal_ui_inventory, is_result_preview_name, item_stack_request_batch,
+    item_stack_request_packet, item_stack_request_packet_filtered, lectern_update_packet,
+    next_legacy_request_id, normal_inventory_transaction_packet, normalize_authority,
+    open_cell_request, open_inventory_packet, open_name_first_cell, personal_craft_content_indices,
+    personal_craft_slot_index, project_container_cell, repeated_container_open_warning_packet,
+    ui_slot_container_name, ui_slot_for_name, ui_slot_request_container, validate_item_nbt_size,
 };
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, DiggerBlock,
@@ -198,10 +195,19 @@ pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
 pub use login::{
     BaseGameVersion, ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION,
-    GameData, JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION,
-    PacketIdTraceSnapshot, PlayOutbound, PlaySession, ResourcePackArchive, ResourcePackContentKey,
-    ResourcePackHandoff, SessionIo, SessionLogin, StartupItems, StartupSettings,
-    WRITE_FAILURE_DRAIN, WebSessionReader, login_memory_tier, network_stack_latency_reply,
+    GameData, JoinPreparation, LoginSequence, LoginSettings, MAX_DEFERRED_PACKET_BYTES,
+    PROTOCOL_VERSION, PacketIdTraceSnapshot, PlayOutbound, PlaySession, SessionIo, SessionLogin,
+    StartupItems, StartupSettings, WRITE_FAILURE_DRAIN, WebSessionReader, login_client_data,
+    login_memory_tier, network_stack_latency_reply,
+};
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use login::{
+    NativeAuthentication, NativeCredential, NativeDeviceProfile, NativeHostWorld,
+    NativeHostedRelay, NativeHostedRelayClosing, NativeHostedRelayProgress, NativeHostedUpstream,
+    NativeHostedUpstreamClosing, NativeHostingIdentity, NativeProvider, NativeRelayClosing,
+    NativeRelayConnecting, NativeRelayConnection, NativeRelayDriver, NativeRelayHandoff,
+    NativeRelayInbound, NativeRelayRetired, NativeRelaySender, NativeRelayWritten,
+    NativeServiceClock, ValidatedRelayData, native_host_packs,
 };
 pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockActionsFull, BlockItemInteraction,
@@ -230,10 +236,8 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
-#[cfg(not(target_arch = "wasm32"))]
-pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
-pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
+pub use transfer::{ServerTransferEvent, ServerTransferRejection};
 pub use translation_parameter::localize_parameter_prefix;
 pub use ui::{
     BlockCrackAction, BlockCrackEvent, BossAction, BossColor, BossEvent, BossOverlay, BossStyle,
@@ -284,10 +288,6 @@ pub use fast_transfer_action::FastTransferAction;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
-
-#[cfg(test)]
-#[global_allocator]
-static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 // Wire suites that inspect packet internals remain unit tests.
 #[cfg(test)]

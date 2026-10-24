@@ -156,6 +156,63 @@ test("WebSocket receive bounds reject oversized, over-budget and excessive messa
     }
 });
 
+test("fragmented play bytes retain their bounded FIFO without closing control", async () => {
+    const t = adapter.create("https://relay.invalid", false, JSON.stringify(config));
+    const control = await adapter.open(t, config.control), controlSocket = Socket.instances.at(-1);
+    const play = await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1"), playSocket = Socket.instances.at(-1);
+    const fragments = Array.from({ length: config.chunks + 1 }, (_, index) => new Uint8Array([index]));
+    const delivered = [];
+    let open = false, controlProgress = false, maximumChunks = 0, maximumBacking = 0;
+    try {
+        for (const bytes of fragments) {
+            playSocket.onmessage({ data: bytes.buffer });
+            maximumChunks = Math.max(maximumChunks, play.queue.length);
+            maximumBacking = Math.max(maximumBacking,
+                play.queue.reduce((total, chunk) => total + chunk.buffer.byteLength, 0));
+            assert.ok(play.bytes <= config.playBytes);
+        }
+        open = playSocket.readyState === Socket.OPEN && !play.failed;
+        if (open) {
+            while (play.queue.length) delivered.push(...await adapter.read(play));
+            controlSocket.onmessage({ data: new Uint8Array([91]).buffer });
+            const bytes = await adapter.read(control);
+            await adapter.write(control, new Uint8Array([92]));
+            controlProgress = bytes.length === 1 && bytes[0] === 91 && controlSocket.sent.length === 1;
+        }
+    } finally {
+        adapter.close(t); await turns();
+    }
+    assert.equal(playSocket.readyState, 3); assert.equal(controlSocket.readyState, 3);
+    assert.equal(t.channels.size, 0);
+    assert.equal(open, true, "valid fragmented play bytes closed the shared transport");
+    assert.deepEqual(new Uint8Array(delivered), new Uint8Array(fragments.flatMap(bytes => [...bytes])));
+    assert.equal(controlProgress, true);
+    assert.ok(maximumChunks <= config.chunks);
+    assert.ok(maximumBacking <= config.playBytes);
+});
+
+test("play packing preserves removed views and rejects aggregate bytes at the original limit", async () => {
+    const t = adapter.create("https://relay.invalid", false, JSON.stringify(config));
+    const play = await adapter.open(t, values.RELAY_CHANNEL_PLAY, "1"), socket = Socket.instances.at(-1);
+    let held, chunks = 0, backing = 0, rejected = false;
+    try {
+        socket.onmessage({ data: new Uint8Array([3, 4]).buffer });
+        held = await adapter.read(play);
+        socket.onmessage({ data: new ArrayBuffer(config.playBytes) });
+        chunks = play.queue.length;
+        backing = play.queue.reduce((total, chunk) => total + chunk.buffer.byteLength, 0);
+        assert.equal(play.bytes, config.playBytes);
+        socket.onmessage({ data: new ArrayBuffer(1) });
+        rejected = socket.readyState === 3;
+        await assert.rejects(adapter.read(play));
+        await assert.rejects(adapter.write(play, new Uint8Array([1])));
+    } finally { adapter.close(t); await turns(); }
+    assert.equal(socket.readyState, 3); assert.equal(t.channels.size, 0);
+    assert.deepEqual(held, new Uint8Array([3, 4]));
+    assert.equal(rejected, true); assert.ok(chunks <= config.chunks);
+    assert.ok(backing <= config.playBytes);
+});
+
 test("a blocked send re-arms its timer and closure cancels it immediately", async () => {
     const timers = new Map(); let id = 0;
     const originalSet = globalThis.setTimeout, originalClear = globalThis.clearTimeout;

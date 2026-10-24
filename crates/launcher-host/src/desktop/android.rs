@@ -1,68 +1,72 @@
-//! Browser and document-picker handoff through Android intents, since Android has no desktop
-//! opener or picker tools.
+//! Browser and document-picker handoff through Android intents.
 
-use jni::{
-    JNIEnv,
-    objects::{JClass, JObject, JObjectArray, JString},
-};
 use std::path::PathBuf;
 
-/// `Intent.FLAG_ACTIVITY_NEW_TASK`, required to start an activity from the application context.
-const FLAG_ACTIVITY_NEW_TASK: i32 = 0x1000_0000;
+use jni::{
+    Env, JavaVM, jni_sig, jni_str,
+    objects::{JClass, JObject, JObjectArray, JString, JValue},
+};
 
-/// Starts a browsable `ACTION_VIEW` intent; `Ok(false)` means no app accepted the link.
+/// Starts a browsable `ACTION_VIEW` intent; failure keeps manual sign-in recovery visible.
 pub(super) fn open_url(url: &str) -> jni::errors::Result<bool> {
     let context = ndk_context::android_context();
-    // The Android runtime owns the VM and the application context for the process lifetime.
-    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast())? };
-    let mut env = vm.attach_current_thread()?;
-    // android-activity publishes the Application here, not the hosting activity.
-    let application = unsafe { JObject::from_raw(context.context().cast()) };
-    let result = start_view_intent(&mut env, &application, url);
-    if result.is_err() && env.exception_check()? {
-        env.exception_clear()?;
-        return Ok(false);
-    }
-    result.map(|()| true)
-}
-
-/// Builds `new Intent(ACTION_VIEW, Uri.parse(url))` and starts it in a new task.
-fn start_view_intent(env: &mut JNIEnv, context: &JObject, url: &str) -> jni::errors::Result<()> {
-    let url = env.new_string(url)?;
-    let uri = env
-        .call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[(&url).into()],
-        )?
-        .l()?;
-    let action = env.new_string("android.intent.action.VIEW")?;
-    let intent = env.new_object(
-        "android/content/Intent",
-        "(Ljava/lang/String;Landroid/net/Uri;)V",
-        &[(&action).into(), (&uri).into()],
-    )?;
-    let category = env.new_string("android.intent.category.BROWSABLE")?;
-    env.call_method(
-        &intent,
-        "addCategory",
-        "(Ljava/lang/String;)Landroid/content/Intent;",
-        &[(&category).into()],
-    )?;
-    env.call_method(
-        &intent,
-        "addFlags",
-        "(I)Landroid/content/Intent;",
-        &[FLAG_ACTIVITY_NEW_TASK.into()],
-    )?;
-    env.call_method(
-        context,
-        "startActivity",
-        "(Landroid/content/Intent;)V",
-        &[(&intent).into()],
-    )?;
-    Ok(())
+    // SAFETY: NativeActivity initializes ndk-context with its live VM and global Context reference.
+    let vm = unsafe { JavaVM::from_raw(context.vm().cast()) };
+    vm.attach_current_thread_for_scope(|env| -> jni::errors::Result<bool> {
+        // SAFETY: ndk-context retains this reference while the NativeActivity is alive.
+        let activity_ptr = context.context().cast();
+        let activity = unsafe { env.as_cast_raw::<JObject>(&activity_ptr)? };
+        let application = env
+            .call_method(
+                &activity,
+                jni_str!("getApplicationContext"),
+                jni_sig!("()Landroid/content/Context;"),
+                &[],
+            )?
+            .l()?;
+        let uri = env.new_string(url)?;
+        let uri = env
+            .call_static_method(
+                jni_str!("android/net/Uri"),
+                jni_str!("parse"),
+                jni_sig!("(Ljava/lang/String;)Landroid/net/Uri;"),
+                &[JValue::Object(&uri)],
+            )?
+            .l()?;
+        let action = env.new_string("android.intent.action.VIEW")?;
+        let intent = env.new_object(
+            jni_str!("android/content/Intent"),
+            jni_sig!("(Ljava/lang/String;Landroid/net/Uri;)V"),
+            &[JValue::Object(&action), JValue::Object(&uri)],
+        )?;
+        let category = env.new_string("android.intent.category.BROWSABLE")?;
+        env.call_method(
+            &intent,
+            jni_str!("addCategory"),
+            jni_sig!("(Ljava/lang/String;)Landroid/content/Intent;"),
+            &[JValue::Object(&category)],
+        )?;
+        let flags = env
+            .get_static_field(
+                jni_str!("android/content/Intent"),
+                jni_str!("FLAG_ACTIVITY_NEW_TASK"),
+                jni_sig!("I"),
+            )?
+            .i()?;
+        env.call_method(
+            &intent,
+            jni_str!("addFlags"),
+            jni_sig!("(I)Landroid/content/Intent;"),
+            &[JValue::Int(flags)],
+        )?;
+        env.call_method(
+            application,
+            jni_str!("startActivity"),
+            jni_sig!("(Landroid/content/Intent;)V"),
+            &[JValue::Object(&intent)],
+        )?;
+        Ok(true)
+    })
 }
 
 /// Opens the Storage Access Framework picker for `mime_type` and blocks until the user chooses
@@ -77,34 +81,50 @@ pub(super) fn pick_documents(
     mime_type: &str,
 ) -> Result<Option<Vec<PathBuf>>, String> {
     let context = ndk_context::android_context();
-    // The Android runtime owns the VM and the application context for the process lifetime.
-    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }.map_err(|e| e.to_string())?;
-    let mut env = vm.attach_current_thread().map_err(|e| e.to_string())?;
-    let application = unsafe { JObject::from_raw(context.context().cast()) };
-    // Java has no unsigned long; a negative limit means unlimited.
-    let max_bytes = max_bytes.map_or(-1, |bytes| i64::try_from(bytes).unwrap_or(i64::MAX));
-    let result = call_picker(&mut env, &application, multiple, max_bytes, mime_type);
-    result.map_err(|error| pending_exception(&mut env).unwrap_or_else(|| error.to_string()))
+    // SAFETY: NativeActivity initializes ndk-context with its live VM and global Context reference.
+    let vm = unsafe { JavaVM::from_raw(context.vm().cast()) };
+    vm.attach_current_thread_for_scope(|env| -> jni::errors::Result<Option<Vec<PathBuf>>> {
+        // SAFETY: ndk-context retains this reference while the NativeActivity is alive.
+        let application_ptr = context.context().cast();
+        let application = unsafe { env.as_cast_raw::<JObject>(&application_ptr)? };
+        // Java has no unsigned long; a negative limit means unlimited.
+        let max_bytes = max_bytes.map_or(-1, |bytes| i64::try_from(bytes).unwrap_or(i64::MAX));
+        call_picker(env, &application, multiple, max_bytes, mime_type)
+    })
+    .map_err(|error| match error {
+        jni::errors::Error::CaughtJavaException { name, msg, .. } => {
+            if msg.is_empty() {
+                name
+            } else {
+                msg
+            }
+        }
+        error => error.to_string(),
+    })
 }
 
-/// Calls `FilePicker.pick`, loading the class through the app's loader because worker threads
-/// attached from native code only see system classes.
+/// Calls `FilePicker.pick` through the app's loader, which can find app classes on native workers.
 fn call_picker(
-    env: &mut JNIEnv,
-    application: &JObject,
+    env: &mut Env<'_>,
+    application: &JObject<'_>,
     multiple: bool,
     max_bytes: i64,
     mime_type: &str,
 ) -> jni::errors::Result<Option<Vec<PathBuf>>> {
     let package = env
-        .call_method(application, "getPackageName", "()Ljava/lang/String;", &[])?
+        .call_method(
+            application,
+            jni_str!("getPackageName"),
+            jni_sig!("()Ljava/lang/String;"),
+            &[],
+        )?
         .l()?;
-    let package: String = env.get_string(&JString::from(package))?.into();
+    let package = env.cast_local::<JString>(package)?.try_to_string(env)?;
     let loader = env
         .call_method(
             application,
-            "getClassLoader",
-            "()Ljava/lang/ClassLoader;",
+            jni_str!("getClassLoader"),
+            jni_sig!("()Ljava/lang/ClassLoader;"),
             &[],
         )?
         .l()?;
@@ -112,50 +132,34 @@ fn call_picker(
     let class = env
         .call_method(
             &loader,
-            "loadClass",
-            "(Ljava/lang/String;)Ljava/lang/Class;",
-            &[(&name).into()],
+            jni_str!("loadClass"),
+            jni_sig!("(Ljava/lang/String;)Ljava/lang/Class;"),
+            &[JValue::Object(&name)],
         )?
         .l()?;
+    let class = env.cast_local::<JClass>(class)?;
     let mime_type = env.new_string(mime_type)?;
     let paths = env
         .call_static_method(
-            JClass::from(class),
-            "pick",
-            "(ZJLjava/lang/String;)[Ljava/lang/String;",
-            &[multiple.into(), max_bytes.into(), (&mime_type).into()],
+            class,
+            jni_str!("pick"),
+            jni_sig!("(ZJLjava/lang/String;)[Ljava/lang/String;"),
+            &[
+                JValue::Bool(multiple),
+                JValue::Long(max_bytes),
+                JValue::Object(&mime_type),
+            ],
         )?
         .l()?;
     if paths.is_null() {
         return Ok(None);
     }
-    let paths = JObjectArray::from(paths);
-    let count = env.get_array_length(&paths)?;
-    let mut picked = Vec::with_capacity(count.max(0) as usize);
+    let paths = env.cast_local::<JObjectArray<JString>>(paths)?;
+    let count = paths.len(env)?;
+    let mut picked = Vec::with_capacity(count);
     for index in 0..count {
-        let path = JString::from(env.get_object_array_element(&paths, index)?);
-        let path: String = env.get_string(&path)?.into();
-        picked.push(PathBuf::from(path));
+        let path = paths.get_element(env, index)?;
+        picked.push(PathBuf::from(path.try_to_string(env)?));
     }
     Ok(Some(picked))
-}
-
-/// Clears a pending Java exception and returns its message, or its class when it has none, for
-/// the import status line.
-fn pending_exception(env: &mut JNIEnv) -> Option<String> {
-    let throwable = env.exception_occurred().ok()?;
-    if throwable.is_null() {
-        return None;
-    }
-    env.exception_clear().ok()?;
-    for method in ["getMessage", "toString"] {
-        let message = env
-            .call_method(&throwable, method, "()Ljava/lang/String;", &[])
-            .and_then(|value| value.l())
-            .ok()?;
-        if !message.is_null() {
-            return Some(env.get_string(&JString::from(message)).ok()?.into());
-        }
-    }
-    None
 }

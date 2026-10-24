@@ -201,9 +201,10 @@ pub fn slot_index(slot: &str) -> Option<usize> {
 pub fn known_slots() -> &'static [String] {
     static SLOTS: OnceLock<Vec<String>> = OnceLock::new();
     SLOTS.get_or_init(|| {
-        let schema: serde_json::Value =
-            serde_json::from_str(include_str!("../../../core/cinnabarapi/schema/v1.json"))
-                .expect("pinned API schema");
+        let schema: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../crates/bridge/data/cinnabar-api/v1.json"
+        ))
+        .expect("pinned API schema");
         schema["$defs"]["CosmeticSlot"]["x-known-slots"]
             .as_array()
             .expect("slot vocabulary")

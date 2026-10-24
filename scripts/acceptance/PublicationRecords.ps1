@@ -1,12 +1,12 @@
-# Get-CacheBoundaryEvidence validates historical core markers and reports
+# Get-CacheBoundaryEvidence validates historical boundary markers and reports
 # missing instrumentation without inventing packet counts for current builds.
 function Get-CacheBoundaryEvidence {
-    param([Parameter(Mandatory = $true)][string]$CoreLogPath)
+    param([Parameter(Mandatory = $true)][string]$SourceLogPath)
 
-    if (-not (Test-Path -LiteralPath $CoreLogPath -PathType Leaf)) {
-        throw 'BLOB_CACHE_BOUNDARY core log is missing'
+    if (-not (Test-Path -LiteralPath $SourceLogPath -PathType Leaf)) {
+        throw 'BLOB_CACHE_BOUNDARY source log is missing'
     }
-    $content = Get-Content -LiteralPath $CoreLogPath -Raw
+    $content = Get-Content -LiteralPath $SourceLogPath -Raw
     $markerPattern = '(?:^|\s)msg=BLOB_CACHE_BOUNDARY(?:\s|$)'
     $markerCount = [regex]::Matches(
         [string]$content,
@@ -17,14 +17,14 @@ function Get-CacheBoundaryEvidence {
     if ($markerCount -eq 0) {
         return [pscustomobject][ordered]@{
             classification = 'unavailable'
-            reason = 'core_boundary_marker_not_recorded'
+            reason = 'boundary_marker_not_recorded'
         }
     }
     if ($markerCount -ne 1) {
         throw 'BLOB_CACHE_BOUNDARY requires exactly one summary marker'
     }
     $lines = @(
-        Get-Content -LiteralPath $CoreLogPath |
+        Get-Content -LiteralPath $SourceLogPath |
             Where-Object { $_ -match $markerPattern }
     )
     if ($lines.Count -ne 1) {

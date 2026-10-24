@@ -216,7 +216,7 @@ fn equal_digests_cannot_share_different_pixel_bytes() {
 #[test]
 fn an_entity_pack_added_to_a_packless_session_recompiles_entities() {
     let (catalog, cache) = (base_catalog(), EntityCache::default());
-    let packless = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let packless = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default());
     let (_, reads) = resolve(&cache, &packless, &catalog);
     let added = crate::test_support::stack(&[(
         "entity/fixture.json",

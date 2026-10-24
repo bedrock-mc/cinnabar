@@ -9,7 +9,7 @@ fn catalog_rollback_activates_the_readmitted_revision_and_advances_generation() 
     assert_eq!(Item::from_id(&a.descriptor().id), Some(b));
     let generation = Item::generation();
     let cases: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../core/cinnabarapi/schema/emote-clips.json"
+        "../../../../crates/bridge/data/cinnabar-api/emote-clips.json"
     ))
     .unwrap();
     let bytes = serde_json::to_vec(&cases[0]["clip"]).unwrap();
@@ -25,16 +25,16 @@ fn catalog_rollback_activates_the_readmitted_revision_and_advances_generation() 
 #[test]
 fn parser_matches_the_api_conformance_cases() {
     let source: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../core/cinnabarapi/schema/source.json"
+        "../../../../crates/bridge/data/cinnabar-api/source.json"
     ))
     .unwrap();
-    let fixtures = include_bytes!("../../../../core/cinnabarapi/schema/emote-clips.json");
+    let fixtures = include_bytes!("../../../../crates/bridge/data/cinnabar-api/emote-clips.json");
     assert_eq!(
         format!("{:x}", Sha256::digest(fixtures)),
         source["conformance"]["sha256"].as_str().unwrap()
     );
     let cases: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../core/cinnabarapi/schema/emote-clips.json"
+        "../../../../crates/bridge/data/cinnabar-api/emote-clips.json"
     ))
     .unwrap();
     for case in cases.as_array().unwrap() {
@@ -51,7 +51,7 @@ fn parser_matches_the_api_conformance_cases() {
 #[test]
 fn clip_admission_rejects_oversized_or_corrupted_assets_and_counts_them() {
     let cases: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../core/cinnabarapi/schema/emote-clips.json"
+        "../../../../crates/bridge/data/cinnabar-api/emote-clips.json"
     ))
     .unwrap();
     let bytes = serde_json::to_vec(&cases[0]["clip"]).unwrap();
@@ -118,7 +118,7 @@ fn catalog_clip_identifiers_fit_the_emote_wire_vocabulary() {
 #[test]
 fn admitted_key_rotations_are_unit_length_at_constant_and_exact_key_times() {
     let cases: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../core/cinnabarapi/schema/emote-clips.json"
+        "../../../../crates/bridge/data/cinnabar-api/emote-clips.json"
     ))
     .unwrap();
     let mut value = cases[0]["clip"].clone();

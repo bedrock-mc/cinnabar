@@ -249,11 +249,11 @@ pub(super) fn session_pack(
         archive.write_all(bytes).unwrap();
     }
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
-            protocol::ResourcePackArchive::unencrypted(
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
+            bedrock_packs::ResourcePackArchive::unencrypted(
                 id,
                 "1.0.0".into(),
-                String::new(),
+                Vec::new(),
                 archive.finish().unwrap().into_inner(),
             ),
         ]));

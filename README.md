@@ -36,9 +36,10 @@ No Mojang assets are bundled. The release notes explain how to open unsigned bui
 make play
 ```
 
-This fetches the vanilla assets, builds the Go core and opens the launcher. Sign in with the
-Microsoft device code; the token stays in `.local/auth/`, so never share or commit it. Use
-`make play PROFILE=release` for an optimised build, and `make help` for every target.
+This fetches and compiles the vanilla assets and opens the Rust client launcher. Sign-in
+uses a Microsoft device code. Credentials remain in the private per-user account store; never
+share or commit that store. `make play PROFILE=release` builds the fully optimised binary,
+and `make help` lists every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
@@ -61,27 +62,75 @@ Vanilla behaviour is the default. Everything below is extra:
 
 ## How it works
 
-```text
-cinnabar (Rust, Bevy/wgpu)  ── local socket ──  bedrock-core (Go)
-                                                        ├─ RakNet ──── servers
-                                                        └─ NetherNet ─ Realms and friend worlds
+The Rust client owns rendering, input and gameplay. Desktop builds use native Rust account and
+network services directly, with addressed discovery selecting NetherNet or RakNet. A build
+without the `native-networking` feature cannot open native sessions. The target game version
+is pinned in `assets/bedrock-target.json`.
+
+Launch the native menu, then sign in or select a saved account and join a server:
+
+```sh
+cargo run -p cinnabar
 ```
 
-The Rust client owns everything you see and play. The Go core owns Xbox sign-in, encryption and
-the network transports. The target game version is pinned in `assets/bedrock-target.json`.
+Menu account and local-world services run without a separate networking process or control endpoint.
+Native mode uses the existing account menu for Microsoft device-code sign-in and saved-account
+validation. Pending sign-in leaves the active account unchanged until identity verification and
+account commit finish. Account changes, cancellation and expired credentials stop the original
+join; they do not trigger a signed-out retry. Refresh rotation and private derived-service
+checkpoints share the existing account-cache leases. Native sign-in can present the Xbox profile
+setup page and resume the same pending sign-in.
+
+Native account services include Realms and invitations, Xbox people and profiles, presence,
+featured-server discovery and world signaling. Realms can resolve RakNet or authenticated
+NetherNet. The session retains the selected account and connection key through Login, resource
+packs, startup and play, including retries and transfers.
+
+Direct startup also uses the selected saved account when one is available:
+
+```sh
+cargo run -p cinnabar -- --address HOST:PORT
+```
+
+Without a selected account, direct connections can use an offline identity where the server
+permits it. `nethernet-lan` selects directed IPv4 LAN discovery. Selected local worlds keep their
+original HTTP or LAN route and process generation. Desktop pack acquisition supports CDN
+archives and a verified persistent cache before falling back to game-socket chunks.
+
+Use `--native-networking raknet` to bypass addressed transport discovery, or
+`--native-networking nethernet-lan` for directed LAN discovery. The client has no Go
+account/network backend or socket-directory mode. The independent Dragonfly local-world
+server remains a Go integration; official BDS worlds use the Rust process owner.
+
+Friend-world admission and hosting use current opaque account selections, including legacy
+and Player Messaging signaling, signed peer admission and original Dragonfly or BDS worlds.
+Controlled initialization, live traffic and retirement pass; live retail friend joining and
+advertised hosting remain under validation. A raw `friend_xuid/<xuid>` string supplies no
+verified world selection and is rejected. Android includes native networking and platform
+verification; physical-device acceptance remains open. The native HTTPS/WebSocket relay has
+a separate operator; see [web/gateway/README.md](web/gateway/README.md) for configuration and
+current transport limits.
+
+The transport protocol cores are sans I/O. Runtime adapters own their sockets and timers;
+Tokio is an explicit adapter dependency rather than a requirement of the cores. The NetherNet
+repository also provides a Bevy adapter for caller-driven outbound sessions. Protocol/session,
+service and client-integration responsibilities stay in their owning libraries.
 
 Built on these libraries:
 
 | Library | Used for |
 | --- | --- |
-| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
-| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. MIT; see `THIRD_PARTY_NOTICES.md`. |
-| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
-| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
-| [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
-| [go-xsapi](https://github.com/df-mc/go-xsapi) | Xbox Live identity, friends, presence and signaling. |
-| [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers). |
+| [bedrock-net](https://github.com/cinnabar-mc/bedrock-net) | Native framing, compression, encryption, Login, resource packs and typed session lifecycle. |
+| [bedrock-services](https://github.com/cinnabar-mc/bedrock-services) | Native Microsoft/Xbox authentication, Minecraft credentials, Realms, profiles, presence and signaling. |
+| [raknet](https://github.com/cinnabar-mc/raknet) | Native RakNet protocol core and runtime adapter. |
+| [nethernet](https://github.com/cinnabar-mc/nethernet) | Sans-I/O ICE, DTLS and SCTP with explicit Tokio and Bevy adapters. |
+| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Owns the pinned generated Bedrock packet codec consumed as a Git dependency. |
+| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock server sessions in the independent local-world server and Go fixture tools. |
+| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet in the independent local-world server and Go fixture tools. |
 | [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
+
+The packet-entry and startup code in `crates/protocol` was adapted from Jolyne
+([Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack)); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Crate-by-crate layout: [docs/architecture/workspace.md](docs/architecture/workspace.md).
 Benchmarks: [docs/benchmarks.md](docs/benchmarks.md).

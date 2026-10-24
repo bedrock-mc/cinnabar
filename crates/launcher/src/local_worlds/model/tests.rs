@@ -824,8 +824,34 @@ fn new_world_backend_defaults_to_bds_and_requires_docker() {
     assert_eq!(menu.screen(), Screen::Create);
     assert_eq!(menu.create_form().backend, Backend::Bds);
     assert_eq!(menu.create_form().generator, Generator::Normal);
-    menu.update(Input::SubmitCreate);
+    assert_eq!(menu.update(Input::SubmitCreate), vec![REDETECT]);
     assert_eq!(menu.screen(), Screen::BackendPrompt);
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::Checking, PromptFor::CreateBds)
+    );
+    menu.apply(Event::Prefs(
+        Prefs::default(),
+        with_reason(UnavailableReason::DockerMissing),
+    ));
+    assert_eq!(
+        menu.prompt(),
+        prompt(PromptKind::DockerMissing, PromptFor::CreateBds)
+    );
+}
+
+#[test]
+fn explicit_dragonfly_creation_does_not_require_docker() {
+    let mut menu = docker_menu(UnavailableReason::DockerMissing, &[]);
+    menu.update(Input::BeginCreate);
+    assert_eq!(menu.screen(), Screen::Create);
+    menu.update(Input::SetBackend(Backend::Dragonfly));
+    let effects = menu.update(Input::SubmitCreate);
+    let [Effect::Create(spec)] = effects.as_slice() else {
+        panic!("Dragonfly creation must not be blocked by Docker");
+    };
+    assert_eq!(spec.backend, Some(Backend::Dragonfly));
+    assert_eq!(spec.generator, Generator::Normal);
 }
 
 /// An import holds the list behind its modal until the worker reports, then lists the world first.

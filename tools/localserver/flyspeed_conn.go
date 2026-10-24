@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/hostbridge"
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/session"
@@ -30,6 +31,9 @@ func (l *flySpeedPacketListener) Accept() (session.Conn, error) {
 	conn, err := l.Listener.Accept()
 	if err != nil {
 		return nil, err
+	}
+	if hostbridge.IsRemote(conn.RemoteAddr()) {
+		return conn, nil
 	}
 	id, err := uuid.Parse(conn.IdentityData().Identity)
 	if err != nil {

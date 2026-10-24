@@ -17,29 +17,26 @@
         '-MetricsOut', $MetricsOut
     )
     Assert-True ($success.ExitCode -eq 0) "dry-run failed: $($success.Output -join [Environment]::NewLine)"
-    $commands = @($success.Output | Where-Object { $_ -match '^(BDS|CORE|APP)_COMMAND=' })
-    Assert-True ($commands.Count -eq 3) "expected exactly three commands, got $($commands.Count)"
+    $commands = @($success.Output | Where-Object { $_ -match '^(BDS|APP)_COMMAND=' })
+    Assert-True ($commands.Count -eq 2) "expected exactly two commands, got $($commands.Count)"
     Assert-True ($commands[0] -match '^BDS_COMMAND=') 'BDS command was not first'
-    Assert-True ($commands[1] -match '^CORE_COMMAND=') 'core command was not second'
-    Assert-True ($commands[2] -match '^APP_COMMAND=') 'app command was not third'
-    Assert-True ($success.Output.Count -eq 6) 'default dry-run output changed'
+    Assert-True ($commands[1] -match '^APP_COMMAND=') 'app command was not second'
+    Assert-True ($success.Output.Count -eq 5) 'default dry-run output changed'
     Assert-True ($success.Output -contains 'BUILD_PROFILE=release') 'default dry-run did not identify the release profile'
     Assert-True ($success.Output -contains 'REQUESTED_PRESENT_MODE=Fifo') 'default dry-run did not request FIFO'
     Assert-True ($success.Output -contains 'EFFECTIVE_PRESENT_MODE=UNPROVEN') 'default dry-run relabeled requested FIFO as effective without surface proof'
     $expectedRuntimeDirectory = Join-Path (Join-Path $ProjectRoot '.local\bds-runtime') (Split-Path -Leaf $BdsDir)
-    $expectedSocketDirectory = Join-Path $DryRunDirectory 'socket'
     $expectedCanonicalMetrics = Join-Path $DryRunDirectory 'app-metrics.json'
     $expectedCommands = @(
         ('BDS_COMMAND=' + (Format-TestResolvedCommand `
             -Executable (Join-Path $expectedRuntimeDirectory 'bedrock_server.exe') `
             -Arguments @()))
-        ('CORE_COMMAND=' + (Format-TestResolvedCommand `
-            -Executable (Join-Path $ProjectRoot 'target\release\bedrock-core.exe') `
-            -Arguments @('-socket-dir', $expectedSocketDirectory, '-upstream', '127.0.0.1:19132')))
         ('APP_COMMAND=' + (Format-TestResolvedCommand `
             -Executable (Join-Path $ProjectRoot 'target\release\cinnabar.exe') `
             -Arguments @(
-                '--socket-dir', $expectedSocketDirectory,
+                '--address', '127.0.0.1:19132',
+                '--native-networking', 'raknet',
+                '--display-name', 'AcceptanceGuest',
                 '--acceptance-seconds', '900',
                 '--metrics-out', $expectedCanonicalMetrics,
                 '--auto-fly'
@@ -49,11 +46,11 @@
         ($expectedCommands -join [Environment]::NewLine) `
         ($commands -join [Environment]::NewLine) `
         'default dry-run commands changed'
-    foreach ($flag in @('--socket-dir', '--acceptance-seconds 900', '--metrics-out', '--auto-fly')) {
-        Assert-True ($commands[2].Contains($flag)) "app command is missing $flag"
+    foreach ($flag in @('--address 127.0.0.1:19132', '--native-networking raknet', '--display-name AcceptanceGuest', '--acceptance-seconds 900', '--metrics-out', '--auto-fly')) {
+        Assert-True ($commands[1].Contains($flag)) "app command is missing $flag"
     }
-    Assert-True (-not $commands[2].Contains('--no-vsync')) 'default acceptance bypassed FIFO'
-    Assert-True (-not $commands[2].Contains('--assets')) 'default app command unexpectedly gained --assets'
+    Assert-True (-not $commands[1].Contains('--no-vsync')) 'default acceptance bypassed FIFO'
+    Assert-True (-not $commands[1].Contains('--assets')) 'default app command unexpectedly gained --assets'
     Assert-True (-not ($success.Output -match '^VISUAL_FIXTURE_POSE=')) 'default dry-run recorded a fixture pose'
     Assert-True ($commands[0].Contains('"')) 'path containing spaces was not quoted'
     Assert-True (-not (Test-Path -LiteralPath $DryRunDirectory)) 'dry-run created its run directory'
@@ -393,12 +390,12 @@
     Assert-True ($source.Contains('[IO.FileOptions]::WriteThrough')) 'child log files are not write-through'
     Assert-True (-not $source.Contains('ReadToEndAsync')) 'child logs are retained in memory'
     Assert-True ($source.Contains('-WorkingDirectory $ProjectRoot')) 'builds are not rooted at the project directory'
-    Assert-True ($source.Contains("Join-Path `$ProjectRoot 'core'")) 'gophertunnel metadata does not read the canonical core/go.mod pin'
+    Assert-True ($source.Contains("Join-Path `$ProjectRoot 'tools/localserver'")) 'gophertunnel metadata does not read the canonical tools/localserver/go.mod pin'
     Assert-True (-not $source.Contains('$ExpectedGophertunnelCommit')) 'acceptance entry duplicates the gophertunnel commit pin'
     Assert-True ($source.Contains('Get-PinnedGophertunnelCommit')) 'gophertunnel metadata does not verify go list -m resolution'
     Assert-True ($source.Contains("'c4540512dc47833bb40363da7ad1161110d64b67'")) 'protocol metadata omitted the Axolotl Stack revision'
     Assert-True ($source.Contains("'62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'")) 'protocol metadata omitted the retained Jolyne license identity'
-    Assert-True ($source.Contains("protocol_dependency_resolution = 'vendored-path'")) 'acceptance metadata does not identify local vendored dependency resolution'
+    Assert-True ($source.Contains("protocol_dependency_resolution = 'git-revision'")) 'acceptance metadata does not identify pinned Git dependency resolution'
     Assert-True ($source.Contains('pinned_axolotl_stack_commit')) 'acceptance metadata omits the Axolotl Stack revision'
     Assert-True ($source.Contains('pinned_protocolgen_commit')) 'acceptance metadata omits the protocolgen revision'
     Assert-True ($source.Contains('Assert-ProtocolDependencyProvenance')) 'acceptance metadata does not detect Cargo/provenance drift'
@@ -424,7 +421,45 @@
     Assert-True ($source.Contains("'1.26.52.3'")) 'acceptance does not pin the exact BDS startup release'
     Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
     Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
-    Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'
+    & {
+        . (Join-Path $ProjectRoot 'scripts\acceptance\Resources.ps1')
+        # Exercise the real sampler without waiting or starting an operating-system process.
+        function Start-Sleep {
+            param([int]$Seconds)
+            Assert-Equal 1 $Seconds 'steady sampler changed its one-second interval'
+        }
+        $sampledProcess = [pscustomobject]@{
+            HasExited = $false
+            RefreshCount = 0
+            CpuReadCount = 0
+            RssReadCount = 0
+            LastCpuRefresh = 0
+        }
+        $sampledProcess | Add-Member -MemberType ScriptMethod -Name Refresh -Value {
+            $this.RefreshCount++
+        }
+        $sampledProcess | Add-Member -MemberType ScriptProperty -Name TotalProcessorTime -Value {
+            Assert-True ($this.RefreshCount -gt $this.LastCpuRefresh) 'client CPU was read without a fresh process snapshot'
+            $this.LastCpuRefresh = $this.RefreshCount
+            $this.CpuReadCount++
+            return [TimeSpan]::Zero
+        }
+        $sampledProcess | Add-Member -MemberType ScriptProperty -Name WorkingSet64 -Value {
+            Assert-True ($this.RefreshCount -ge 2) 'client RSS was read without refreshing the sampling snapshot'
+            $this.RssReadCount++
+            return [uint64]1MB
+        }
+        $trigger = New-SteadyResourceTriggerEvidence -Kind WorldReady -WorldReadyMarker 'CINNABAR_WORLD_READY test'
+        $document = Measure-SteadyResources -ClientHandle ([pscustomobject]@{ Process = $sampledProcess }) `
+            -RunDirectory $TempRoot -DurationSeconds 1 -Trigger $trigger
+        Assert-Equal 2 $sampledProcess.CpuReadCount 'steady sampler omitted baseline or sample CPU'
+        Assert-Equal 1 $sampledProcess.RssReadCount 'steady sampler omitted the client RSS sample'
+        Assert-Equal 1 $document.samples.Count 'steady sampler did not retain its requested sample'
+        Assert-Equal ([uint64]1MB) $document.samples[0].client_rss_bytes 'steady sampler changed client RSS'
+        Assert-Equal 0 $document.samples[0].cpu_percent 'steady sampler changed zero CPU usage'
+        Assert-Equal 1 $document.summary.sample_count 'steady sampler summary omitted the sample'
+        Assert-True (Test-Path -LiteralPath (Join-Path $TempRoot 'steady-resources.json') -PathType Leaf) 'steady sampler did not publish its artifact'
+    }
     $baselineSourceMutationIndex = $source.IndexOf('$baselineSourceMutationCommand = Publish-BaselineSourceMutation', [StringComparison]::Ordinal)
     $resourceSamplingIndex = $source.IndexOf('$resourceDocument = Measure-SteadyResources', [StringComparison]::Ordinal)
     $baselineForestPlanIndex = $source.IndexOf(

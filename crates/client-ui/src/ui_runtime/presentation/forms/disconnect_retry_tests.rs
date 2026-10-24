@@ -187,7 +187,6 @@ fn launcher_questions_draw_without_a_json_ui_carrier() {
     view.feeds.server_trust = Some(launcher::menu::ServerTrustPrompt {
         id: 1,
         url: "https://example.invalid".into(),
-        from_session_core: false,
     });
     presentation.set_menu_view(Some(view));
     let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(

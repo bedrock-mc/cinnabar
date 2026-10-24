@@ -8,7 +8,7 @@ where
     S: Into<String>,
 {
     let mut args = arguments.into_iter().map(Into::into);
-    let mut values = [None, None, None, None, None, None, None, None, None, None];
+    let mut values = [None, None, None, None, None, None, None, None, None];
     while let Some(flag) = args.next() {
         let value = args
             .next()
@@ -16,14 +16,13 @@ where
         let index = match flag.as_str() {
             "--platform" => 0,
             "--client" => 1,
-            "--core" => 2,
-            "--assets" => 3,
-            "--physics" => 4,
-            "--notices" => 5,
-            "--target" => 6,
-            "--git-commit" => 7,
-            "--out" => 8,
-            "--binaries" => 9,
+            "--assets" => 2,
+            "--physics" => 3,
+            "--notices" => 4,
+            "--target" => 5,
+            "--git-commit" => 6,
+            "--out" => 7,
+            "--binaries" => 8,
             _ => return Err(DistError::Usage(format!("unknown option {flag}"))),
         };
         if values[index].replace(value).is_some() {
@@ -33,7 +32,6 @@ where
     let [
         platform,
         client,
-        core,
         assets,
         physics,
         notices,
@@ -52,7 +50,6 @@ where
     Ok(Options {
         platform: parse_platform(required(platform, "--platform")?)?,
         client,
-        core: PathBuf::from(required(core, "--core")?),
         binaries,
         assets: PathBuf::from(assets.unwrap_or_else(|| assets::carriers::COMPILED_DIR.to_owned())),
         physics: PathBuf::from(required(physics, "--physics")?),
@@ -111,8 +108,6 @@ mod tests {
             "linux",
             "--client",
             "client",
-            "--core",
-            "core",
             "--assets",
             "assets",
             "--physics",
@@ -150,10 +145,10 @@ mod tests {
     fn metadata_inputs_are_required_bounded_and_not_duplicated() {
         assert!(parse_args(arguments()).is_ok());
         let mut bad_target = arguments();
-        bad_target[13] = "target with spaces";
+        bad_target[11] = "target with spaces";
         assert!(parse_args(bad_target).is_err());
         let mut bad_commit = arguments();
-        bad_commit[15] = "ABC";
+        bad_commit[13] = "ABC";
         assert!(parse_args(bad_commit).is_err());
         let mut duplicate = arguments();
         duplicate.extend(["--out", "second"]);

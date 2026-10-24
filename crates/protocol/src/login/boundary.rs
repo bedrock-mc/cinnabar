@@ -134,11 +134,7 @@ mod tests {
         use crate::session_transport::SessionTransport;
         use crate::session_transport::tests::unix::write_frame;
 
-        let dir = tempfile::tempdir().unwrap();
-        let listener =
-            tokio::net::UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
-        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
-        let (mut peer, _) = listener.accept().await.unwrap();
+        let (reader, frames, mut peer, _writer) = crate::tests::framed::pair();
         let backlog = crate::session_transport::batch_frame(&[Packet::new(SetTime {
             time: wire::ZigZag32(1),
         })])
@@ -153,7 +149,8 @@ mod tests {
         write_frame(&mut peer, &transfer).await;
         drop(peer);
         let transport = SessionTransport::new(reader, frames, &[]);
-        let mut session = PlaySession::new(transport, None, 1, false);
+        let mut session =
+            PlaySession::new(transport, None, crate::login::startup::ready_fixture(1));
 
         session.drain_to_boundary().await;
 

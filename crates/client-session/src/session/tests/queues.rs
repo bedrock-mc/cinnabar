@@ -24,7 +24,10 @@ fn network_pending_counts_include_ingress_and_outbound_queues() {
         thread: None,
         readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
         experience_gate: Arc::default(),
+        connection_observation: Default::default(),
         unflushed: Default::default(),
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        packet_delay: Default::default(),
     };
 
     assert_eq!(handle.pending_event_count(), 0);

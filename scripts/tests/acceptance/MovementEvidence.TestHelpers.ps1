@@ -40,9 +40,7 @@
                 -ExpectedPregSha256 $script:PregSha256 -ExpectedBregSha256 $script:BregSha256 `
                 -ExpectedProtocol 2193 `
                 -ExpectedRunId $script:RunId -ExpectedEndpoint $script:Endpoint `
-                -ExpectedBridgeEndpoint $script:BridgeEndpoint `
-                -ExpectedCoreSha256 $script:CoreSha256 -ExpectedCoreProcessId 41 `
-                -ExpectedAppProcessId 42 -RunMetadataPath $runMetadataPath `
+                -ExpectedAppSha256 $script:AppSha256 -ExpectedAppProcessId 42 -RunMetadataPath $runMetadataPath `
                 -MetricsPath $metricsPath -OutputPath $outputPath `
                 -ScenarioManifestPath $scenarioManifestPath `
                 2>&1 | Out-String

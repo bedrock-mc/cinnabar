@@ -2,9 +2,6 @@ use std::time::Duration;
 
 use render_model::{VisibilityKeyDelta, VisibilityKeyDigest};
 
-pub const ACCEPTANCE_BRIDGE_ENDPOINT: &str = "CINNABAR_ACCEPTANCE_BRIDGE_ENDPOINT";
-pub const ACCEPTANCE_CORE_PROCESS_ID: &str = "CINNABAR_ACCEPTANCE_CORE_PROCESS_ID";
-pub const ACCEPTANCE_CORE_SHA256: &str = "CINNABAR_ACCEPTANCE_CORE_SHA256";
 pub const ACCEPTANCE_ENDPOINT: &str = "CINNABAR_ACCEPTANCE_ENDPOINT";
 pub const ACCEPTANCE_RUN_ID: &str = "CINNABAR_ACCEPTANCE_RUN_ID";
 pub const ACCEPTANCE_RUNTIME_METADATA: &str = "CINNABAR_ACCEPTANCE_RUNTIME_METADATA";
@@ -130,15 +127,6 @@ pub const EXPECTATIONS: &[(&str, MarkerContract)] = &[
     (SOURCE_DIRTY, MarkerContract::EnvironmentVariable),
     (ACCEPTANCE_RUN_ID, MarkerContract::EnvironmentVariable),
     (ACCEPTANCE_ENDPOINT, MarkerContract::EnvironmentVariable),
-    (ACCEPTANCE_CORE_SHA256, MarkerContract::EnvironmentVariable),
-    (
-        ACCEPTANCE_CORE_PROCESS_ID,
-        MarkerContract::EnvironmentVariable,
-    ),
-    (
-        ACCEPTANCE_BRIDGE_ENDPOINT,
-        MarkerContract::EnvironmentVariable,
-    ),
     (TRANSPARENT_SORT_COMMITTED, MarkerContract::ParsedEvidence),
     (TRANSPARENT_WITNESS_COMPLETE, MarkerContract::ParsedEvidence),
     (

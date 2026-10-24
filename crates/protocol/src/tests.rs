@@ -1,5 +1,8 @@
 //! Wire suites that need crate-private packet decoding or session transport.
 
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 mod actors;
 mod audio_packets;
 mod available_commands;
@@ -19,6 +22,7 @@ mod form_compatibility;
 mod form_element_images;
 mod form_json;
 mod form_menu_capacity;
+pub(crate) mod framed;
 mod furnace_options;
 mod held_placement_packets;
 mod hud_state_packets;
@@ -31,7 +35,6 @@ mod item_use_hand;
 mod items_actions;
 mod local_abilities;
 mod local_actor_movement;
-mod login;
 mod login_state;
 mod paintings;
 mod persona_animation;

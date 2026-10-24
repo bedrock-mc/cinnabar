@@ -33,16 +33,8 @@ param(
     [string]$ExpectedEndpoint,
 
     [Parameter(Mandatory = $true)]
-    [ValidatePattern('^[^\s:]+:[1-9][0-9]{0,4}$')]
-    [string]$ExpectedBridgeEndpoint,
-
-    [Parameter(Mandatory = $true)]
     [ValidatePattern('^[0-9a-f]{64}$')]
-    [string]$ExpectedCoreSha256,
-
-    [Parameter(Mandatory = $true)]
-    [ValidateRange(1, [int]::MaxValue)]
-    [int]$ExpectedCoreProcessId,
+    [string]$ExpectedAppSha256,
 
     [Parameter(Mandatory = $true)]
     [ValidateRange(1, [int]::MaxValue)]
@@ -76,7 +68,7 @@ $violationPrefix = 'CINNABAR_MOVEMENT_VIOLATION='
 $identityProperties = @(
     'schema', 'build_commit', 'target', 'protocol', 'session_generation', 'preg_sha256',
     'breg_sha256', 'candidate_physics', 'source_dirty', 'run_id', 'endpoint',
-    'bridge_endpoint', 'core_sha256', 'core_process_id', 'app_process_id'
+    'app_process_id'
 )
 $frameProperties = @(
     'schema', 'session_generation', 'fifo_sequence', 'physics_tick', 'pose_generation',
@@ -103,8 +95,7 @@ $scenarioProperties = @(
     'input_witness_deferral_reason', 'required_perspective_sequence',
     'require_replay', 'require_snap', 'require_held_jump_rejump',
     'require_release_before_landing', 'require_camera_blocked', 'require_camera_fallback',
-    'require_avatar_visibility_states', 'required_controlled_matrix',
-    'core_extra_arguments'
+    'require_avatar_visibility_states', 'required_controlled_matrix'
 )
 $controlledMatrixProperties = @(
     'sprint', 'sneak_ledge', 'slabs_stairs', 'ladder', 'liquids', 'special_surfaces',
@@ -221,30 +212,6 @@ function Assert-StringArray {
     }
 }
 
-function Assert-MovementCoreArgumentTokens {
-    # Mirrors the launcher-side allowlist in Resolve-MovementCoreExtraArguments so
-    # recorded core extra arguments stay exactly one verbatim allowlisted token
-    # each: a lowercase long-form flag or a conservative value.
-    param($Value, [string]$Label)
-    if ($Value -isnot [System.Array] -or @($Value).Count -gt 16) {
-        throw "$Label must be a bounded JSON array"
-    }
-    foreach ($item in @($Value)) {
-        if ($item -isnot [string] -or ([string]$item).Length -gt 256) {
-            throw "$Label must contain bounded JSON strings"
-        }
-        $token = [string]$item
-        if ($token.StartsWith('-')) {
-            if ($token -cnotmatch '^-[a-z][a-z0-9-]*$') {
-                throw "$Label contains a non-allowlisted flag token"
-            }
-        }
-        elseif ($token -cnotmatch '^[A-Za-z0-9._/:=-]+$') {
-            throw "$Label contains a non-allowlisted value token"
-        }
-    }
-}
-
 function Assert-OrderedStringArray {
     param($Value, [string]$Label, [string[]]$Allowed, [int]$Maximum)
     if ($Value -isnot [System.Array] -or @($Value).Count -gt $Maximum) {
@@ -292,7 +259,7 @@ catch { throw 'movement scenario manifest JSON is malformed' }
 Assert-ExactProperties $scenarioManifest $scenarioProperties 'scenario manifest'
 Assert-ExactProperties $scenarioManifest.required_controlled_matrix $controlledMatrixProperties `
     'scenario manifest.required_controlled_matrix'
-if ([string]$scenarioManifest.schema -cne 'rust-mcbe-movement-scenario-v1') {
+if ([string]$scenarioManifest.schema -cne 'rust-mcbe-movement-scenario-v2') {
     throw 'scenario manifest schema is unsupported'
 }
 if ($scenarioManifest.scenario -isnot [string] -or
@@ -307,8 +274,6 @@ if ($scenarioManifest.input_witness_deferral_reason -isnot [string] -or
     ([string]$scenarioManifest.input_witness_deferral_reason).Length -gt 256) {
     throw 'scenario manifest.input_witness_deferral_reason must be a bounded string'
 }
-Assert-MovementCoreArgumentTokens $scenarioManifest.core_extra_arguments `
-    'scenario manifest.core_extra_arguments'
 Assert-OrderedStringArray $scenarioManifest.required_perspective_sequence `
     'scenario manifest.required_perspective_sequence' `
     @('FirstPerson', 'ThirdPersonBack', 'ThirdPersonFront') 4
@@ -517,7 +482,7 @@ if (-not $candidateScenario -and ($frameJson.Count -ne 0 -or $eventJson.Count -n
 }
 
 $identity = ConvertFrom-ExactMarkerJson $identityJson[0] $identityProperties 'identity'
-if ([string]$identity.schema -cne 'rust-mcbe-movement-identity-v1') {
+if ([string]$identity.schema -cne 'rust-mcbe-movement-identity-v2') {
     throw 'identity schema is unsupported'
 }
 if ($identity.build_commit -isnot [string] -or
@@ -554,19 +519,9 @@ if ($identity.run_id -isnot [string] -or [string]$identity.run_id -cne $Expected
 if ($identity.endpoint -isnot [string] -or [string]$identity.endpoint -cne $ExpectedEndpoint) {
     throw 'identity endpoint does not match the actual upstream endpoint'
 }
-if ($identity.bridge_endpoint -isnot [string] -or
-    [string]$identity.bridge_endpoint -cne $ExpectedBridgeEndpoint) {
-    throw 'identity bridge_endpoint does not match the core-published endpoint'
-}
-if ($identity.core_sha256 -isnot [string] -or
-    [string]$identity.core_sha256 -cne $ExpectedCoreSha256) {
-    throw 'identity core_sha256 does not match the launched core'
-}
-Assert-Integer $identity.core_process_id 'identity.core_process_id' 1 ([decimal][int]::MaxValue)
 Assert-Integer $identity.app_process_id 'identity.app_process_id' 1 ([decimal][int]::MaxValue)
-if ([int]$identity.core_process_id -ne $ExpectedCoreProcessId -or
-    [int]$identity.app_process_id -ne $ExpectedAppProcessId) {
-    throw 'identity process IDs do not match the launched processes'
+if ([int]$identity.app_process_id -ne $ExpectedAppProcessId) {
+    throw 'identity app process ID does not match the launched process'
 }
 
 $frames = [Collections.Generic.List[object]]::new()
@@ -754,6 +709,6 @@ $aggregate = Write-MovementFinalAggregate `
     -RunMetadataPath $RunMetadataPath `
     -MetricsPath $MetricsPath `
     -OutputPath $OutputPath `
-    -LogSha256 $logSha256
+    -LogSha256 $logSha256 -ExpectedAppSha256 $ExpectedAppSha256
 $aggregateSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutputPath).Hash.ToLowerInvariant()
 Write-Output "MOVEMENT_EVIDENCE_VALID target=$ExpectedTarget scenario=$($scenarioManifest.scenario) build=$ExpectedBuildCommit run=$ExpectedRunId frames=$($frames.Count) events=$($events.Count) log_sha256=$logSha256 aggregate_sha256=$aggregateSha256"

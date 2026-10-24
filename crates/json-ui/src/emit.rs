@@ -290,10 +290,9 @@ pub(crate) fn emit_own(
         let clipped = painted.intersect(clip);
         let floats =
             matches!(&draw, Draw::Custom { renderer, .. } if renderer == "hover_text_renderer");
-        let moves_geometry = node
-            .anim
-            .as_ref()
-            .is_some_and(|anim| !anim.movers.is_empty() || !anim.clip_movers.is_empty());
+        let moves_geometry = node.anim.as_ref().is_some_and(|anim| {
+            !anim.movers.is_empty() || anim.clip.as_ref().is_some_and(|clip| clip.moves())
+        });
         if dest.w > 0.0
             && dest.h > 0.0
             && (clipped.w <= 0.0 || clipped.h <= 0.0)

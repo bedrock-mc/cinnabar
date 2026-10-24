@@ -50,7 +50,7 @@ fn assert_hidden(manager: &Manager) {
         (WorldState::Idle, None),
         "a hidden server shows no open world"
     );
-    assert_eq!(manager.core_report(), LocalWorld::default());
+    assert_eq!(manager.world_report(), LocalWorld::default());
 }
 
 /// The most recently played world starts ahead of an open, hidden from the menu and the core,
@@ -77,7 +77,7 @@ fn a_prestarted_world_opens_on_its_running_server() {
     manager.open(&latest.id, None).expect("open");
     wait_for(manager, WorldState::Running);
     assert_eq!(runner.entered.load(Ordering::SeqCst), 1, "no new start");
-    assert!(manager.core_report().target.is_some());
+    assert!(manager.world_report().target.is_some());
 }
 
 /// An open made while the prestart is still starting waits for that same server.
@@ -418,4 +418,97 @@ fn a_cancelled_adoption_records_saved_edits_across_a_new_open() {
     wait_for(manager, WorldState::Running);
     let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
     assert!(pending.is_empty(), "{pending:?}");
+}
+
+/// A completed hidden prestart grants neither local-player nor remote-host authority.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_prestart_rejects_local_selection_and_host_intent() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = standby_fixture(&runner, Some(Duration::from_secs(600)));
+    let manager = &fixture.manager;
+    let world = bds(manager, "hidden-native-prestart");
+    played(manager, &world);
+    manager.prestart();
+    test_time::eventually("native prestart internally running", || {
+        life_state(manager) == WorldState::Running
+    });
+    let status = manager.status();
+    let selection_error = manager
+        .native_local_world(&world.id)
+        .err()
+        .map(|error| error.kind());
+    let hosting_error = manager.native_host_intent().err().map(|error| error.kind());
+    manager.close();
+    wait_for(manager, WorldState::Idle);
+
+    assert_eq!((status.state, status.world_id), (WorldState::Idle, None));
+    assert_eq!(
+        selection_error,
+        Some(std::io::ErrorKind::NotConnected),
+        "a hidden prestart granted native local-player authority"
+    );
+    assert_eq!(
+        hosting_error,
+        Some(std::io::ErrorKind::NotConnected),
+        "a hidden prestart granted native host authority"
+    );
+}
+
+/// Reusing the same physical server creates a new opening which an old lease cannot retire.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_opening_does_not_revive_after_same_server_adoption() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = standby_fixture(&runner, Some(Duration::from_secs(600)));
+    let manager = &fixture.manager;
+    let world = bds(manager, "adopted-native-opening");
+    manager.open(&world.id, None).expect("open");
+    wait_for(manager, WorldState::Running);
+    let original = manager.native_local_world(&world.id).unwrap();
+    let original_intent = manager.native_host_intent().unwrap();
+    let process = runner.last();
+
+    original.request_leave();
+    let invalid_while_hidden = original.validate().is_err();
+    let kept_running = !process.stopped();
+    manager
+        .open(&world.id, None)
+        .expect("adopt the same server");
+    wait_for(manager, WorldState::Running);
+    let current = manager.native_local_world(&world.id).unwrap();
+    let current_intent = manager.native_host_intent().unwrap();
+    let reused_process = Arc::ptr_eq(&process, &runner.last());
+    let invalid_after_adoption = original.validate().is_err();
+    let different_opening = !original_intent.same(&current_intent);
+
+    // Neither a delayed leave nor a forced close may address the adopted opening.
+    original.request_leave();
+    original.request_close();
+    let adopted_opening_survived = current.validate().is_ok()
+        && manager.status().state == WorldState::Running
+        && !process.stopped();
+    manager.close();
+    wait_for(manager, WorldState::Idle);
+
+    assert!(
+        kept_running && reused_process,
+        "the fixture must reuse its original physical server"
+    );
+    assert!(
+        invalid_after_adoption,
+        "the original native selection revived after same-server adoption"
+    );
+    assert!(
+        different_opening,
+        "adoption reused the original native host intent identity"
+    );
+    assert!(
+        adopted_opening_survived,
+        "an old native retirement affected the adopted opening"
+    );
+    assert!(
+        invalid_while_hidden,
+        "the original native selection remained valid in standby"
+    );
 }

@@ -132,7 +132,7 @@ fn isolated_user_root_rejects_relative_and_empty_paths() {
             assert!(matches!(
                 InstallLayout::resolve(platform, &env),
                 Err(LayoutError::InvalidUserRoot {
-                    variable: "CINNABAR_USER_ROOT",
+                    variable: env_compat::markers::USER_ROOT,
                     ..
                 })
             ));
@@ -175,20 +175,12 @@ fn resolves_development_layout_from_target_ancestor() {
         PathBuf::from("/work/cinnabar/.local/run")
     );
     assert_eq!(
-        layout.direct_socket_dir(41),
-        PathBuf::from("/work/cinnabar/.local/cinnabar/direct-41")
-    );
-    assert_eq!(
-        layout.connect_socket_dir(41, 3),
-        PathBuf::from("/work/cinnabar/.local/cinnabar/connect-41-3")
-    );
-    assert_eq!(
-        layout.catalog_file(41),
-        PathBuf::from("/work/cinnabar/.local/cinnabar/catalog-41.json")
-    );
-    assert_eq!(
         layout.resource_pack_cache_dir(),
         PathBuf::from("/work/cinnabar/.local/resource-packs/v1/objects")
+    );
+    assert_eq!(
+        layout.local_server_executable,
+        PathBuf::from("/work/cinnabar/target/debug/bedrock-local-server")
     );
 }
 
@@ -213,6 +205,10 @@ fn resolves_windows_app_layout_and_user_roots() {
     assert_eq!(
         layout.resource_pack_cache_dir(),
         PathBuf::from("C:/Users/dev/AppData/Local/Cinnabar/resource-packs/v1/objects")
+    );
+    assert_eq!(
+        layout.local_server_executable,
+        PathBuf::from("C:/Program Files/Cinnabar/bedrock-local-server.exe")
     );
 }
 
@@ -239,6 +235,10 @@ fn resolves_linux_xdg_layout() {
         layout.resource_pack_cache_dir(),
         PathBuf::from("/data/cinnabar/resource-packs/v1/objects")
     );
+    assert_eq!(
+        layout.local_server_executable,
+        PathBuf::from("/opt/cinnabar/bin/bedrock-local-server")
+    );
 }
 
 #[test]
@@ -256,8 +256,8 @@ fn resolves_macos_app_bundle() {
         PathBuf::from("/Applications/Cinnabar.app/Contents/Resources/assets")
     );
     assert_eq!(
-        layout.core_executable,
-        PathBuf::from("/Applications/Cinnabar.app/Contents/MacOS/bedrock-core")
+        layout.local_server_executable,
+        PathBuf::from("/Applications/Cinnabar.app/Contents/MacOS/bedrock-local-server")
     );
     assert_eq!(
         layout.resource_pack_cache_dir(),

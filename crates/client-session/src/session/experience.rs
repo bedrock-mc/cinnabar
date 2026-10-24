@@ -301,6 +301,7 @@ mod tests {
             control_event_tx: mpsc::channel::<super::super::NetworkControlEvent>(1).0,
             hooks,
             shutdown_rx,
+            terminal: Arc::default(),
             experience_gate: Arc::clone(&gate),
             trace_line: |_: u64, _: &protocol::Packet| None::<String>,
             write_trace: |_: &str| {},

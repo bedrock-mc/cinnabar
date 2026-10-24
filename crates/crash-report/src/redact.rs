@@ -1,8 +1,7 @@
-//! Share-time redaction of logs and crash reports, from the one rule file both languages use.
+//! Share-time redaction of logs and crash reports from one rule file.
 //!
 //! `data/redaction-rules.json` lists credential and private-data rules with conformance
-//! vectors; the Go core embeds a byte-for-byte copy (`core/internal/redact/rules.json`) whose
-//! `redact.Text` is [`patterns`]. Every removed span becomes [`PLACEHOLDER`].
+//! vectors. [`patterns`] applies the shared rules; every removed span becomes [`PLACEHOLDER`].
 //!
 //! Sharing a whole bundle goes further than one pass: [`Learned`] collects private values from
 //! every member (field values, home folder names, JSON under private keys) so a [`Redactor`]

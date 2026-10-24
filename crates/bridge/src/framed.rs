@@ -6,22 +6,13 @@ use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-#[cfg(not(target_arch = "wasm32"))]
-use futures::Sink;
 use futures::{SinkExt, Stream};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot};
-#[cfg(not(target_arch = "wasm32"))]
-use tokio_util::codec::Framed;
 use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 use crate::BridgeError;
 use crate::contract::QUEUED_FRAMES;
-#[cfg(not(target_arch = "wasm32"))]
-use crate::endpoint::{PlatformReadHalf, PlatformStream};
-#[cfg(target_arch = "wasm32")]
-use tokio::io::Empty as PlatformReadHalf;
-
 /// Shared u32 big-endian framing, with payload bounds checked before assembly grows.
 pub struct BridgeCodec {
     expected_payload: Option<usize>,
@@ -112,33 +103,6 @@ fn validate_frame_length(length: usize, maximum: usize) -> Result<(), BridgeErro
     Ok(())
 }
 
-/// A local byte stream framed as unsigned 32-bit big-endian payloads.
-#[cfg(not(target_arch = "wasm32"))]
-pub struct FramedStream {
-    inner: Framed<PlatformStream, BridgeCodec>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl FramedStream {
-    pub(crate) fn with_max(stream: PlatformStream, maximum: usize) -> Self {
-        Self {
-            inner: Framed::new(stream, BridgeCodec::with_max(maximum)),
-        }
-    }
-}
-
-/// Splits a fresh stream so a spawned writer task owns its write half.
-///
-/// Requires a Tokio runtime. The writer exits once every [`FrameQueue`] clone is dropped.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn queued(stream: PlatformStream, maximum: usize) -> (FramedReader, FrameQueue) {
-    let (read, write) = stream.into_split();
-    let trace_conn = crate::latency_trace::active().map(|_| Arc::new(AtomicU64::new(0)));
-    let (reader, frames, writer) = prepare_bounded(read, write, maximum, None, trace_conn);
-    tokio::spawn(writer);
-    (reader, frames)
-}
-
 /// Builds the shared framing task without choosing a host executor or stream implementation.
 pub(crate) fn prepare<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     read: R,
@@ -149,7 +113,7 @@ pub(crate) fn prepare<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 }
 
 /// Keeps byte permits until flush, admitting a frame larger than the budget alone. A `trace_conn`
-/// records this connection's batch frames in the latency trace once the core's ID is set in it.
+/// records this connection's batch frames in the latency trace once the peer's ID is set in it.
 pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     read: R,
     write: W,
@@ -182,8 +146,8 @@ pub(crate) fn prepare_bounded<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
 }
 
 /// The read half of a queued game connection. Browser callers supply their reader type;
-/// native callers use the default socket read half.
-pub struct FramedReader<R = PlatformReadHalf> {
+/// native packet connections do not read through this framed transport.
+pub struct FramedReader<R = tokio::io::Empty> {
     inner: FramedRead<R, BridgeCodec>,
     trace: FrameTrace,
 }
@@ -191,7 +155,7 @@ pub struct FramedReader<R = PlatformReadHalf> {
 /// Ordered bridge frames and their shared latency-trace identity. Implementations retain
 /// partial input when a receive future is cancelled.
 pub trait FrameRead: Stream<Item = Result<Bytes, BridgeError>> + Unpin {
-    /// Returns the core's connection identity, or zero when tracing is disabled.
+    /// Returns the peer's connection identity, or zero when tracing is disabled.
     fn trace_conn(&self) -> u64;
     /// Shares the handed-off identity with this reader's writer.
     fn set_trace_conn(&self, id: u64);
@@ -208,13 +172,13 @@ impl<R: AsyncRead + Unpin> FrameRead for FramedReader<R> {
 }
 
 impl<R> FramedReader<R> {
-    /// The core's latency-trace ID for this connection, or 0 when it is not traced.
+    /// The peer's latency-trace ID for this connection, or 0 when it is not traced.
     #[must_use]
     pub fn trace_conn(&self) -> u64 {
         self.trace.id()
     }
 
-    /// Adopts the latency-trace ID the core sent in its handoff, for this reader and its writer.
+    /// Adopts the latency-trace ID the peer sent in its handoff, for this reader and its writer.
     pub fn set_trace_conn(&self, id: u64) {
         if let Some(conn) = &self.trace.conn {
             conn.store(id, Ordering::Relaxed);
@@ -241,7 +205,7 @@ impl<R: AsyncRead + Unpin> Stream for FramedReader<R> {
     }
 }
 
-/// Numbers one direction's batch frames in the latency trace; inert until the core's ID is set.
+/// Numbers one direction's batch frames in the latency trace; inert until the peer's ID is set.
 struct FrameTrace {
     trace: Option<&'static crate::latency_trace::Trace>,
     conn: Option<Arc<AtomicU64>>, // shared by a connection's reader and writer
@@ -379,7 +343,7 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
 ) {
     let mut pending = Vec::with_capacity(QUEUED_FRAMES);
     // First byte, length and feed time of the frames in this flush, kept only while tracing.
-    // Each time is taken before that frame's bytes can go out, so the core never reads a frame
+    // Each time is taken before that frame's bytes can go out, so the peer never reads a frame
     // before its record.
     let mut traced = Vec::new();
     while let Some(first) = frames.recv().await {
@@ -423,36 +387,6 @@ async fn write_queued_frames<W: AsyncWrite + Unpin>(
         if result.is_err() {
             return;
         }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl Stream for FramedStream {
-    type Item = Result<Bytes, BridgeError>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        Pin::new(&mut self.get_mut().inner).poll_next(cx)
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl Sink<Bytes> for FramedStream {
-    type Error = BridgeError;
-
-    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.get_mut().inner).poll_ready(cx)
-    }
-
-    fn start_send(self: Pin<&mut Self>, item: Bytes) -> Result<(), Self::Error> {
-        Pin::new(&mut self.get_mut().inner).start_send(item)
-    }
-
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
-    }
-
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Pin::new(&mut self.get_mut().inner).poll_close(cx)
     }
 }
 

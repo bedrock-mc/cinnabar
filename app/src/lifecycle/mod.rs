@@ -126,7 +126,6 @@ fn start_session() -> Result<InstallLayout> {
         };
         client_logs::install_crash_capture(&layout, monitor.as_ref());
         client_logs::capture(&layout);
-        client_logs::capture_core(&layout);
         crash::logs_ready();
     });
     Ok(layout)

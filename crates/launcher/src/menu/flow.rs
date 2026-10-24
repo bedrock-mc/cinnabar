@@ -1,6 +1,6 @@
 //! Renderer ownership at the session boundary.
 
-use super::{MenuView, menu_reference};
+use super::{MenuScreen, MenuView, menu_reference};
 
 /// Declares the flow states and their exhaustive traversal together.
 macro_rules! menu_flows {
@@ -14,6 +14,25 @@ macro_rules! menu_flows {
     };
 }
 menu_flows! { Screen, LocalProgress, Connecting, Disconnect, SignIn, RealmMembership }
+
+impl MenuScreen {
+    /// Screens entered only from an active play session.
+    pub fn requires_session(self) -> bool {
+        match self {
+            Self::Pause | Self::Death | Self::Invite => true,
+            Self::Home
+            | Self::Play
+            | Self::Social
+            | Self::Servers
+            | Self::Profile
+            | Self::DressingRoom
+            | Self::Settings
+            | Self::AddServer
+            | Self::Inbox
+            | Self::Friends => false,
+        }
+    }
+}
 
 impl MenuView {
     /// Resolves the screen-replacing flows in their presentation priority.

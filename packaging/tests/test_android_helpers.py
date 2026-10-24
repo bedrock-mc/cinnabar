@@ -52,10 +52,10 @@ build_go_helpers
 ''', "android-helpers-test", str(ROOT), str(self.output), str(self.output / "ndk")],
                               env=self.env, text=True, capture_output=True)
 
-    def test_both_executable_helpers_are_staged_for_android(self):
+    def test_local_server_executable_helper_is_staged_for_android(self):
         result = self.build_helpers()
         self.assertEqual(result.returncode, 0, result.stderr)
-        for key in ("core_library", "local_server_library"):
+        for key in ("local_server_library",):
             with self.subTest(helper=key):
                 path = self.output / PINS[key]
                 self.assertTrue(path.name.startswith("lib") and path.suffix == ".so")
@@ -75,7 +75,7 @@ build_go_helpers
         self.assertEqual(local["env"]["GOWORK"], "off")
 
     def test_helper_build_failure_stops_apk_packaging(self):
-        for package in ("./core/cmd/bedrock-core", "."):
+        for package in (".",):
             with self.subTest(package=package):
                 self.env["FAIL_HELPER"] = package
                 result = self.build_helpers()

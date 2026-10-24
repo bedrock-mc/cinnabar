@@ -17,6 +17,7 @@ pub(crate) fn loopback(port: u16) -> String {
 }
 
 /// The loopback LAN discovery endpoint; zero uses the default discovery port.
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
 pub(crate) fn lan_address(port: u16) -> String {
     loopback(if port == 0 { LAN_DISCOVERY_PORT } else { port })
 }

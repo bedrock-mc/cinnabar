@@ -264,8 +264,12 @@ fn android_game_gate_requires_current_assets_only() {
     use std::os::unix::fs::PermissionsExt;
 
     let data = Dir::new("android-gate");
-    let layout = InstallLayout::android(data.path(), data.path().join("native/core.so"))
-        .with_prepared_assets();
+    let layout = InstallLayout::android(
+        data.path(),
+        &data.path().join("native"),
+        "libfirst-run-fixture.so",
+    )
+    .with_prepared_assets();
     let compiler = assets::carriers::kit_compiler(&layout.prep_kit());
     fs::create_dir_all(compiler.parent().unwrap()).unwrap();
     for (stale, kept, gated) in [

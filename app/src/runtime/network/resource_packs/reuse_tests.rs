@@ -1,6 +1,6 @@
+use bedrock_packs::{ResourcePackArchive, ResourcePackHandoff};
 use std::sync::Arc;
 
-use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use resource_pack::{PackAdmission, ValidatedPackStack};
 
 use super::{CompileEnvironment, CompiledStacks, compile_reusing};
@@ -289,7 +289,7 @@ fn only_an_uncancelled_join_under_unchanged_tables_is_kept() {
     let archive = ResourcePackArchive::unencrypted(
         "00000000-0000-0000-0000-0000000c0ffe".parse().unwrap(),
         "1.0.0".into(),
-        String::new(),
+        Vec::new(),
         vec![0; 32],
     );
     let application = PackApplication {
@@ -321,7 +321,7 @@ fn a_join_cancelled_after_its_first_check_does_not_retain_packs() {
     let archive = ResourcePackArchive::unencrypted(
         "00000000-0000-0000-0000-0000000c0fff".parse().unwrap(),
         "1.0.0".into(),
-        String::new(),
+        Vec::new(),
         vec![0; 32],
     );
     let application = PackApplication {
@@ -551,7 +551,7 @@ fn kept_stacks_compare_archives_without_holding_their_lock() {
     let archive = ResourcePackArchive::unencrypted(
         "00000000-0000-0000-0000-00000000c0de".parse().unwrap(),
         "1.0.0".into(),
-        String::new(),
+        Vec::new(),
         vec![0; 32],
     );
     let stack = admitted(&archive);

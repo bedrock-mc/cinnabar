@@ -1,23 +1,34 @@
 //! Drives account, world and settings services from the menu.
 use crate::runtime::{network::resource_packs::PackApplication, world::ClientWorld};
 use bevy::prelude::*;
-use client_runtime::{blob_cache::ClientBlobCacheOwner, network::NetworkHandle};
+use client_runtime::network::NetworkHandle;
+#[cfg(feature = "native-networking")]
+use client_shell::menu::{LauncherServices, launcher_account};
 use client_shell::ui_resources::UiRuntimeResource;
-use client_shell::{
-    menu::{LauncherCoreSlot, MenuRuntime, launcher_account},
-    player_skin::LocalPlayerSkin,
-};
+use client_shell::{menu::MenuRuntime, player_skin::LocalPlayerSkin};
+
+/// Supplies the account service edge at the original authority-chain position.
+pub(crate) fn menu_services()
+-> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::ScheduleSystem> {
+    (
+        crate::session::account_retirement::before_menu_services,
+        drive_menu_services,
+    )
+        .chain()
+}
+
 /// Drives the launcher's own services: catalog, saves, settings, the account core and local worlds.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn drive_menu_services(
-    mut commands: Commands,
+    #[cfg(feature = "native-networking")] mut commands: Commands,
     mut menu: ResMut<MenuRuntime>,
-    client_blob_cache: Res<ClientBlobCacheOwner>,
-    player_runtime: Res<client_state::PlayerRuntime>,
+    #[cfg(feature = "native-networking")] player_runtime: Res<client_state::PlayerRuntime>,
     mut client_world: ResMut<ClientWorld>,
     mut runtime: ResMut<UiRuntimeResource>,
-    launcher: Option<ResMut<LauncherCoreSlot>>,
-    launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
+    #[cfg(feature = "native-networking")] launcher: Option<ResMut<LauncherServices>>,
+    #[cfg(feature = "native-networking")] launcher_account: Option<
+        ResMut<launcher_account::LauncherAccount>,
+    >,
     mut local_worlds: Option<ResMut<client_shell::local_worlds::LocalWorlds>>,
     audio_settings: Option<ResMut<client_audio::audio::AudioSettings>>,
     settings: Option<ResMut<client_state::RuntimeSettings>>,
@@ -38,7 +49,11 @@ pub(crate) fn drive_menu_services(
         send.as_ref().map(|send| send as &dyn Fn(_, _) -> _),
         runtime.session_id(),
     );
-    menu.poll_catalog(launcher_account.is_some());
+    #[cfg(feature = "native-networking")]
+    let services_available = launcher_account.is_some();
+    #[cfg(not(feature = "native-networking"))]
+    let services_available = false;
+    menu.poll_account(services_available);
     menu.poll_saves();
     menu.poll_accounts();
     sync_audio_settings(&menu, audio_settings);
@@ -47,15 +62,19 @@ pub(crate) fn drive_menu_services(
     }
     menu.sync_user_settings(settings);
     menu.sync_language(&mut runtime);
+    #[cfg(feature = "native-networking")]
     if let Some(account) = launcher_account.as_deref() {
         client_shell::menu::sync_cinnabar_players(account, &mut runtime.0);
     }
     menu.drive_account_services(
+        #[cfg(feature = "native-networking")]
         &mut commands,
-        client_blob_cache.enables_upstream_client_cache(),
+        #[cfg(feature = "native-networking")]
         &player_runtime,
         client_world.stream.is_some(),
+        #[cfg(feature = "native-networking")]
         launcher,
+        #[cfg(feature = "native-networking")]
         launcher_account,
         local_worlds.as_deref_mut(),
     );

@@ -42,62 +42,22 @@ function Get-EvidenceTargetEndpoint {
     }
 }
 
-function Resolve-MovementCoreExtraArguments {
-    # Validates the optional bounded bedrock-core argument passthrough before any
-    # build or run. Each element must be either a lowercase long-form flag token
-    # matching '^-[a-z][a-z0-9-]*$' or a value token matching
-    # '^[A-Za-z0-9._/:=-]+$'. A flag that takes a value is therefore supplied as
-    # two elements; combined '-flag=value' tokens, shorthand '--flag' tokens,
-    # uppercase flags, backslashes, whitespace, quotes, and shell metacharacters
-    # are rejected so every accepted element always stays exactly one verbatim
-    # process token.
-    param([AllowEmptyCollection()][string[]]$CoreExtraArgs)
-
-    if ($null -eq $CoreExtraArgs) { return @() }
-    if (@($CoreExtraArgs).Count -gt 16) {
-        throw 'movement core extra arguments exceed the 16-token bound'
-    }
-    foreach ($token in @($CoreExtraArgs)) {
-        if ([string]::IsNullOrEmpty($token)) {
-            throw 'movement core extra arguments contain an empty token'
-        }
-        if ($token.Length -gt 256) {
-            throw 'movement core extra argument exceeds the 256-character bound'
-        }
-        if ($token.StartsWith('-')) {
-            if ($token -cnotmatch '^-[a-z][a-z0-9-]*$') {
-                throw "movement core extra argument flag token is not allowlisted: $token"
-            }
-        }
-        elseif ($token -cnotmatch '^[A-Za-z0-9._/:=-]+$') {
-            throw "movement core extra argument value token is not allowlisted: $token"
-        }
-    }
-    return [string[]]$CoreExtraArgs
-}
-
 function New-MovementLaunchPlan {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('Bds', 'Lunar', 'Zeqa', 'Lbsg', 'Zeno', 'Venity')][string]$Target,
         [Parameter(Mandatory = $true)][string]$Endpoint,
         [Parameter(Mandatory = $true)][string]$RunId,
-        [Parameter(Mandatory = $true)][string]$SocketDirectory,
         [Parameter(Mandatory = $true)][string]$MetricsPath,
         [Parameter(Mandatory = $true)][ValidateRange(1, [int]::MaxValue)][int]$DurationSeconds,
         [Parameter(Mandatory = $true)][ValidateSet('CandidatePhysics', 'FastTransferWitness', 'FreeCameraSilence')]
         [string]$Scenario,
-        [string]$AuthCache,
-        [string]$Assets,
-        [string[]]$CoreExtraArgs = @()
+        [string]$Assets
     )
     $Target = ConvertTo-EvidenceTarget -Target $Target
     $Scenario = ConvertTo-MovementScenario -Scenario $Scenario
     if ($RunId -cnotmatch '^[0-9a-f]{32}$') { throw 'movement run ID must be exact lowercase 32-hex' }
     if ($Endpoint -cnotmatch '^[^\s:]+:[1-9][0-9]{0,4}$') { throw 'movement endpoint is invalid' }
     $remote = $Target -ine 'Bds'
-    if ($remote -and [string]::IsNullOrWhiteSpace($AuthCache)) {
-        throw "movement acceptance on $Target requires an authenticated -AuthCache path; offline remote evidence is forbidden"
-    }
     if ($remote -and $DurationSeconds -lt 300) {
         throw "movement acceptance on $Target requires at least 300 seconds of live evidence"
     }
@@ -112,16 +72,13 @@ function New-MovementLaunchPlan {
             throw 'FastTransferWitness requires the compiled vanilla asset carrier'
         }
     }
-    $coreExtraArguments = @(Resolve-MovementCoreExtraArguments -CoreExtraArgs $CoreExtraArgs)
-    $coreArguments = @('-socket-dir', $SocketDirectory, '-upstream', $Endpoint)
-    if ($remote) { $coreArguments += @('-auth-cache', $AuthCache) }
-    if ($coreExtraArguments.Count -gt 0) { $coreArguments += $coreExtraArguments }
     $appArguments = @(
-        '--socket-dir', $SocketDirectory,
+        '--address', $Endpoint,
         '--acceptance-seconds', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--metrics-out', $MetricsPath,
         '--movement-evidence-target', $Target
     )
+    if ($Target -ieq 'Bds') { $appArguments += @('--native-networking', 'raknet', '--display-name', 'AcceptanceGuest') }
     if ($Scenario -ieq 'CandidatePhysics' -or $Scenario -ieq 'FastTransferWitness') { $appArguments += '--movement-candidate-physics' }
     elseif ($Scenario -ieq 'FreeCameraSilence') { $appArguments += '--auto-fly' }
     if (-not [string]::IsNullOrWhiteSpace($Assets)) { $appArguments += @('--assets', $Assets) }
@@ -130,8 +87,6 @@ function New-MovementLaunchPlan {
         Endpoint = $Endpoint
         RunId = $RunId
         Scenario = $Scenario
-        CoreArguments = $coreArguments
-        CoreExtraArguments = $coreExtraArguments
         AppArguments = $appArguments
     }
 }
@@ -239,49 +194,4 @@ function Initialize-MovementRunDirectory {
         New-Item -ItemType Directory -Path $fullPath | Out-Null
     }
     return $fullPath
-}
-
-# Rejects stale readiness evidence before launching the core for this run.
-function New-MovementCoreReadyGuard {
-    param([Parameter(Mandatory = $true)][string]$LogPath)
-
-    $path = [IO.Path]::GetFullPath($LogPath)
-    if (Test-Path -LiteralPath $path) {
-        throw "movement refuses a stale core readiness log: $path"
-    }
-    return [pscustomobject][ordered]@{
-        ReadyLogPath = $path
-        ObservedAbsentAtUtc = [DateTime]::UtcNow.ToString('o')
-    }
-}
-
-# Records the endpoint actually published by this core, including hashed Unix sockets.
-function Wait-MovementBridgeEndpoint {
-    param(
-        [Parameter(Mandatory = $true)]$Guard,
-        [Parameter(Mandatory = $true)]$CoreHandle,
-        [Parameter(Mandatory = $true)][ValidateRange(1, 300)][int]$TimeoutSeconds
-    )
-
-    if ([IO.Path]::GetFullPath($CoreHandle.StderrPath) -cne $Guard.ReadyLogPath) {
-        throw 'core readiness log differs from the guarded path'
-    }
-    $line = Wait-CoreReady -Handle $CoreHandle -TimeoutSeconds $TimeoutSeconds
-    if ($line -cnotmatch ' network=(unix|tcp) endpoint=(.+)$') {
-        throw 'core readiness signal has no valid endpoint'
-    }
-    $network = $Matches[1]
-    $encoded = $Matches[2]
-    $endpoint = if ($encoded.StartsWith('"')) { $encoded | ConvertFrom-Json } else { $encoded }
-    if ($network -ceq 'tcp' -and
-        ($endpoint -cnotmatch '^127\.0\.0\.1:([1-9][0-9]{0,4})$' -or [int]$Matches[1] -gt 65535)) {
-        throw 'core published an invalid loopback endpoint'
-    }
-    return [pscustomobject][ordered]@{
-        Endpoint = [string]$endpoint
-        ReadyLogPath = [string]$Guard.ReadyLogPath
-        CoreProcessId = [int]$CoreHandle.Process.Id
-        ObservedAbsentAtUtc = [string]$Guard.ObservedAbsentAtUtc
-        PublishedAtUtc = [DateTime]::UtcNow.ToString('o')
-    }
 }

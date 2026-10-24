@@ -60,8 +60,7 @@ const CONNECTED: u8 = 2;
 /// A crash was written in-process, so the monitor must never hear of this client as one that
 /// can still crash.
 const IN_PROCESS: u8 = 3;
-/// How long a crash waits for a connection being introduced or a dump receipt, in monotonic
-/// milliseconds; counting pauses instead let coarse or overshooting sleeps stretch it.
+/// Bounds connection introduction and dump receipts using elapsed monotonic time.
 const INTRODUCTION_WAIT_MS: u64 = 2_000;
 /// Messages at most this long are framed on the stack, as signal handlers need.
 const STACK_MESSAGE_BYTES: usize = 64;
@@ -278,53 +277,10 @@ pub(super) fn route() -> Option<slot::Guard<'static, minidumper::Client>> {
             client = connection();
             client.is_some() || ROUTE.load(Ordering::Acquire) == IN_PROCESS
         },
-        monotonic_ms,
         introduction_pause,
+        signal_safe_monotonic,
     );
     client
-}
-
-/// Polls `ready` between pauses until it holds or [`INTRODUCTION_WAIT_MS`] pass on `now_ms`;
-/// lock- and allocation-free when its arguments are.
-fn wait_bounded(
-    mut ready: impl FnMut() -> bool,
-    mut now_ms: impl FnMut() -> u64,
-    mut pause: impl FnMut(),
-) -> bool {
-    let deadline = now_ms().saturating_add(INTRODUCTION_WAIT_MS);
-    loop {
-        if ready() {
-            return true;
-        }
-        if now_ms() >= deadline {
-            return false;
-        }
-        pause();
-    }
-}
-
-/// Monotonic milliseconds, readable from signal handlers; `u64::MAX` ends a wait at once
-/// when the clock is unavailable.
-#[cfg(unix)]
-fn monotonic_ms() -> u64 {
-    let mut now = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime is async-signal-safe and only writes the supplied timespec.
-    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) } != 0 {
-        return u64::MAX;
-    }
-    (now.tv_sec as u64)
-        .saturating_mul(1000)
-        .saturating_add(now.tv_nsec as u64 / 1_000_000)
-}
-
-/// Monotonic milliseconds since boot.
-#[cfg(not(unix))]
-fn monotonic_ms() -> u64 {
-    // SAFETY: GetTickCount64 has no preconditions.
-    unsafe { windows_sys::Win32::System::SystemInformation::GetTickCount64() }
 }
 
 /// Pauses a bounded introduction wait without entering Rust's thread runtime on Unix.
@@ -353,7 +309,34 @@ pub(super) fn announce_dump(client: &minidumper::Client) -> bool {
     };
     let request = REQUEST.fetch_add(1, Ordering::Relaxed);
     send_on(client, protocol::DUMP_REQUEST, &request.to_le_bytes())
-        && wait_for_dump_receipt(region, request, monotonic_ms, introduction_pause)
+        && wait_for_dump_receipt(region, request, introduction_pause, signal_safe_monotonic)
+}
+
+/// Reads elapsed time without Rust runtime initialization, allocation or locks.
+#[cfg(unix)]
+fn signal_safe_monotonic() -> Option<Duration> {
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: clock_gettime is async-signal-safe and only writes this valid timespec.
+    if unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) } != 0 {
+        return None;
+    }
+    let seconds = u64::try_from(now.tv_sec).ok()?;
+    let nanos = u32::try_from(now.tv_nsec)
+        .ok()
+        .filter(|n| *n < 1_000_000_000)?;
+    Some(Duration::new(seconds, nanos))
+}
+
+/// Reads the Windows boot clock without Rust runtime initialization or allocation.
+#[cfg(not(unix))]
+fn signal_safe_monotonic() -> Option<Duration> {
+    // SAFETY: GetTickCount64 has no preconditions and cannot fail.
+    Some(Duration::from_millis(unsafe {
+        windows_sys::Win32::System::SystemInformation::GetTickCount64()
+    }))
 }
 
 /// Waits without locks or socket reads; an unresponsive monitor consumes only the wait budget.
@@ -361,10 +344,36 @@ pub(super) fn announce_dump(client: &minidumper::Client) -> bool {
 fn wait_for_dump_receipt(
     region: &heartbeat::Region,
     request: u64,
-    now_ms: impl FnMut() -> u64,
     pause: impl FnMut(),
+    now: impl FnMut() -> Option<Duration>,
 ) -> bool {
-    wait_bounded(|| region.dump_acknowledged(request), now_ms, pause)
+    wait_bounded(|| region.dump_acknowledged(request), pause, now)
+}
+
+/// Polls readiness within one elapsed budget; invalid or regressing clocks end the wait.
+fn wait_bounded(
+    mut ready: impl FnMut() -> bool,
+    mut pause: impl FnMut(),
+    mut now: impl FnMut() -> Option<Duration>,
+) -> bool {
+    let Some(started) = now() else {
+        return false;
+    };
+    let Some(deadline) = started.checked_add(Duration::from_millis(INTRODUCTION_WAIT_MS)) else {
+        return false;
+    };
+    loop {
+        let Some(observed) = now() else {
+            return false;
+        };
+        if observed < started || observed >= deadline {
+            return false;
+        }
+        if ready() {
+            return true;
+        }
+        pause();
+    }
 }
 
 /// Sends one message; false when there is no connection or the send failed.
@@ -522,26 +531,66 @@ mod unix {
 mod tests {
     use super::*;
 
-    /// A monitor that never acknowledges holds the caller only for the wait budget, however
-    /// long each pause overshoots.
+    /// A monitor that retains its mapping but never acknowledges cannot hold the caller forever.
     #[test]
     fn nonresponsive_dump_monitor_exhausts_the_existing_wait_budget() {
         let directory = tempfile::tempdir().unwrap();
         let heartbeat = heartbeat::Heartbeat::create(&directory.path().join("heartbeat")).unwrap();
-        for pause_ms in [1, 7, 500] {
-            let now = std::cell::Cell::new(0);
-            let mut pauses = 0;
-            assert!(!wait_for_dump_receipt(
-                heartbeat.region(),
-                1,
-                || now.get(),
-                || {
-                    pauses += 1;
-                    now.set(now.get() + pause_ms);
-                }
-            ));
-            assert_eq!(pauses, INTRODUCTION_WAIT_MS.div_ceil(pause_ms));
-        }
+        let elapsed = std::cell::Cell::new(Duration::ZERO);
+        let pauses = std::cell::Cell::new(0);
+        assert!(!wait_for_dump_receipt(
+            heartbeat.region(),
+            1,
+            || {
+                pauses.set(pauses.get() + 1);
+                elapsed.set(elapsed.get() + Duration::from_millis(1));
+            },
+            || Some(elapsed.get()),
+        ));
+        assert_eq!(pauses.get(), INTRODUCTION_WAIT_MS);
+    }
+
+    /// A delayed wake must consume elapsed budget instead of starting another nominal pause.
+    #[test]
+    fn dump_receipt_wait_stops_after_an_overslept_pause() {
+        let directory = tempfile::tempdir().unwrap();
+        let heartbeat = heartbeat::Heartbeat::create(&directory.path().join("heartbeat")).unwrap();
+        let elapsed = std::cell::Cell::new(Duration::ZERO);
+        let pauses = std::cell::Cell::new(0);
+        let delayed = Duration::from_millis(INTRODUCTION_WAIT_MS + 1);
+        assert!(!wait_for_dump_receipt(
+            heartbeat.region(),
+            1,
+            || {
+                pauses.set(pauses.get() + 1);
+                elapsed.set(elapsed.get() + delayed);
+            },
+            || Some(elapsed.get()),
+        ));
+        assert_eq!(
+            pauses.get(),
+            1,
+            "an elapsed deadline admitted another pause"
+        );
+    }
+
+    /// A receipt arriving after the budget must not begin another blocking dump operation.
+    #[test]
+    fn dump_receipt_after_the_elapsed_deadline_is_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("heartbeat");
+        let client = heartbeat::Heartbeat::create(&path).unwrap();
+        let monitor = heartbeat::Heartbeat::open(&path).unwrap();
+        let elapsed = std::cell::Cell::new(Duration::ZERO);
+        assert!(!wait_for_dump_receipt(
+            client.region(),
+            1,
+            || {
+                elapsed.set(Duration::from_millis(INTRODUCTION_WAIT_MS));
+                monitor.region().acknowledge_dump(1);
+            },
+            || Some(elapsed.get()),
+        ));
     }
 
     /// A late receipt for an older dump cannot release a new request's ordering barrier.
@@ -556,11 +605,11 @@ mod tests {
         assert!(wait_for_dump_receipt(
             client.region(),
             2,
-            || 0,
             || {
                 pauses += 1;
                 monitor.region().acknowledge_dump(2);
-            }
+            },
+            || Some(Duration::ZERO),
         ));
         assert_eq!(pauses, 1);
     }

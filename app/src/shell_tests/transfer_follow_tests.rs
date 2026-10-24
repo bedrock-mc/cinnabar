@@ -53,7 +53,7 @@ impl Drop for TempRoot {
     }
 }
 
-fn missing_core_layout(root: &Path) -> InstallLayout {
+fn fixture_layout(root: &Path) -> InstallLayout {
     InstallLayout::resolve(
         Platform::Linux,
         &InstallEnvironment {
@@ -100,10 +100,9 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
         true,
         Some(2),
         "Player".to_owned(),
-        missing_core_layout(root.path()),
+        fixture_layout(root.path()),
         client_shell::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
-    menu_fixture::suppress_catalog(&mut menu);
     menu.show_world();
     menu.open_pause();
     menu.activate(MenuAction::PauseDisconnect);
@@ -165,26 +164,33 @@ fn explicit_disconnect_discards_queued_terminal_events_and_closes_the_old_receiv
     assert!(old_controls.is_closed());
 }
 
-/// A menu whose per-session core is `script`, in an app driving joins.
-#[cfg(unix)]
-fn app_with_core(root: &Path, script: &str) -> App {
-    use std::os::unix::fs::PermissionsExt;
-
-    let layout = missing_core_layout(root);
-    fs::create_dir_all(layout.core_executable.parent().unwrap()).unwrap();
-    fs::write(&layout.core_executable, script).unwrap();
-    fs::set_permissions(&layout.core_executable, fs::Permissions::from_mode(0o755)).unwrap();
-    let menu = MenuRuntime::new_with_layout(
+/// Cancellation wins over the same prepared endpoint before network admission.
+#[test]
+fn cancellation_precedes_a_ready_join_response() {
+    use bevy::app::AppExit;
+    let root = TempRoot::new();
+    let mut menu = MenuRuntime::new_with_layout(
         true,
         Some(2),
-        "Player".to_owned(),
-        layout,
+        "Player".into(),
+        fixture_layout(root.path()),
         client_shell::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
+    menu.show_connecting();
+    menu_fixture::request_disconnect(&mut menu);
+    let mut controller = SessionController::default();
+    controller.adopt_join(
+        "fixture.invalid:19132",
+        false,
+        protocol::SessionEndpoint::Native(protocol::NativeConnectionTarget::new(
+            "fixture.invalid:19132".into(),
+            protocol::NativeTransport::Addressed,
+        )),
+    );
     let mut app = App::new();
-    app.add_message::<bevy::app::AppExit>()
+    app.add_message::<AppExit>()
         .insert_resource(menu)
-        .insert_resource(SessionController::default())
+        .insert_resource(controller)
         .insert_resource(NetworkHandle::<PackApplication>::disconnected())
         .insert_resource(ClientBlobCacheOwner::default())
         .insert_resource(ResourcePackAdmissionState::default())
@@ -200,126 +206,107 @@ fn app_with_core(root: &Path, script: &str) -> App {
         .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
         .insert_resource(client_presentation::local_player::InteractionOriginSnapshot::default())
         .add_systems(Update, drive_session);
-    app
+    app.update();
+    assert!(!app.world().resource::<MenuRuntime>().is_connecting());
+    assert!(!app.world().resource::<SessionController>().join_pending());
+    assert_eq!(
+        app.world()
+            .resource::<NetworkHandle<PackApplication>>()
+            .pending_event_count(),
+        0
+    );
 }
 
-#[cfg(unix)]
+/// A startup exit retires the original owner before its prepared endpoint is admitted.
 #[test]
-fn cancellation_precedes_a_ready_join_response() {
-    use crate::session::JoinStage;
+fn exit_before_first_session_frame_retires_a_pending_startup_join() {
+    use bevy::prelude::{AppExit, First, MessageWriter};
 
-    let root = TempRoot::new();
-    let mut app = app_with_core(root.path(), "#!/bin/sh\nexit 0\n");
-    let (reply, ready) = crossbeam_channel::bounded(1);
-    reply.send(Err("retired join failed".to_owned())).unwrap();
-    app.world_mut()
-        .resource_mut::<SessionController>()
-        .adopt_join("local world", true, JoinStage::Launcher(ready));
-    {
-        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
-        menu.activate(MenuAction::Navigate(MenuScreen::Play));
+    for (status, cause) in [
+        (AppExit::Success, None),
+        (
+            AppExit::error(),
+            Some("startup failed before session admission"),
+        ),
+    ] {
+        let root = TempRoot::new();
+        let mut menu = MenuRuntime::new_with_layout(
+            false,
+            Some(2),
+            "Player".into(),
+            fixture_layout(root.path()),
+            client_shell::player_skin::LocalPlayerSkin::generated_default("Player"),
+        );
         menu.show_connecting();
-        menu_fixture::request_disconnect(&mut menu);
-    }
-    app.update();
-    let menu = app.world().resource::<MenuRuntime>();
-    assert_eq!(menu.screen(), MenuScreen::Play);
-    assert!(
-        menu.view()
-            .message
-            .as_deref()
-            .is_none_or(|message| !message.contains("retired join"))
-    );
-    assert!(!app.world().resource::<SessionController>().join_pending());
-}
+        let controller = SessionController::default()
+            .with_client_random_id(Some(protocol::ClientRandomId::new(-7).unwrap()))
+            .with_startup_endpoint(
+                Some(protocol::SessionEndpoint::Native(
+                    protocol::NativeConnectionTarget::new(
+                        "fixture.invalid:19132".into(),
+                        protocol::NativeTransport::Addressed,
+                    ),
+                )),
+                Some("fixture.invalid:19132"),
+                #[cfg(feature = "native-networking")]
+                None,
+            );
+        let original_generation = controller.generation();
+        assert!(controller.join_pending());
+        let mut network = NetworkHandle::<PackApplication>::disconnected();
+        let (old_controls, receiver) = tokio::sync::mpsc::channel(1);
+        *network.control_events_mut() = receiver;
+        let startup_exit = status.clone();
+        let mut app = App::new();
+        app.add_message::<AppExit>()
+            .insert_resource(menu)
+            .insert_resource(controller)
+            .insert_resource(network)
+            .insert_resource(ClientBlobCacheOwner::default())
+            .insert_resource(ResourcePackAdmissionState::default())
+            .insert_resource(
+                crate::runtime::network::session_registries::tests::collision_resource(),
+            )
+            .insert_resource(UiRuntimeResource(UiRuntime::new(1)))
+            .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
+                1,
+            )))
+            .insert_resource(ClientWorld::default())
+            .insert_resource(crate::runtime::shutdown::FatalError(
+                cause.map(str::to_owned),
+            ))
+            .insert_resource(client_interaction::movement::MovementTicker::default())
+            .insert_resource(client_interaction::movement::LocalPhysicsController::default())
+            .insert_resource(client_presentation::local_player::LocalPlayerFrameCarrier::default())
+            .insert_resource(
+                client_presentation::local_player::InteractionOriginSnapshot::default(),
+            )
+            .add_systems(First, move |mut exits: MessageWriter<AppExit>| {
+                exits.write(startup_exit.clone());
+            })
+            .add_systems(Update, drive_session);
 
-// Join frames stay short while the core starts; cancelling reaps it.
-#[cfg(unix)]
-#[test]
-fn a_join_frame_does_not_wait_for_the_core() {
-    let root = TempRoot::new();
-    // Holds stdin like bedrock-core and never publishes an endpoint.
-    let mut app = app_with_core(root.path(), "#!/bin/sh\nIFS= read -r hold\n");
-    app.world_mut()
-        .resource_mut::<MenuRuntime>()
-        .request_connect("127.0.0.1:19132".to_owned());
-    let started = std::time::Instant::now();
-    app.update();
-    app.update();
-    let frames = started.elapsed();
-    if std::env::var_os("CINNABAR_MENU_LATENCY").is_some() {
-        eprintln!("menu-latency join (two frames)          {frames:?}");
-    }
-    let menu = app.world().resource::<MenuRuntime>();
-    let joining = app.world().resource::<SessionController>().join_pending();
-    assert!(frames < std::time::Duration::from_secs(1), "{frames:?}");
-    assert!(menu.is_connecting() && joining);
-    assert!(menu.view().connecting);
-
-    menu_fixture::request_disconnect(&mut app.world_mut().resource_mut::<MenuRuntime>());
-    app.update();
-    let menu = app.world().resource::<MenuRuntime>();
-    assert!(!menu.is_connecting());
-    assert!(!app.world().resource::<SessionController>().join_pending());
-}
-
-// A core that dies before publishing fails the join on a later frame, not
-// after the full start timeout.
-#[cfg(unix)]
-#[test]
-fn a_core_that_exits_early_fails_the_join_promptly() {
-    let root = TempRoot::new();
-    let mut app = app_with_core(root.path(), "#!/bin/sh\nexit 3\n");
-    app.world_mut()
-        .resource_mut::<MenuRuntime>()
-        .request_connect("127.0.0.1:19132".to_owned());
-    while app
-        .world_mut()
-        .resource_mut::<SessionController>()
-        .core_mut()
-        .id()
-        .is_none()
-        && app.world().resource::<MenuRuntime>().is_connecting()
-    {
+        let terminal = crate::runtime::shutdown::TerminalCause::install(&mut app);
         app.update();
-    }
-    // Frames wait for the exit, so a launch slowed by load cannot let the start deadline win.
-    test_time::eventually_within(
-        std::time::Duration::from_secs(60),
-        "the stub core to exit",
-        || {
-            !app.world().resource::<MenuRuntime>().is_connecting()
-                || app
-                    .world_mut()
-                    .resource_mut::<SessionController>()
-                    .core_mut()
-                    .exit_status()
-                    .is_some()
-        },
-    );
-    test_time::eventually("the connect attempt to finish", || {
-        if !app.world().resource::<MenuRuntime>().is_connecting() {
-            return true;
+
+        assert!(old_controls.is_closed());
+        let controller = app.world().resource::<SessionController>();
+        assert!(!controller.join_pending());
+        assert!(!controller.status().connecting);
+        assert_ne!(controller.generation(), original_generation);
+        assert!(!app.world().resource::<MenuRuntime>().is_connecting());
+        assert_eq!(app.should_exit(), Some(status));
+        if let Some(cause) = cause {
+            assert_eq!(
+                app.world()
+                    .resource::<crate::runtime::shutdown::FatalError>()
+                    .0
+                    .as_deref(),
+                Some(cause),
+            );
+            assert!(terminal.exit_message().ends_with(cause));
         }
-        app.update();
-        false
-    });
-    assert!(!app.world().resource::<SessionController>().join_pending());
-    let menu = app.world().resource::<MenuRuntime>();
-    // The exit is seen, not the start timeout (a new executable's first
-    // launch can itself take seconds on macOS).
-    assert!(
-        menu.view()
-            .disconnect_message
-            .as_deref()
-            .is_some_and(|message| {
-                message.starts_with("Could not start 127.0.0.1")
-                    && message.contains("bedrock-core exited (exit status: 3)")
-                    && message.contains("before publishing its endpoint")
-            }),
-        "{:?}",
-        menu.view().disconnect_message
-    );
+    }
 }
 
 fn failed_automatic_replacement(
@@ -332,7 +319,7 @@ fn failed_automatic_replacement(
         true,
         Some(2),
         "Player".to_owned(),
-        missing_core_layout(root.path()),
+        fixture_layout(root.path()),
         client_shell::player_skin::LocalPlayerSkin::generated_default("Player"),
     );
     let controller = SessionController::default();
@@ -397,11 +384,9 @@ fn failed_automatic_replacement(
     let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
     assert!(menu.is_visible());
     assert_eq!(menu.view().screen, MenuScreen::Home);
-    assert!(
-        menu.view()
-            .disconnect_message
-            .as_deref()
-            .is_some_and(|message| message.starts_with("Could not start transfer.example.net"))
+    assert_eq!(
+        menu.view().disconnect_message.as_ref().unwrap(),
+        &crate::args::ArgsError::NativeNetworkingUnavailable.to_string()
     );
     if from_local_world {
         assert!(

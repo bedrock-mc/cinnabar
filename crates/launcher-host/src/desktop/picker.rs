@@ -229,7 +229,7 @@ mod tests {
         name: "Resource packs",
         extensions: &PACK_IMPORT_EXTENSIONS,
         unavailable_hint: "Drop a pack onto the window to import it.",
-        max_bytes: Some(resource_pack::MAX_ARCHIVE_BYTES as u64),
+        max_bytes: Some(resource_pack::MAX_LOCAL_ARCHIVE_BYTES as u64),
     };
 
     /// Returns a tool's arguments as strings for inspecting its dialog configuration.

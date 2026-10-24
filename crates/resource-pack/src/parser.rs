@@ -9,41 +9,80 @@ use std::{
     sync::Arc,
 };
 
-#[cfg(feature = "handoff")]
-use protocol::ResourcePackArchive;
+use bedrock_packs::ResourcePackArchive;
 use uuid::Uuid;
 use zip::{CompressionMethod, ZipArchive};
 
 use crate::{
     AdmissionError, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK,
     crypto::{ContentKey, contents_file_keys},
-    manifest::{IdentityPolicy, Version, read_manifest_with_policy},
+    manifest::{IdentityPolicy, Purpose, read_manifest_with_policy},
     pack::{ArchiveBytes, EntryIndex, ValidatedPack, read_entry},
     read_cache::ReadCache,
 };
-#[cfg(feature = "handoff")]
 use crate::{
     MAX_DECLARED_BYTES_PER_STACK, MAX_ENTRIES_PER_STACK, PackRejection, ValidatedPackStack,
 };
 
 const MAX_CONTENTS_INDEX_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Archive-derived delivery kind, independent of whether the client can render the archive.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArchiveKind {
+    /// A resources module without the selected delivery policy's behavior module kinds.
+    Resources,
+    /// Resources together with a data or client_data module.
+    Addon,
+    /// Data or client_data without a resources module; retained only by identity acquisition.
+    Behavior,
+    /// The selected delivery owner's fallback when no resources or behavior module is present.
+    Skins,
+    /// An admitted archive member has the exact basename level.dat.
+    WorldTemplate,
+}
+
 /// Validates one unencrypted archive under a nil identity; used by fuzzing.
 pub fn validate_archive_bytes(bytes: &[u8]) -> Result<(), AdmissionError> {
     validate_archive_parts(
         Uuid::nil(),
-        Version([0, 0, 0]),
+        "0.0.0",
         "",
         bytes.to_vec(),
         None,
         None,
+        Purpose::Rendering,
     )
     .map(|_| ())
 }
 
+/// Checks an offered archive's bounded structure and manifest identity without modifying bytes.
+/// Returns its opaque delivery kind from the same pass; this does not admit a rendering layer
+/// or infer wire DataInfo. Content keys and application remain owned by the eventual handoff.
+pub fn verify_archive_identity(
+    bytes: &[u8],
+    pack_id: Uuid,
+    version: impl AsRef<[u8]>,
+) -> Result<ArchiveKind, AdmissionError> {
+    validate_archive_parts(
+        pack_id,
+        version,
+        "",
+        bytes.to_vec(),
+        None,
+        None,
+        Purpose::Identity,
+    )
+    .map(|(_, _, kind)| kind)
+}
+
+/// Manifest use and device selection for one cache-backed admission pass.
+pub(crate) struct AdmissionOptions {
+    pub(crate) memory: Option<u32>,
+    pub(crate) purpose: Purpose,
+}
+
 /// Admits highest-priority-first server entries, then stores layers lowest priority first.
 /// Structural checks retain rejection indexes in the server order.
-#[cfg(feature = "handoff")]
 pub(super) fn validate_stack(
     archives: Vec<ResourcePackArchive>,
     memory: Option<u32>,
@@ -92,7 +131,6 @@ pub(super) fn validate_stack(
     stack
 }
 
-#[cfg(feature = "handoff")]
 fn admit_stack_entry<T>(
     archive: ResourcePackArchive,
     seen: &mut HashSet<Uuid>,
@@ -109,14 +147,18 @@ fn admit_stack_entry<T>(
     } else {
         Some(ContentKey::new(key).ok_or(AdmissionError::InvalidContentKey)?)
     };
-    let (pack, declared) = validate_archive_parts_cached(
+    let (pack, declared, _) = validate_archive_parts_cached(
         archive.pack_id,
+        &archive.version,
         &archive.sub_pack_name,
         archive.archive,
         key,
-        memory,
+        AdmissionOptions {
+            memory,
+            purpose: Purpose::Rendering,
+        },
         reads,
-        IdentityPolicy::ServerAdvertisement(archive.version),
+        IdentityPolicy::ServerAdvertisement,
     )?;
     let bounds = stack_bounds(&pack, declared)?;
     seen.insert(pack.pack_id);
@@ -126,34 +168,40 @@ fn admit_stack_entry<T>(
 /// Admits one local selection with its own bounded read cache and exact manifest identity.
 pub(crate) fn validate_archive_parts(
     pack_id: Uuid,
-    version: Version,
-    sub_pack_name: &str,
+    version: impl AsRef<[u8]>,
+    sub_pack_name: impl AsRef<[u8]>,
     archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
     memory: Option<u32>,
-) -> Result<(ValidatedPack, u64), AdmissionError> {
+    purpose: Purpose,
+) -> Result<(ValidatedPack, u64, ArchiveKind), AdmissionError> {
     validate_archive_parts_cached(
         pack_id,
+        version,
         sub_pack_name,
         archive_bytes,
         key,
-        memory,
+        AdmissionOptions { memory, purpose },
         Arc::default(),
-        IdentityPolicy::Manifest(version),
+        IdentityPolicy::Manifest,
     )
 }
 
 /// Admits a pack whose plaintext storage shares the caller's byte budget; `identity`
 /// decides whether the manifest must name the selected UUID and version.
+#[allow(clippy::too_many_arguments)] // Selection, content key and budgets stay explicit.
 pub(crate) fn validate_archive_parts_cached(
     pack_id: Uuid,
-    sub_pack_name: &str,
+    version: impl AsRef<[u8]>,
+    sub_pack_name: impl AsRef<[u8]>,
     mut archive_bytes: Vec<u8>,
     key: Option<ContentKey>,
-    memory: Option<u32>,
+    options: AdmissionOptions,
     reads: Arc<ReadCache>,
     identity: IdentityPolicy,
-) -> Result<(ValidatedPack, u64), AdmissionError> {
+) -> Result<(ValidatedPack, u64, ArchiveKind), AdmissionError> {
+    let version = version.as_ref();
+    let sub_pack_name = sub_pack_name.as_ref();
     let expected_entries = prepare_zip_bytes(&mut archive_bytes)?;
     let bytes = Arc::new(archive_bytes);
     let mut zip = ZipArchive::new(Cursor::new(ArchiveBytes(Arc::clone(&bytes))))
@@ -200,6 +248,9 @@ pub(crate) fn validate_archive_parts_cached(
             _ => skipped += usize::from(!file.is_dir()),
         }
     }
+    let has_world_template = physical
+        .keys()
+        .any(|path| path.rsplit('/').next() == Some("level.dat"));
     let root = pack_root(&physical);
     let mut rooted: HashMap<Box<str>, EntryIndex> = physical
         .into_iter()
@@ -218,7 +269,7 @@ pub(crate) fn validate_archive_parts_cached(
         .ok_or(AdmissionError::MissingManifest)?;
     let mut pack = ValidatedPack {
         pack_id,
-        version: identity.version_text().into(),
+        version: version.into(),
         sub_pack_name: sub_pack_name.into(),
         archive_bytes,
         declared_bytes: declared,
@@ -235,19 +286,31 @@ pub(crate) fn validate_archive_parts_cached(
     let manifest_bytes = pack
         .read_file(manifest_path)?
         .ok_or(AdmissionError::MissingManifest)?;
-    let manifest = read_manifest_with_policy(&manifest_bytes, pack_id, &identity)?;
-    let selected = if let Some(memory) = memory {
+    let manifest =
+        read_manifest_with_policy(&manifest_bytes, pack_id, version, options.purpose, identity)?;
+    let kind = if has_world_template {
+        ArchiveKind::WorldTemplate
+    } else if manifest.has_resources && manifest.has_behaviors {
+        ArchiveKind::Addon
+    } else if manifest.has_behaviors {
+        ArchiveKind::Behavior
+    } else if manifest.has_resources {
+        ArchiveKind::Resources
+    } else {
+        ArchiveKind::Skins
+    };
+    let selected = if let Some(memory) = options.memory {
         crate::subpacks::supported(&manifest.subpacks, sub_pack_name, memory)
     } else {
         manifest
             .subpacks
             .iter()
-            .find(|pack| pack.folder == sub_pack_name)
+            .find(|pack| pack.folder.as_bytes() == sub_pack_name)
             .map_or("", |pack| pack.folder.as_str())
     };
     pack.files = logical_files(&pack.files, selected)?;
-    if memory.is_some() {
-        pack.sub_pack_name = selected.into();
+    if options.memory.is_some() {
+        pack.sub_pack_name = selected.as_bytes().into();
     }
     pack.folded = pack
         .files
@@ -257,7 +320,7 @@ pub(crate) fn validate_archive_parts_cached(
     let mut file_order = pack.files.keys().cloned().collect::<Vec<_>>();
     file_order.sort_unstable();
     pack.file_order = file_order.into_boxed_slice();
-    Ok((pack, declared))
+    Ok((pack, declared, kind))
 }
 
 /// Returns the directory prefix holding the manifest when an archive wraps the

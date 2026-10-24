@@ -27,6 +27,8 @@ const MAX_END_EVENTS: usize = 64;
 const SELECT: &str = "button.menu_select";
 
 #[cfg(test)]
+mod animation_tests;
+#[cfg(test)]
 mod tests;
 
 /// The primary pointer button's edges this frame and whether it is down.

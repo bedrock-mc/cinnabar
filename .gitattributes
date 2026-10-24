@@ -42,8 +42,7 @@ crates/json-ui/data/vanilla-ui-vocabulary-*.txt text eol=lf
 crates/assets/data/item-facts-expansion-*.tsv text eol=lf
 crates/assets/data/item-facts-*.bin binary
 crates/crash-report/data/redaction-rules.json text eol=lf
-core/internal/redact/rules.json text eol=lf
-core/cinnabarapi/schema/*.json text eol=lf
+crates/bridge/data/cinnabar-api/*.json text eol=lf
 *_generated.rs text eol=lf
 crates/protocol-ids/src/generated.rs text eol=lf
 crates/assets/data/java-mapping-*.bin binary

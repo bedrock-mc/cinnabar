@@ -6,14 +6,9 @@ use mod_host::{
     ObservedActor, VitalsObservation, WorldObservation, module_observations::ModuleObservations,
 };
 use simulation_clock::identity::SessionGeneration;
-use std::{
-    collections::{BinaryHeap, VecDeque},
-    path::PathBuf,
-    sync::{Mutex, mpsc},
-    time::{Duration, Instant},
-};
+use std::collections::{BinaryHeap, VecDeque};
 
-/// Captures one bounded history and one outstanding asynchronous core status request.
+/// Captures bounded native actor and combat observations for one session.
 #[derive(Default)]
 pub(super) struct ModuleObserver {
     scope: Option<(u64, i32)>,
@@ -21,7 +16,6 @@ pub(super) struct ModuleObserver {
     attack_revision: u64,
     sequence: u64,
     history: VecDeque<CombatObservation>,
-    ping: PingPoll,
 }
 
 /// Keeps observed identifiers bounded at a valid UTF-8 prefix.
@@ -151,93 +145,6 @@ fn look_origin(
     }))
 }
 
-/// A status response retains the session that requested its optional connection.
-type PingResponse = (u64, Option<bridge::NetworkConnection>);
-
-/// One request in flight prevents an unavailable core from spawning unbounded workers.
-#[derive(Default)]
-struct PingPoll {
-    pending: Option<Mutex<mpsc::Receiver<PingResponse>>>,
-    next_poll: Option<Instant>,
-    session: u64,
-    attempt: u64,
-    value: Option<u32>,
-}
-impl PingPoll {
-    /// Clears stale samples and accepts only this session's retained local runtime identity.
-    fn sample(&mut self, session: u64, runtime_id: u64, directory: Option<PathBuf>) -> Option<u32> {
-        if session != self.session {
-            self.session = session;
-            self.attempt = 0;
-            self.value = None;
-            self.next_poll = None;
-        }
-        let response = self.pending.as_ref().and_then(|pending| {
-            pending
-                .lock()
-                .ok()
-                .and_then(|receiver| match receiver.try_recv() {
-                    Ok(result) => Some(Some(result)),
-                    Err(mpsc::TryRecvError::Disconnected) => Some(None),
-                    Err(mpsc::TryRecvError::Empty) => None,
-                })
-        });
-        if let Some(response) = response {
-            self.pending = None;
-            if let Some((response_session, connection)) = response {
-                if response_session == session {
-                    self.value = self.accept(runtime_id, connection);
-                }
-            } else {
-                self.value = None;
-            }
-        }
-        let now = Instant::now();
-        if self.pending.is_none() && self.next_poll.is_none_or(|deadline| now >= deadline) {
-            self.next_poll = Some(now + Duration::from_secs(1));
-            if let Some(directory) = directory {
-                let (sender, receiver) = mpsc::sync_channel(1);
-                self.pending = Some(Mutex::new(receiver));
-                std::thread::spawn(move || {
-                    let result = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .ok()
-                        .and_then(|runtime| {
-                            runtime.block_on(async {
-                                tokio::time::timeout(
-                                    Duration::from_secs(2),
-                                    bridge::read_status(&directory),
-                                )
-                                .await
-                                .ok()
-                                .and_then(Result::ok)
-                                .and_then(|status| status.network)
-                            })
-                        });
-                    let _ = sender.send((session, result));
-                });
-            } else {
-                self.value = None;
-            }
-        }
-        self.value
-    }
-    /// Rejects stale attempts and mismatched local actors; absence means unknown, never zero.
-    fn accept(
-        &mut self,
-        runtime_id: u64,
-        connection: Option<bridge::NetworkConnection>,
-    ) -> Option<u32> {
-        let connection = connection?;
-        if connection.local_runtime_id != runtime_id || connection.attempt_id < self.attempt {
-            return None;
-        }
-        self.attempt = connection.attempt_id;
-        connection.round_trip_ms
-    }
-}
-
 /// A borrowed actor ordered by distance, then runtime identity, with the furthest first in a heap.
 struct NearbyActor<'a> {
     distance: f32,
@@ -319,11 +226,11 @@ impl ModuleObserver {
         world: Option<&WorldObservation>,
         player: &player_state::PlayerState,
         interaction: Option<&super::interaction::ModInteraction>,
+        network: Option<&super::NetworkHandle<super::PackApplication>>,
     ) -> ModuleObservations {
         let Some(world) = world else {
             self.scope = None;
             self.history.clear();
-            self.ping.sample(0, 0, None);
             return ModuleObservations::default();
         };
         let Some(authority) = gameplay
@@ -509,15 +416,9 @@ impl ModuleObserver {
                 });
             }
         }
-        let ping_ms = self.ping.sample(
-            world.session,
-            authority.local_player_runtime_id(),
-            gameplay
-                .session
-                .as_ref()
-                .and_then(|session| session.socket_directory())
-                .map(PathBuf::from),
-        );
+        let ping_ms = network.and_then(|network| {
+            network.round_trip_ms(world.session, authority.local_player_runtime_id())
+        });
         ModuleObservations {
             world_day: gameplay.world_day(world),
             local_totem_uses: authority.totem_activations(authority.local_player_runtime_id()),
@@ -758,20 +659,5 @@ mod tests {
             }
             eprintln!("nearest actors={count}: before={before:?} after={after:?}");
         }
-    }
-
-    #[test]
-    fn ping_keeps_unknown_distinct_and_rejects_old_connections() {
-        let mut poll = PingPoll::default();
-        let connection = |attempt_id, local_runtime_id, round_trip_ms| bridge::NetworkConnection {
-            attempt_id,
-            local_runtime_id,
-            round_trip_ms,
-        };
-        assert_eq!(poll.accept(7, Some(connection(2, 7, Some(31)))), Some(31));
-        assert_eq!(poll.accept(7, Some(connection(1, 7, Some(99)))), None);
-        assert_eq!(poll.accept(7, Some(connection(3, 8, Some(99)))), None);
-        assert_eq!(poll.accept(7, Some(connection(3, 7, None))), None);
-        assert_eq!(poll.sample(5, 7, None), None);
     }
 }

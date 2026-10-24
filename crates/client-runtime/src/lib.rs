@@ -3,8 +3,6 @@
 pub mod blob_cache;
 #[cfg(any(target_arch = "wasm32", test))]
 pub mod browser_jobs;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod endpoint;
 pub mod ingress;
 pub mod inventory;
 pub mod item_diagnostics;

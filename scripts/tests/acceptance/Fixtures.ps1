@@ -278,11 +278,9 @@ function Invoke-Acceptance {
     }
 }
 
+# Closes a fixture's stdin and reaps its exact process before releasing captured logs.
 function Complete-TestLoggedProcess {
-    param(
-        $Handle,
-        [ValidateSet('app', 'core', 'bds')][string]$Kind = 'core'
-    )
+    param($Handle)
 
     if ($null -eq $Handle) {
         return
@@ -291,7 +289,7 @@ function Complete-TestLoggedProcess {
     $cleanupFailures = [Collections.Generic.List[string]]::new()
     try {
         if (-not $Handle.Process.HasExited) {
-            Stop-BoundedProcess -Handle $Handle -Kind $Kind
+            $Handle.Process.StandardInput.Close()
         }
         if (-not $Handle.Process.WaitForExit(10000)) {
             throw 'test helper remained alive after bounded cleanup'

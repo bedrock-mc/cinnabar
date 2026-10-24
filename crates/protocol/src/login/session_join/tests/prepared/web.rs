@@ -34,6 +34,8 @@ fn archive_wire(data: &[u8]) -> Vec<u8> {
 /// Supplies addressed login choices without filesystem cache access.
 fn web_login(settings: &LoginSettings) -> SessionLogin<'_> {
     SessionLogin {
+        #[cfg(not(target_arch = "wasm32"))]
+        execution: None,
         display_name: "Fixture",
         client_random_id: ClientRandomId::new(-7).unwrap(),
         cache: None,
@@ -134,6 +136,11 @@ async fn injected_web_join_verifies_packs_and_preserves_play_order_and_trace() {
         let (joined, mut core) = tokio::join!(join, core);
         let (mut session, (packs, data)) = joined.expect("verified web archives reach play");
         assert_eq!(
+            session.identity(),
+            &serde_json::from_value::<crate::session_wire::SessionIdentity>(identity("Fixture"))
+                .unwrap()
+        );
+        assert_eq!(
             jobs.get(),
             1,
             "the host prepares startup after web admission"
@@ -148,7 +155,7 @@ async fn injected_web_join_verifies_packs_and_preserves_play_order_and_trace() {
         let archives = packs.into_archives();
         assert_eq!(archives.len(), 1);
         assert_eq!(archives[0].archive, b"abc");
-        assert_eq!(archives[0].sub_pack_name, "high");
+        assert_eq!(archives[0].sub_pack_name, b"high");
         assert_eq!(archives[0].content_key.expose(), b"key");
         for (expected_time, expected_frame) in [(1, 0), (2, 1)] {
             let crate::session_transport::Inbound::Packet(raw) =

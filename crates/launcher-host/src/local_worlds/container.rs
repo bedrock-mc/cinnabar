@@ -15,6 +15,8 @@ use crossbeam_channel::Receiver;
 use crate::lifecycle::children;
 use launcher::local_worlds::world::{SetupState, UnavailableReason};
 
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use super::ports::lan_address;
 use super::{
     Cancel,
     bds::{
@@ -27,7 +29,7 @@ use super::{
     download::direct_url,
     ports::{
         BDS_CONTAINER_HTTP_PORT, BDS_CONTAINER_UDP_PORT, LAN_DISCOVERY_PORT, LOCAL_SERVER_HOST,
-        bds_udp_mapping, check_bds_lan_port, free_bds_port, lan_address, loopback, udp_port_range,
+        bds_udp_mapping, check_bds_lan_port, free_bds_port, loopback, udp_port_range,
     },
     process::{Instance, Launch, Process, SAVE_BUDGET, StartSpec, launch},
     provision::{RuntimeInfo, install_dir},
@@ -291,6 +293,10 @@ impl BdsRunner {
                     name: name.clone(),
                     removed: Once::new(),
                     max_players,
+                    #[cfg(any(
+                        test,
+                        all(feature = "native-networking", not(target_arch = "wasm32"))
+                    ))]
                     lan_address: self.lan_visible.then(|| lan_address(self.lan_host_port)),
                 }),
                 Err(error) => {
@@ -436,6 +442,7 @@ struct ContainerInstance {
     name: String,
     removed: Once,
     max_players: u32,
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     lan_address: Option<String>,
 }
 
@@ -462,6 +469,7 @@ impl ContainerInstance {
 }
 
 impl Instance for ContainerInstance {
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     fn address(&self) -> &str {
         self.process.address()
     }
@@ -502,6 +510,7 @@ impl Instance for ContainerInstance {
         Some(self.max_players)
     }
 
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     fn lan_address(&self) -> Option<&str> {
         self.lan_address.as_deref()
     }

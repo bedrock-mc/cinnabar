@@ -1,10 +1,10 @@
 # Android (experimental)
 
 The Android client is the desktop client built for arm64-v8a Android 8+ devices with Vulkan.
-The APK holds the client library, the Go core, the Dragonfly local server and `assetc`, plus
-the prep kit. It ships no game assets: first launch asks you to accept the Minecraft EULA,
-then downloads Mojang's sample resource pack and compiles the carriers into the app's private
-storage. Keep the app open until setup finishes.
+The APK selects native Rust networking and holds the client library, `assetc`, the Go local
+server and the BDS translation runtime, plus the prep kit. It ships no game assets: first launch
+asks you to accept the Minecraft EULA, then downloads Mojang's sample resource pack and compiles
+the carriers into the app's private storage. Keep the app open until setup finishes.
 
 ## Release APKs
 
@@ -37,6 +37,13 @@ Without `CINNABAR_ANDROID_KEYSTORE` the script signs with a test key in `target/
 Android CI workflow builds a test APK for pull requests that change `packaging/android/` or the
 release workflow, every six hours and on manual runs, and attaches it to the run. Each run uses its own key, so
 uninstall an earlier build (which clears its data) before installing a newer one.
+
+The locked platform TLS verifier initializes from the application Context before setup or
+network work. Packaging checks the official verifier AAR and its Kotlin runtime hashes,
+includes its original certificate-revocation policy resource, and fails if the Rust/JVM versions
+drift. Target checks, packaging controls and APK assembly are verified. Browser links use
+Android ACTION_VIEW. Physical-device TLS, sign-in, world entry and Activity lifecycle acceptance
+remain open; an assembled APK does not qualify those runtime paths.
 
 ## Controls
 
@@ -130,8 +137,8 @@ Typing sign or book text still needs a hardware keyboard. Featured servers need 
 sign-in, whose code you enter on another device.
 These stay keyboard, mouse or controller only: dropping the held item from the hotbar, pick
 block, the emote wheel, the player list, perspective, and mod or server Experience key
-bindings. Also missing are Back during gameplay, clipboard, opening links, Microsoft
-sign-in while the app is in the background, touch scrolling in forms and menus outside Settings,
-and the native touch layouts, remapping and control customization. Device performance, audio
-and suspend/resume are untested. See
-`plan.md`.
+bindings. Local worlds and browser sign-in handoff remain unqualified on a physical device.
+Also missing are Back during gameplay, clipboard, Microsoft sign-in while the app is in the
+background, touch scrolling in forms and menus outside Settings, and the native touch layouts,
+remapping and control customization. Device performance, audio and suspend/resume are untested.
+See `plan.md`.

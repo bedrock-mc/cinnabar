@@ -1031,7 +1031,6 @@ fn server_trust_question_draws_the_oreui_popup_and_owns_the_input() {
     view.feeds.server_trust = Some(launcher::menu::ServerTrustPrompt {
         id: 1,
         url: "http://127.0.0.1:19132".into(),
-        from_session_core: false,
     });
     let actions = super::test_support::draw_menu_actions(&player_runtime, &mut presentation, &view);
     let texts =

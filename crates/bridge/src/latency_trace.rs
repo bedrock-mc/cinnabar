@@ -1,8 +1,7 @@
-//! Timestamped packet-latency events, written beside the core's own trace for offline joining.
+//! Timestamped packet-latency events for offline analysis.
 //!
-//! Off unless [`crate::contract::LATENCY_TRACE_ENV`] names a directory. Both processes stamp
-//! events with Unix nanoseconds read once at startup plus monotonic time since, so intervals
-//! within a process are monotonic and the two files share one epoch.
+//! Off unless [`crate::contract::LATENCY_TRACE_ENV`] names a directory. Events use Unix
+//! nanoseconds anchored once at startup plus monotonic elapsed time.
 
 use std::fs::File;
 use std::io::{BufWriter, Write};

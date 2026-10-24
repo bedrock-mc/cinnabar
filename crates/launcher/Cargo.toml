@@ -11,9 +11,7 @@ reads = [
     "assets/startup-screen.json",
     "assets/branding/icon.png",
     "assets/branding/title.png",
-    "core/authcache/derived_suffix.txt",
-    "core/catalog/artwork_limit.txt",
-    "core/catalog/profile_overview_limit.txt",
+    "packaging/common/runtime-binaries.txt",
 ]
 
 [features]
@@ -24,12 +22,14 @@ shaderpacks = ["shader-pack-options"]
 shader-pack-options = ["dep:shaderpack"]
 
 [dependencies]
+env-compat = { path = "../env-compat" }
+bedrock-packs.workspace = true
 cosmetics = { path = "../cosmetics" }
 bridge = { path = "../bridge" }
 json-ui = { path = "../json-ui" }
 assets = { path = "../assets" }
 render-api = { path = "../render-api" }
-resource-pack = { path = "../resource-pack", default-features = false }
+resource-pack = { path = "../resource-pack" }
 semantic-input = { path = "../input" }
 ui = { path = "../ui" }
 shaderpack = { path = "../shaderpack", optional = true }
@@ -39,6 +39,7 @@ update-manifest = { path = "../update-manifest" }
 sha2.workspace = true
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 thiserror.workspace = true
+zeroize = "1"
 
 [lints]
 workspace = true

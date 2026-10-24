@@ -14,9 +14,14 @@ cinnabar — ",
 
 Usage: cinnabar [OPTIONS] [PACK.mcpack|PACK.mcaddon|PACK.zip]...
 
+Desktop builds with native-networking use Rust addressed discovery by default.
+Builds without it cannot open native server connections.
+
 Options:
-  --address <HOST:PORT>       Directly launch the Go core and join a server
-  --socket-dir <PATH>          Override the platform runtime socket directory
+  --address <HOST:PORT>       Directly join a server
+  --native-networking <KIND>  Select Rust transport: addressed, raknet or nethernet-lan
+  --parallel-resource-pack-urls
+                               Opt native pack URL downloads into bounded parallel reads
   --import-pack <PATH>        Import an optional global resource pack
   --assets <PATH>              Compiled vanilla asset blob
   --display-name <NAME>        Offline display name (default: ",
@@ -99,11 +104,12 @@ impl acceptance::movement_evidence::EvidenceTargetLabel for EvidenceTarget {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientArgs {
-    /// Optional upstream address for the fast direct-connect path. Without it
-    /// (and without an explicit socket directory) the client opens the menu.
+    /// Optional upstream address for the fast direct-connect path. Without it the client opens the menu.
     pub address: Option<String>,
-    pub socket_dir: PathBuf,
-    pub socket_dir_explicit: bool,
+    /// Selected native transport; absent when this build cannot open native connections.
+    pub native_transport: Option<protocol::NativeTransport>,
+    /// Native-only URL scheduling choice retained across joins and server transfers.
+    pub parallel_resource_pack_urls: bool,
     pub assets: Option<PathBuf>,
     /// Files opened by the user, imported after the window starts.
     pub import_packs: Vec<PathBuf>,
@@ -151,8 +157,12 @@ impl Default for ClientArgs {
     fn default() -> Self {
         Self {
             address: None,
-            socket_dir: PathBuf::from(".local/run"),
-            socket_dir_explicit: false,
+            native_transport: cfg!(all(
+                feature = "native-networking",
+                not(target_arch = "wasm32")
+            ))
+            .then_some(protocol::NativeTransport::Addressed),
+            parallel_resource_pack_urls: false,
             assets: None,
             import_packs: Vec::new(),
             display_name: launcher::PRODUCT_NAME.to_owned(),
@@ -191,6 +201,16 @@ pub enum ParseOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ArgsError {
+    #[error(
+        "native networking requires --features native-networking; direct sessions also require --address"
+    )]
+    NativeNetworkingUnavailable,
+    #[error("native friend-world startup requires a verified friend selection")]
+    NativeFriendSelectionRequired,
+    #[error("--native-networking must be addressed, raknet or nethernet-lan")]
+    InvalidNativeTransport,
+    #[error("--parallel-resource-pack-urls requires --native-networking")]
+    ParallelPackUrlsRequireNativeNetworking,
     #[error(
         "acceptance and evidence options require the app's `acceptance` feature; rebuild without --no-default-features or enable --features acceptance"
     )]
@@ -320,6 +340,7 @@ impl ClientArgs {
                     parsed.require_transparent_presentation = true;
                 }
                 Some("--movement-candidate-physics") => parsed.movement_candidate_physics = true,
+                Some("--parallel-resource-pack-urls") => parsed.parallel_resource_pack_urls = true,
                 Some("--address" | "-address") => {
                     let value = next_value(&mut arguments, "--address")?
                         .into_string()
@@ -329,9 +350,14 @@ impl ClientArgs {
                     }
                     parsed.address = Some(value);
                 }
-                Some("--socket-dir") => {
-                    parsed.socket_dir_explicit = true;
-                    parsed.socket_dir = PathBuf::from(next_value(&mut arguments, "--socket-dir")?);
+                Some("--native-networking") => {
+                    let value = next_value(&mut arguments, "--native-networking")?;
+                    parsed.native_transport = Some(match value.to_str() {
+                        Some("addressed") => protocol::NativeTransport::Addressed,
+                        Some("raknet") => protocol::NativeTransport::RakNet,
+                        Some("nethernet-lan") => protocol::NativeTransport::NetherNetLan,
+                        _ => return Err(ArgsError::InvalidNativeTransport),
+                    });
                 }
                 Some("--import-pack") => {
                     parsed
@@ -524,6 +550,17 @@ impl ClientArgs {
         {
             return Err(ArgsError::MovementEvidenceRequiresAttributableRun);
         }
+        if parsed.native_transport.is_some()
+            && (!cfg!(all(
+                feature = "native-networking",
+                not(target_arch = "wasm32")
+            )) || (parsed.connection_requested() && parsed.address.is_none()))
+        {
+            return Err(ArgsError::NativeNetworkingUnavailable);
+        }
+        if parsed.parallel_resource_pack_urls && parsed.native_transport.is_none() {
+            return Err(ArgsError::ParallelPackUrlsRequireNativeNetworking);
+        }
         parsed.validate_acceptance_support(cfg!(feature = "acceptance"))?;
         parsed.validate_developer_support(cfg!(feature = "developer-control"))?;
         Ok(ParseOutcome::Run(Box::new(parsed)))
@@ -531,10 +568,30 @@ impl ClientArgs {
 
     #[must_use]
     pub fn connection_requested(&self) -> bool {
-        self.address.is_some()
-            || self.socket_dir_explicit
-            || self.acceptance_seconds.is_some()
-            || self.metrics_out.is_some()
+        self.address.is_some() || self.acceptance_seconds.is_some() || self.metrics_out.is_some()
+    }
+
+    /// Selects the native target; builds without native capability refuse the request.
+    pub(crate) fn session_endpoint(&self) -> Result<protocol::SessionEndpoint, ArgsError> {
+        if let Some(transport) = self.native_transport {
+            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+            if let Some(address) = &self.address {
+                return match crate::session::destination::classify(address, transport, false) {
+                    crate::session::destination::Destination::Network(target) => {
+                        Ok(protocol::SessionEndpoint::Native(target))
+                    }
+                    crate::session::destination::Destination::FriendSelectionRequired => {
+                        Err(ArgsError::NativeFriendSelectionRequired)
+                    }
+                    crate::session::destination::Destination::LocalWorld => {
+                        Err(ArgsError::NativeNetworkingUnavailable)
+                    }
+                };
+            }
+            let _ = transport;
+            return Err(ArgsError::NativeNetworkingUnavailable);
+        }
+        Err(ArgsError::NativeNetworkingUnavailable)
     }
 }
 
@@ -546,406 +603,4 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{ArgsError, ClientArgs, HELP, ParseOutcome};
-    use std::path::PathBuf;
-
-    #[test]
-    fn accepts_file_open_arguments_and_explicit_imports() {
-        let ParseOutcome::Run(args) = ClientArgs::parse_from([
-            "client",
-            "a.mcpack",
-            "b.MCADDON",
-            "c.zip",
-            "--import-pack",
-            "d.mcpack",
-        ])
-        .unwrap() else {
-            panic!("run");
-        };
-        assert_eq!(
-            args.import_packs,
-            ["a.mcpack", "b.MCADDON", "c.zip", "d.mcpack"].map(PathBuf::from)
-        );
-        assert!(!args.connection_requested());
-    }
-
-    #[test]
-    fn defaults_are_stable() {
-        let ParseOutcome::Run(args) = ClientArgs::parse_from(["client"]).unwrap() else {
-            panic!("expected run args")
-        };
-        assert_eq!(args.socket_dir, PathBuf::from(".local/run"));
-        assert_eq!(args.assets, None);
-        assert_eq!(args.display_name, launcher::PRODUCT_NAME);
-        assert_eq!(args.acceptance_seconds, None);
-        assert_eq!(args.metrics_warmup_seconds, 0);
-        assert_eq!(args.metrics_sample_seconds, None);
-        assert!(!args.auto_fly);
-        assert!(!args.force_vsync);
-        assert!(!args.no_vsync);
-        assert_eq!(args.frame_cap, None);
-        assert!(!args.full_view_teleport_gate);
-        assert!(!args.require_transparent_presentation);
-        assert_eq!(args.transparent_witness_request, None);
-        assert_eq!(args.model_witness_request, None);
-        assert_eq!(args.movement_evidence_target, None);
-        assert!(!args.movement_candidate_physics);
-    }
-
-    #[test]
-    fn parses_every_acceptance_flag() {
-        let ParseOutcome::Run(args) = ClientArgs::parse_from([
-            "client",
-            "--socket-dir",
-            "run/socket",
-            "--assets",
-            "assets/vanilla.mcbea",
-            "--display-name",
-            "TestBot",
-            "--acceptance-seconds",
-            "900",
-            "--metrics-out",
-            "metrics.json",
-            "--metrics-warmup-seconds",
-            "30",
-            "--metrics-sample-seconds",
-            "120",
-            "--auto-fly",
-            "--no-vsync",
-            "--require-transparent-presentation",
-            "--transparent-witness-request",
-            "run/transparent-witness-request.json",
-            "--model-witness-request",
-            "run/model-witness-request.json",
-            "--movement-evidence-target",
-            "Zeno",
-            "--movement-candidate-physics",
-        ])
-        .unwrap() else {
-            panic!("expected run args")
-        };
-        assert_eq!(args.socket_dir, PathBuf::from("run/socket"));
-        assert_eq!(args.assets, Some(PathBuf::from("assets/vanilla.mcbea")));
-        assert_eq!(args.display_name, "TestBot");
-        assert_eq!(args.acceptance_seconds, Some(900));
-        assert_eq!(args.metrics_out, Some(PathBuf::from("metrics.json")));
-        assert_eq!(args.metrics_warmup_seconds, 30);
-        assert_eq!(args.metrics_sample_seconds, Some(120));
-        assert!(args.auto_fly);
-        assert!(args.no_vsync);
-        assert_eq!(args.frame_cap, None);
-        assert!(!args.full_view_teleport_gate);
-        assert!(args.require_transparent_presentation);
-        assert_eq!(
-            args.transparent_witness_request,
-            Some(PathBuf::from("run/transparent-witness-request.json"))
-        );
-        assert_eq!(
-            args.model_witness_request,
-            Some(PathBuf::from("run/model-witness-request.json"))
-        );
-        assert_eq!(
-            args.movement_evidence_target,
-            Some(super::EvidenceTarget::Zeno)
-        );
-        assert!(args.movement_candidate_physics);
-    }
-
-    #[test]
-    fn parses_full_view_teleport_gate_and_frame_cap() {
-        let ParseOutcome::Run(args) =
-            ClientArgs::parse_from(["client", "--full-view-teleport-gate", "--frame-cap", "60"])
-                .unwrap()
-        else {
-            panic!("expected run args")
-        };
-
-        assert!(args.full_view_teleport_gate);
-        assert_eq!(args.frame_cap, Some(60));
-    }
-
-    #[test]
-    fn parses_model_witness_request_path() {
-        let ParseOutcome::Run(args) = ClientArgs::parse_from([
-            "client",
-            "--model-witness-request",
-            "run/model-witness-request.json",
-        ])
-        .unwrap() else {
-            panic!("expected run args")
-        };
-        assert_eq!(
-            args.model_witness_request,
-            Some(PathBuf::from("run/model-witness-request.json"))
-        );
-    }
-
-    #[test]
-    fn parses_explicit_vsync_override() {
-        let ParseOutcome::Run(args) = ClientArgs::parse_from(["client", "--vsync"]).unwrap() else {
-            panic!("expected run args")
-        };
-        assert!(args.force_vsync);
-        assert!(!args.no_vsync);
-    }
-
-    #[test]
-    fn help_documents_all_acceptance_flags() {
-        assert_eq!(
-            ClientArgs::parse_from(["client", "--help"]).unwrap(),
-            ParseOutcome::Help
-        );
-        for flag in [
-            "--socket-dir",
-            "--assets",
-            "--acceptance-seconds",
-            "--metrics-out",
-            "--metrics-warmup-seconds",
-            "--metrics-sample-seconds",
-            "--auto-fly",
-            "--vsync",
-            "--no-vsync",
-            "--frame-cap",
-            "--full-view-teleport-gate",
-            "--require-transparent-presentation",
-            "--transparent-witness-request",
-            "--model-witness-request",
-            "--movement-evidence-target",
-            "--movement-candidate-physics",
-            "--dev-debug-overlay",
-        ] {
-            assert!(HELP.contains(flag));
-        }
-    }
-
-    #[test]
-    fn render_mode_is_an_optional_validated_session_override() {
-        let ParseOutcome::Run(args) = ClientArgs::parse_from(["client"]).unwrap() else {
-            panic!("expected run");
-        };
-        assert_eq!(args.render_mode, None);
-        let ParseOutcome::Run(args) =
-            ClientArgs::parse_from(["client", "--render-mode", "Enhanced"]).unwrap()
-        else {
-            panic!("expected run");
-        };
-        assert_eq!(args.render_mode, Some(ui::RenderMode::Enhanced));
-        assert_eq!(
-            ClientArgs::parse_from(["client", "--render-mode", "ultra"]),
-            Err(ArgsError::InvalidRenderMode("ultra".to_owned()))
-        );
-    }
-
-    #[test]
-    fn shader_pack_is_a_validated_session_override_of_the_shaderpack_mode() {
-        let ParseOutcome::Run(args) =
-            ClientArgs::parse_from(["client", "--render-mode", "ShaderPack"]).unwrap()
-        else {
-            panic!("expected run");
-        };
-        assert_eq!(args.render_mode, Some(ui::RenderMode::ShaderPack));
-        assert_eq!(args.shader_pack, None);
-        for arguments in [
-            &["client", "--shader-pack", "packs/Dusk.zip"][..],
-            &[
-                "client",
-                "--render-mode",
-                "shaderpack",
-                "--shader-pack",
-                "packs/Dusk.zip",
-            ][..],
-        ] {
-            let ParseOutcome::Run(args) = ClientArgs::parse_from(arguments).unwrap() else {
-                panic!("expected run");
-            };
-            assert_eq!(args.render_mode, Some(ui::RenderMode::ShaderPack));
-            assert_eq!(args.shader_pack, Some(PathBuf::from("packs/Dusk.zip")));
-        }
-        assert_eq!(
-            ClientArgs::parse_from([
-                "client",
-                "--shader-pack",
-                "Dusk",
-                "--render-mode",
-                "enhanced"
-            ]),
-            Err(ArgsError::ConflictingShaderPackRenderMode("enhanced"))
-        );
-        assert_eq!(
-            ClientArgs::parse_from(["client", "--shader-pack", ""]),
-            Err(ArgsError::EmptyShaderPack)
-        );
-        assert_eq!(
-            ClientArgs::parse_from(["client", "--shader-pack"]),
-            Err(ArgsError::MissingValue {
-                flag: "--shader-pack"
-            })
-        );
-        assert!(HELP.contains("--shader-pack <PATH>"));
-        assert!(HELP.contains("shaderpack"));
-    }
-
-    #[test]
-    fn hide_toasts_is_a_developer_only_flag() {
-        let args = ClientArgs {
-            hide_toasts: true,
-            ..ClientArgs::default()
-        };
-        assert_eq!(args.validate_developer_support(true), Ok(()));
-        assert_eq!(
-            args.validate_developer_support(false),
-            Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"))
-        );
-        assert_eq!(
-            ClientArgs::default().validate_developer_support(false),
-            Ok(())
-        );
-        let parsed = ClientArgs::parse_from(["client", "--hide-toasts"]);
-        if cfg!(feature = "developer-control") {
-            let Ok(ParseOutcome::Run(args)) = parsed else {
-                panic!("expected run args, got {parsed:?}");
-            };
-            assert!(args.hide_toasts);
-        } else {
-            assert_eq!(
-                parsed,
-                Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"))
-            );
-        }
-        assert!(HELP.contains("--hide-toasts"));
-    }
-
-    #[test]
-    fn fixed_time_is_a_validated_developer_only_pin() {
-        let args = ClientArgs {
-            fixed_time: Some(6_000),
-            ..ClientArgs::default()
-        };
-        assert_eq!(args.validate_developer_support(true), Ok(()));
-        assert_eq!(
-            args.validate_developer_support(false),
-            Err(ArgsError::DeveloperControlFeatureRequired("--fixed-time"))
-        );
-        let parsed = ClientArgs::parse_from(["client", "--fixed-time", "13013"]);
-        if cfg!(feature = "developer-control") {
-            let Ok(ParseOutcome::Run(args)) = parsed else {
-                panic!("expected run args, got {parsed:?}");
-            };
-            assert_eq!(args.fixed_time, Some(13_013));
-        } else {
-            assert_eq!(
-                parsed,
-                Err(ArgsError::DeveloperControlFeatureRequired("--fixed-time"))
-            );
-        }
-        assert_eq!(
-            ClientArgs::parse_from(["client", "--fixed-time", "-1"]),
-            Err(ArgsError::InvalidFixedTime("-1".to_owned()))
-        );
-        assert!(HELP.contains("--fixed-time <TICKS>"));
-    }
-
-    #[test]
-    fn frame_time_counter_is_a_validated_developer_only_pin() {
-        let args = ClientArgs {
-            frame_time_counter_ms: Some(12_500),
-            ..ClientArgs::default()
-        };
-        assert_eq!(args.validate_developer_support(true), Ok(()));
-        assert_eq!(
-            args.validate_developer_support(false),
-            Err(ArgsError::DeveloperControlFeatureRequired(
-                "--frame-time-counter"
-            ))
-        );
-        let parsed = ClientArgs::parse_from(["client", "--frame-time-counter", "12.5"]);
-        if cfg!(feature = "developer-control") {
-            let Ok(ParseOutcome::Run(args)) = parsed else {
-                panic!("expected run args, got {parsed:?}");
-            };
-            assert_eq!(args.frame_time_counter_ms, Some(12_500));
-        } else {
-            assert_eq!(
-                parsed,
-                Err(ArgsError::DeveloperControlFeatureRequired(
-                    "--frame-time-counter"
-                ))
-            );
-        }
-        for bad in ["-1", "3600", "NaN", "soon"] {
-            assert_eq!(
-                ClientArgs::parse_from(["client", "--frame-time-counter", bad]),
-                Err(ArgsError::InvalidFrameTimeCounter(bad.to_owned()))
-            );
-        }
-        assert!(HELP.contains("--frame-time-counter <SECONDS>"));
-    }
-
-    #[test]
-    fn malformed_arguments_are_rejected() {
-        assert!(matches!(
-            ClientArgs::parse_from(["client", "--socket-dir"]),
-            Err(ArgsError::MissingValue {
-                flag: "--socket-dir"
-            })
-        ));
-        assert!(matches!(
-            ClientArgs::parse_from(["client", "--vsync", "--no-vsync"]),
-            Err(ArgsError::ConflictingVsyncFlags)
-        ));
-        assert!(matches!(
-            ClientArgs::parse_from(["client", "--acceptance-seconds", "0"]),
-            Err(ArgsError::InvalidAcceptanceSeconds(_))
-        ));
-        assert!(matches!(
-            ClientArgs::parse_from(["client", "--frame-cap", "0"]),
-            Err(ArgsError::InvalidFrameCap(_))
-        ));
-        assert!(matches!(
-            ClientArgs::parse_from(["client", "--gui-scale", "5"]),
-            Err(ArgsError::InvalidGuiScale(_))
-        ));
-        let ParseOutcome::Run(parsed) =
-            ClientArgs::parse_from(["client", "--gui-scale", "3"]).unwrap()
-        else {
-            panic!("--gui-scale must parse into a run outcome");
-        };
-        assert_eq!(parsed.gui_scale, Some(3));
-        assert!(parsed.dev_debug_overlay);
-        let ParseOutcome::Run(parsed) =
-            ClientArgs::parse_from(["client", "--dev-debug-overlay"]).unwrap()
-        else {
-            panic!("--dev-debug-overlay must parse into a run outcome");
-        };
-        assert!(parsed.dev_debug_overlay);
-        assert!(matches!(
-            ClientArgs::parse_from(["client", "--unknown"]),
-            Err(ArgsError::Unknown(_))
-        ));
-        assert!(matches!(
-            ClientArgs::parse_from([
-                "client",
-                "--acceptance-seconds",
-                "30",
-                "--movement-candidate-physics"
-            ]),
-            Err(ArgsError::MovementCandidateRequiresEvidence)
-        ));
-        assert!(matches!(
-            ClientArgs::parse_from([
-                "client",
-                "--acceptance-seconds",
-                "30",
-                "--movement-evidence-target",
-                "Lunar",
-                "--movement-candidate-physics"
-            ]),
-            Err(ArgsError::MovementEvidenceRequiresAttributableRun)
-        ));
-        assert!(matches!(
-            ClientArgs::parse_from(["client", "--movement-evidence-target", "Unknown"]),
-            Err(ArgsError::InvalidEvidenceTarget(_))
-        ));
-    }
-}
+mod tests;

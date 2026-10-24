@@ -40,11 +40,11 @@ fn view_full_of_textures() -> LayeredPackView {
         writer.write_all(&bytes).unwrap();
     }
     LayeredPackView::new(resource_pack::validate_handoff(
-        protocol::ResourcePackHandoff::from_archives(vec![
-            protocol::ResourcePackArchive::unencrypted(
+        bedrock_packs::ResourcePackHandoff::from_archives(vec![
+            bedrock_packs::ResourcePackArchive::unencrypted(
                 id.parse().unwrap(),
                 "1.0.0".into(),
-                String::new(),
+                Vec::new(),
                 writer.finish().unwrap().into_inner(),
             ),
         ]),

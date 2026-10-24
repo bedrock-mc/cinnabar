@@ -4,31 +4,6 @@ use tokio_util::codec::{Decoder, Encoder};
 use super::{BridgeCodec, validate_frame_length};
 use crate::{BridgeError, MAX_FRAME_LEN};
 
-/// Accepted streams use the same kernel-limited buffers as connecting streams.
-#[cfg(unix)]
-#[tokio::test]
-async fn accepted_unix_stream_uses_tuned_buffers() {
-    use crate::endpoint::{EndpointKind, PlatformStream};
-    use rustix::net::sockopt::{socket_recv_buffer_size, socket_send_buffer_size};
-
-    let directory = tempfile::tempdir().unwrap();
-    let listener = crate::SessionListener::bind(directory.path())
-        .await
-        .unwrap();
-    let PlatformStream::Unix(client) =
-        crate::endpoint::connect(directory.path(), EndpointKind::Session)
-            .await
-            .unwrap();
-    let accepted = listener.accept().await.unwrap();
-    let PlatformStream::Unix(server) = accepted.inner.get_ref();
-    for read in [
-        socket_send_buffer_size::<&tokio::net::UnixStream>,
-        socket_recv_buffer_size,
-    ] {
-        assert_eq!(read(server).unwrap(), read(&client).unwrap());
-    }
-}
-
 /// Clones of the queue share one writer that keeps the order frames were accepted in,
 /// while the read half keeps receiving.
 #[cfg(unix)]
@@ -37,9 +12,8 @@ async fn queued_connection_writes_in_acceptance_order_while_reading() {
     use futures::StreamExt;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let (local, mut peer) = tokio::net::UnixStream::pair().unwrap();
-    let (mut reader, queue) =
-        super::queued(crate::endpoint::PlatformStream::Unix(local), MAX_FRAME_LEN);
+    let (local, mut peer) = tokio::io::duplex(64 * 1024);
+    let (mut reader, queue) = queued(local, MAX_FRAME_LEN);
     peer.write_all(&wire_frame(&[2])).await.unwrap();
     let session = queue.clone();
     let first = queue.accept(Bytes::from_static(&[3])).await.unwrap();
@@ -65,9 +39,8 @@ async fn send_resolves_only_after_its_frame_is_flushed() {
     use futures::FutureExt;
     use tokio::io::AsyncReadExt;
 
-    let (local, mut peer) = tokio::net::UnixStream::pair().unwrap();
-    let (_reader, queue) =
-        super::queued(crate::endpoint::PlatformStream::Unix(local), MAX_FRAME_LEN);
+    let (local, mut peer) = tokio::io::duplex(64 * 1024);
+    let (_reader, queue) = queued(local, MAX_FRAME_LEN);
     let payload = Bytes::from(vec![7; 4 * 1024 * 1024]);
     let mut send = Box::pin(queue.send(payload.clone()));
     for _ in 0..64 {
@@ -100,9 +73,8 @@ async fn send_resolves_only_after_its_frame_is_flushed() {
 async fn stalled_reader_bounds_accepted_frames() {
     use futures::FutureExt;
 
-    let (local, _peer) = tokio::net::UnixStream::pair().unwrap();
-    let (_reader, queue) =
-        super::queued(crate::endpoint::PlatformStream::Unix(local), MAX_FRAME_LEN);
+    let (local, _peer) = tokio::io::duplex(64 * 1024);
+    let (_reader, queue) = queued(local, MAX_FRAME_LEN);
     let frame = Bytes::from(vec![7; 64 * 1024]);
     let mut accepted = Vec::new();
     let mut backed_up = false;
@@ -336,7 +308,7 @@ fn declared_payload_does_not_allocate_before_bytes_arrive() {
     assert!(header.capacity() < MAX_FRAME_LEN);
 }
 
-/// A writer whose every write fails, standing in for a closed core socket.
+/// A writer whose every write fails, standing in for a closed framed stream.
 struct FailingWriter;
 
 impl tokio::io::AsyncWrite for FailingWriter {
@@ -424,7 +396,7 @@ async fn failed_bridge_writes_are_not_traced_as_written() {
     );
 }
 
-/// Stamps the trace clock when the first bytes reach it, as the core's read would.
+/// Stamps the trace clock when the first bytes reach it, as the peer's read would.
 struct StampingWriter(
     &'static crate::latency_trace::Trace,
     std::sync::Arc<std::sync::atomic::AtomicI64>,
@@ -499,4 +471,18 @@ async fn coalesced_frames_keep_their_own_write_times() {
         times[0] < times[1],
         "the second frame was fed after the first: {times:?}"
     );
+}
+
+/// Uses the production prepared writer on the test runtime without any OS endpoint.
+fn queued(
+    stream: tokio::io::DuplexStream,
+    maximum: usize,
+) -> (
+    super::FramedReader<tokio::io::ReadHalf<tokio::io::DuplexStream>>,
+    super::FrameQueue,
+) {
+    let (read, write) = tokio::io::split(stream);
+    let (reader, frames, writer) = super::prepare(read, write, maximum);
+    tokio::spawn(writer);
+    (reader, frames)
 }

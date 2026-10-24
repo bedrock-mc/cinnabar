@@ -28,7 +28,7 @@ player-state = { path = "../player-state" }
 protocol = { path = "../protocol" }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
-resource-pack = { path = "../resource-pack", default-features = false }
+resource-pack = { path = "../resource-pack" }
 semantic-input = { path = "../input" }
 serde_json = "1"
 tracing.workspace = true

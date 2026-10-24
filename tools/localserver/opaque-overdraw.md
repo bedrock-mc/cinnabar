@@ -23,13 +23,12 @@ follows the player's position.
 ## Capture workflow
 
 Start from a development checkout with its runtime carriers prepared. From the
-repository root, build the client, MCP controller, core and fixture server. Keep
+repository root, build the client, MCP controller and fixture server. Keep
 intermediate artifacts private to this worktree:
 
 ```sh
 CARGO_BUILD_BUILD_DIR="$PWD/target/build" ~/coding/cinnabar-wt/_agents/cslot cargo build -p cinnabar --features developer-control
 CARGO_BUILD_BUILD_DIR="$PWD/target/build" ~/coding/cinnabar-wt/_agents/cslot cargo build -p cinnabar-mcp
-go build -o target/debug/bedrock-core ./core/cmd/bedrock-core
 GOWORK=off go -C tools/localserver build -o ../../target/opaque-overdraw-localserver .
 python3 tools/localserver/opaque-overdraw-capture.py --label before --size 1920x1080
 ```
@@ -40,7 +39,7 @@ It teleports the player, fixes each camera, waits 15 seconds and records 20 seco
 per scene. JSON counters and screenshots go to a fresh temporary directory printed
 at startup; keep these artifacts out of git. `--out` selects another directory,
 `--binary` selects a saved client build, and `--assets` overrides the client's
-normal pinned carrier discovery. Keep saved executables beside `bedrock-core` in
+normal pinned carrier discovery. Keep saved executables and the runtime helper binaries in
 a supported `target/debug`, `target/release` or `target/play` tree: the client
 resolves its installation from its executable path. `--scene`, `--warmup` and
 `--seconds` limit captures.

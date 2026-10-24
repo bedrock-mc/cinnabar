@@ -22,17 +22,14 @@ Describe 'Movement production marker evidence validation' {
         $script:BregSha256 = '22' * 32
         $script:RunId = '0123456789abcdef0123456789abcdef'
         $script:Endpoint = '127.0.0.1:19132'
-        $script:BridgeEndpoint = '127.0.0.1:19133'
-        $script:CoreSha256 = '33' * 32
         $script:AppSha256 = '44' * 32
         $script:Identity = [ordered]@{
-            schema = 'rust-mcbe-movement-identity-v1'; build_commit = $script:BuildCommit
+            schema = 'rust-mcbe-movement-identity-v2'; build_commit = $script:BuildCommit
             target = 'Bds'; protocol = 2193; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true
             source_dirty = $false; run_id = $script:RunId; endpoint = $script:Endpoint
-            bridge_endpoint = $script:BridgeEndpoint
-            core_sha256 = $script:CoreSha256; core_process_id = 41; app_process_id = 42
+            app_process_id = 42
         }
         $script:Frames = @(
             [ordered]@{
@@ -118,8 +115,7 @@ Describe 'Movement production marker evidence validation' {
             }
         )
         $script:ScenarioManifest = [ordered]@{
-            schema = 'rust-mcbe-movement-scenario-v1'; scenario = 'CandidatePhysics'
-            core_extra_arguments = @()
+            schema = 'rust-mcbe-movement-scenario-v2'; scenario = 'CandidatePhysics'
             required_input_modes = @('KeyboardMouse', 'GamePad'); deferred_input_modes = @('Touch')
             input_witness_deferral_reason = 'Owner decision: touch parity is deprioritized; it does not gate movement acceptance and remains open.'
             required_perspective_sequence = @(
@@ -143,15 +139,12 @@ Describe 'Movement production marker evidence validation' {
             }
         }
         $script:RunMetadata = [ordered]@{
-            schema = 'rust-mcbe-movement-run-v1'; run_id = $script:RunId; target = 'Bds'
+            schema = 'rust-mcbe-movement-run-v2'; run_id = $script:RunId; target = 'Bds'
             endpoint = $script:Endpoint; build_commit = $script:BuildCommit; source_dirty = $false
-            bridge_endpoint = $script:BridgeEndpoint
-            core_sha256 = $script:CoreSha256; app_sha256 = $script:AppSha256; assets_sha256 = $null
-            core_process_id = 41; app_process_id = 42; app_exit_code = 0; core_exit_code = $null
-            core_terminated_by_launcher = $true; timed_out = $false; duration_seconds = 60
+            app_sha256 = $script:AppSha256; assets_sha256 = $null
+            app_process_id = 42; app_exit_code = 0; timed_out = $false; duration_seconds = 60
             scenario = 'CandidatePhysics'; screenshot_slots = @()
-            core_extra_arguments = @()
-        }
+            }
         $script:Metrics = [ordered]@{
             session_seconds = 60.0; frame_count = 3600; p50_frame_ms = 16.0; p95_frame_ms = 18.0
             p99_frame_ms = 20.0; max_frame_ms = 24.0; rendered_sub_chunks = 64
@@ -221,46 +214,18 @@ Describe 'Movement production marker evidence validation' {
 
     . (Join-Path $PSScriptRoot 'MovementEvidence.LaunchCases.ps1')
 
-    It 'surfaces nonempty core extra arguments through the scenario manifest and run metadata schemas' {
-        $script:ScenarioManifest.core_extra_arguments = @('-upstream-client-cache')
-        $script:RunMetadata.core_extra_arguments = @('-upstream-client-cache')
-        (Invoke-Validator (Write-MarkerLog 'core-extra-valid.log')).ExitCode | Should Be 0
-    }
-
-    It 'rejects a non-allowlisted recorded core extra argument as the only changed condition' {
-        $script:ScenarioManifest.core_extra_arguments = @('-Bad;Token')
-        (Invoke-Validator (Write-MarkerLog 'core-extra-invalid.log')).ExitCode | Should Not Be 0
-    }
-
-    It 'rejects an over-capacity recorded core extra argument list as the only changed condition' {
-        $script:ScenarioManifest.core_extra_arguments = @(1..17 | ForEach-Object { "-cap-$_" })
-        (Invoke-Validator (Write-MarkerLog 'core-extra-cap.log')).ExitCode | Should Not Be 0
-    }
-
-    It 'wires validated core extra arguments into the launcher command, manifests, and metadata' {
-        $launcher = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\MovementLauncher.ps1')
-        $launch = Get-Content -Raw -LiteralPath (Join-Path $script:RepoRoot 'scripts\acceptance\MovementLaunch.ps1')
-        $launcher | Should Match '\[string\[\]\]\$CoreExtraArgs = @\(\)'
-        $launcher | Should Match '-CoreExtraArgs \$CoreExtraArgs'
-        $launcher | Should Match 'CORE_EXTRA_ARGUMENTS='
-        ([regex]::Matches($launcher, 'core_extra_arguments = \$plan\.CoreExtraArguments')).Count | Should Be 4
-        $launch | Should Match '\$coreArguments \+= \$coreExtraArguments'
-        $launch | Should Match "function Resolve-MovementCoreExtraArguments"
-        $launch | Should Match "'\^-\[a-z\]\[a-z0-9-\]\*\$'"
-        $launch | Should Match "'\^\[A-Za-z0-9\._/:=-\]\+\$'"
-    }
-
     It 'builds a case-insensitive network-silent FreeCamera scenario without candidate physics frames' {
         $plan = New-MovementLaunchPlan -Target lunar -Endpoint (Get-EvidenceTargetEndpoint lunar) `
-            -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-            -DurationSeconds 300 -Scenario freecamerasilence -AuthCache token.json
+            -RunId $script:RunId -MetricsPath metrics.json `
+            -DurationSeconds 300 -Scenario freecamerasilence
         $plan.Target | Should Be 'Lunar'
         $plan.Scenario | Should Be 'FreeCameraSilence'
         $targetIndex = [Array]::IndexOf($plan.AppArguments, '--movement-evidence-target')
         $plan.AppArguments[$targetIndex + 1] | Should Be 'Lunar'
         ($plan.AppArguments -ccontains '--auto-fly') | Should Be $true
         ($plan.AppArguments -ccontains '--movement-candidate-physics') | Should Be $false
-        ($plan.CoreArguments -ccontains '-auth-cache') | Should Be $true
+        $plan.AppArguments[0] | Should Be '--address'
+        $plan.AppArguments[1] | Should Be (Get-EvidenceTargetEndpoint lunar)
     }
 
     It 'keeps visual movement evidence on debug while reserving release for the binding transfer witness' {
@@ -270,7 +235,6 @@ Describe 'Movement production marker evidence validation' {
         $launcher | Should Match "appBuildArguments \+= '--release'"
         $launcher | Should Match "'build', '--locked', '-p', 'cinnabar'"
         $launcher | Should Match 'Resolve-MovementContainedPath'
-        $launcher | Should Match '-AuthCache \$authCacheFull'
         $launcher | Should Match '-ScenarioManifestPath \$scenarioManifestPath'
         $launcher | Should Match '\$Target = ConvertTo-EvidenceTarget -Target \$Target'
         $launcher | Should Match '\$Scenario = ConvertTo-MovementScenario -Scenario \$Scenario'
@@ -402,7 +366,7 @@ Describe 'Movement production marker evidence validation' {
         (Invoke-Validator (Write-MarkerLog 'run-id.log')).ExitCode | Should Not Be 0
     }
 
-    It 'rejects a mismatched core process ID as the only changed condition' {
+    It 'rejects obsolete process metadata' {
         $script:RunMetadata.core_process_id = 99
         (Invoke-Validator (Write-MarkerLog 'run-core-process.log')).ExitCode | Should Not Be 0
     }
@@ -412,8 +376,8 @@ Describe 'Movement production marker evidence validation' {
         (Invoke-Validator (Write-MarkerLog 'run-app-process.log')).ExitCode | Should Not Be 0
     }
 
-    It 'rejects a mismatched core hash as the only changed condition' {
-        $script:RunMetadata.core_sha256 = '55' * 32
+    It 'rejects a mismatched client hash as the only changed condition' {
+        $script:RunMetadata.app_sha256 = '55' * 32
         (Invoke-Validator (Write-MarkerLog 'run-core-hash.log')).ExitCode | Should Not Be 0
     }
 
@@ -748,41 +712,4 @@ Describe 'Movement production marker evidence validation' {
 
     . (Join-Path $PSScriptRoot 'MovementEvidence.EventCases.ps1')
     . (Join-Path $PSScriptRoot 'MovementEvidence.BoundaryCases.ps1')
-}
-
-Describe 'Core endpoint readiness' {
-    BeforeAll {
-        $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-        . (Join-Path $repo 'scripts\acceptance\Process.ps1')
-        . (Join-Path $repo 'scripts\acceptance\MovementLaunch.ps1')
-        $script:TempRoot = Join-Path ([IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
-        New-Item -ItemType Directory -Path $script:TempRoot | Out-Null
-    }
-    AfterAll {
-        Remove-Item -LiteralPath $script:TempRoot -Recurse -Force
-    }
-
-    It 'attributes the core ready signal to its actual endpoint without a publication file' {
-        foreach ($endpoint in @('127.0.0.1:19133', '/tmp/cinnabar-0123456789abcdef0123456789abcdef.sock', '/tmp/socket with spaces.sock')) {
-            $log = Join-Path $script:TempRoot ([guid]::NewGuid().ToString('N') + '.log')
-            $guard = New-MovementCoreReadyGuard -LogPath $log
-            $network = if ($endpoint.StartsWith('/')) { 'unix' } else { 'tcp' }
-            $encoded = if ($endpoint.Contains(' ')) { '"' + $endpoint + '"' } else { $endpoint }
-            Set-Content -LiteralPath $log -Value ('msg="listener ready; waiting for local Rust client" network=' + $network + ' endpoint=' + $encoded)
-            $handle = [pscustomobject]@{
-                Process = [pscustomobject]@{ Id = 41; HasExited = $false; ExitCode = 0 }
-                StderrPath = $log
-            }
-            $witness = Wait-MovementBridgeEndpoint -Guard $guard -CoreHandle $handle -TimeoutSeconds 1
-            $witness.Endpoint | Should Be $endpoint
-            $witness.CoreProcessId | Should Be 41
-        }
-    }
-
-    It 'rejects stale core readiness evidence before launch' {
-        $log = Join-Path $script:TempRoot 'stale-core.log'
-        Set-Content -LiteralPath $log -Value 'old run'
-        { New-MovementCoreReadyGuard -LogPath $log } | Should Throw
-    }
-
 }

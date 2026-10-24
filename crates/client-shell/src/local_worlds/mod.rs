@@ -1,29 +1,36 @@
 //! Local single-player worlds on BDS or the built-in Dragonfly server, run by the launcher.
 //!
 //! [`WorldsMenu`] is a pure screen model; [`LocalWorlds`] wires it to the world manager and tells
-//! the attached core where the open world is. The menu module embeds it by calling `attach`,
+//! the original native session which opening to retain. The menu module embeds it through native attachment,
 //! `input`, `menu` and `take_ready`.
 
-use launcher::menu::settings_options::SettingId;
 mod client;
+mod focus;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod native;
 
 use launcher::local_worlds::model;
 #[cfg(test)]
 mod settings_storage_flow_tests;
 
-use std::{collections::HashMap, io, path::PathBuf, sync::Arc};
+#[cfg(feature = "native-networking")]
+use std::io;
+use std::{collections::HashMap, sync::Arc};
 
+#[cfg(feature = "native-networking")]
 use launcher::install_layout::InstallLayout;
 use launcher_host::local_worlds::{Host, Manager};
 
 use bevy::{
-    prelude::{App, MessageReader, Plugin, Res, ResMut, Resource, Update},
+    prelude::{App, Plugin, ResMut, Resource, Update},
     window::WindowFocused,
 };
 
 use launcher::local_worlds::world::WorldThumbnail;
 use model::{Effect, Event, Input, Screen, WorldsMenu};
 
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use client::NativeLocalWorldRetirement;
 use client::WorldsClient;
 
 /// Shown for an import with no attached worker; one cut off by a detach never publishes.
@@ -33,9 +40,11 @@ const IMPORT_UNAVAILABLE: &str = "Local worlds are not ready; try the import aga
 #[derive(Resource)]
 pub struct LocalWorlds {
     menu: WorldsMenu,
-    /// Opened on the first attach and kept across core restarts.
+    /// Opened on the first attach and kept across account attachment changes.
     manager: Option<Manager>,
     client: Option<WorldsClient>,
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    native_playing: Option<launcher_host::local_worlds::NativeLocalWorldSelection>,
     playing: bool,
     focused: bool,
     pause_menu: bool,
@@ -54,6 +63,8 @@ impl Default for LocalWorlds {
             menu: WorldsMenu::default(),
             manager: None,
             client: None,
+            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+            native_playing: None,
             playing: false,
             focused: true,
             pause_menu: false,
@@ -73,9 +84,9 @@ impl Drop for LocalWorlds {
 }
 
 impl LocalWorlds {
-    /// Opens the install's worlds, routes the core at `socket_dir` to the open one and requests
-    /// the world list.
-    pub fn attach(&mut self, socket_dir: PathBuf, layout: &InstallLayout) -> io::Result<()> {
+    /// Preserves the existing manager across account attachment changes.
+    #[cfg(feature = "native-networking")]
+    fn attach_manager(&mut self, layout: &InstallLayout) -> io::Result<Manager> {
         let manager = match &self.manager {
             Some(manager) => manager.clone(),
             None => {
@@ -89,16 +100,15 @@ impl LocalWorlds {
         if let Some(previous) = self.client.take() {
             previous.revoke();
         }
-        self.client = Some(WorldsClient::spawn(manager, socket_dir)?);
-        self.playing = false;
-        self.menu = WorldsMenu::default();
-        self.input(Input::Refresh);
-        self.dispatch(vec![Effect::LoadPrefs, Effect::Prestart]);
-        Ok(())
+        Ok(manager)
     }
 
-    /// Drops the worker and closes the open world, whose route left with the old core.
+    /// Drops the worker and closes the open world, whose original session has retired.
     pub fn detach(&mut self) {
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        {
+            self.native_playing = None;
+        }
         // Revoked first, so a request the worker already took cannot reopen the world.
         if let Some(client) = self.client.take() {
             client.revoke();
@@ -196,6 +206,13 @@ impl LocalWorlds {
     pub fn leave_world(&mut self) {
         self.playing = false;
         self.paused = false;
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        if let Some(client) = self.client.as_ref() {
+            if let Some(selection) = self.native_playing.take() {
+                client.leave_native(selection);
+            }
+            return;
+        }
         self.dispatch(vec![Effect::Leave]);
         if self.client.is_some() {
             self.input(Input::Refresh);
@@ -238,32 +255,6 @@ fn pump_local_worlds(mut worlds: ResMut<LocalWorlds>) {
     worlds.pump();
 }
 
-/// Applies the desktop focus preference before forwarding focus changes to the local world.
-fn pause_on_focus(
-    mut focus: MessageReader<WindowFocused>,
-    mut worlds: ResMut<LocalWorlds>,
-    menu: Option<Res<crate::menu::MenuRuntime>>,
-    desktop_focus: Option<Res<client_state::CursorFocus>>,
-    driven: Option<Res<client_state::DrivenInput>>,
-) {
-    if let Some(menu) = menu {
-        worlds.pause_on_unfocus = menu
-            .settings_snapshot()
-            .0
-            .value(SettingId::PauseMenuOnFocusLost)
-            != 0;
-        worlds.sync_pause();
-    }
-    if let Some(desktop_focus) = desktop_focus {
-        focus.clear();
-        worlds.focus_changed(driven.is_some() || desktop_focus.available());
-    } else {
-        for message in focus.read() {
-            worlds.focus_changed(message.focused);
-        }
-    }
-}
-
 /// Registers [`LocalWorlds`] (inert until attached) and its per-frame systems.
 pub struct LocalWorldsPlugin;
 
@@ -271,7 +262,7 @@ impl Plugin for LocalWorldsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<WindowFocused>()
             .init_resource::<LocalWorlds>()
-            .add_systems(Update, (pump_local_worlds, pause_on_focus));
+            .add_systems(Update, (pump_local_worlds, focus::pause_on_focus));
     }
 }
 

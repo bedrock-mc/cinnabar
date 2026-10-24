@@ -3,6 +3,7 @@
 use crate::DevtoolError;
 use crash_report::{folder, redact, section};
 use diagnostics::session_log::{Family, Retention};
+use env_compat::markers;
 use std::{
     fs,
     io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
@@ -15,7 +16,7 @@ const LOG_LIMIT: u64 = 8 << 20;
 /// Bundles the latest local session without uploading any data.
 pub(crate) fn run(args: &[String]) -> Result<(), DevtoolError> {
     let root = match args {
-        [] => std::env::var_os("CINNABAR_USER_ROOT").map_or_else(
+        [] => std::env::var_os(markers::USER_ROOT).map_or_else(
             || PathBuf::from(".local"),
             |root| PathBuf::from(root).join("data"),
         ),

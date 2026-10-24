@@ -1,7 +1,6 @@
 go 1.26.1
 
 use (
-	./core
 	./tools/fixturegen
 	./tools/registrygen
 )

@@ -16,31 +16,32 @@ impl Preparation {
     /// Compiles one join against its captured carriers, abandoning superseded work.
     pub(crate) fn run(
         self,
-        handoff: protocol::ResourcePackHandoff,
+        handoff: bedrock_packs::ResourcePackHandoff,
         game_data: &protocol::GameData,
         cancelled: &(dyn Fn() -> bool + Sync),
     ) -> Option<Result<client_session::PreparedSession<PackApplication>, String>> {
         let profile = bridge::join_profile::JoinProfile::current();
         let _preparation = profile.stage("pack_and_registry_preparation");
         let started = web_time::Instant::now();
-        let validation = profile.stage("pack_validation");
-        let preparation =
-            pack_runtime::prepare_session_packs(handoff, game_data, self.physical_memory_bytes);
-        drop(validation);
+        let preparation = {
+            let _validation = profile.stage("pack_validation");
+            pack_runtime::prepare_session_packs(handoff, game_data, self.physical_memory_bytes)
+        };
         if cancelled() {
             return None;
         }
-        let compilation = profile.stage("pack_compilation");
-        let prepared = super::super::resource_packs::prepare_join(
-            &preparation,
-            game_data,
-            cancelled,
-            super::super::resource_packs::JoinBases {
-                actor_artwork: self.actor_artwork.as_ref(),
-                ui_catalog: self.ui_catalog.as_ref(),
-            },
-        );
-        drop(compilation);
+        let prepared = {
+            let _compilation = profile.stage("pack_compilation");
+            super::super::resource_packs::prepare_join(
+                &preparation,
+                game_data,
+                cancelled,
+                super::super::resource_packs::JoinBases {
+                    actor_artwork: self.actor_artwork.as_ref(),
+                    ui_catalog: self.ui_catalog.as_ref(),
+                },
+            )
+        };
         if preparation.has_applied_packs() && prepared.is_some() {
             bevy::log::info!(
                 elapsed_ms = started.elapsed().as_secs_f64() * 1e3,

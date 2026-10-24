@@ -79,21 +79,20 @@ pub fn open_folder(dir: PathBuf) {
 }
 
 /// Prefers the file manager's own D-Bus service on Linux, then the desktop opener.
-fn show_folder(dir: &Path) -> bool {
+fn show_folder(_dir: &Path) -> bool {
     #[cfg(windows)]
-    return windows::shell_open(dir);
+    return windows::shell_open(_dir);
     #[cfg(target_os = "linux")]
-    return dbus::show_folder(dir)
+    return dbus::show_folder(_dir)
         .inspect_err(|error| {
             tracing::debug!("FileManager1 unavailable ({error}); trying {OPENER}");
         })
         .is_ok()
-        || run_tool(dir);
+        || run_tool(_dir);
     #[cfg(target_os = "macos")]
-    return run_tool(dir);
+    return run_tool(_dir);
     #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
-        let _ = dir;
         false
     }
 }

@@ -1,6 +1,6 @@
+use bedrock_packs::{ResourcePackArchive, ResourcePackHandoff};
 use std::io::{Cursor, Write};
 
-use protocol::{ResourcePackArchive, ResourcePackHandoff};
 use uuid::Uuid;
 use zip::{ZipWriter, write::SimpleFileOptions};
 
@@ -17,7 +17,7 @@ fn server_handoff_keeps_wire_identity_when_manifest_identity_differs() {
     let handoff = handoff(vec![ResourcePackArchive::unencrypted(
         wire_id,
         "9.8.7".into(),
-        String::new(),
+        Vec::new(),
         bytes,
     )])
     .with_required(true);
@@ -25,7 +25,7 @@ fn server_handoff_keeps_wire_identity_when_manifest_identity_differs() {
     assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
     assert_eq!(stack.packs().len(), 1);
     assert_eq!(stack.packs()[0].pack_id(), wire_id);
-    assert_eq!(stack.packs()[0].version(), "9.8.7");
+    assert_eq!(stack.packs()[0].version(), b"9.8.7");
     let view = LayeredPackView::new(stack);
     assert_eq!(
         view.read("texts/en_US.lang").unwrap().as_ref(),
@@ -56,7 +56,7 @@ fn pack_zip(id: Uuid, entries: &[(&str, &[u8])]) -> Vec<u8> {
 }
 
 fn archive(id: Uuid, bytes: Vec<u8>) -> ResourcePackArchive {
-    ResourcePackArchive::unencrypted(id, "1.2.3".into(), String::new(), bytes)
+    ResourcePackArchive::unencrypted(id, "1.2.3".into(), Vec::new(), bytes)
 }
 
 fn handoff(archives: Vec<ResourcePackArchive>) -> ResourcePackHandoff {
@@ -102,7 +102,7 @@ fn server_device_selection_applies_automatic_and_supported_explicit_subpacks() {
     ] {
         let stack = validate_handoff_for_device(handoff(vec![tiered_archive(requested)]), memory);
         assert!(stack.rejections().is_empty());
-        assert_eq!(stack.packs()[0].sub_pack_name(), expected);
+        assert_eq!(stack.packs()[0].sub_pack_name(), expected.as_bytes());
         let view = LayeredPackView::new(stack);
         assert_eq!(
             view.read("font/glyph_E1.png").unwrap().as_ref(),
@@ -150,13 +150,13 @@ fn actual_server_font_subpack_uses_full_resolution_glyph_page() {
         .join(".");
     let handoff = ResourcePackHandoff::from_archives(vec![ResourcePackArchive::unencrypted(
         id,
-        version,
-        String::new(),
+        version.into_bytes(),
+        Vec::new(),
         bytes.clone(),
     )]);
     let stack = validate_handoff_for_device(handoff, 24 << 30);
     assert!(stack.rejections().is_empty());
-    assert_eq!(stack.packs()[0].sub_pack_name(), "f");
+    assert_eq!(stack.packs()[0].sub_pack_name(), b"f");
     let view = LayeredPackView::new(stack);
     let selected = view.read("font/glyph_E1.png").unwrap();
     use std::io::Read;
@@ -187,8 +187,8 @@ fn nonempty_production_handoff_preserves_selected_metadata() {
     let stack = validate_handoff(handoff(vec![archive(PACK_ID, pack_zip(PACK_ID, &[]))]));
     assert_eq!(stack.packs().len(), 1);
     assert_eq!(stack.packs()[0].pack_id(), PACK_ID);
-    assert_eq!(stack.packs()[0].version(), "1.2.3");
-    assert_eq!(stack.packs()[0].sub_pack_name(), "");
+    assert_eq!(stack.packs()[0].version(), b"1.2.3");
+    assert_eq!(stack.packs()[0].sub_pack_name(), b"");
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn required_plaintext_stack_with_advertised_keys_applies_every_layer() {
             ResourcePackArchive::with_content_key(
                 id,
                 "1.2.3".into(),
-                String::new(),
+                Vec::new(),
                 pack_zip(id, &[("texts/en_US.lang", text)]),
                 b"0123456789abcdefghijklmnopqrstuv".to_vec(),
             )
@@ -229,7 +229,7 @@ fn plaintext_key_advertisement_still_rejects_invalid_key_lengths() {
         handoff(vec![ResourcePackArchive::with_content_key(
             PACK_ID,
             "1.2.3".into(),
-            String::new(),
+            Vec::new(),
             pack_zip(PACK_ID, &[]),
             b"short".to_vec(),
         )])
@@ -263,8 +263,8 @@ fn required_stack_with_undeclared_subpack_labels_keeps_root_layers() {
     let stack = validate_handoff(handoff(archives.into()).with_required(true));
     assert!(stack.rejections().is_empty());
     assert_eq!(stack.packs().len(), 2);
-    assert_eq!(stack.packs()[0].sub_pack_name(), "Common assets");
-    assert_eq!(stack.packs()[1].sub_pack_name(), "Server UI");
+    assert_eq!(stack.packs()[0].sub_pack_name(), b"Common assets");
+    assert_eq!(stack.packs()[1].sub_pack_name(), b"Server UI");
     let view = LayeredPackView::new(stack);
     assert_eq!(
         view.read("texts/en_US.lang").as_deref(),
@@ -373,4 +373,38 @@ fn rejection_indexes_and_first_pack_priority_survive_normalization() {
         view.read("fallback.txt").as_deref(),
         Some(b"fallback".as_slice())
     );
+}
+
+/// Opaque wire labels do not alter manifest numeric identity or alias stack cache keys.
+#[test]
+fn opaque_handoff_identity_preserves_bytes_and_root_selection() {
+    let original = pack_zip(PACK_ID, &[("texts/en_US.lang", b"name=Root")]);
+    let version = b"01.2.3-\xff";
+    let admit = |label: &[u8]| {
+        let archive = ResourcePackArchive::unencrypted(
+            PACK_ID,
+            version.to_vec(),
+            label.to_vec(),
+            original.clone(),
+        );
+        validate_handoff(handoff(vec![archive]))
+    };
+    let first = admit(b"server\xff");
+    let second = admit(b"server\xfe");
+    for (stack, label) in [(&first, b"server\xff"), (&second, b"server\xfe")] {
+        assert!(stack.rejections().is_empty());
+        assert_eq!(stack.packs().len(), 1);
+        let pack = &stack.packs()[0];
+        assert_eq!(pack.version(), version);
+        assert_eq!(pack.sub_pack_name(), label);
+        assert_eq!(
+            pack.read_file("texts/en_US.lang")
+                .unwrap()
+                .unwrap()
+                .as_ref(),
+            b"name=Root"
+        );
+    }
+    assert_ne!(first.fingerprint(), second.fingerprint());
+    assert!(crate::verify_archive_identity(&original, PACK_ID, version).is_ok());
 }

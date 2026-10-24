@@ -27,7 +27,7 @@ fn render() -> (Vec<ui::UiNode>, EngineFrame) {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     let files = ["base", "stripe_right", "border"].map(|name| {
         let mut pixels = image::RgbaImage::new(64, 64);

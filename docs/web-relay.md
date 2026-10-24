@@ -5,6 +5,12 @@ through the existing core session handler. WebTransport over HTTP/3 is the prefe
 transport. HTTPS WebSocket connections provide control and play fallback channels.
 The relay does not serve the browser page or runtime assets.
 
+The opt-in [native Rust operator](../web/gateway/README.md) provides HTTPS/WebSocket and optional
+WebTransport paths on the same native gateway. Owned BDS controls and actual browser runs over
+both transports reached worlds with terrain, entities and HUD. Supported-browser, deployment,
+live-account and complete input/audio/performance qualification remain open. The Go operator
+below remains available for explicit legacy use.
+
 Build `core/cmd/bedrock-web-relay` with the core's Go toolchain and run the resulting
 binary with operator configuration, for example:
 
@@ -71,12 +77,14 @@ Public-address checks apply after DNS resolution to every game connection,
 transfer hop, pack URL and
 pack redirect; environment proxies cannot bypass them.
 
-All current gameplay batches and pack chunks use reliable ordered play framing.
+Gameplay uses reliable ordered play framing. WebTransport pack archives use the separate reliable
+stream described below; WebSocket keeps archive delivery on the play connection.
 Inbound frame buffers grow with received data instead of allocating the full
 advertised payload from its header. The shared bridge frame limit still applies.
 WebSocket messages split larger bridge frames at the shared relay message limit;
 message boundaries do not change the bridge byte stream.
-Separate pack streams, gameplay datagrams and deployment/browser acceptance remain future integration work.
+Gameplay datagrams remain future integration work. Scoped world-rendering evidence does not
+close the deployment or complete browser acceptance matrix.
 
 ## Browser entry preview
 
@@ -156,15 +164,15 @@ refused or expired resume requires an explicit fresh session. Browser networking
 enterprise policy can block either transport even when its constructor exists.
 
 Current Chrome, Edge, Firefox and Safari are acceptance candidates, not certified
-release targets. No browser-name whitelist decides support. Gameplay will also
-need WebGPU and the completed shared client composition. This preview's account
-controls and asset validation do not demonstrate rendering or successful gameplay.
+release targets. No browser-name whitelist decides support. World rendering requires WebGPU.
+Owned upstream controls cover Connect, handoff, required packs, play and cleanup; actual
+WebSocket and QUIC WebTransport browser runs rendered terrain, entities and HUD. These scoped
+runs do not qualify every browser, deployment or account path.
 
-A release still needs a synthetic valid upstream join covering Connect, handoff,
-packs, play, transfer and fresh reconnect, followed by the real-browser matrix:
-UDP blocked, stalled stream creation, background tabs, navigation and network changes.
-That work follows gameplay composition. Memory peaks, frame pacing, audio and
-WebGPU/Metal output comparisons remain unverified. The ordinary queue byte budget,
-WebSocket message limit and upload burst are separate policies; none is a total
+A release still needs the full transfer/fresh-reconnect and real-browser matrix: blocked UDP,
+stalled stream creation, background tabs, navigation and network changes. Memory peaks,
+frame pacing, full audio behavior and matched platform-output comparisons remain open.
+The ordinary queue byte budget, WebSocket message limit and upload burst are separate
+policies; none is a total
 session or relay memory bound. Local worlds, Realms/friends/featured browsing,
 native updating and persistent imported packs remain unavailable in this preview.

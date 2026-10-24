@@ -155,12 +155,7 @@ impl Animator {
         if !anims.graph.valid() {
             return Written::default();
         }
-        let born = anims
-            .clock
-            .as_ref()
-            .and_then(|clock| clocks?.get(clock).copied())
-            .or(anims.born)
-            .or(self.origin);
+        let born = self.creation_time(anims, clocks);
         // A re-laid control keeps its instances while its program is the same.
         if let Some(component) = self.components.get_mut(anims.key.as_str())
             && component.born == born
@@ -202,6 +197,36 @@ impl Animator {
             self.quiet,
         );
         written
+    }
+
+    /// Reads matching writes sampled at `now`, before `end_frame`, without ticking,
+    /// creating or retaining a component or emitting any lifecycle event.
+    pub fn sampled(
+        &self,
+        anims: &Arc<ControlAnims>,
+        now: f64,
+        clocks: Option<&BTreeMap<String, f64>>,
+    ) -> Option<Written> {
+        let component = self.components.get(anims.key.as_str())?;
+        (component.touched
+            && component.last == now
+            && component.born == self.creation_time(anims, clocks)
+            && (Arc::ptr_eq(&component.anims, anims) || component.anims.as_ref() == anims.as_ref()))
+        .then_some(component.written)
+    }
+
+    /// Resolves the explicit factory clock, bound creation time or caller's origin.
+    fn creation_time(
+        &self,
+        anims: &ControlAnims,
+        clocks: Option<&BTreeMap<String, f64>>,
+    ) -> Option<f64> {
+        anims
+            .clock
+            .as_ref()
+            .and_then(|clock| clocks?.get(clock).copied())
+            .or(anims.born)
+            .or(self.origin)
     }
 
     /// Deliver button event `id`: plays or resets matching animations and

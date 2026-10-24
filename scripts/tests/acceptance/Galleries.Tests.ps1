@@ -736,30 +736,19 @@
         -ClientExecutable $PrebuiltClient `
         -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
         -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
-        -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
         -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
     Assert-ThrowsLike {
         Assert-PrebuiltClientPathSafe `
             -ClientExecutable $PrebuiltClient `
             -RuntimeDirectory (Split-Path -Parent $PrebuiltClient) `
             -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
-            -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
             -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
     } '*overlaps stable BDS runtime*' 'prebuilt client inside the generated BDS runtime was accepted'
     Assert-ThrowsLike {
         Assert-PrebuiltClientPathSafe `
             -ClientExecutable $PrebuiltClient `
             -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
-            -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
-            -CoreExecutable $PrebuiltClient `
-            -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
-    } '*aliases generated core executable*' 'prebuilt client aliasing the core output was accepted'
-    Assert-ThrowsLike {
-        Assert-PrebuiltClientPathSafe `
-            -ClientExecutable $PrebuiltClient `
-            -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
             -RunDirectory (Split-Path -Parent $PrebuiltClient) `
-            -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
             -MetricsOut (Join-Path $safeGeneratedRoot 'metrics.json')
     } '*overlaps acceptance run output*' 'prebuilt client inside the acceptance output directory was accepted'
     Assert-ThrowsLike {
@@ -767,7 +756,6 @@
             -ClientExecutable $PrebuiltClient `
             -RuntimeDirectory (Join-Path $safeGeneratedRoot 'runtime') `
             -RunDirectory (Join-Path $safeGeneratedRoot 'run') `
-            -CoreExecutable (Join-Path $safeGeneratedRoot 'bedrock-core.exe') `
             -MetricsOut $PrebuiltClient
     } '*aliases requested metrics output*' 'prebuilt client aliasing MetricsOut was accepted'
     $prebuiltGuardHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $PrebuiltClient).Hash.ToLowerInvariant()

@@ -261,7 +261,7 @@ function New-SyntheticLunarManifest {
         performance = [ordered]@{
             warmup_seconds = 30; steady_seconds = 120; p95_frame_ms_max = 16.6666666667
             p99_frame_ms_max = 16.6666666667; max_frame_ms_max = 50.0; lifecycle_ms_max = 2000.0
-            resource_sample_count = 120; max_combined_rss_bytes = 681574400
+            resource_sample_count = 120; max_client_rss_bytes = 681574400
             mean_cpu_percent_max = 15.0; p95_cpu_percent_max = 15.0
         }
         client_shutdown_grace_seconds = 5
@@ -284,14 +284,14 @@ Describe 'Remote acceptance runner' {
         . (Join-Path $ProjectRoot 'scripts\acceptance\Load.ps1')
     }
 
-    It 'enforces create-new, duration, radius, auth locality, and canonical Lunar endpoint' {
+    It 'enforces create-new, duration, radius, and canonical Lunar endpoint' {
         $runId = 'pester-remote-' + [guid]::NewGuid().ToString('N')
         $runDirectory = Join-Path $ProjectRoot ".local\world-acceptance\remote\$runId"
         $candidateRunDirectory = Join-Path $ProjectRoot ".local\world-acceptance\remote\$runId-candidate"
         $immediateRunDirectory = Join-Path $ProjectRoot ".local\world-acceptance\remote\$runId-immediate"
         try {
             & $ScriptPath -Server Lunar -Mode Diagnostic -RunId $runId -DurationSeconds 150 `
-                -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 16 `
+                -InitialRadius 16 `
                 -PresentMode Fifo -Assets 'synthetic.mcbea' -ValidateOnly
             $manifest = Get-Content -Raw -LiteralPath (Join-Path $runDirectory 'manifest.json') | ConvertFrom-Json
             $manifest.upstream | Should Be 'pvp.lunarbedrock.com:19134'
@@ -301,25 +301,22 @@ Describe 'Remote acceptance runner' {
             $manifest.performance.resource_sample_count | Should Be 120
 
             & $ScriptPath -Server Lunar -Mode Candidate -RunId ($runId + '-candidate') -DurationSeconds 150 `
-                -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 16 `
+                -InitialRadius 16 `
                 -PresentMode Fifo -Assets 'synthetic.mcbea' -ValidateOnly
             $candidateManifest = Get-Content -Raw -LiteralPath (Join-Path $candidateRunDirectory 'manifest.json') | ConvertFrom-Json
             $candidateManifest.diagnostic_complete | Should Be $false
 
             { & $ScriptPath -Server Lunar -Mode Diagnostic -RunId $runId -DurationSeconds 150 `
-                -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 16 `
+                -InitialRadius 16 `
                 -PresentMode Fifo -Assets 'synthetic.mcbea' -ValidateOnly } | Should Throw
             { & $ScriptPath -Server Lunar -Mode Diagnostic -RunId ($runId + '-short') -DurationSeconds 149 `
-                -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 16 `
+                -InitialRadius 16 `
                 -PresentMode Fifo -Assets 'synthetic.mcbea' -ValidateOnly } | Should Throw
             { & $ScriptPath -Server Lunar -Mode Diagnostic -RunId ($runId + '-radius') -DurationSeconds 150 `
-                -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 15 `
+                -InitialRadius 15 `
                 -PresentMode Fifo -Assets 'synthetic.mcbea' -ValidateOnly } | Should Throw
-            { & $ScriptPath -Server Lunar -Mode Diagnostic -RunId ($runId + '-auth') -DurationSeconds 150 `
-                -AuthCache '..\token.json' -InitialRadius 16 -PresentMode Fifo `
-                -Assets 'synthetic.mcbea' -ValidateOnly } | Should Throw
             { & $ScriptPath -Server Lunar -Mode Diagnostic -RunId ($runId + '-immediate') -DurationSeconds 150 `
-                -AuthCache '.local/auth/microsoft-token.json' -InitialRadius 16 -PresentMode Immediate `
+                -InitialRadius 16 -PresentMode Immediate `
                 -Assets 'synthetic.mcbea' -ValidateOnly } | Should Throw
         }
         finally {
@@ -339,8 +336,8 @@ Describe 'Remote acceptance runner' {
             $logPath = Join-Path $temporary 'client.log'
             @{ p95_frame_ms = 16.0; p99_frame_ms = 16.5; max_frame_ms = 49.0; teleport_settle_ms = $null; forced_full_view_remesh_ms = $null } |
                 ConvertTo-Json | Set-Content -LiteralPath $metricsPath
-            $samples = @(1..120 | ForEach-Object { @{ elapsed_seconds = $_; combined_rss_bytes = 104857600; cpu_percent = 5.0 } })
-            @{ schema = 'rust-mcbe-publication-resources-v1'; warmup_seconds = 30; duration_seconds = 120; processor_count = 8; samples = $samples; summary = @{ sample_count = 120; max_combined_rss_bytes = 104857600; mean_cpu_percent = 5.0; p95_cpu_percent = 5.0 } } |
+            $samples = @(1..120 | ForEach-Object { @{ elapsed_seconds = $_; client_rss_bytes = 104857600; cpu_percent = 5.0 } })
+            @{ schema = 'rust-mcbe-publication-resources-v2'; warmup_seconds = 30; duration_seconds = 120; processor_count = 8; samples = $samples; summary = @{ sample_count = 120; max_client_rss_bytes = 104857600; mean_cpu_percent = 5.0; p95_cpu_percent = 5.0 } } |
                 ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $resourcesPath
             $publication = New-SyntheticPublication -RequiredColumns 197 -LoadedColumns 197 `
                 -RequestsConstructed 197 -RequestsSent 197 -ResponsesAdmitted 4096 -SubchunksCommitted 4096
@@ -779,7 +776,7 @@ Describe 'Remote acceptance runner' {
         $source = Get-Content -Raw -LiteralPath $ScriptPath
         $source | Should Match 'Find-CompletedLunarPrerequisite\s+-RemoteRoot\s+\$remoteRoot\s+-Mode\s+\$Mode'
         $source | Should Match "if \(\`$Mode -cne 'Diagnostic'\) \{ throw \}"
-        $source | Should Match '\$clientHandle\.Process\.HasExited\s+-or\s+\$coreHandle\.Process\.HasExited'
+        $source | Should Match '\$clientHandle\.Process\.HasExited'
         $source | Should Match "if \(\`$Mode -cne 'Diagnostic' -and -not \`$FullViewTeleportGate\)"
         $source | Should Match 'Complete-PublicationDiagnosticEvidence'
         $source | Should Match "\`$manifest\.behavior_gate_passed = \(\`$Mode -cne 'Diagnostic'\)"

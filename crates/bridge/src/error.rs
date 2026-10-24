@@ -1,28 +1,8 @@
 use std::io;
-use std::path::PathBuf;
 
-/// Errors produced by the local Rust-to-Go bridge.
+/// Errors produced by shared framing and service adapters.
 #[derive(Debug, thiserror::Error)]
 pub enum BridgeError {
-    /// Reading endpoint metadata or a published endpoint file failed.
-    #[error("failed to read bridge endpoint {path}: {source}")]
-    EndpointRead {
-        /// Endpoint path that could not be read.
-        path: PathBuf,
-        /// Underlying filesystem error.
-        #[source]
-        source: io::Error,
-    },
-
-    /// An endpoint did not match the local bridge security contract.
-    #[error("invalid bridge endpoint {path}: {reason}")]
-    InvalidEndpoint {
-        /// Endpoint path that failed validation.
-        path: PathBuf,
-        /// Human-readable validation failure.
-        reason: String,
-    },
-
     /// The connected byte stream failed.
     #[error("bridge I/O error: {0}")]
     Io(#[from] io::Error),

@@ -201,8 +201,6 @@ pub struct MenuFeeds {
 pub struct ServerTrustPrompt {
     pub id: u64,
     pub url: String,
-    /// Asked by a per-session core rather than the launcher core; ids are per core.
-    pub from_session_core: bool,
 }
 
 /// Which kind of join is under way; picks vanilla's connect title and progress screen.
@@ -314,6 +312,8 @@ impl JoinProgress {
 /// counts, the live event button and the rendered persona head.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct MenuHome {
+    /// Local marketing-session marker; used only to retire optimistic inbox interactions.
+    pub message_session: Option<String>,
     pub play_art: Option<ButtonArt>,
     pub inbox_unread: u32,
     pub inbox_counts: std::collections::BTreeMap<usize, u32>,

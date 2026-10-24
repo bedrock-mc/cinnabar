@@ -84,9 +84,10 @@ pub struct NodeAnim {
     pub alpha: Vec<Arc<ControlAnims>>,
     /// Product of the static alphas of the other contributors.
     pub alpha_static: f32,
-    /// Offset/size animations moving the draw, and its clip, outermost first.
+    /// Offset/size animations moving the draw, outermost first.
     pub movers: Vec<Arc<ControlAnims>>,
-    pub clip_movers: Vec<Arc<ControlAnims>>,
+    /// Unintersected boundaries, each retaining its own animation ancestry.
+    pub clip: Option<Arc<Clip>>,
     /// Static sprite uv origin and size in texture pixels.
     pub uv_rest: [f32; 2],
     pub uv_size_rest: Option<[f32; 2]>,
@@ -98,6 +99,77 @@ pub struct NodeAnim {
     pub transform: Option<crate::transform::Affine>,
     /// The Cinnabar filtered subtree this draw paints into.
     pub filter: Option<std::sync::Arc<crate::filter::FilterGroup>>,
+}
+
+impl NodeAnim {
+    /// Whether a control or its clipping ancestry needs a painted geometry projection.
+    pub(crate) fn moves_geometry(&self) -> bool {
+        !self.movers.is_empty() || self.clip.as_ref().is_some_and(|clip| clip.moves())
+    }
+
+    /// Moves a layout rectangle through the same offset and size contributors as its draws.
+    pub(crate) fn project_rect(
+        &self,
+        mut rect: RectOut,
+        mut written: impl FnMut(&Arc<ControlAnims>) -> Written,
+    ) -> RectOut {
+        for mover in self.movers.iter().rev() {
+            rect = moved(mover, &written(mover), rect);
+        }
+        rect
+    }
+
+    /// Evaluates moving clip boundaries before intersection, retaining an unanimated fallback.
+    pub(crate) fn project_clip(
+        &self,
+        fallback: RectOut,
+        mut written: impl FnMut(&Arc<ControlAnims>) -> Written,
+    ) -> RectOut {
+        self.clip
+            .as_ref()
+            .map_or(fallback, |clip| clip.project(&mut written).into())
+    }
+}
+
+/// A clipping boundary evaluated in its own moving space before ancestor intersection.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Clip {
+    pub(crate) rect: Rect,
+    pub(crate) movers: Vec<Arc<ControlAnims>>,
+    pub(crate) transform: Option<crate::transform::Affine>,
+    pub(crate) parent: Option<Arc<Clip>>,
+}
+
+impl Clip {
+    /// The fixed viewport at the root of a draw's clip ancestry.
+    pub(crate) fn viewport(rect: Rect) -> Arc<Self> {
+        Arc::new(Self {
+            rect,
+            movers: Vec::new(),
+            transform: None,
+            parent: None,
+        })
+    }
+
+    /// Whether an ancestor moves this clipping boundary.
+    pub(crate) fn moves(&self) -> bool {
+        !self.movers.is_empty() || self.parent.as_ref().is_some_and(|parent| parent.moves())
+    }
+
+    /// Move each original boundary before intersecting it with its already-painted parent.
+    fn project(&self, written: &mut impl FnMut(&Arc<ControlAnims>) -> Written) -> Rect {
+        let mut rect = self.rect.into();
+        for mover in self.movers.iter().rev() {
+            rect = moved(mover, &written(mover), rect);
+        }
+        let rect = Rect::new(rect.x, rect.y, rect.w, rect.h);
+        let rect = self
+            .transform
+            .map_or(rect, |transform| transform.bounds(rect));
+        self.parent
+            .as_ref()
+            .map_or(rect, |parent| parent.project(written).intersect(rect))
+    }
 }
 
 /// A draw as its animations leave it at one moment.
@@ -194,15 +266,10 @@ impl DrawNode {
                 out.uv = Some(uv);
             }
         }
-        for mover in anim.movers.iter().rev() {
-            let written = animator.sample(mover, now, clocks);
-            out.dest = moved(mover, &written, out.dest);
-        }
-        for mover in anim.clip_movers.iter().rev() {
-            let written = animator.sample(mover, now, clocks);
-            out.clip = moved(mover, &written, out.clip);
-        }
+        out.dest = anim.project_rect(out.dest, |mover| animator.sample(mover, now, clocks));
+        out.clip = anim.project_clip(out.clip, |mover| animator.sample(mover, now, clocks));
         animator.set_quiet(quiet);
+
         out
     }
 }

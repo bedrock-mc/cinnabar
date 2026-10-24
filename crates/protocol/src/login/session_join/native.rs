@@ -1,11 +1,13 @@
 //! Native endpoint and blocking-job composition for the shared login sequence.
 
-use super::{JoinPreparation, SessionIo, SessionLogin};
-use crate::{
-    ClientBlobCache, ClientRandomId, ClientSkin, GameData, LoginSequence, LoginSettings,
-    PlaySession, ProtocolError, ResourcePackHandoff, packet_tap::PacketTap,
-};
-use std::{future::Future, path::Path, pin::Pin, sync::Arc};
+use super::JoinPreparation;
+#[cfg(feature = "native-networking")]
+use super::SessionLogin;
+#[cfg(feature = "native-networking")]
+use crate::{GameData, LoginSequence, PlaySession, ProtocolError};
+#[cfg(feature = "native-networking")]
+use bedrock_packs::ResourcePackHandoff;
+use std::{future::Future, pin::Pin};
 
 /// Preserves native startup offloading and panic propagation on the Tokio runtime.
 pub struct NativeJoinPreparation;
@@ -30,49 +32,15 @@ impl JoinPreparation for NativeJoinPreparation {
     }
 }
 
+#[cfg(feature = "native-networking")]
 impl LoginSequence {
-    /// Opens the native core endpoint, offloads startup work and continues its only login.
-    /// Pack preparation overlaps server input; loading ends when the caller presents the world.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "independent caller choices for one join"
-    )]
-    pub async fn connect_session<P: Send + 'static>(
-        socket_dir: &Path,
-        display_name: &str,
-        client_random_id: ClientRandomId,
-        cache: Option<ClientBlobCache>,
-        skin: Option<ClientSkin>,
-        settings: &LoginSettings,
-        relay: Option<Arc<dyn crate::PacketRelay>>,
-        tap: Option<Arc<dyn PacketTap>>,
+    /// Connects the captured native target and retains shared spawn and preparation ownership.
+    pub async fn connect_endpoint<P: Send + 'static>(
+        endpoint: &crate::SessionEndpoint,
+        login: SessionLogin<'_>,
         prepare: impl FnOnce(ResourcePackHandoff, GameData) -> P + Send + 'static,
     ) -> Result<(PlaySession, P), ProtocolError> {
-        let profile = bridge::join_profile::JoinProfile::current();
-        let endpoint = profile.stage("core_endpoint_connect");
-        let (reader, frames) = bridge::connect_session(socket_dir)
-            .await
-            .map_err(ProtocolError::Bridge)?;
-        drop(endpoint);
-        Self::connect_prepared(
-            SessionIo {
-                reader,
-                frames,
-                timers: bridge::tasks::Timers::tokio(),
-            },
-            SessionLogin {
-                display_name,
-                client_random_id,
-                cache,
-                skin,
-                settings,
-                tap,
-                relay,
-                target: None,
-            },
-            &NativeJoinPreparation,
-            prepare,
-        )
-        .await
+        let crate::SessionEndpoint::Native(target) = endpoint;
+        Self::connect_native(target, login, prepare).await
     }
 }

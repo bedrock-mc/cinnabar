@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::def::AnimKind;
-use super::paint::{ControlAnims, NodeAnim};
+use super::paint::{Clip, ControlAnims, NodeAnim};
 use super::{BORN_KEY, CLOCK_KEY};
 use crate::tree::ResolvedControl;
 
@@ -19,7 +19,7 @@ pub(crate) struct Inherited {
     born: Option<f64>,
     clock: Option<String>,
     movers: Vec<Arc<ControlAnims>>,
-    clip_movers: Vec<Arc<ControlAnims>>,
+    pub(crate) clip: Option<Arc<Clip>>,
     /// The paint transform and screen clip transformed ancestors hand down.
     pub(crate) space: crate::transform::PaintSpace,
     /// The filtered subtree an ancestor opened.
@@ -43,9 +43,17 @@ impl Inherited {
             && self.clock == other.clock
             && same(&self.alpha_anims, &other.alpha_anims)
             && same(&self.movers, &other.movers)
-            && same(&self.clip_movers, &other.clip_movers)
+            && self.clip == other.clip
             && self.space == other.space
             && self.filter == other.filter
+    }
+
+    /// Start clipping at the fixed screen, before any control contributes a moving boundary.
+    pub(crate) fn viewport(rect: crate::layout::Rect) -> Self {
+        Self {
+            clip: Some(Clip::viewport(rect)),
+            ..Self::default()
+        }
     }
 
     /// The creation clock `control` animates on.
@@ -73,7 +81,7 @@ impl Inherited {
         control: &ResolvedControl,
         rest: f32,
         own: Option<Arc<ControlAnims>>,
-        clips: bool,
+        clipping: crate::transform::ClipInputs,
         (space, inner): (crate::transform::PaintSpace, crate::transform::PaintSpace),
         filter: Option<Arc<crate::filter::FilterGroup>>,
         sprite: impl FnOnce(&mut NodeAnim),
@@ -93,10 +101,27 @@ impl Inherited {
                 movers.push(Arc::clone(own));
             }
         }
+        let clip = if clipping.clips {
+            let rect = clipping.rect;
+            let [dx, dy] = clipping.clip_offset;
+            Some(Arc::new(Clip {
+                rect: crate::layout::Rect::new(
+                    rect.x + dx,
+                    rect.y + dy,
+                    (rect.w - 2.0 * dx).max(0.0),
+                    (rect.h - 2.0 * dy).max(0.0),
+                ),
+                movers: movers.clone(),
+                transform: space.transform,
+                parent: self.clip.clone(),
+            }))
+        } else {
+            self.clip.clone()
+        };
         let animated = own.is_some()
             || !alpha_anims.is_empty()
             || !movers.is_empty()
-            || !self.clip_movers.is_empty()
+            || clip.as_ref().is_some_and(|clip| clip.moves())
             || space.transform.is_some()
             || filter.is_some();
         let node = animated.then(|| {
@@ -105,7 +130,11 @@ impl Inherited {
                 alpha: alpha_anims.clone(),
                 alpha_static: unanimated,
                 movers: movers.clone(),
-                clip_movers: self.clip_movers.clone(),
+                clip: if clipping.allows {
+                    clip.clone()
+                } else {
+                    Some(Clip::viewport(clipping.screen))
+                },
                 transform: space.transform,
                 filter: filter.clone(),
                 ..NodeAnim::default()
@@ -130,11 +159,7 @@ impl Inherited {
             },
             born: context.born,
             clock: context.clock,
-            clip_movers: if clips {
-                movers.clone()
-            } else {
-                self.clip_movers.clone()
-            },
+            clip,
             movers,
             space: inner,
             filter,

@@ -535,6 +535,7 @@ mod tests {
             collections: Vec::new(),
             modal_root: None,
             transform: None,
+            anim: None,
         }
     }
 

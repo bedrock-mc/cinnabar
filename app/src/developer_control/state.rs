@@ -1,5 +1,7 @@
 //! State queries and the conditions `wait_for` polls each frame.
 
+mod world_work;
+
 use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
@@ -18,6 +20,8 @@ use {
 const DEFAULT_WAIT: Duration = Duration::from_secs(120);
 /// Actors listed in a state snapshot, nearest first.
 const MAX_LISTED_ACTORS: usize = 32;
+/// Featured menu rows listed in a snapshot, in their current selection order.
+const MAX_LISTED_FEATURED_SERVERS: usize = 32;
 /// Recent chat output is bounded so command tests cannot return a session's entire history.
 const MAX_CHAT_ROWS: usize = 16;
 const MAX_CHAT_CHARS: usize = 1024;
@@ -296,13 +300,35 @@ pub(super) fn snapshot(world: &World) -> Value {
             "focused_action": view.focused_action.map(|action| format!("{action:?}")),
             "sign_in_browser": format!("{:?}", view.sign_in_browser),
             "sign_in_fixture": menu.sign_in_fixture_state(),
+            "featured": {
+                "count": view.featured.len(),
+                "loading": view.catalog_loading,
+                "rows": view.featured.iter().enumerate()
+                    .take(MAX_LISTED_FEATURED_SERVERS)
+                    .map(|(index, server)| json!({
+                        "index": index,
+                        "name": &server.name,
+                        "logical_target": &server.address,
+                    }))
+                    .collect::<Vec<_>>(),
+            },
         })
     });
     let local_mods = crate::modding::developer_state(world);
+    #[cfg(feature = "native-networking")]
+    let friend_cleanup = world
+        .get_resource::<crate::session::SessionController>()
+        .map(|session| {
+            let (reserved, pending) = session.native_friend_cleanup_observation();
+            json!({ "reserved": reserved, "pending": pending })
+        });
+    #[cfg(not(feature = "native-networking"))]
+    let friend_cleanup: Option<Value> = None;
 
     let mut snapshot = json!({
         "in_world": stream.is_some(),
         "sign_in": menu.map(|menu| menu.sign_in_status().as_str()),
+        "native_friend_cleanup": friend_cleanup,
         "immobile": world.get_resource::<client_state::PlayerRuntime>()
             .map(|player| player.facts.is_immobile()),
         "feet": view.map(|view| view.feet_translation().to_array()),
@@ -393,6 +419,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
     });
     // Keep added diagnostics outside the large snapshot macro's expansion budget.
+    snapshot["world_work"] = json!(world_work::snapshot(world));
     snapshot["terrain_culling"] = json!({
         "occlusion_enabled": world.get_resource::<render_scene::ChunkOcclusionCulling>().map(|preference| preference.0),
         "sections": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>().map(|cache| json!({

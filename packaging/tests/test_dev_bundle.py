@@ -17,7 +17,7 @@ class DevBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for name in ["Makefile", "Cargo.toml", "assets/vanilla-source.json",
-                         "packaging/common/core-ldflags.sh", "packaging/common/stage-payload.sh",
+                         "packaging/common/stage-payload.sh",
                          "packaging/macos/Info.plist.in", "packaging/macos/build-app.sh"]:
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -39,7 +39,8 @@ if sys.argv[1]=='cargo':
         name=args[args.index('--bin')+1]
         (output/name).write_text('#!/bin/sh\\nexit 0\\n')
         (output/name).chmod(0o755)
-        pathlib.Path('compiler-name').write_text(name)
+        if args[args.index('-p')+1]=='asset-compiler':
+            pathlib.Path('compiler-name').write_text(name)
     else:
         client=output/'cinnabar'
         client.write_text("#!/usr/bin/env python3\\nimport pathlib, sys\\n"

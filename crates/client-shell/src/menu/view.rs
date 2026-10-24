@@ -16,8 +16,16 @@ impl MenuRuntime {
                 AuthState::Checking
                     | AuthState::AwaitingCode { .. }
                     | AuthState::AwaitingXboxSignup { .. }
-            ) || (auth_state == AuthState::Authenticated
-                && (!self.catalog_started || self.catalog.is_running())));
+            ) || {
+                #[cfg(feature = "native-networking")]
+                {
+                    auth_state == AuthState::Authenticated && self.native_catalog.loading()
+                }
+                #[cfg(not(feature = "native-networking"))]
+                {
+                    false
+                }
+            });
         let auth_state = if self.presentation_accounts {
             AuthState::Authenticated
         } else {

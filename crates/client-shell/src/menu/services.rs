@@ -1,47 +1,48 @@
 //! Launcher services driven after the app supplies its session observations.
 use super::*;
+#[cfg(feature = "native-networking")]
 use launcher::menu::settings_options::CINNABAR_VISIBILITY_OPTION;
 impl MenuRuntime {
-    /// Advances the account core and local worlds using the current session state.
+    /// Advances native account services and local worlds using the current session state.
     #[allow(clippy::too_many_arguments)]
     pub fn drive_account_services(
         &mut self,
-        commands: &mut Commands,
-        client_cache_enabled: bool,
-        player_runtime: &client_state::PlayerRuntime,
+        #[cfg(feature = "native-networking")] commands: &mut Commands,
+        #[cfg(feature = "native-networking")] player_runtime: &client_state::PlayerRuntime,
         in_session: bool,
-        launcher: Option<ResMut<LauncherCoreSlot>>,
-        launcher_account: Option<ResMut<launcher_account::LauncherAccount>>,
-        mut local_worlds: Option<&mut crate::local_worlds::LocalWorlds>,
+        #[cfg(feature = "native-networking")] launcher: Option<ResMut<LauncherServices>>,
+        #[cfg(feature = "native-networking")] launcher_account: Option<
+            ResMut<launcher_account::LauncherAccount>,
+        >,
+        local_worlds: Option<&mut crate::local_worlds::LocalWorlds>,
     ) {
+        #[cfg(feature = "native-networking")]
+        let mut local_worlds = local_worlds;
+        let idle = !self.joining_past_sign_in()
+            && (!in_session || !(self.is_launcher() || self.local_world_joined));
+        #[cfg(not(feature = "native-networking"))]
+        {
+            self.sign_out_locally();
+            if idle && self.accounts.operation.is_some() && self.auth_cleanup_complete() {
+                self.start_account_operation();
+            }
+        }
+        #[cfg(feature = "native-networking")]
         if let Some(mut slot) = launcher {
-            // Remote direct sessions have a separate game core. Local worlds use the
-            // account core, so sign-in must not restart it during local play.
-            let idle = launcher_core::account_core_idle(
-                self.is_launcher(),
-                self.joining_past_sign_in(),
-                in_session,
-                self.local_world_joined,
-            );
-            slot.drive(
-                commands,
-                self,
-                idle,
-                client_cache_enabled,
-                local_worlds.as_deref_mut(),
-                std::time::Instant::now(),
-            );
-            // A held join waits for this core only while it may still start for that join.
-            self.account_core = (idle && self.is_launcher()).then(|| slot.account_core());
-        } else {
-            self.account_core = None;
+            slot.drive(commands, self, idle, local_worlds.as_deref_mut());
         }
         if std::mem::take(&mut self.accounts.skip_control) {
-            self.forget_launcher_trust();
             return;
         }
+        #[cfg(feature = "native-networking")]
         match launcher_account {
             Some(mut account) => {
+                #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+                account.0.set_native_host_intent(
+                    local_worlds
+                        .as_deref()
+                        .and_then(|worlds| worlds.native_host_intent()),
+                );
                 let options = self.settings_snapshot().0;
                 account.set_cinnabar_api(
                     options.update_preferences().channel,
@@ -56,10 +57,11 @@ impl MenuRuntime {
                 self.sync_account_control(&mut account.0);
             }
             None => {
-                self.forget_launcher_trust();
                 self.sign_out_locally();
             }
         }
+        #[cfg(feature = "native-networking")]
+        self.poll_native_catalog(std::time::Instant::now());
         if let Some(worlds) = local_worlds {
             self.sync_local_worlds(worlds, in_session);
         }
@@ -67,6 +69,7 @@ impl MenuRuntime {
 }
 
 /// Sends roster changes to the Cinnabar lookup worker and badges the players it reports.
+#[cfg(feature = "native-networking")]
 pub fn sync_cinnabar_players(
     account: &launcher_account::LauncherAccount,
     runtime: &mut client_ui::ui_runtime::UiRuntime,

@@ -1,9 +1,6 @@
 //! Android installs have no executable-relative layout; the activity supplies its private roots.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::OnceLock,
-};
+use std::{path::Path, sync::OnceLock};
 
 use super::{InstallLayout, LayoutError};
 
@@ -13,7 +10,11 @@ impl InstallLayout {
     /// Private app files hold settings, data and the unpacked prep kit; helpers stay in the
     /// APK's native-library directory, the only place Android lets an app execute files.
     #[must_use]
-    pub fn android(files_dir: &Path, core_executable: PathBuf) -> Self {
+    pub fn android(
+        files_dir: &Path,
+        native_library_dir: &Path,
+        local_server_library: &str,
+    ) -> Self {
         let resource_root = files_dir.join("resources");
         let runtime_root = files_dir.join("run");
         Self {
@@ -22,7 +23,7 @@ impl InstallLayout {
                 .join("assets")
                 .join(assets::carriers::physics_registry_basename()),
             resource_root,
-            core_executable,
+            local_server_executable: native_library_dir.join(local_server_library),
             user_config_root: files_dir.join("config"),
             user_data_root: files_dir.join("data"),
             transient_runtime_root: runtime_root.clone(),
@@ -57,10 +58,16 @@ mod tests {
     #[test]
     fn android_separates_private_data_from_executable_helpers() {
         let files = Path::new("/data/user/0/app/files");
-        let core = Path::new("/data/app/lib/arm64/libbedrock_core.so");
-        let layout = InstallLayout::android(files, core.to_path_buf()).with_prepared_assets();
+        let native_library_dir = Path::new("/data/app/lib/arm64");
+        let local_server = native_library_dir.join("liblocal_server_fixture.so");
+        let layout = InstallLayout::android(
+            files,
+            native_library_dir,
+            local_server.file_name().unwrap().to_str().unwrap(),
+        )
+        .with_prepared_assets();
         assert!(layout.is_installed());
-        assert_eq!(layout.core_executable, core);
+        assert_eq!(layout.local_server_executable, local_server);
         assert_eq!(layout.prep_kit(), files.join("resources/prep-kit"));
         assert_eq!(layout.compiled_assets, files.join("data/assets/compiled"));
         assert_eq!(layout.user_config_root, files.join("config"));

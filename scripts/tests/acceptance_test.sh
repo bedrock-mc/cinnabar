@@ -23,17 +23,16 @@ output="$(bash "$script" --dry-run --duration 900 --bds-dir "$bds_dir" --metrics
 commands=()
 while IFS= read -r line; do
     case "$line" in
-        BDS_COMMAND=*|CORE_COMMAND=*|APP_COMMAND=*) commands[${#commands[@]}]=$line ;;
+        BDS_COMMAND=*|APP_COMMAND=*) commands[${#commands[@]}]=$line ;;
     esac
 done <<<"$output"
-[[ ${#commands[@]} -eq 3 ]]
+[[ ${#commands[@]} -eq 2 ]]
 [[ ${commands[0]} == BDS_COMMAND=* ]]
-[[ ${commands[1]} == CORE_COMMAND=* ]]
-[[ ${commands[2]} == APP_COMMAND=* ]]
-for flag in --socket-dir '--acceptance-seconds 900' --metrics-out --auto-fly; do
-    [[ ${commands[2]} == *"$flag"* ]]
+[[ ${commands[1]} == APP_COMMAND=* ]]
+for flag in '--address 127.0.0.1:19132' '--native-networking raknet' '--display-name AcceptanceGuest' '--acceptance-seconds 900' --metrics-out --auto-fly; do
+    [[ ${commands[1]} == *"$flag"* ]]
 done
-[[ ${commands[2]} != *--no-vsync* ]]
+[[ ${commands[1]} != *--no-vsync* ]]
 [[ $output == *'BUILD_PROFILE=release'* ]]
 [[ $output == *'REQUESTED_PRESENT_MODE=Fifo'* ]]
 [[ $output == *'EFFECTIVE_PRESENT_MODE=UNPROVEN'* ]]
@@ -86,34 +85,36 @@ python3 "$project_root/scripts/tests/copy_workspace.py" "$project_root" "$protoc
 assert_protocol_dependency_provenance "$protocol_fixture"
 
 cp "$protocol_fixture/crates/protocol/Cargo.toml" "$protocol_fixture/protocol.Cargo.toml.clean"
-cp -R "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51" "$protocol_fixture/crates/protocol/vendor/bedrock-protocol-1-26-51-decoy"
-python3 - "$protocol_fixture/crates/protocol/Cargo.toml" <<'PY'
+python3 - "$protocol_fixture/crates/protocol/Cargo.toml" "$pinned_protocolgen_commit" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-text = text.replace(
-    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
-    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }',
-    1,
-)
-decoys = '''description = """
-[dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
-"""'''
+canonical = ('bedrock-protocol-1-26-51 = { git = "https://github.com/cinnabar-mc/protocolgen", '
+             f'rev = "{sys.argv[2]}" }}')
+renamed = ('"wire" = { package = "bedrock-protocol-1-26-51", '
+           f'git = "https://github.com/cinnabar-mc/protocolgen", rev = "{sys.argv[2]}" }}')
+text = text.replace('bedrock-protocol-1-26-51.workspace = true', canonical, 1)
+if canonical not in text:
+    raise SystemExit("protocol fixture did not find the canonical Git dependency")
+text = text.replace(canonical, renamed, 1)
+decoys = 'description = """\n[dependencies]\n' + canonical + '\n"""'
 text = text.replace("publish = false", "publish = false\n" + decoys, 1)
 path.write_text(text, encoding="utf-8")
 PY
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
-    echo 'Bash protocol provenance accepted multiline canonical decoys with quoted wrong-path dependencies' >&2
+    echo 'Bash protocol provenance accepted multiline canonical decoys with a quoted renamed dependency' >&2
     exit 1
 fi
 cp "$protocol_fixture/protocol.Cargo.toml.clean" "$protocol_fixture/crates/protocol/Cargo.toml"
 
-cat >>"$protocol_fixture/crates/protocol/Cargo.toml" <<'EOF'
-
-[target.'cfg(unix)'.dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
-EOF
+python3 - "$protocol_fixture/crates/protocol/Cargo.toml" "$pinned_protocolgen_commit" <<'PY'
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+extra = ("\n[target.'cfg(unix)'.dependencies]\n"
+         'bedrock-protocol-1-26-51 = { git = "https://github.com/cinnabar-mc/protocolgen", '
+         f'rev = "{sys.argv[2]}" }}\n')
+path.write_text(path.read_text(encoding="utf-8") + extra, encoding="utf-8")
+PY
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
     echo 'Bash protocol provenance accepted an additional target-table declaration' >&2
     exit 1
@@ -132,7 +133,7 @@ if needle not in text:
 path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 PY
 if assert_protocol_dependency_provenance "$protocol_fixture" >/dev/null 2>&1; then
-    echo 'Bash protocol provenance accepted a whitespace-prefixed local checksum' >&2
+    echo 'Bash protocol provenance accepted a whitespace-prefixed Git checksum' >&2
     exit 1
 fi
 cp "$protocol_fixture/Cargo.lock.clean" "$protocol_fixture/Cargo.lock"
@@ -226,7 +227,7 @@ case $(uname -s) in
 esac
 
 upstream="$(bash "$script" --dry-run --duration 900 --upstream 127.0.0.1:19132 --metrics-out "$metrics_out")"
-[[ $(printf '%s\n' "$upstream" | grep -Ec '^(BDS|CORE|APP)_COMMAND=') -eq 3 ]]
+[[ $(printf '%s\n' "$upstream" | grep -Ec '^(BDS|APP)_COMMAND=') -eq 2 ]]
 if bash "$script" --duration 60 --upstream 127.0.0.1:19132 --metrics-out "$metrics_out" >/dev/null 2>&1; then
     echo 'live external upstream without a mutation command was accepted' >&2
     exit 1
@@ -234,18 +235,17 @@ fi
 
 grep -Fq 'fcntl.flock' "$script"
 grep -Fq '6>&- 9>&-' "$script"
-grep -Fq '6>&- 8>&- 9>&-' "$script"
 grep -Fq '6>&- 7>&-' "$script"
 grep -Fq 'External Bedrock upstream ready' "$script"
 grep -Fq -- "--mutation-command is required for a live --upstream run" "$script"
 grep -Fq 'metrics["publisher_radius_chunks"] == 16' "$script"
 grep -Fq 'metrics["frame_count"] > 0' "$script"
 grep -Fq 'math.isfinite(metrics["p99_frame_ms"])' "$script"
-grep -Fq 'str(root / "core"), "mod", "edit", "-json"' "$script"
+grep -Fq 'str(root / "tools" / "localserver"), "mod", "edit", "-json"' "$script"
 grep -Fq 'resolve_pinned_gophertunnel_commit' "$script"
 grep -Fq "pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'" "$script"
 grep -Fq "pinned_jolyne_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'" "$script"
-grep -Fq '"protocol_dependency_resolution": "vendored-path"' "$script"
+grep -Fq '"protocol_dependency_resolution": "git-revision"' "$script"
 metadata_line=$(grep -n '^write_metadata preparing$' "$script" | cut -d: -f1)
 build_line=$(grep -n 'cargo build --release' "$script" | tail -1 | cut -d: -f1)
 [[ -n $metadata_line && -n $build_line && $metadata_line -lt $build_line ]]

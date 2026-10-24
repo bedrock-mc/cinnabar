@@ -17,6 +17,8 @@ mod pack_receiver;
 pub use pack_receiver::HandoffPackReceiver;
 mod server;
 pub use pack_cache::CachedArchive;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use server::decode_native_connect;
 pub use server::{
     CapturedPacketKind, captured_packet_kind, decode_connect, encode_core_message,
     packet_from_body, validate_replay_cache_mode,
@@ -31,7 +33,7 @@ const START_GAME_PACKET_ID: u32 = PacketId::StartGame as u32;
 /// The client's only setup message.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ConnectRequest {
+pub struct ConnectRequest<D = serde_json::Value> {
     pub protocol: i32,
     /// Optional local diagnostic correlation; omitted in shipping builds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -44,7 +46,7 @@ pub struct ConnectRequest {
     pub client_cache: bool,
     /// Bedrock login client-data claims, keyed as the login JWT names them. Their `ThirdPartyName`
     /// names an offline login; a signed-in core joins as its account.
-    pub client_data: serde_json::Value,
+    pub client_data: D,
 }
 
 /// Returns the Connect frame for `request`.

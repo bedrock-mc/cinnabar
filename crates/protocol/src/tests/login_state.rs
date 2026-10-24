@@ -18,10 +18,10 @@ use bedrock_protocol_1_26_51::wire::{self, Encode};
 use bridge::contract::{KIND_BATCH, KIND_CONNECT, KIND_DISCONNECT, KIND_HANDOFF, KIND_TRANSFER};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
-use protocol::{
-    ClientBlobCache, GameData, LoginSequence, Packet, PlaySession, ProtocolError, WorldEvent,
-};
+use protocol::{ClientBlobCache, GameData, LoginSequence, Packet, ProtocolError, WorldEvent};
 use tokio::sync::mpsc;
+
+type PlaySession = protocol::PlaySession<crate::tests::framed::Reader>;
 
 #[path = "login_state/camera_instructions.rs"]
 mod camera_instructions;
@@ -91,7 +91,7 @@ impl Default for Script {
 struct Core {
     extra: mpsc::UnboundedSender<Bytes>,
     task: tokio::task::JoinHandle<()>,
-    _dir: tempfile::TempDir,
+    _writer: crate::tests::framed::Writer,
 }
 
 impl Core {
@@ -119,31 +119,41 @@ impl Core {
 
 /// Joins a scripted core and, as the app does once the world is presented, finishes loading.
 async fn join(script: Script) -> Result<(PlaySession, GameData, Core), ProtocolError> {
-    let dir = tempfile::tempdir().expect("socket directory");
-    let listener = bridge::SessionListener::bind(dir.path())
-        .await
-        .expect("session endpoint");
+    let (reader, outgoing, peer, writer) = crate::tests::framed::pair();
     let (extra, frames) = mpsc::unbounded_channel();
     let task = tokio::spawn(async move {
-        let stream = listener.accept().await.expect("the client connects");
+        let stream = tokio_util::codec::Framed::new(
+            peer,
+            bridge::BridgeCodec::with_max(bridge::MAX_FRAME_LEN),
+        );
         let _ = run_core(ScriptedCore { stream }, script, frames).await;
     });
-    let joined = LoginSequence::connect_session(
-        dir.path(),
-        "RustClient",
-        protocol::ClientRandomId::new(-7).unwrap(),
-        script.cache_enabled.then(ClientBlobCache::default),
-        None,
-        &protocol::LoginSettings::default(),
-        None,
-        None,
+    let joined = LoginSequence::connect_prepared(
+        protocol::SessionIo {
+            reader,
+            frames: outgoing,
+            timers: bridge::tasks::Timers::tokio(),
+        },
+        protocol::SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
+            display_name: "RustClient",
+            client_random_id: protocol::ClientRandomId::new(-7).unwrap(),
+            cache: script.cache_enabled.then(ClientBlobCache::default),
+            skin: None,
+            settings: &protocol::LoginSettings::default(),
+            relay: None,
+            tap: None,
+            target: None,
+        },
+        &protocol::NativeJoinPreparation,
         |packs, game_data| (packs, game_data),
     )
     .await;
     let core = Core {
         extra,
         task,
-        _dir: dir,
+        _writer: writer,
     };
     let (mut session, (_, game_data)) = joined?;
     session.finish_loading().await?;
@@ -159,7 +169,7 @@ async fn joined(script: Script) -> (PlaySession, Core) {
 }
 
 struct ScriptedCore {
-    stream: bridge::FramedStream,
+    stream: tokio_util::codec::Framed<tokio::io::DuplexStream, bridge::BridgeCodec>,
 }
 
 impl ScriptedCore {

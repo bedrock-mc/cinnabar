@@ -1,5 +1,4 @@
 use client_shell::menu::MenuRuntime;
-use client_shell::menu::test_support as menu_fixture;
 use launcher::menu::{MenuAction, MenuScreen};
 #[test]
 fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
@@ -14,8 +13,6 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
     use client_ui::ui_runtime::UiRuntime;
 
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
-    menu_fixture::suppress_catalog(&mut menu);
-    menu_fixture::use_missing_core(&mut menu);
     menu.activate(MenuAction::Navigate(MenuScreen::Servers));
     menu.request_connect("127.0.0.1:19132".into());
     let mut network = NetworkHandle::<PackApplication>::disconnected();
@@ -48,14 +45,17 @@ fn reconnect_drives_two_fresh_production_attempts_and_retires_old_controls() {
         let menu = app.world().resource::<MenuRuntime>();
         assert!(!menu.is_connecting());
         assert!(menu.view().can_reconnect);
-        assert!(
-            menu.view()
-                .disconnect_message
-                .as_ref()
-                .unwrap()
-                .contains("127.0.0.1:19132")
+        assert_eq!(
+            menu.view().disconnect_message.as_ref().unwrap(),
+            &crate::args::ArgsError::NativeNetworkingUnavailable.to_string()
         );
         assert!(app.world().resource::<ClientWorld>().stream.is_none());
+        assert_eq!(
+            app.world()
+                .resource::<SessionController>()
+                .destination_identity(),
+            Some("remote:127.0.0.1:19132")
+        );
         if attempt == 0 {
             app.world_mut()
                 .resource_mut::<MenuRuntime>()

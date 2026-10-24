@@ -1,11 +1,7 @@
-//! The core's side of local worlds: where it routes the launcher's open world, and friend invites.
+//! Local world data shared with the native hosting owner.
 
 use crate::contract::{Backend, GameMode, Transport, WorldState};
-use std::path::Path;
-
-use serde::{Deserialize, Serialize};
-
-use crate::BridgeError;
+use serde::Serialize;
 
 /// The open world's loopback server.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -19,7 +15,7 @@ pub struct LocalTarget {
     pub level_name: Option<String>,
 }
 
-/// The open world as the core advertises it to Xbox friends.
+/// The open world's identity advertised to Xbox friends.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct LocalWorldInfo {
     pub id: String,
@@ -36,7 +32,7 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
-/// The launcher's open local world as `local_world.v1` reports it.
+/// The launcher's open local world.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct LocalWorld {
     pub state: WorldState,
@@ -49,38 +45,6 @@ pub struct LocalWorld {
     /// Path-free reason while failed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Acknowledged {}
-
-#[derive(Serialize)]
-struct InviteParams<'a> {
-    xuid: &'a str,
-}
-
-/// Tells the core about the open local world; while one is open it outranks `-upstream` for the
-/// next session, and a world that begins opening clears any pending selection or transfer.
-pub async fn set_local_world(socket_dir: &Path, world: &LocalWorld) -> Result<(), BridgeError> {
-    crate::account::call::<Acknowledged, _>(
-        socket_dir,
-        crate::contract::METHOD_LOCAL_WORLD,
-        Some(world),
-    )
-    .await?;
-    Ok(())
-}
-
-/// Sends the Xbox friend `xuid` an invite to the open world; the core refuses it while no
-/// world is hosted for friends.
-pub async fn invite_to_world(socket_dir: &Path, xuid: &str) -> Result<(), BridgeError> {
-    crate::account::call::<Acknowledged, _>(
-        socket_dir,
-        crate::contract::METHOD_WORLD_INVITE,
-        Some(InviteParams { xuid }),
-    )
-    .await?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -144,26 +108,5 @@ mod tests {
         let expected: serde_json::Value =
             serde_json::from_str(include_str!("../data/local-world-single-player.json")).unwrap();
         assert_eq!(serde_json::to_value(report).unwrap(), expected);
-    }
-
-    #[test]
-    fn invite_params_name_the_friend() {
-        let invite = serde_json::to_value(InviteParams {
-            xuid: "2535400000000001",
-        })
-        .expect("encode");
-        assert_eq!(invite, serde_json::json!({"xuid": "2535400000000001"}));
-    }
-
-    #[test]
-    fn acknowledgements_surface_rpc_errors() {
-        let error =
-            br#"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"invalid local world report"}}"#;
-        assert!(matches!(
-            crate::account::parse_response::<Acknowledged>(error),
-            Err(BridgeError::ControlRpc { code: -32602, .. })
-        ));
-        let ok = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1}}"#;
-        assert!(crate::account::parse_response::<Acknowledged>(ok).is_ok());
     }
 }

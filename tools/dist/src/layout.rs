@@ -48,7 +48,6 @@ pub(crate) fn input_files(options: &Options) -> Vec<(PathBuf, String)> {
             let filename = format!("{name}{suffix}");
             let source = match override_name {
                 "CLIENT" => options.client.clone(),
-                "CORE" => options.core.clone(),
                 _ => options.binaries.join(&filename),
             };
             (source, format!("{binary_root}{filename}"))

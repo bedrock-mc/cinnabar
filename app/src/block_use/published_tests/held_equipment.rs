@@ -174,10 +174,7 @@ fn retry_app() -> (App, client_session::CapturedPackets) {
         client_session::NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(
             RETRY_PAYLOAD_CAPACITY,
         );
-    let transport = (
-        NetworkHandle::connected(network, Default::default()),
-        captured,
-    );
+    let transport = (NetworkHandle::native(network), captured);
     let (mut world, mut captured) = fixture_with_network(transport);
     buttons(&mut world, vec![]);
     item_use_tests::hold_snowball(&mut world);

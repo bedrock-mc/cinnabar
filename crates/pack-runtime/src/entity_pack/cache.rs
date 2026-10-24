@@ -215,8 +215,8 @@ fn disk_key(inputs: &EntityInputs) -> [u8; 32] {
     for (id, version, subpack, content) in &inputs.stack {
         for bytes in [
             id.as_bytes(),
-            version.as_bytes(),
-            subpack.as_bytes(),
+            version.as_slice(),
+            subpack.as_slice(),
             content,
         ] {
             part(&mut key, bytes);

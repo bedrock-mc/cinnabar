@@ -58,8 +58,10 @@ pub struct Joint {
 pub fn schema() -> &'static serde_json::Value {
     static SCHEMA: OnceLock<serde_json::Value> = OnceLock::new();
     SCHEMA.get_or_init(|| {
-        serde_json::from_str(include_str!("../../../core/cinnabarapi/schema/v1.json"))
-            .expect("pinned API schema")
+        serde_json::from_str(include_str!(
+            "../../../crates/bridge/data/cinnabar-api/v1.json"
+        ))
+        .expect("pinned API schema")
     })
 }
 

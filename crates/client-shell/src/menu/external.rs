@@ -23,8 +23,10 @@ pub(super) struct ExternalServices {
 impl MenuRuntime {
     /// Selects externally driven services before the first menu frame.
     pub fn use_external_services(&mut self, servers: Vec<SavedServer>, gui_scale_offset: i8) {
-        self.stop_catalog();
-        self.auth_process = None;
+        #[cfg(feature = "native-networking")]
+        {
+            self.auth_process = None;
+        }
         self.auth_attempted = true;
         self.auth_restart_requested = false;
         self.external = Some(ExternalServices {

@@ -185,13 +185,13 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           bin="$PWD/target/$CARGO_BUILD_TARGET/release"
-          make package-binaries PACKAGE_CARGO_FLAGS=--timings DIST_CORE="$bin/bedrock-core" LOCAL_SERVER_OUT="$bin/bedrock-local-server"
+          make package-binaries PACKAGE_CARGO_FLAGS=--timings LOCAL_SERVER_OUT="$bin/bedrock-local-server"
           # The runtime table packaging stages from, plus the prep-kit compiler.
           while read -r binary; do
             lipo "$bin/$binary" -verify_arch "${{ matrix.arch }}"
           done < <(awk '{print $1} END {print "assetc"}' packaging/common/runtime-binaries.txt)
           tools="$GITHUB_WORKSPACE/release-tools/packaging/macos"
-          CLIENT="$bin/cinnabar" CORE="$bin/bedrock-core" \
+          CLIENT="$bin/cinnabar" \
             LOCAL_SERVER="$bin/bedrock-local-server" ASSETC="$bin/assetc" bash "$tools/build-app.sh"
           bash "$tools/sign-notarize.sh" .local/dist/macos-release/Cinnabar.app
           version="${{ needs.prepare.outputs.version }}"

@@ -76,25 +76,45 @@ fn generated_packets_reject_arbitrary_former_reserved_bodies() {
 }
 
 #[test]
-fn unassigned_packet_ids_are_rejected() {
+fn unassigned_well_framed_packet_ids_are_skipped() {
     for &id in UNASSIGNED {
         assert_eq!(PacketId::from_raw(id), None);
-        assert!(matches!(
-            decode_batch(batch(&[inner_frame(id, 1, 2, &[0x00])])),
-            Err(ProtocolError::Decode(_))
-        ));
+        assert!(
+            decode_batch(batch(&[inner_frame(id, 1, 2, &[0x00])]))
+                .unwrap()
+                .is_empty()
+        );
     }
 }
 
 #[test]
 fn unassigned_packet_cannot_consume_an_adjacent_frame() {
     let first = inner_frame(173, 0, 0, &[0x80, 0x80, 0x80]);
-    let second = inner_frame(109, 3, 1, &[0x01, 0x02]);
+    let mut second = Vec::new();
+    wire::encode_frame_with(
+        &mut second,
+        wire::PacketHeader {
+            id: PacketId::SetTime as u32,
+            sender_subclient: 3,
+            target_subclient: 1,
+        },
+        usize::MAX,
+        |writer| {
+            bedrock_protocol_1_26_51::packets::Packet::SetTime(
+                bedrock_protocol_1_26_51::packets::SetTime {
+                    time: wire::ZigZag32(42),
+                },
+            )
+            .encode(writer)
+        },
+    )
+    .unwrap();
+    let expected = batch(std::slice::from_ref(&second));
     let fixture = batch(&[first, second]);
-    assert!(matches!(
-        decode_batch(fixture),
-        Err(ProtocolError::Decode(_))
-    ));
+    let packets = decode_batch(fixture).unwrap();
+    assert_eq!(packets.len(), 1);
+    assert_eq!(packets[0].kind().id(), PacketId::SetTime as u32);
+    assert_eq!(protocol::encode(&packets[0]).unwrap(), expected);
 }
 
 #[test]

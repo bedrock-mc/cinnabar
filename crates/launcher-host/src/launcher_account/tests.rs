@@ -1,14 +1,14 @@
-use {super::*, launcher::menu::auth::AuthState};
+use {super::*, bridge::Message, launcher::menu::auth::AuthState};
 
 #[test]
-fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {
+fn account_changes_wake_feeds_without_repeated_poll_wakes() {
     let (wake, changes) = bounded(1);
     let mut snapshot = Snapshot {
-        catalog_wake: Some(wake),
+        feed_wake: Some(wake),
         ..Default::default()
     };
     let account = Account {
-        state: CoreAuth::SignedIn,
+        state: AccountAuth::SignedIn,
         gamertag: Some("Alex".into()),
         verification_uri: None,
         user_code: None,
@@ -18,7 +18,7 @@ fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {
     assert_eq!(
         changes.try_recv(),
         Ok(()),
-        "the first account must wake catalogs"
+        "the first account must wake feeds"
     );
     snapshot.set_account(account.clone());
     assert_eq!(
@@ -32,20 +32,20 @@ fn review_ui_account_changes_wake_catalog_without_repeated_poll_wakes() {
     assert_eq!(
         changes.try_recv(),
         Ok(()),
-        "another identity must wake catalogs"
+        "another identity must wake feeds"
     );
     snapshot.retire_account_data();
-    assert_eq!(changes.try_recv(), Ok(()), "sign-out must wake catalogs");
+    assert_eq!(changes.try_recv(), Ok(()), "sign-out must wake feeds");
 }
 
 #[test]
-fn review_ui_catalog_wait_handles_wakes_and_shutdown() {
+fn feed_wait_handles_wakes_and_shutdown() {
     let (alive, stop) = bounded(0);
     let (wake, changes) = bounded(1);
     wake.try_send(()).unwrap();
-    assert!(wait_catalog(&stop, &changes));
+    assert!(feeds::wait_changes(&stop, &changes, FEED_INTERVAL));
     drop(alive);
-    assert!(!wait_catalog(&stop, &changes));
+    assert!(!feeds::wait_changes(&stop, &changes, FEED_INTERVAL));
 }
 
 // A pinged server that sent no pong reads offline instead of loading.
@@ -132,36 +132,7 @@ fn featured_servers_split_into_cards_and_details() {
 }
 
 #[test]
-fn core_connect_stages_map_to_join_stages() {
-    let progress = |stage| ConnectProgress {
-        stage,
-        packs_done: 1,
-        packs_total: 2,
-        received_bytes: 3,
-        total_bytes: 4,
-    };
-    assert_eq!(
-        join_stage(&progress(ConnectStage::Idle)),
-        JoinStage::Connecting
-    );
-    assert_eq!(join_stage(&progress(ConnectStage::Realm)), JoinStage::Realm);
-    assert_eq!(
-        join_stage(&progress(ConnectStage::Connecting)),
-        JoinStage::Connecting
-    );
-    assert_eq!(
-        join_stage(&progress(ConnectStage::Packs)),
-        JoinStage::Packs {
-            done: 1,
-            total: 2,
-            received_bytes: 3,
-            total_bytes: 4
-        }
-    );
-}
-
-#[test]
-fn core_account_states_map_to_menu_sign_in_states() {
+fn account_states_map_to_menu_sign_in_states() {
     let account = |state| Account {
         state,
         verification_uri: Some("https://aka.ms/remoteconnect".into()),
@@ -169,24 +140,24 @@ fn core_account_states_map_to_menu_sign_in_states() {
         gamertag: None,
         reason: Some("expired".into()),
     };
-    assert_eq!(auth_state(&account(CoreAuth::Offline)), None);
+    assert_eq!(auth_state(&account(AccountAuth::Offline)), None);
     assert_eq!(
-        auth_state(&account(CoreAuth::SignedOut)),
+        auth_state(&account(AccountAuth::SignedOut)),
         Some(AuthState::SignedOut)
     );
     assert_eq!(
-        auth_state(&account(CoreAuth::AwaitingCode)),
+        auth_state(&account(AccountAuth::AwaitingCode)),
         Some(AuthState::AwaitingCode {
             uri: "https://aka.ms/remoteconnect".into(),
             code: "ABCD".into()
         })
     );
     assert_eq!(
-        auth_state(&account(CoreAuth::SignedIn)),
+        auth_state(&account(AccountAuth::SignedIn)),
         Some(AuthState::Authenticated)
     );
     assert_eq!(
-        auth_state(&account(CoreAuth::Failed)),
+        auth_state(&account(AccountAuth::Failed)),
         Some(AuthState::Failed("expired".into()))
     );
 }
@@ -233,21 +204,22 @@ fn account_responses_from_before_sign_out_are_discarded() {
     let mut account = LauncherAccount {
         snapshot: Arc::clone(&snapshot),
         sign_out,
-        profile_refresh: crossbeam_channel::bounded(1).0,
+        profile_refresh: profile_worker::channel().0,
         _alive: alive,
-        socket_dir: PathBuf::new(),
         message_reports: crossbeam_channel::unbounded().0,
-        invites: crossbeam_channel::unbounded().0,
-        realm_membership: tokio::sync::mpsc::unbounded_channel().0,
+        invites: invites::Requests::disconnected(),
+        realm_membership: realm_membership::Requests::disconnected(),
         cinnabar_rosters: crossbeam_channel::unbounded().0,
+        presence_lifetime: TitlePresenceLifetime::new(),
+        workers: TaskTracker::new(),
     };
     assert!(account.sign_out());
     publish_account(&snapshot, generation, |snapshot| {
-        snapshot.realms = Some(Vec::new());
-        snapshot.friends = Some(Vec::new());
+        snapshot.featured = Some(Vec::new());
+        snapshot.home = Some(Home::default());
     });
     let retained = snapshot.lock().unwrap();
-    assert!(retained.realms.is_none() && retained.friends.is_none());
+    assert!(retained.featured.is_none() && retained.home.is_none());
 }
 
 #[test]

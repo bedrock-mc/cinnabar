@@ -31,7 +31,6 @@ endif
 CINNABAR_BUILD_COMMIT ?= $(shell git rev-parse HEAD)
 DIST_PLATFORM ?= $(if $(filter Windows_NT,$(OS)),windows,$(if $(findstring Darwin,$(shell uname -s)),macos,linux))
 DIST_CLIENT ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),cinnabar.exe,cinnabar)
-DIST_CORE ?= target/release/$(if $(filter windows,$(DIST_PLATFORM)),bedrock-core.exe,bedrock-core)
 DIST_BINARIES ?= $(dir $(DIST_CLIENT))
 DIST_OUT ?= .local/dist/$(DIST_PLATFORM)
 DIST_TARGET ?= $(shell rustc --print host-tuple)
@@ -78,8 +77,8 @@ help:
 	@echo make font-assets-local - Compile a reviewed local bitmap font source via FONT_PACK_DIR
 	@echo make hud-assets-local - Compile from an explicitly selected matching pack via HUD_PACK_DIR
 	@echo make physics-assets  - Compile block movement and selection geometry
-	@echo make local-server    - Build the dragonfly local-world server and experience-runtime beside the core binary
-	@echo make play            - Refresh stale assets, build the core, and run the full game from the menu
+	@echo make local-server    - Build the Dragonfly local-world server and Rust experience runtime
+	@echo make play            - Refresh assets, build the native client, and open its launcher
 	@echo make play TRACY=1    - Run with opt-in Tracy frame attribution
 	@echo make play SHADERPACKS=1 - Run with the experimental Java shader-pack renderer
 	@echo make dist-local      - Stage an unsigned local-development-only bundle under .local/dist
@@ -127,21 +126,21 @@ $(PACK_SENTINEL): $(VANILLA_SOURCE_MANIFEST)
 # A failed install or check leaves no target behind to look current.
 .DELETE_ON_ERROR:
 
-# Separate module: dragonfly needs a newer gophertunnel than the core, so it cannot join go.work.
+# The Dragonfly integration keeps its independent Go module.
 LOCAL_SERVER_OUT ?= target/release/bedrock-local-server$(if $(filter windows,$(DIST_PLATFORM)),.exe)
 
 local-server:
 	cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath $(LOCAL_SERVER_OUT))" .
 	$(CARGO) build -p experience-runtime -p cinnabar-cxb --release --locked
 
-# Full game from the launcher menu: refresh assets, build the core and local server beside the client
+# Full game from the launcher menu: refresh assets, build the local server beside the client
 # (plus the pinned DX12 shader compiler on Windows), run it.
+
 play-build: assets
 ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin mod-host --locked
 	$(CARGO) build --profile $(PROFILE) -p mod-host --bin cinnabar-media-helper --features media --locked
 endif
-	$(GO) build -tags joinprofile -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 ifeq ($(OS),Windows_NT)
@@ -153,7 +152,7 @@ endif
 DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
 # The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
 DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
-DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(ASSET_COMPILER_BINARY)
+DEV_APP_BINARIES = cinnabar bedrock-local-server mod-host cinnabar-media-helper $(ASSET_COMPILER_BINARY)
 play: play-build
 ifneq ($(findstring Darwin,$(shell uname -s)),)
 	@mkdir -p "$(DEV_APP)/Contents/MacOS"
@@ -168,7 +167,7 @@ else
 endif
 
 dist-local:
-	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --core "$(DIST_CORE)" --binaries "$(DIST_BINARIES)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"
+	$(CARGO) run --locked -p dist-local -- --platform "$(DIST_PLATFORM)" --client "$(DIST_CLIENT)" --binaries "$(DIST_BINARIES)" --physics "$(PHYSICS_REGISTRY)" --notices "$(DIST_NOTICES)" --target "$(DIST_TARGET)" --git-commit "$(DIST_GIT_COMMIT)" --out "$(DIST_OUT)"
 
 # Release packaging (see packaging/README.md). Signing credentials come from the environment.
 PKG_VERSION ?= $(shell sed -n '/^\[workspace.package\]/,/^\[/{s/^version = "\(.*\)"/\1/p;}' Cargo.toml | head -n 1)
@@ -180,9 +179,6 @@ export UPDATE_TRUSTED_KEYS
 else
 unexport UPDATE_TRUSTED_KEYS
 endif
-PKG_CORE_LDFLAGS = -s -w
-# Shell expansion stamping bedrock-core with the workspace version and the selected build commit.
-CORE_STAMP = $$(CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" bash packaging/common/core-ldflags.sh)
 # Optional diagnostics for the release Rust build, such as --timings.
 PACKAGE_CARGO_FLAGS ?=
 # Optional features selected by release channel metadata, shared by the client and compiler.
@@ -191,8 +187,7 @@ PACKAGE_CARGO_FEATURES ?=
 PACKAGE_RUST_BINARIES = $(shell awk '$$2 != "-" {printf "-p %s --bin %s ", $$2, $$1}' packaging/common/runtime-binaries.txt)
 .PHONY: package-binaries package-macos package-windows package-linux
 package-binaries:
-	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features $(if $(strip $(PACKAGE_CARGO_FEATURES)),--features "$(PACKAGE_CARGO_FEATURES)") $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin $(ASSET_COMPILER_BINARY)
-	$(GO) build -trimpath -ldflags "$(PKG_CORE_LDFLAGS) $(CORE_STAMP)" -o "$(DIST_CORE)" ./core/cmd/bedrock-core
+	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build $(PACKAGE_CARGO_FLAGS) --release --locked --no-default-features --features "cinnabar/native-networking $(PACKAGE_CARGO_FEATURES)" $(PACKAGE_RUST_BINARIES) -p asset-compiler --bin $(ASSET_COMPILER_BINARY)
 	cd tools/localserver && GOWORK=off $(GO) build -trimpath -ldflags "-s -w" -o "$(abspath $(LOCAL_SERVER_OUT))" .
 
 package-macos: package-binaries $(FONT_SOURCE)

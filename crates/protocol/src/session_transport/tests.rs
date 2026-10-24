@@ -3,29 +3,37 @@ use bedrock_protocol_1_26_51::wire;
 
 use super::*;
 
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod native_terminal;
+
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+impl<R: bridge::FrameRead> SessionTransport<R> {
+    /// Observes the actual retained packet without consuming its accepted FIFO.
+    pub(crate) fn has_retained_packet(&self, expected: &Packet) -> bool {
+        self.received.iter().any(|raw| {
+            raw.clone()
+                .decode()
+                .as_ref()
+                .is_ok_and(|packet| packet == expected)
+        })
+    }
+}
+
 #[cfg(unix)]
 pub(crate) mod unix {
-    use std::path::PathBuf;
-
     use bedrock_protocol_1_26_51::packets::{self, ScriptMessage};
     use futures::task::noop_waker;
+    use tokio::io::DuplexStream;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{UnixListener, UnixStream};
+    type SessionTransport = super::SessionTransport<crate::tests::framed::Reader>;
 
     use super::*;
 
-    /// A transport joined to a peer standing in for the core, in a directory removed afterwards.
+    /// A transport joined to an owned concrete framed peer.
     pub(crate) struct Pair {
         pub(crate) transport: SessionTransport,
-        pub(crate) peer: UnixStream,
-        dir: PathBuf,
-    }
-
-    impl Drop for Pair {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(bridge::session_endpoint_path(&self.dir));
-            let _ = std::fs::remove_dir_all(&self.dir);
-        }
+        pub(crate) peer: DuplexStream,
+        _writer: crate::tests::framed::Writer,
     }
 
     pub(crate) async fn pair(name: &str, startup: &[Bytes]) -> Pair {
@@ -34,25 +42,19 @@ pub(crate) mod unix {
 
     /// [`pair`] whose transport reports to `tap`.
     pub(crate) async fn tapped_pair(
-        name: &str,
+        _name: &str,
         startup: &[Bytes],
         tap: Option<Arc<dyn PacketTap>>,
     ) -> Pair {
-        let dir =
-            std::env::temp_dir().join(format!("cinnabar-session-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let listener = UnixListener::bind(bridge::session_endpoint_path(&dir)).unwrap();
-        let (reader, frames) = bridge::connect_session(&dir).await.unwrap();
-        let (peer, _) = listener.accept().await.unwrap();
+        let (reader, frames, peer, writer) = crate::tests::framed::pair();
         Pair {
             transport: SessionTransport::new(reader, frames, startup).with_tap(tap),
             peer,
-            dir,
+            _writer: writer,
         }
     }
 
-    pub(crate) async fn write_frame(peer: &mut UnixStream, frame: &[u8]) {
+    pub(crate) async fn write_frame(peer: &mut DuplexStream, frame: &[u8]) {
         peer.write_u32(frame.len() as u32).await.unwrap();
         peer.write_all(frame).await.unwrap();
     }

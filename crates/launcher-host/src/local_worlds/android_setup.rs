@@ -71,7 +71,7 @@ pub(super) fn configure_preparation(provisioner: &Provisioner, translation: &Arc
 fn setup(layout: &InstallLayout) -> Option<(Arc<Provisioner>, Arc<Translation>)> {
     let translation = Arc::new(Translation::detect(
         Platform::host(),
-        &layout.core_executable,
+        &layout.local_server_executable,
         super::android_runtime_dir(&layout.user_data_root),
     )?);
     let provisioner = Arc::new(Provisioner::new(

@@ -537,7 +537,7 @@ fn sodium_rule_never_steps_back_toward_the_camera_and_keeps_no_shell() {
     assert!(scratch.built_outward_only());
     assert_eq!(
         visible.iter().collect::<HashSet<_>>(),
-        [camera, away, up].into(),
+        HashSet::from([camera, away, up]),
         "stepping from x=1 back to the camera's x=0 is not outward"
     );
 }

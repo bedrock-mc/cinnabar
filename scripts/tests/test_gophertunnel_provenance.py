@@ -20,7 +20,8 @@ class GophertunnelProvenanceTests(unittest.TestCase):
     def setUpClass(cls):
         # Go's manifest parser reads the authoritative owner without fetching modules.
         cls.manifest = json.loads(subprocess.check_output(
-            ["go", "-C", str(PROJECT_ROOT / "core"), "mod", "edit", "-json"]
+            ["go", "-C", str(PROJECT_ROOT / "tools/localserver"), "mod", "edit", "-json"],
+            env={**os.environ, "GOWORK": "off"},
         ))
         cls.replacement = next(entry["New"] for entry in cls.manifest["Replace"]
                                if entry["Old"]["Path"] == MODULE_PATH)
@@ -51,11 +52,11 @@ state = json.loads(state_path.read_text())
 args = sys.argv[1:]
 with state_path.with_name("calls.jsonl").open("a") as calls:
     calls.write(json.dumps(args) + "\\n")
-if args == ["-C", state["root"] + "/core", "mod", "edit", "-json"]:
+if args == ["-C", state["root"] + "/tools/localserver", "mod", "edit", "-json"]:
     result = state["manifest"]
-elif args == ["-C", state["root"], "list", "-m", "-json", "github.com/sandertv/gophertunnel"]:
+elif args == ["-C", state["root"] + "/tools/localserver", "list", "-m", "-json", "github.com/sandertv/gophertunnel"]:
     result = state["resolved"]
-elif args == ["-C", state["root"], "mod", "download", "-json",
+elif args == ["-C", state["root"] + "/tools/localserver", "mod", "download", "-json",
               state["resolved"]["Replace"]["Path"] + "@" + state["resolved"]["Replace"]["Version"]]:
     result = state["download"]
 else:
@@ -90,7 +91,7 @@ print(result if isinstance(result, str) else json.dumps(result))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), self.commit)
         calls = [json.loads(line) for line in self.calls_path.read_text().splitlines()]
-        self.assertEqual(calls[0], ["-C", str(self.root / "core"), "mod", "edit", "-json"])
+        self.assertEqual(calls[0], ["-C", str(self.root / "tools/localserver"), "mod", "edit", "-json"])
 
     def test_changed_manifest_pin_is_followed_without_script_literal(self):
         changed_commit = hashlib.sha1(b"a different fixture pin").hexdigest()
@@ -105,7 +106,7 @@ print(result if isinstance(result, str) else json.dumps(result))
 
     def test_wrong_manifest_source_fails_before_workspace_query(self):
         self.expected_entry()["New"]["Path"] = "example.invalid/another-fork"
-        self.reject("core/go.mod pins a different gophertunnel source")
+        self.reject("tools/localserver/go.mod pins a different gophertunnel source")
         self.assertEqual(len(self.calls_path.read_text().splitlines()), 1)
 
     def test_duplicate_or_version_specific_manifest_replacement_rejected(self):

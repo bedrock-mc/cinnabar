@@ -173,6 +173,8 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
             timers: bridge::tasks::Timers::tokio(),
         },
         protocol::SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
             display_name: "Fixture",
             client_random_id: protocol::ClientRandomId::new(1).unwrap(),
             cache: None,

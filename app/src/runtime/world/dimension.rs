@@ -68,6 +68,7 @@ pub(crate) fn advance_dimension_transfer(
         .respawn
         .queue_completion(|packet| network.send_dimension_packet(packet))
         && error.is_closed()
+        && !network.closed_command_has_pending_control()
     {
         super::record_fatal_error(&mut fatal_error.0, format!("respawn completion: {error}"));
     }

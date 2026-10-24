@@ -46,14 +46,16 @@ impl FormEngine {
             return Ok(None);
         };
         let render = render.borrow();
+        // Paint records omit quiet animation dependencies that can still move input geometry.
+        let retainable = reusable(&art) && !render.hits.iter().any(|hit| hit.anim.is_some());
         if reuse
-            && reusable(&art)
+            && retainable
             && let Some(painted) = retained.replay(textures, frame, art, render)
         {
             return Ok(Some(painted));
         }
         retained.paints += 1;
-        if !reusable(&art) {
+        if !retainable {
             retained.forget();
             return paint(textures, frame, art, render, None);
         }
@@ -180,6 +182,15 @@ fn paint(
         canvas.animator.record();
     }
     let painted = paint_nodes(&mut canvas, render, art, &mut *frame.renderers);
+    let hits = if render.hits.iter().any(|region| region.anim.is_some()) {
+        render
+            .hits
+            .iter()
+            .map(|region| region.animate(&canvas.animator, frame.now, art.clocks))
+            .collect()
+    } else {
+        render.hits.clone()
+    };
     // Recording stops even when painting failed, so later samples are not collected.
     let animation = inputs.is_some().then(|| canvas.animator.finish_record());
     let top = painted?;
@@ -193,7 +204,7 @@ fn paint(
     )?;
     let origin = [frame.safe_area.left(), frame.safe_area.top()];
     let painted = EngineFrame {
-        hits: render.hits.clone(),
+        hits,
         report: render.report.clone(),
         cancel_target: render.cancel_target.clone(),
         origin,

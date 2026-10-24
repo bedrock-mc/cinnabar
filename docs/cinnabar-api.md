@@ -2,7 +2,7 @@
 
 The account core (`-cinnabar-api`) keeps one optional WebSocket for release notices and Cinnabar
 player badges. Signed-out clients stay offline. An API outage does not stop gameplay or the
-normal signed-manifest update checks. `core/cinnabarapi/schema/v1.json` pins the server contract;
+normal signed-manifest update checks. `crates/bridge/data/cinnabar-api/v1.json` pins the server contract;
 new v1 fields are optional, and unknown fields and message types are ignored.
 
 **Sent:** app version, signed-manifest build number, update channel and visibility; a Minecraft

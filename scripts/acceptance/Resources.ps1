@@ -11,12 +11,12 @@ function Get-OptionalCimValue {
 function Get-SteadyResourceSummary {
     param([Parameter(Mandatory = $true)][ValidateNotNullOrEmpty()][object[]]$Samples)
 
-    $rssValues = @($Samples | ForEach-Object { [uint64]$_.combined_rss_bytes })
+    $rssValues = @($Samples | ForEach-Object { [uint64]$_.client_rss_bytes })
     $cpuValues = @($Samples | ForEach-Object { [double]$_.cpu_percent } | Sort-Object)
     $p95Index = [Math]::Ceiling(($cpuValues.Count - 1) * 0.95)
     return [pscustomobject][ordered]@{
         sample_count = $Samples.Count
-        max_combined_rss_bytes = [uint64](($rssValues | Measure-Object -Maximum).Maximum)
+        max_client_rss_bytes = [uint64](($rssValues | Measure-Object -Maximum).Maximum)
         mean_cpu_percent = [double](($cpuValues | Measure-Object -Average).Average)
         p95_cpu_percent = [double]$cpuValues[$p95Index]
     }
@@ -88,7 +88,7 @@ function New-SteadyResourceDocument {
     )
 
     return [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-steady-resources-v2'
+        schema = 'rust-mcbe-steady-resources-v3'
         trigger = $Trigger
         duration_seconds = $DurationSeconds
         processor_count = [Environment]::ProcessorCount
@@ -109,8 +109,8 @@ function Assert-SteadyResourceArtifact {
         throw "steady resource artifact was not written before full-view SLA validation: $Path"
     }
     $document = Get-Content -Raw -LiteralPath $Path | ConvertFrom-Json
-    if ([string]$document.schema -cne 'rust-mcbe-steady-resources-v2') {
-        throw "steady resource artifact schema was not rust-mcbe-steady-resources-v2: $($document.schema)"
+    if ([string]$document.schema -cne 'rust-mcbe-steady-resources-v3') {
+        throw "steady resource artifact schema was not rust-mcbe-steady-resources-v3: $($document.schema)"
     }
     if ([int]$document.duration_seconds -ne 30 -or @($document.samples).Count -ne 30) {
         throw "steady resource artifact did not contain 30 one-second samples: duration=$($document.duration_seconds) samples=$(@($document.samples).Count)"
@@ -159,8 +159,8 @@ function Assert-SteadyResourceArtifact {
             -Value (Get-RequiredEvidenceProperty -Evidence $sample -Name 'elapsed_seconds' -Label "steady resource sample $index") `
             -Field "steady resource sample $index elapsed_seconds"
         $rss = ConvertTo-EvidenceUInt64 `
-            -Value (Get-RequiredEvidenceProperty -Evidence $sample -Name 'combined_rss_bytes' -Label "steady resource sample $index") `
-            -Field "steady resource sample $index combined_rss_bytes"
+            -Value (Get-RequiredEvidenceProperty -Evidence $sample -Name 'client_rss_bytes' -Label "steady resource sample $index") `
+            -Field "steady resource sample $index client_rss_bytes"
         $cpu = ConvertTo-EvidenceDouble `
             -Value (Get-RequiredEvidenceProperty -Evidence $sample -Name 'cpu_percent' -Label "steady resource sample $index") `
             -Field "steady resource sample $index cpu_percent"
@@ -176,21 +176,21 @@ function Assert-SteadyResourceArtifact {
 
     $recomputed = Get-SteadyResourceSummary -Samples $samples
     $storedMaxRss = ConvertTo-EvidenceUInt64 `
-        -Value $document.summary.max_combined_rss_bytes `
-        -Field 'steady resource artifact max_combined_rss_bytes'
+        -Value $document.summary.max_client_rss_bytes `
+        -Field 'steady resource artifact max_client_rss_bytes'
     $storedMeanCpu = ConvertTo-EvidenceDouble `
         -Value $document.summary.mean_cpu_percent `
         -Field 'steady resource artifact mean_cpu_percent'
     $storedP95Cpu = ConvertTo-EvidenceDouble `
         -Value $document.summary.p95_cpu_percent `
         -Field 'steady resource artifact p95_cpu_percent'
-    if ($storedMaxRss -ne [uint64]$recomputed.max_combined_rss_bytes -or
+    if ($storedMaxRss -ne [uint64]$recomputed.max_client_rss_bytes -or
         [Math]::Abs($storedMeanCpu - [double]$recomputed.mean_cpu_percent) -gt 0.000001 -or
         [Math]::Abs($storedP95Cpu - [double]$recomputed.p95_cpu_percent) -gt 0.000001) {
-        throw "steady resource artifact summary did not match samples: stored_rss=$storedMaxRss recomputed_rss=$($recomputed.max_combined_rss_bytes) stored_mean=$storedMeanCpu recomputed_mean=$($recomputed.mean_cpu_percent) stored_p95=$storedP95Cpu recomputed_p95=$($recomputed.p95_cpu_percent)"
+        throw "steady resource artifact summary did not match samples: stored_rss=$storedMaxRss recomputed_rss=$($recomputed.max_client_rss_bytes) stored_mean=$storedMeanCpu recomputed_mean=$($recomputed.mean_cpu_percent) stored_p95=$storedP95Cpu recomputed_p95=$($recomputed.p95_cpu_percent)"
     }
-    if ([uint64]$recomputed.max_combined_rss_bytes -gt 650MB) {
-        throw "combined steady RSS exceeded 650 MiB: $($recomputed.max_combined_rss_bytes) bytes"
+    if ([uint64]$recomputed.max_client_rss_bytes -gt 650MB) {
+        throw "client steady RSS exceeded 650 MiB: $($recomputed.max_client_rss_bytes) bytes"
     }
     if ([double]$recomputed.mean_cpu_percent -gt 15.0 -or
         [double]$recomputed.p95_cpu_percent -gt 15.0) {
@@ -201,7 +201,6 @@ function Assert-SteadyResourceArtifact {
 function Measure-SteadyResources {
     param(
         [Parameter(Mandatory = $true)]$ClientHandle,
-        [Parameter(Mandatory = $true)]$CoreHandle,
         [Parameter(Mandatory = $true)][string]$RunDirectory,
         $Trigger,
         $TeleportMarker,
@@ -210,28 +209,25 @@ function Measure-SteadyResources {
     )
 
     $client = $ClientHandle.Process
-    $core = $CoreHandle.Process
     $client.Refresh()
-    $core.Refresh()
-    $previousCpuSeconds = $client.TotalProcessorTime.TotalSeconds + $core.TotalProcessorTime.TotalSeconds
+    $previousCpuSeconds = $client.TotalProcessorTime.TotalSeconds
     $previousWallSeconds = 0.0
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $samples = [Collections.Generic.List[object]]::new()
     for ($index = 0; $index -lt $DurationSeconds; $index++) {
         Start-Sleep -Seconds 1
-        if ($client.HasExited -or $core.HasExited) {
-            throw 'client or core exited during steady resource sampling'
+        if ($client.HasExited) {
+            throw 'client exited during steady resource sampling'
         }
         $client.Refresh()
-        $core.Refresh()
         $wallSeconds = $stopwatch.Elapsed.TotalSeconds
-        $cpuSeconds = $client.TotalProcessorTime.TotalSeconds + $core.TotalProcessorTime.TotalSeconds
+        $cpuSeconds = $client.TotalProcessorTime.TotalSeconds
         $wallDelta = $wallSeconds - $previousWallSeconds
         $cpuDelta = $cpuSeconds - $previousCpuSeconds
         $cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)
         $samples.Add([pscustomobject][ordered]@{
             elapsed_seconds = $wallSeconds
-            combined_rss_bytes = [uint64]($client.WorkingSet64 + $core.WorkingSet64)
+            client_rss_bytes = [uint64]$client.WorkingSet64
             cpu_percent = [Math]::Max(0.0, $cpuPercent)
         })
         $previousWallSeconds = $wallSeconds
@@ -259,8 +255,8 @@ function Measure-SteadyResources {
         ($document | ConvertTo-Json -Depth 6),
         [Text.UTF8Encoding]::new($false)
     )
-    if ([uint64]$summary.max_combined_rss_bytes -gt 650MB) {
-        throw "combined steady RSS exceeded 650 MiB: $($summary.max_combined_rss_bytes) bytes"
+    if ([uint64]$summary.max_client_rss_bytes -gt 650MB) {
+        throw "client steady RSS exceeded 650 MiB: $($summary.max_client_rss_bytes) bytes"
     }
     if ([double]$summary.mean_cpu_percent -gt 15.0 -or [double]$summary.p95_cpu_percent -gt 15.0) {
         throw "steady CPU exceeded 15%: mean=$($summary.mean_cpu_percent) p95=$($summary.p95_cpu_percent)"

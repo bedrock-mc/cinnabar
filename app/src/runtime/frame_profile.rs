@@ -88,8 +88,10 @@ struct TraceExportOnTeardown(RuntimeStageProfiler);
 impl Drop for TraceExportOnTeardown {
     /// Flushes and joins even while the runner's profiler handle remains alive.
     fn drop(&mut self) {
+        bevy::log::info!(shutdown_phase = "trace_export_drop_body_begin");
         self.0.flush_trace();
         self.0.wait_for_trace_export();
+        bevy::log::info!(shutdown_phase = "trace_export_drop_body_done");
     }
 }
 
@@ -98,9 +100,13 @@ pub(crate) fn run(app: &mut App) -> AppExit {
     let profiler = app.world().resource::<RuntimeStageProfiler>().clone();
     // Like TeardownWatchdog, install before runner cleanup adds blocking render teardown resources.
     app.insert_resource(TraceExportOnTeardown(profiler.clone()));
+    bevy::log::info!(shutdown_phase = "app_run_enter");
     let exit = app.run();
+    bevy::log::info!(shutdown_phase = "app_run_returned");
+    bevy::log::info!(shutdown_phase = "post_run_trace_export_begin");
     profiler.flush_trace();
     profiler.wait_for_trace_export();
+    bevy::log::info!(shutdown_phase = "post_run_trace_export_done");
     exit
 }
 

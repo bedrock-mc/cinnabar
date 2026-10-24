@@ -142,6 +142,7 @@ const PANIC_EXIT_CODE: u8 = launcher_host::lifecycle::crash::protocol::PANIC_EXI
 
 impl Drop for TeardownWatchdog {
     fn drop(&mut self) {
+        tracing::info!(shutdown_phase = "teardown_watchdog_drop_body_begin");
         // A watchdog cutting short a panic's teardown must still end the process as failed.
         let exit = if thread::panicking() {
             AppExit::from_code(PANIC_EXIT_CODE)
@@ -149,6 +150,7 @@ impl Drop for TeardownWatchdog {
             AppExit::Success
         };
         begin_bounded_shutdown(&self.0, &exit);
+        tracing::info!(shutdown_phase = "teardown_watchdog_drop_body_done");
     }
 }
 

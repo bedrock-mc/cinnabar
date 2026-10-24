@@ -201,7 +201,7 @@ fn read_effect(pack: &Path, relative: &str) -> Result<Option<ParticleEffectFile>
             path: path.clone(),
             source,
         })?;
-    let Ok(value) = pack_json::parse_jsonc::<serde_json::Value>(&bytes) else {
+    let Ok(value) = bedrock_packs::jsonc::parse_jsonc::<serde_json::Value>(&bytes) else {
         return Ok(None);
     };
     let Some(identifier) = value
@@ -319,7 +319,7 @@ mod tests {
         let mut textures = Vec::new();
         for file in ["oozing_emitter.json", "weaving_emitter.json"] {
             let bytes = fs::read(pack.join("particles").join(file)).unwrap();
-            let value: serde_json::Value = pack_json::parse_jsonc(&bytes).unwrap();
+            let value: serde_json::Value = bedrock_packs::jsonc::parse_jsonc(&bytes).unwrap();
             let texture = value
                 .pointer("/particle_effect/description/basic_render_parameters/texture")
                 .unwrap()

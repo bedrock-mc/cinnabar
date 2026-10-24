@@ -223,6 +223,7 @@ pub struct PaintSpace {
 }
 
 /// The clip geometry a control contributes, as layout computes it.
+#[derive(Clone, Copy)]
 pub(crate) struct ClipInputs {
     pub(crate) rect: Rect,
     /// The clip its parent hands down, in layout coordinates.

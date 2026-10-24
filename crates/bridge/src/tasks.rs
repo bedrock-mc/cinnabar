@@ -7,6 +7,11 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{FrameQueue, FramedReader};
 
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::{NativeExecution, StopAuthority};
+
 /// A host timer, local to the browser event loop and movable on native executors.
 #[cfg(not(target_arch = "wasm32"))]
 pub type Timer = Pin<Box<dyn Future<Output = ()> + Send>>;

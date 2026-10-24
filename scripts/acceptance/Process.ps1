@@ -116,8 +116,7 @@ function Invoke-IndependentProcessCleanup {
 # Finalizes reporting and each child independently, retaining the original run error.
 function Complete-RemoteAcceptanceRun {
     param($Manifest, [string]$ManifestPath, [bool]$RunSucceeded,
-        $ClientHandle, $CoreHandle, [bool]$ClientLogsCompleted,
-        [bool]$CoreLogsCompleted, $PrimaryFailure = $null)
+        $ClientHandle, [bool]$ClientLogsCompleted, $PrimaryFailure = $null)
     Invoke-IndependentProcessCleanup -PrimaryFailure $PrimaryFailure -Actions @(
         { if (-not $RunSucceeded) {
             $Manifest.status = 'failed'
@@ -125,10 +124,7 @@ function Complete-RemoteAcceptanceRun {
         } },
         { if ($null -ne $ClientHandle) { Stop-BoundedProcess -Handle $ClientHandle -Kind app } },
         { if ($null -ne $ClientHandle -and -not $ClientLogsCompleted) { Complete-ProcessLogs $ClientHandle } },
-        { if ($null -ne $ClientHandle) { $ClientHandle.Process.Dispose() } },
-        { if ($null -ne $CoreHandle) { Stop-BoundedProcess -Handle $CoreHandle -Kind core } },
-        { if ($null -ne $CoreHandle -and -not $CoreLogsCompleted) { Complete-ProcessLogs $CoreHandle } },
-        { if ($null -ne $CoreHandle) { $CoreHandle.Process.Dispose() } }
+        { if ($null -ne $ClientHandle) { $ClientHandle.Process.Dispose() } }
     )
 }
 
@@ -419,7 +415,7 @@ function Complete-ProcessLogs {
 function Stop-BoundedProcess {
     param(
         $Handle,
-        [Parameter(Mandatory = $true)][ValidateSet('app', 'core', 'bds')][string]$Kind,
+        [Parameter(Mandatory = $true)][ValidateSet('app', 'bds')][string]$Kind,
         [string]$BdsConsoleLogPath
     )
 
@@ -442,15 +438,6 @@ function Stop-BoundedProcess {
             Write-Warning "BDS graceful stop failed: $_"
         }
         $timeout = 20000
-    }
-    elseif ($Kind -eq 'core') {
-        try {
-            $Handle.Process.StandardInput.Close()
-        }
-        catch {
-            Write-Warning "core EOF stop failed: $_"
-        }
-        $timeout = 10000
     }
     else {
         try {
@@ -484,18 +471,4 @@ function Stop-BoundedProcess {
             throw "$Kind remained alive after forced termination"
         }
     }
-}
-
-# Waits on the current core's stderr publication signal without assuming an endpoint path.
-function Wait-CoreReady {
-    param(
-        [Parameter(Mandatory = $true)]$Handle,
-        [Parameter(Mandatory = $true)][int]$TimeoutSeconds
-    )
-
-    $logHandle = [pscustomobject]@{ Process = $Handle.Process; StdoutPath = $Handle.StderrPath }
-    $line = Wait-ProcessOutputMarker -Handle $logHandle `
-        -Marker 'msg="listener ready; waiting for local Rust client"' -TimeoutSeconds $TimeoutSeconds
-    if ($Handle.Process.HasExited) { throw 'core exited while publishing its endpoint' }
-    return $line
 }

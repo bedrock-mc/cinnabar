@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
 
 /// Pack identity and archive digest in lowest-to-highest precedence order.
-pub type StackFingerprint = Vec<(String, String, String, [u8; 32])>;
+pub type StackFingerprint = Vec<(String, Vec<u8>, Vec<u8>, [u8; 32])>;
 
 /// Hashes the supplied bytes consistently for both archives and decoded files.
 pub(crate) fn hash_bytes(bytes: &[u8]) -> [u8; 32] {

@@ -1,12 +1,18 @@
 //! Names used by the pinned JSON-UI pack, separated by their role.
 
-use std::{collections::BTreeSet, error::Error, fs, path::Path};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    fs,
+    path::Path,
+};
 
 use serde_json::Value;
 
 use crate::vocabulary::{json_files, read};
 
 type Names = BTreeSet<(&'static str, String)>;
+type Bindings = BTreeMap<String, BTreeSet<String>>;
 
 /// Properties whose string value names a data collection.
 const COLLECTION_KEYS: [&str; 3] = [
@@ -19,7 +25,8 @@ const COLLECTION_KEYS: [&str; 3] = [
 pub fn generate(samples: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
     let pack = samples.join("resource_pack");
     let mut names = Names::new();
-    let mut flow = CollectionFlow::default();
+    let mut bindings = Bindings::new();
+    let mut collections = BTreeSet::new();
     for path in json_files(&pack.join("ui"))? {
         let document = read(&path)?;
         if let Some(namespace) = document.get("namespace").and_then(Value::as_str)
@@ -33,10 +40,9 @@ pub fn generate(samples: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
                 }
             }
         }
-        collect(&document, &mut names);
-        flow.visit(&document);
+        collect(&document, &mut names, &mut bindings, &mut collections);
     }
-    flow.insert_into(&mut names);
+    resolve_collections(&bindings, collections, &mut names);
     for line in fs::read_to_string(pack.join("texts/en_US.lang"))?.lines() {
         if !line.trim_start().starts_with('#')
             && let Some((key, _)) = line.split_once('=')
@@ -53,21 +59,38 @@ pub fn generate(samples: &Path) -> Result<Vec<u8>, Box<dyn Error>> {
 }
 
 /// Collects declarations and expression symbols without treating comments as names.
-fn collect(value: &Value, names: &mut Names) {
+fn collect(
+    value: &Value,
+    names: &mut Names,
+    bindings: &mut Bindings,
+    collections: &mut BTreeSet<String>,
+) {
     match value {
         Value::String(text) => symbols(text, names),
         Value::Array(items) => {
             for item in items {
-                collect(item, names);
+                collect(item, names, bindings, collections);
             }
         }
         Value::Object(properties) => {
             for (key, value) in properties {
                 symbols(key, names);
+                if let Value::String(name) = value
+                    && key.starts_with('$')
+                {
+                    let variable = variable(key);
+                    bindings
+                        .entry(variable.to_owned())
+                        .or_default()
+                        .insert(name.clone());
+                }
                 match (key.as_str(), value) {
                     ("renderer", Value::String(name)) => insert("renderer", name, names),
                     (key, Value::String(name)) if COLLECTION_KEYS.contains(&key) => {
                         insert("collection", name, names);
+                        if name.starts_with('$') {
+                            collections.insert(variable(name).to_owned());
+                        }
                     }
                     ("controls", Value::Array(controls)) => {
                         for control in controls {
@@ -85,68 +108,38 @@ fn collect(value: &Value, names: &mut Names) {
                     }
                     _ => {}
                 }
-                collect(value, names);
+                collect(value, names, bindings, collections);
             }
         }
         _ => {}
     }
 }
 
-/// Collection names that reach a collection property only through variables, which pack
-/// scopes resolve by name; the flow is tracked pack-wide.
-#[derive(Default)]
-struct CollectionFlow {
-    /// Variables read by a collection property, directly or through other variables.
-    sinks: BTreeSet<String>,
-    /// Every `"$variable": "value"` assignment.
-    assignments: BTreeSet<(String, String)>,
+/// Follows collection-referenced variables, including defaults and aliases across files.
+/// A visited set ends cycles; only identifier literals become resolved collection names.
+fn resolve_collections(bindings: &Bindings, mut pending: BTreeSet<String>, names: &mut Names) {
+    let mut visited = BTreeSet::new();
+    while let Some(reference) = pending.pop_first() {
+        if !visited.insert(reference.clone()) {
+            continue;
+        }
+        for name in bindings.get(&reference).into_iter().flatten() {
+            if name.starts_with('$') {
+                pending.insert(variable(name).to_owned());
+            } else if collection_literal(name) {
+                insert("collection", name, names);
+            }
+        }
+    }
 }
 
-impl CollectionFlow {
-    fn visit(&mut self, value: &Value) {
-        match value {
-            Value::Array(items) => items.iter().for_each(|item| self.visit(item)),
-            Value::Object(properties) => {
-                for (key, value) in properties {
-                    if let Value::String(text) = value {
-                        if COLLECTION_KEYS.contains(&key.as_str()) && text.starts_with('$') {
-                            self.sinks.insert(variable(text).to_owned());
-                        } else if key.starts_with('$') {
-                            self.assignments
-                                .insert((variable(key).to_owned(), variable(text).to_owned()));
-                        }
-                    }
-                    self.visit(value);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    /// Records the literal values of every variable that reaches a collection property.
-    fn insert_into(mut self, names: &mut Names) {
-        loop {
-            let reached: Vec<_> = self
-                .assignments
-                .iter()
-                .filter(|(name, value)| {
-                    self.sinks.contains(name)
-                        && value.starts_with('$')
-                        && !self.sinks.contains(value)
-                })
-                .map(|(_, value)| value.clone())
-                .collect();
-            if reached.is_empty() {
-                break;
-            }
-            self.sinks.extend(reached);
-        }
-        for (name, value) in &self.assignments {
-            if self.sinks.contains(name) {
-                insert("collection", value, names);
-            }
-        }
-    }
+/// Accepts static collection identifiers, excluding bindings and unevaluated expressions.
+fn collection_literal(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(identifier_byte)
 }
 
 /// Removes a variable's `|default` suffix.
@@ -224,7 +217,7 @@ mod tests {
             fs::read(root.join("crates/json-ui/data/vanilla-ui-vocabulary-1.26.50.txt")).unwrap();
         assert_eq!(
             format!("{:x}", Sha256::digest(bytes)),
-            "f0074eb0250feed93d9d1f4697e20478c5bcb3a97bb8abdef98818c187408ab1"
+            "e3e48bf66a8e23d5efa40cbcb4ee63b2b42322ee61e204b437b017eb542446e6"
         );
     }
 
@@ -267,10 +260,12 @@ mod tests {
             "cell": { "$item_name": "trade_tiers" },
             "label": { "$text_name": "not_a_collection" },
         });
-        let mut flow = CollectionFlow::default();
-        flow.visit(&document);
         let mut names = Names::new();
-        flow.insert_into(&mut names);
+        let mut bindings = Bindings::new();
+        let mut collections = BTreeSet::new();
+        collect(&document, &mut names, &mut bindings, &mut collections);
+        names.retain(|(kind, _)| *kind == "collection");
+        resolve_collections(&bindings, collections, &mut names);
         assert_eq!(
             names,
             BTreeSet::from([("collection", "trade_tiers".to_owned())])
@@ -293,6 +288,62 @@ mod tests {
                 ("binding", "#form_button_text".to_owned()),
                 ("button", "button.menu_cancel".to_owned()),
             ])
+        );
+    }
+
+    #[test]
+    fn collection_variables_resolve_across_files_without_admitting_unrelated_strings() {
+        let scratch = tempfile::tempdir().unwrap();
+        let pack = scratch.path().join("resource_pack");
+        fs::create_dir_all(pack.join("ui")).unwrap();
+        fs::create_dir_all(pack.join("texts")).unwrap();
+        fs::write(pack.join("texts/en_US.lang"), "").unwrap();
+        fs::write(
+            pack.join("ui/definitions.json"),
+            r##"{
+                "$rows|default": "outer_rows",
+                "$alias": "$rows",
+                "$unused": "unrelated_text",
+                "$cycle_a": "$cycle_b",
+                "$cycle_b": "$cycle_a",
+                "$dynamic_alias": "$dynamic",
+                "$dynamic": "#dynamic_rows",
+                "$expression_alias": "$expression",
+                "$expression": "($prefix + '_rows')",
+                "$numeric_start": "123_rows",
+                "$punctuated": "row.names"
+            }"##,
+        )
+        .unwrap();
+        fs::write(
+            pack.join("ui/screen.json"),
+            r##"{
+                "collection_name": "$alias",
+                "binding_collection_name": "$cycle_a",
+                "controls": [
+                    {"dynamic": {"collection_name": "$dynamic_alias"}},
+                    {"expression": {"collection_name": "$expression_alias"}},
+                    {"numeric_start": {"collection_name": "$numeric_start"}},
+                    {"punctuated": {"collection_name": "$punctuated"}},
+                    {"direct": {"collection_name": "#direct_rows"}},
+                    {"direct_expression": {
+                        "collection_name": "($prefix + '_direct_rows')"
+                    }}
+                ]
+            }"##,
+        )
+        .unwrap();
+        let output = String::from_utf8(generate(scratch.path()).unwrap()).unwrap();
+        assert_eq!(
+            output
+                .lines()
+                .filter(|line| line.starts_with("collection\t"))
+                .collect::<Vec<_>>(),
+            [
+                "collection\t#direct_rows",
+                "collection\t($prefix + '_direct_rows')",
+                "collection\touter_rows",
+            ]
         );
     }
 }

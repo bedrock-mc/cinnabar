@@ -7,7 +7,6 @@ pub(super) use timing::install_first_frame_log;
 use timing::{LoadTimes, join};
 
 use super::{PHYSICS_REGISTRY_GENERATION_GUIDANCE, PHYSICS_REGISTRY_SHA256};
-use crate::args;
 use anyhow::{Context, Result, bail};
 use assets::carriers::startup::{
     self as asset_startup, AssetSelection, AssetStartupError, LoadedAssets, LoadedHudAssets,
@@ -21,7 +20,6 @@ use client_interaction::movement::PhysicsCollisionRegistries;
 use client_ui::ui_runtime::json_ui_assets::LoadedUiAssets;
 use client_ui::ui_runtime::presentation::PreparedJsonUi;
 use launcher::install_layout::InstallLayout;
-use launcher_host::session_cleanup::ScopedSessionDirectory;
 use sha2::Digest;
 use sha2::Sha256;
 use std::{
@@ -598,9 +596,12 @@ mod tests {
                 "--movement-candidate-physics",
             ],
         ] {
-            let ParseOutcome::Run(args) =
-                ClientArgs::parse_from(std::iter::once("cinnabar").chain(flags)).unwrap()
-            else {
+            let ParseOutcome::Run(args) = ClientArgs::parse_from(
+                ["cinnabar", "--address", "fixture.invalid"]
+                    .into_iter()
+                    .chain(flags),
+            )
+            .unwrap() else {
                 panic!("expected runtime arguments")
             };
             let error = args.validate_acceptance_support(false).unwrap_err();
@@ -611,24 +612,4 @@ mod tests {
             .validate_acceptance_support(false)
             .unwrap();
     }
-}
-
-/// Owns app-derived session directories and only creates operator-provided directories.
-pub(super) fn bind_direct_session_directory(
-    args: &args::ClientArgs,
-    socket_dir: std::path::PathBuf,
-) -> Result<ScopedSessionDirectory> {
-    if args.address.is_some() && !args.socket_dir_explicit {
-        return ScopedSessionDirectory::bind(socket_dir.clone()).with_context(|| {
-            format!(
-                "prepare direct-connect session directory {}",
-                socket_dir.display()
-            )
-        });
-    }
-    if args.address.is_some() {
-        fs::create_dir_all(&socket_dir)
-            .with_context(|| format!("prepare socket directory {}", socket_dir.display()))?;
-    }
-    Ok(ScopedSessionDirectory::none())
 }

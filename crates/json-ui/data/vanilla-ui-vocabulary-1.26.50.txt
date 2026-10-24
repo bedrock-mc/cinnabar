@@ -5136,25 +5136,8 @@ button	button.world
 button	button.world_picker_skip
 button	button.world_slot
 button	button.worlds
-collection	#available_pack_items_addon
-collection	#available_pack_items_global
-collection	#available_pack_items_level
 collection	#enchant_buttons
-collection	#invalid_pack_items_addon
-collection	#invalid_pack_items_global
-collection	#invalid_pack_items_level
-collection	#realms_pack_items_addon
-collection	#realms_pack_items_global
-collection	#realms_pack_items_level
-collection	#selected_pack_items_addon
-collection	#selected_pack_items_global
-collection	#selected_pack_items_level
-collection	#suggested_offers_collection
 collection	#tts_override_control_value
-collection	#unowned_pack_items_addon
-collection	#unowned_pack_items_global
-collection	#unowned_pack_items_level
-collection	($anchor_point + '_icon_overlay_collection')
 collection	($filter_sort_prefix + '_collection')
 collection	($grid_collection_prefix + '_column_collection')
 collection	($grid_collection_prefix + '_row_collection')

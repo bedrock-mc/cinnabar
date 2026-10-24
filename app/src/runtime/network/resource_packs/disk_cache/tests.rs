@@ -18,8 +18,8 @@ fn every_stack_reference_device_and_session_input_changes_the_key() {
             let mut changed = stack.clone();
             match index {
                 0 => changed[0].0.push('x'),
-                1 => changed[0].1.push('x'),
-                2 => changed[0].2.push('x'),
+                1 => changed[0].1.push(b'x'),
+                2 => changed[0].2.push(b'x'),
                 _ => changed[0].3[0] ^= 1,
             }
             assert_ne!(

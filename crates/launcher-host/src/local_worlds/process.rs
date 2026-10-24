@@ -58,6 +58,7 @@ pub(crate) enum HostGrant {
 /// One running local server.
 pub(crate) trait Instance: Send + Sync {
     /// The loopback game address.
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     fn address(&self) -> &str;
     fn set_paused(&self, paused: bool) -> io::Result<()>;
     /// Asks the server to save and stop without waiting.
@@ -76,8 +77,20 @@ pub(crate) trait Instance: Send + Sync {
         None
     }
     /// The loopback LAN discovery endpoint, when the server advertises there.
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     fn lan_address(&self) -> Option<&str> {
         None
+    }
+    /// Sends a private bootstrap through the original child pipe. Call on the existing worlds worker.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    fn native_world_bridge(
+        &self,
+        _bootstrap: &bridge::host_world::contract::Bootstrap,
+    ) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "native world bridge requires Dragonfly",
+        ))
     }
     /// Whether the server has exited with success, so it saved its world on the way out.
     fn exited_cleanly(&self) -> bool {
@@ -555,6 +568,7 @@ impl Process {
 }
 
 impl Instance for Process {
+    #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
     fn address(&self) -> &str {
         self.address.get().map_or("", String::as_str)
     }
@@ -591,6 +605,32 @@ impl Instance for Process {
 
     fn can_pause(&self) -> bool {
         self.can_pause
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn max_players(&self) -> Option<u32> {
+        Some(bridge::host_world::contract::MAX_PLAYERS)
+    }
+
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    fn native_world_bridge(
+        &self,
+        bootstrap: &bridge::host_world::contract::Bootstrap,
+    ) -> io::Result<()> {
+        if self.stop_requested.load(Ordering::SeqCst) || self.has_exited() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotConnected,
+                "native world process retired",
+            ));
+        }
+        let body = serde_json::to_string(bootstrap).map_err(io::Error::other)?;
+        if body.len() > bridge::host_world::contract::MAX_CONTROL_BYTES as usize {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "native world bootstrap is oversized",
+            ));
+        }
+        self.send(&format!("{}{body}", bridge::host_world::contract::COMMAND))
     }
 
     fn exited_cleanly(&self) -> bool {

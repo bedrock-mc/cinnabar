@@ -6,6 +6,7 @@ import json
 import re
 import struct
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -57,9 +58,59 @@ def air_ids(target):
     return found
 
 
+def codec_directory(target):
+    """Resolve the owning protocol manifest's exact pinned codec without network I/O."""
+    manifest = ROOT / "crates/protocol/Cargo.toml"
+    with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        try:
+            result = subprocess.run(
+                ["cargo", "metadata", "--locked", "--offline", "--format-version", "1",
+                 "--manifest-path", str(manifest)],
+                cwd=ROOT, stdout=stdout, stderr=stderr, timeout=120, check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            raise ValueError("codec cargo metadata timed out after 120 seconds") from error
+        output = bounded_output(stdout, "stdout", 32 * 1024 * 1024)
+        error = bounded_output(stderr, "stderr", 256 * 1024)
+    if result.returncode:
+        raise ValueError(
+            "codec cargo metadata failed; run cargo fetch --locked first: " + error.strip()
+        )
+    metadata = json.loads(output)
+    owners = [package for package in metadata["packages"]
+              if Path(package["manifest_path"]).resolve() == manifest.resolve()]
+    if len(owners) != 1:
+        raise ValueError("codec metadata must contain exactly one canonical protocol owner")
+    name, revision = target["codec_crate"], target["protocolgen_commit"]
+    source = f"git+https://github.com/cinnabar-mc/protocolgen?rev={revision}"
+    resolved_source = f"{source}#{revision}"
+    dependencies = [entry for entry in owners[0]["dependencies"]
+                    if entry["name"] == name or entry.get("rename") == name]
+    if len(dependencies) != 1:
+        raise ValueError("protocol must declare exactly one pinned generated codec dependency")
+    dependency = dependencies[0]
+    if (dependency["name"] != name or dependency.get("rename") is not None
+            or dependency["source"] not in (source, resolved_source)
+            or dependency.get("path") is not None or dependency["kind"] is not None
+            or dependency["target"] is not None or dependency["optional"] is not False):
+        raise ValueError("protocol codec dependency differs from the canonical target pin")
+    packages = [package for package in metadata["packages"] if package["name"] == name]
+    if len(packages) != 1 or packages[0]["source"] != resolved_source:
+        raise ValueError("resolved codec package differs from the canonical target pin")
+    return Path(packages[0]["manifest_path"]).resolve(strict=True).parent
+
+
+def bounded_output(stream, label, maximum_bytes):
+    """Bound metadata decoding while keeping subprocess output off the Python heap."""
+    if stream.tell() > maximum_bytes:
+        raise ValueError(f"codec cargo metadata {label} exceeds {maximum_bytes} bytes")
+    stream.seek(0)
+    return stream.read().decode("utf-8")
+
+
 def enchantments(target):
-    """Read the vendored enchantment wire mapping without importing its codec."""
-    path = ROOT / "crates/protocol/vendor" / target["codec_crate"] / "src/enums.rs"
+    """Read enchantment values from Cargo's resolved generated codec source."""
+    path = codec_directory(target) / "src/enums.rs"
     body = path.read_text().split("impl EnchantType {", 1)[1].split("Self::Unknown(value)", 1)[0]
     return {name: int(raw) for name, raw in re.findall(r"Self::(\w+) => (\d+),", body)}
 

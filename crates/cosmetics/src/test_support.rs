@@ -4,7 +4,7 @@ use super::*;
 /// Admits a synthetic clip without activating or copying any production catalog item.
 pub fn emote(id: &str, name: &str, free: bool) -> emotes::Item {
     let cases: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../core/cinnabarapi/schema/emote-clips.json"
+        "../../../crates/bridge/data/cinnabar-api/emote-clips.json"
     ))
     .unwrap();
     let bytes = serde_json::to_vec(&cases[0]["clip"]).unwrap();

@@ -55,9 +55,6 @@ pub struct MovementEvidenceIdentity {
     source_dirty: bool,
     run_id: String,
     endpoint: String,
-    bridge_endpoint: String,
-    core_sha256: String,
-    core_process_id: u32,
     app_process_id: u32,
 }
 
@@ -99,9 +96,6 @@ impl MovementEvidenceIdentity {
             source_dirty: false,
             run_id: "0123456789abcdef0123456789abcdef".to_owned(),
             endpoint: "127.0.0.1:19132".to_owned(),
-            bridge_endpoint: "127.0.0.1:19133".to_owned(),
-            core_sha256: "33".repeat(32),
-            core_process_id: 41,
             app_process_id: 42,
         })
     }
@@ -110,22 +104,10 @@ impl MovementEvidenceIdentity {
         mut self,
         run_id: String,
         endpoint: String,
-        bridge_endpoint: String,
-        core_sha256: String,
-        core_process_id: u32,
     ) -> Result<Self, MovementEvidenceIdentityError> {
-        validate_run_identity(
-            &run_id,
-            &endpoint,
-            &bridge_endpoint,
-            &core_sha256,
-            core_process_id,
-        )?;
+        validate_run_identity(&run_id, &endpoint)?;
         self.run_id = run_id;
         self.endpoint = endpoint;
-        self.bridge_endpoint = bridge_endpoint;
-        self.core_sha256 = core_sha256;
-        self.core_process_id = core_process_id;
         self.app_process_id = std::process::id();
         Ok(self)
     }
@@ -134,7 +116,7 @@ impl MovementEvidenceIdentity {
         format!(
             "{MOVEMENT_IDENTITY}={}",
             serde_json::json!({
-                "schema": "rust-mcbe-movement-identity-v1",
+                "schema": "rust-mcbe-movement-identity-v2",
                 "build_commit": self.build_commit,
                 "target": self.target,
                 "protocol": protocol::PROTOCOL_VERSION,
@@ -145,9 +127,6 @@ impl MovementEvidenceIdentity {
                 "source_dirty": self.source_dirty,
                 "run_id": self.run_id,
                 "endpoint": self.endpoint,
-                "bridge_endpoint": self.bridge_endpoint,
-                "core_sha256": self.core_sha256,
-                "core_process_id": self.core_process_id,
                 "app_process_id": self.app_process_id,
             })
         )
@@ -163,9 +142,6 @@ pub struct MovementEvidenceIdentitySource {
     candidate_physics: bool,
     run_id: String,
     endpoint: String,
-    bridge_endpoint: String,
-    core_sha256: String,
-    core_process_id: u32,
 }
 
 impl MovementEvidenceIdentitySource {
@@ -197,24 +173,7 @@ impl MovementEvidenceIdentitySource {
         )?;
         let run_id = required_run_environment(diagnostics::markers::ACCEPTANCE_RUN_ID)?;
         let endpoint = required_run_environment(diagnostics::markers::ACCEPTANCE_ENDPOINT)?;
-        let bridge_endpoint =
-            required_run_environment(diagnostics::markers::ACCEPTANCE_BRIDGE_ENDPOINT)?;
-        let core_sha256 = required_run_environment(diagnostics::markers::ACCEPTANCE_CORE_SHA256)?;
-        let core_process_id =
-            required_run_environment(diagnostics::markers::ACCEPTANCE_CORE_PROCESS_ID)?
-                .parse::<u32>()
-                .ok()
-                .filter(|process_id| *process_id != 0)
-                .ok_or(MovementEvidenceIdentityError::InvalidRunIdentity {
-                    environment: diagnostics::markers::ACCEPTANCE_CORE_PROCESS_ID,
-                })?;
-        validate_run_identity(
-            &run_id,
-            &endpoint,
-            &bridge_endpoint,
-            &core_sha256,
-            core_process_id,
-        )?;
+        validate_run_identity(&run_id, &endpoint)?;
         Ok(Self {
             build_commit,
             target,
@@ -223,9 +182,6 @@ impl MovementEvidenceIdentitySource {
             candidate_physics,
             run_id,
             endpoint,
-            bridge_endpoint,
-            core_sha256,
-            core_process_id,
         })
     }
 
@@ -241,15 +197,7 @@ impl MovementEvidenceIdentitySource {
             self.breg_sha256,
             self.candidate_physics,
         )
-        .and_then(|identity| {
-            identity.bind_run(
-                self.run_id.clone(),
-                self.endpoint.clone(),
-                self.bridge_endpoint.clone(),
-                self.core_sha256.clone(),
-                self.core_process_id,
-            )
-        })
+        .and_then(|identity| identity.bind_run(self.run_id.clone(), self.endpoint.clone()))
     }
 }
 
@@ -277,9 +225,6 @@ fn required_run_environment(
 fn validate_run_identity(
     run_id: &str,
     endpoint: &str,
-    bridge_endpoint: &str,
-    core_sha256: &str,
-    core_process_id: u32,
 ) -> Result<(), MovementEvidenceIdentityError> {
     if run_id.len() != 32
         || !run_id
@@ -290,36 +235,15 @@ fn validate_run_identity(
             environment: diagnostics::markers::ACCEPTANCE_RUN_ID,
         });
     }
-    for (value, environment) in [
-        (endpoint, diagnostics::markers::ACCEPTANCE_ENDPOINT),
-        (
-            bridge_endpoint,
-            diagnostics::markers::ACCEPTANCE_BRIDGE_ENDPOINT,
-        ),
-    ] {
-        let Some((host, port)) = value.rsplit_once(':') else {
-            return Err(MovementEvidenceIdentityError::InvalidRunIdentity { environment });
-        };
-        if host.is_empty()
-            || host.bytes().any(|byte| byte.is_ascii_whitespace())
-            || port.parse::<u16>().ok().filter(|port| *port != 0).is_none()
-        {
-            return Err(MovementEvidenceIdentityError::InvalidRunIdentity { environment });
-        }
-    }
-    if core_sha256.len() != 64
-        || !core_sha256
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    let environment = diagnostics::markers::ACCEPTANCE_ENDPOINT;
+    let Some((host, port)) = endpoint.rsplit_once(':') else {
+        return Err(MovementEvidenceIdentityError::InvalidRunIdentity { environment });
+    };
+    if host.is_empty()
+        || host.bytes().any(|byte| byte.is_ascii_whitespace())
+        || port.parse::<u16>().ok().filter(|port| *port != 0).is_none()
     {
-        return Err(MovementEvidenceIdentityError::InvalidRunIdentity {
-            environment: diagnostics::markers::ACCEPTANCE_CORE_SHA256,
-        });
-    }
-    if core_process_id == 0 {
-        return Err(MovementEvidenceIdentityError::InvalidRunIdentity {
-            environment: diagnostics::markers::ACCEPTANCE_CORE_PROCESS_ID,
-        });
+        return Err(MovementEvidenceIdentityError::InvalidRunIdentity { environment });
     }
     Ok(())
 }

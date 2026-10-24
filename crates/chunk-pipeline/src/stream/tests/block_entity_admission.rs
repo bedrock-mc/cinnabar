@@ -483,8 +483,8 @@ fn block_entity_visual_diagnostics_follow_request_eviction_and_dimension_lifecyc
             4,
             inline_block_entity_event(
                 2,
-                block_entity_runtime_id("minecraft:beacon"),
-                block_entity_nbt("Beacon", deferred_position),
+                block_entity_runtime_id("minecraft:suspicious_sand"),
+                block_entity_nbt("BrushableBlock", deferred_position),
             ),
         )
         .unwrap();

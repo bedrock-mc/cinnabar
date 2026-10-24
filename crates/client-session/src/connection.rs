@@ -1,349 +1,57 @@
-//! Generation-fenced join progress independent of the menu and process owner.
+//! Generation-fenced join admission independent of the menu and transport owner.
 
-use std::{path::PathBuf, process::ExitStatus, time::Instant};
+use std::path::PathBuf;
 
-use bridge::bridge_endpoint_exists;
-
-/// A join still provisioning while the connecting screen shows; polled each frame.
+/// A prepared join retained while the connecting screen's admission fences remain closed.
 #[derive(Debug)]
-pub struct JoinAttempt<D> {
+pub struct JoinAttempt {
     pub generation: u64,
     pub address: String,
     pub auth_cache: Option<PathBuf>,
     pub local_world: bool,
-    pub stage: JoinStage<D>,
+    pub endpoint: protocol::SessionEndpoint,
 }
 
-/// Endpoint provisioning retains the directory guard until its owning core stops.
-#[derive(Debug)]
-pub enum JoinStage<D> {
-    /// The launcher core selecting the target on a worker.
-    Launcher(crossbeam_channel::Receiver<Result<PathBuf, String>>),
-    /// A ready endpoint retained while client-owned world resources finish preparing.
-    Admission {
-        socket_dir: PathBuf,
-        directory: Option<D>,
-    },
-    /// A per-session core that must publish its endpoint by the deadline.
-    Core {
-        socket_dir: PathBuf,
-        directory: D,
-        deadline: Instant,
-    },
-}
-
-/// One bounded poll asks the application only for the next process or publication action.
-#[derive(Debug)]
-pub enum JoinPoll<D> {
-    Retired,
-    Pending(JoinAttempt<D>),
-    Ready {
-        socket_dir: PathBuf,
-        directory: Option<D>,
-    },
-    StartCore(JoinAttempt<D>),
-    Failed {
-        message: String,
-        directory: Option<D>,
-    },
-}
-
-impl<D> JoinAttempt<D> {
-    /// Advances the existing join in order, before the app inserts a replacement network handle.
-    /// Endpoint provisioning continues while `admitted` is false, but transport waits.
-    /// `core_exit` reports the per-session core's exit status once it has exited.
+impl JoinAttempt {
+    /// Releases the original endpoint only while this same generation is still connecting.
     pub fn poll(
-        mut self,
+        self,
         current_generation: u64,
         connecting: bool,
-        admitted: bool,
-        core_exit: impl FnOnce() -> Option<ExitStatus>,
-    ) -> JoinPoll<D> {
-        if self.generation != current_generation || !connecting {
-            return JoinPoll::Retired;
-        }
-        let (socket_dir, directory) = match self.stage {
-            JoinStage::Admission {
-                socket_dir,
-                directory,
-            } => (socket_dir, directory),
-            JoinStage::Launcher(ref receiver) => {
-                let selected = match receiver.try_recv() {
-                    Err(crossbeam_channel::TryRecvError::Empty) => return JoinPoll::Pending(self),
-                    Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                        Err("the launcher core did not answer".to_owned())
-                    }
-                    Ok(selected) => selected,
-                };
-                match selected {
-                    Ok(socket_dir) => (socket_dir, None),
-                    Err(error)
-                        if self.local_world
-                            || self
-                                .address
-                                .trim()
-                                .starts_with(bridge::contract::GATHERING_TARGET_PREFIX) =>
-                    {
-                        return JoinPoll::Failed {
-                            message: format!("Could not open {}: {error}", self.address),
-                            directory: None,
-                        };
-                    }
-                    Err(_) => return JoinPoll::StartCore(self),
-                }
-            }
-            JoinStage::Core {
-                socket_dir,
-                directory,
-                deadline,
-            } => {
-                if bridge_endpoint_exists(&socket_dir) {
-                    (socket_dir, Some(directory))
-                } else {
-                    let error = if let Some(status) = core_exit() {
-                        format!("bedrock-core exited ({status}) before publishing its endpoint")
-                    } else if Instant::now() >= deadline {
-                        "bedrock-core did not publish its endpoint".to_owned()
-                    } else {
-                        self.stage = JoinStage::Core {
-                            socket_dir,
-                            directory,
-                            deadline,
-                        };
-                        return JoinPoll::Pending(self);
-                    };
-                    return JoinPoll::Failed {
-                        message: format!(
-                            "Could not start {}: {error} at {}",
-                            self.address,
-                            socket_dir.display()
-                        ),
-                        directory: Some(directory),
-                    };
-                }
-            }
-        };
-        if admitted {
-            JoinPoll::Ready {
-                socket_dir,
-                directory,
-            }
-        } else {
-            self.stage = JoinStage::Admission {
-                socket_dir,
-                directory,
-            };
-            JoinPoll::Pending(self)
-        }
+    ) -> Option<protocol::SessionEndpoint> {
+        (self.generation == current_generation && connecting).then_some(self.endpoint)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bridge::CORE_START_TIMEOUT;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
 
-    /// Counts directory release without creating a core process or a socket.
-    #[derive(Debug)]
-    struct Directory(Arc<AtomicUsize>);
-
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            self.0.fetch_add(1, Ordering::SeqCst);
-        }
-    }
-
-    /// Supplies a completed launcher reply for a single pending generation.
-    fn launcher_attempt(local_world: bool, result: Result<PathBuf, String>) -> JoinAttempt<()> {
-        let (sender, receiver) = crossbeam_channel::bounded(1);
-        sender.send(result).unwrap();
+    /// A target description carries no connected session or account authority.
+    fn attempt() -> JoinAttempt {
         JoinAttempt {
             generation: 7,
-            address: "fixture.invalid".into(),
+            address: "fixture.invalid:19132".into(),
             auth_cache: None,
-            local_world,
-            stage: JoinStage::Launcher(receiver),
+            local_world: false,
+            endpoint: protocol::SessionEndpoint::Native(protocol::NativeConnectionTarget::new(
+                "fixture.invalid:19132".into(),
+                protocol::NativeTransport::Addressed,
+            )),
         }
     }
 
     #[test]
-    fn retired_generation_does_not_poll_the_process_or_start_transport() {
-        let attempt = launcher_attempt(false, Ok(PathBuf::from("fixture-endpoint")));
-        assert!(matches!(
-            attempt.poll(8, true, true, || panic!("retired process was polled")),
-            JoinPoll::Retired
-        ));
+    fn retired_generation_does_not_start_transport() {
+        assert!(attempt().poll(8, true).is_none());
+        assert!(attempt().poll(7, false).is_none());
     }
 
     #[test]
-    fn launcher_failure_preserves_supported_remote_fallbacks_and_local_errors() {
-        for address in [
-            "fixture.invalid".to_owned(),
-            format!("{}42", bridge::contract::REALM_TARGET_PREFIX),
-            format!("{}1234", bridge::contract::FRIEND_TARGET_PREFIX),
-        ] {
-            let mut external = launcher_attempt(false, Err("no launcher response".into()));
-            external.address = address;
-            assert!(matches!(
-                external.poll(7, true, true, || panic!("launcher has no session core")),
-                JoinPoll::StartCore(_)
-            ));
-        }
-        let local = launcher_attempt(true, Err("no launcher response".into()));
-        let JoinPoll::Failed {
-            message,
-            directory: None,
-        } = local.poll(7, true, true, || panic!("launcher has no session core"))
-        else {
-            panic!("local joins require their owning launcher core");
-        };
-        assert_eq!(
-            message,
-            "Could not open fixture.invalid: no launcher response"
-        );
-    }
-
-    #[test]
-    fn gathering_failure_preserves_the_launcher_error_without_starting_a_core() {
-        for error in [
-            "the launcher core did not answer",
-            "launcher: join gathering: service unavailable",
-        ] {
-            let mut attempt = launcher_attempt(false, Err(error.into()));
-            attempt.address = format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX);
-            let address = attempt.address.clone();
-            let result = attempt.poll(7, true, true, || panic!("launcher has no session core"));
-            let JoinPoll::Failed {
-                message,
-                directory: None,
-            } = result
-            else {
-                panic!("a gathering must not fall back to an unresolved network address");
-            };
-            assert_eq!(message, format!("Could not open {address}: {error}"));
-        }
-    }
-
-    #[test]
-    fn gathering_waits_for_the_launcher_endpoint() {
-        let (sender, receiver) = crossbeam_channel::bounded(1);
-        let attempt = JoinAttempt::<()> {
-            generation: 7,
-            address: format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX),
-            auth_cache: None,
-            local_world: false,
-            stage: JoinStage::Launcher(receiver),
-        };
-        let JoinPoll::Pending(attempt) = attempt.poll(7, true, true, || panic!("no session core"))
-        else {
-            panic!("an unanswered launcher request must remain pending");
-        };
-        let socket_dir = PathBuf::from("gathering-fixture-endpoint");
-        sender.send(Ok(socket_dir.clone())).unwrap();
-        let JoinPoll::Ready {
-            socket_dir: ready,
-            directory: None,
-        } = attempt.poll(7, true, true, || panic!("no session core"))
-        else {
-            panic!("a gathering must use the resolved launcher endpoint");
-        };
-        assert_eq!(ready, socket_dir);
-    }
-
-    #[test]
-    fn disconnected_gathering_worker_does_not_start_a_core() {
-        let (sender, receiver) = crossbeam_channel::bounded(1);
-        drop(sender);
-        let attempt = JoinAttempt::<()> {
-            generation: 7,
-            address: format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX),
-            auth_cache: None,
-            local_world: false,
-            stage: JoinStage::Launcher(receiver),
-        };
-        assert!(matches!(
-            attempt.poll(7, true, true, || panic!("no session core")),
-            JoinPoll::Failed {
-                directory: None,
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn failed_core_keeps_its_directory_until_the_app_stops_the_process() {
-        let releases = Arc::new(AtomicUsize::new(0));
-        let attempt = JoinAttempt {
-            generation: 7,
-            address: "fixture.invalid".into(),
-            auth_cache: None,
-            local_world: false,
-            stage: JoinStage::Core {
-                socket_dir: PathBuf::from("missing-session-endpoint-for-unit-test"),
-                directory: Directory(Arc::clone(&releases)),
-                deadline: Instant::now() + CORE_START_TIMEOUT,
-            },
-        };
-        let status = ExitStatus::default();
-        let result = attempt.poll(7, true, true, || Some(status));
-        let JoinPoll::Failed {
-            directory: Some(_),
-            message,
-        } = &result
-        else {
-            panic!("an exited core fails the join keeping its directory");
-        };
-        assert!(
-            message.contains(&format!("bedrock-core exited ({status}) before")),
-            "{message}"
-        );
-        assert_eq!(releases.load(Ordering::SeqCst), 0);
-        drop(result);
-        assert_eq!(releases.load(Ordering::SeqCst), 1);
-    }
-}
-
-#[cfg(test)]
-mod admission_tests {
-    use super::*;
-
-    #[test]
-    fn provisioning_continues_while_ready_endpoints_wait_for_world_resources() {
-        let (sender, receiver) = crossbeam_channel::bounded(1);
-        sender.send(Err("use per-session core".into())).unwrap();
-        let attempt = JoinAttempt::<()> {
-            generation: 1,
-            address: "fixture.invalid".into(),
-            auth_cache: None,
-            local_world: false,
-            stage: JoinStage::Launcher(receiver),
-        };
-        assert!(matches!(
-            attempt.poll(1, true, false, || panic!("launcher is not a session core")),
-            JoinPoll::StartCore(_)
-        ));
-        let endpoint = PathBuf::from("ready-before-world");
-        let attempt = JoinAttempt::<()> {
-            generation: 2,
-            address: "fixture.invalid".into(),
-            auth_cache: None,
-            local_world: false,
-            stage: JoinStage::Admission {
-                socket_dir: endpoint.clone(),
-                directory: None,
-            },
-        };
-        let JoinPoll::Pending(attempt) = attempt.poll(2, true, false, || {
-            panic!("ready endpoint does not poll its core")
-        }) else {
-            panic!("transport must wait for world resources");
-        };
-        assert!(
-            matches!(attempt.poll(2, true, true, || panic!("ready endpoint does not poll its core")), JoinPoll::Ready { socket_dir, directory: None } if socket_dir == endpoint)
-        );
+    fn current_connecting_generation_retains_its_prepared_endpoint() {
+        let endpoint = attempt().poll(7, true).expect("current join");
+        let protocol::SessionEndpoint::Native(target) = endpoint;
+        assert_eq!(target.address, "fixture.invalid:19132");
+        assert_eq!(target.transport, protocol::NativeTransport::Addressed);
     }
 }

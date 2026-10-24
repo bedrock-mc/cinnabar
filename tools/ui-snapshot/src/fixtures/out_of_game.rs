@@ -108,7 +108,6 @@ pub(super) fn server_trust() -> Fixture {
     view.feeds.server_trust = Some(launcher::menu::ServerTrustPrompt {
         id: 1,
         url: "https://example.invalid".into(),
-        from_session_core: false,
     });
     Fixture::Menu(Box::new(view))
 }

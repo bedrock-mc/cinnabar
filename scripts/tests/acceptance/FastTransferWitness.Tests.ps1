@@ -19,18 +19,15 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $script:BuildCommit = '0123456789abcdef0123456789abcdef01234567'
         $script:PregSha256 = '11' * 32
         $script:BregSha256 = '22' * 32
-        $script:CoreSha256 = '33' * 32
         $script:AppSha256 = '44' * 32
         $script:AssetsSha256 = '55' * 32
         $script:RunId = '0123456789abcdef0123456789abcdef'
-        $script:BridgeEndpoint = '127.0.0.1:19133'
         $script:Identity = [ordered]@{
-            schema = 'rust-mcbe-movement-identity-v1'; build_commit = $script:BuildCommit
+            schema = 'rust-mcbe-movement-identity-v2'; build_commit = $script:BuildCommit
             target = 'Lbsg'; protocol = 2193; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true; source_dirty = $false; run_id = $script:RunId
-            endpoint = 'play.lbsg.net:19132'; bridge_endpoint = $script:BridgeEndpoint
-            core_sha256 = $script:CoreSha256; core_process_id = 41; app_process_id = 42
+            endpoint = 'play.lbsg.net:19132'; app_process_id = 42
         }
         $script:Terminal = [ordered]@{
             schema = 'rust-mcbe-movement-terminal-v1'; session_generation = 7; source = 'Physics'
@@ -38,26 +35,22 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
             outbox_reconciliation = 'Drained'
         }
         $script:Metadata = [ordered]@{
-            schema = 'rust-mcbe-movement-run-v1'; run_id = $script:RunId; target = 'Lbsg'
-            endpoint = 'play.lbsg.net:19132'; bridge_endpoint = $script:BridgeEndpoint
-            build_commit = $script:BuildCommit; source_dirty = $false
-            core_sha256 = $script:CoreSha256; app_sha256 = $script:AppSha256
+            schema = 'rust-mcbe-movement-run-v2'; run_id = $script:RunId; target = 'Lbsg'
+            endpoint = 'play.lbsg.net:19132'; build_commit = $script:BuildCommit; source_dirty = $false
+            app_sha256 = $script:AppSha256
             assets_sha256 = $script:AssetsSha256
-            core_process_id = 41; app_process_id = 42; app_exit_code = 0; core_exit_code = $null
-            core_terminated_by_launcher = $true; timed_out = $false; duration_seconds = 600
+            app_process_id = 42; app_exit_code = 0; timed_out = $false; duration_seconds = 600
             scenario = 'FastTransferWitness'; screenshot_slots = @(
                 [ordered]@{ filename = 'fast-transfer-before.png'; sha256 = $null },
                 [ordered]@{ filename = 'fast-transfer-after.png'; sha256 = $null }
             )
-            core_extra_arguments = @()
         }
         $script:Scenario = [ordered]@{
-            schema = 'rust-mcbe-fast-transfer-witness-scenario-v1'; scenario = 'FastTransferWitness'
+            schema = 'rust-mcbe-fast-transfer-witness-scenario-v2'; scenario = 'FastTransferWitness'
             target = 'Lbsg'; required_command = '/transfer sm3'
             assets_sha256 = $script:AssetsSha256
             maximum_command_to_reset_arm_milliseconds = 30000
             minimum_post_reset_network_position_delta = 0.5; minimum_duration_seconds = 600
-            core_extra_arguments = @()
             screenshot_slots = @(
                 [ordered]@{ filename = 'fast-transfer-before.png'; sha256 = $null },
                 [ordered]@{ filename = 'fast-transfer-after.png'; sha256 = $null }
@@ -289,11 +282,10 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         param($Artifacts)
         return Assert-FastTransferWitnessEvidence @Artifacts `
             -ExpectedBuildCommit $script:BuildCommit -ExpectedPregSha256 $script:PregSha256 `
-            -ExpectedBregSha256 $script:BregSha256 -ExpectedCoreSha256 $script:CoreSha256 `
+            -ExpectedBregSha256 $script:BregSha256 `
             -ExpectedProtocol 2193 `
             -ExpectedAppSha256 $script:AppSha256 -ExpectedAssetsSha256 $script:AssetsSha256 `
             -ExpectedRunId $script:RunId `
-            -ExpectedBridgeEndpoint $script:BridgeEndpoint -ExpectedCoreProcessId 41 `
             -ExpectedAppProcessId 42 -ExpectedPresentMode Fifo
     }
 
@@ -314,16 +306,6 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $script:Positions[0] = @(100.0, 72.62, 100.0)
         $script:Positions[2] = @(64.4, 80.62, 64.0)
         { Invoke-WitnessValidation (Write-WitnessArtifacts 'pre-reset-only') } | Should Throw
-    }
-
-    It 'carries bounded core extra arguments through the witness schemas' {
-        $script:Scenario.core_extra_arguments = @('-upstream-client-cache')
-        $script:Metadata.core_extra_arguments = @('-upstream-client-cache', '512')
-        $artifacts = Write-WitnessArtifacts 'core-extra'
-        (Invoke-WitnessValidation $artifacts).status | Should Be 'passed'
-        $script:Scenario.core_extra_arguments = @('not allowed')
-        $broken = Write-WitnessArtifacts 'core-extra-broken'
-        { Invoke-WitnessValidation $broken } | Should Throw
     }
 
     It 'rejects a post-reset network-position delta below 0.5' {
@@ -503,19 +485,20 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
 
     It 'builds the fixed authenticated LBSG transfer plan with candidate physics' {
         $plan = New-MovementLaunchPlan -Target Lbsg -Endpoint 'play.lbsg.net:19132' `
-            -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-            -DurationSeconds 600 -Scenario FastTransferWitness -AuthCache token.json `
+            -RunId $script:RunId -MetricsPath metrics.json `
+            -DurationSeconds 600 -Scenario FastTransferWitness `
             -Assets vanilla.mcbea
         ($plan.AppArguments -ccontains '--movement-candidate-physics') | Should Be $true
         ($plan.AppArguments -ccontains '--auto-fly') | Should Be $false
-        ($plan.CoreArguments -ccontains '-auth-cache') | Should Be $true
+        $plan.AppArguments[0] | Should Be '--address'
+        $plan.AppArguments[1] | Should Be 'play.lbsg.net:19132'
         { New-MovementLaunchPlan -Target Lbsg -Endpoint 'play.lbsg.net:19132' `
-                -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-                -DurationSeconds 599 -Scenario FastTransferWitness -AuthCache token.json `
+                -RunId $script:RunId -MetricsPath metrics.json `
+                -DurationSeconds 599 -Scenario FastTransferWitness `
                 -Assets vanilla.mcbea } | Should Throw
         { New-MovementLaunchPlan -Target Zeqa -Endpoint 'zeqa.net:19132' `
-                -RunId $script:RunId -SocketDirectory socket -MetricsPath metrics.json `
-                -DurationSeconds 600 -Scenario FastTransferWitness -AuthCache token.json `
+                -RunId $script:RunId -MetricsPath metrics.json `
+                -DurationSeconds 600 -Scenario FastTransferWitness `
                 -Assets vanilla.mcbea } | Should Throw
     }
 
@@ -548,7 +531,6 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $entrypoint | Should Match "Target = 'Lbsg'"
         $entrypoint | Should Match "Scenario = 'FastTransferWitness'"
         $entrypoint | Should Match 'DurationSeconds = 900'
-        $entrypoint | Should Match 'microsoft-token.json'
         $entrypoint | Should Not Match 'vanilla-v[0-9]+\.mcbea'
         $launcher | Should Match 'Get-BedrockTargetManifest'
         $launcher | Should Match 'target\\\$buildProfile\\cinnabar'
@@ -557,8 +539,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $launcher | Should Match 'FastTransferWitnessValidate.ps1'
         $launcher | Should Match 'validation-error.txt'
         $launcher | Should Match 'rust-mcbe-movement-launcher-error-v1'
-        $launcher.IndexOf('Stop-BoundedProcess -Handle $appHandle -Kind app') | Should BeLessThan `
-            $launcher.IndexOf('Stop-BoundedProcess -Handle $coreHandle -Kind core')
+        $launcher | Should Match 'Stop-BoundedProcess -Handle \$appHandle -Kind app'
         $launcher | Should Not Match 'Remove-Item.*runDirectory'
     }
 

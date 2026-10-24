@@ -35,6 +35,7 @@ fn frame() -> ui_engine::frame::EngineFrame {
         widget: Default::default(),
         modal_root: None,
         transform: None,
+        anim: None,
     };
     let mut track = region.clone();
     track.key = "scroll/track".into();

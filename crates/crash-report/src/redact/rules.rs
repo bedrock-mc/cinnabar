@@ -1,11 +1,11 @@
-//! The shared rule file, compiled once, and the single pass Go's `redact.Text` mirrors.
+//! The rule file compiled once for share-time redaction.
 
 use std::{ops::Range, sync::LazyLock};
 
 use regex::Regex;
 use serde::Deserialize;
 
-/// The rule file. The Go core embeds a byte-for-byte copy as `core/internal/redact/rules.json`.
+/// The canonical credential and private-data rules.
 pub(super) const RULES_JSON: &str = include_str!("../../data/redaction-rules.json");
 
 #[derive(Deserialize)]

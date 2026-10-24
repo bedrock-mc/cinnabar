@@ -83,7 +83,7 @@ fn open_runs_the_world_and_close_stops_its_server() {
     manager.open(&world.id, None).expect("open");
     let status = wait_for(manager, WorldState::Running);
     assert_eq!(status.world_id.as_deref(), Some(world.id.as_str()));
-    let report = manager.core_report();
+    let report = manager.world_report();
     let target = report.target.expect("running target");
     assert_eq!(
         (target.address.as_str(), target.transport),
@@ -96,7 +96,30 @@ fn open_runs_the_world_and_close_stops_its_server() {
     manager.close();
     wait_for(manager, WorldState::Idle);
     assert!(instance.stopped(), "the server was not stopped");
-    assert_eq!(manager.core_report(), LocalWorld::default());
+    assert_eq!(manager.world_report(), LocalWorld::default());
+}
+
+/// The native directory token follows the actual live instance, including failure before watcher delivery.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_host_opening_survives_noop_open_and_is_revoked_when_its_instance_exits() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = with_runner(&runner);
+    let manager = &fixture.manager;
+    let world = manager.create(&flat("w")).unwrap();
+    manager.open(&world.id, None).unwrap();
+    wait_for(manager, WorldState::Running);
+    let opening = HostOpening::capture(manager).unwrap();
+    manager.open(&world.id, None).unwrap();
+    let unchanged = HostOpening::capture(manager).unwrap();
+    assert!(opening.same(&unchanged));
+    opening.validate().unwrap();
+    runner.last().exit();
+    assert_eq!(
+        opening.validate().unwrap_err().kind(),
+        std::io::ErrorKind::NotConnected
+    );
+    wait_for(manager, WorldState::Failed);
 }
 
 /// A manager whose EULA is accepted, with one BDS world served by `runner`.
@@ -115,181 +138,6 @@ fn bds_world(runner: &Arc<FakeRunner>) -> (Fixture, World) {
         })
         .expect("create");
     (fixture, world)
-}
-
-/// Saving a new default mode wakes every route subscriber without restarting the server.
-#[test]
-fn applied_game_mode_wakes_route_subscribers() {
-    let runner = Arc::new(FakeRunner::default());
-    let (fixture, world) = bds_world(&runner);
-    let manager = &fixture.manager;
-    manager.open(&world.id, None).expect("open");
-    wait_for(manager, WorldState::Running);
-    let before = manager.core_report();
-    let subscribers = [manager.subscribe(), manager.subscribe()];
-    manager
-        .apply(
-            &world.id,
-            &WorldUpdate {
-                game_mode: Some(bridge::GameMode::Creative),
-                ..WorldUpdate::default()
-            },
-        )
-        .expect("save the default mode");
-    for changes in subscribers {
-        changes
-            .try_recv()
-            .expect("wake for the changed world report");
-    }
-    manager.open(&world.id, None).expect("idempotent open");
-    let after = manager.core_report();
-    assert_eq!(after.state, WorldState::Running);
-    assert_eq!(after.target, before.target);
-    assert_eq!(
-        after.world.expect("world").game_mode,
-        bridge::GameMode::Creative
-    );
-    assert_eq!(lock(&runner.made).len(), 1, "the server stays running");
-}
-
-/// An in-game change reaches the running server at once and stays saved; a clean stop, after
-/// which the server's own data holds it, ends it being pending.
-#[test]
-fn applied_settings_reach_the_running_server_and_persist() {
-    use launcher::local_worlds::{
-        in_world::{Action, update},
-        options::WorldOption as O,
-        world::Difficulty,
-    };
-    let runner = Arc::new(FakeRunner::default());
-    let (fixture, world) = bds_world(&runner);
-    let manager = &fixture.manager;
-    let hard = update(&world, Action::Difficulty(Difficulty::Hard)).expect("an update");
-    manager.apply(&world.id, &hard).expect("saved while closed");
-    manager.open(&world.id, None).expect("open");
-    wait_for(manager, WorldState::Running);
-    let instance = runner.last();
-    assert!(
-        lock(&instance.console).is_empty(),
-        "a closed world takes no commands"
-    );
-    let world = manager.inner.store.get(&world.id).expect("saved world");
-    assert_eq!(world.difficulty, Difficulty::Hard);
-    let cheats = update(&world, Action::Option(O::ActivateCheats, 1)).expect("cheats on");
-    let world = manager.apply(&world.id, &cheats).expect("apply").world;
-    let keep = update(&world, Action::Option(O::KeepInventory, 1)).expect("a rule");
-    let applied = manager.apply(&world.id, &keep).expect("apply");
-    assert!(!applied.missed);
-    let saved = applied.world;
-    assert!(saved.options.enabled(O::KeepInventory) && saved.options.enabled(O::ActivateCheats));
-    assert_eq!(
-        *lock(&instance.console),
-        [
-            "changesetting allow-cheats true",
-            "gamerule keepinventory true"
-        ]
-    );
-    let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
-    assert_eq!(
-        pending.get(O::KeepInventory),
-        Some(1),
-        "pending until the server saves"
-    );
-    manager.close();
-    wait_for(manager, WorldState::Idle);
-    let (reopened, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
-    assert!(pending.is_empty(), "{pending:?}");
-    assert!(reopened.options.enabled(O::KeepInventory));
-}
-
-/// Applies a live PvP edit and checks its saved value before and after shutdown.
-fn pending_after_live_edit(
-    console_fails: bool,
-    unclean: bool,
-) -> launcher::local_worlds::options::OptionChanges {
-    use launcher::local_worlds::{
-        in_world::{Action, update},
-        options::WorldOption as O,
-    };
-    let runner = Arc::new(FakeRunner {
-        console_fails,
-        unclean,
-        ..FakeRunner::default()
-    });
-    let (fixture, world) = bds_world(&runner);
-    let manager = &fixture.manager;
-    manager.open(&world.id, None).expect("open");
-    wait_for(manager, WorldState::Running);
-    let world = manager.inner.store.get(&world.id).expect("saved world");
-    let pvp = update(&world, Action::Option(O::Pvp, 0)).expect("an update");
-    let applied = manager.apply(&world.id, &pvp).expect("saved");
-    assert_eq!(applied.missed, console_fails);
-    assert!(
-        !applied.world.options.enabled(O::Pvp),
-        "the change is saved either way"
-    );
-    manager.close();
-    wait_for(manager, WorldState::Idle);
-    let (saved, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
-    assert!(!saved.options.enabled(O::Pvp));
-    pending
-}
-
-/// A failed console write is reported separately from persistence, even after a clean stop.
-#[test]
-fn a_failed_live_change_is_reported_and_stays_pending() {
-    use launcher::local_worlds::options::WorldOption as O;
-    assert_eq!(pending_after_live_edit(true, false).get(O::Pvp), Some(0));
-}
-
-/// A successful stop call without a clean exit must not acknowledge live changes.
-#[test]
-fn live_changes_stay_pending_after_an_unclean_stop() {
-    use launcher::local_worlds::options::WorldOption as O;
-    assert_eq!(pending_after_live_edit(false, true).get(O::Pvp), Some(0));
-}
-
-/// A crashed server's live edits cannot acknowledge a failed edit in its replacement.
-#[test]
-fn a_failed_live_change_after_reopening_a_crashed_server_stays_pending() {
-    use launcher::local_worlds::{
-        in_world::{Action, update},
-        options::WorldOption as O,
-    };
-    for clear_failure in [false, true] {
-        let runner = Arc::new(FakeRunner::default());
-        let (fixture, world) = bds_world(&runner);
-        let manager = &fixture.manager;
-        manager.open(&world.id, None).expect("open");
-        wait_for(manager, WorldState::Running);
-        let pvp = update(&world, Action::Option(O::Pvp, 0)).expect("an update");
-        assert!(!manager.apply(&world.id, &pvp).expect("applied").missed);
-        runner.last().exit();
-        wait_for(manager, WorldState::Failed);
-        if clear_failure {
-            manager.close();
-        }
-        manager.open(&world.id, None).expect("reopen");
-        wait_for(manager, WorldState::Running);
-        test_time::eventually("the replacement applies its startup settings", || {
-            let (_, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
-            pending.is_empty()
-        });
-        runner
-            .last()
-            .console_fails
-            .store(true, std::sync::atomic::Ordering::SeqCst);
-        assert!(manager.apply(&world.id, &pvp).expect("saved").missed);
-        manager.close();
-        wait_for(manager, WorldState::Idle);
-        let (saved, pending, _) = manager.inner.store.snapshot(&world.id).expect("snapshot");
-        assert!(!saved.options.enabled(O::Pvp));
-        assert_eq!(
-            pending.get(O::Pvp),
-            Some(0),
-            "the failed edit must be retried"
-        );
-    }
 }
 
 /// Reopening a world that still saves starts its server only once the old one has exited.
@@ -471,7 +319,7 @@ fn a_failed_start_stays_failed_and_hides_detail() {
     let status = wait_for(manager, WorldState::Failed);
     let error = status.error.expect("failure text");
     assert!(!error.is_empty() && !error.contains("secret"), "{error}");
-    let report = manager.core_report();
+    let report = manager.world_report();
     assert!(
         report.target.is_none() && report.error.is_some(),
         "a failed world must not fall through"
@@ -493,7 +341,7 @@ fn closing_while_starting_cancels_the_start() {
 
 /// The core holds a session while the world starts, then gets its target.
 #[test]
-fn the_core_report_follows_the_start() {
+fn the_world_report_follows_the_start() {
     let (runner, release) = FakeRunner::gated();
     let fixture = with_runner(&Arc::new(runner));
     let manager = &fixture.manager;
@@ -503,13 +351,13 @@ fn the_core_report_follows_the_start() {
     changes
         .recv_timeout(test_time::DEFAULT_TIMEOUT)
         .expect("a change for the start");
-    let starting = manager.core_report();
+    let starting = manager.world_report();
     assert_eq!(starting.state, WorldState::Starting);
     assert!(starting.target.is_none());
     assert_eq!(starting.world.expect("world").id, world.id);
     drop(release);
     wait_for(manager, WorldState::Running);
-    assert!(manager.core_report().target.is_some());
+    assert!(manager.world_report().target.is_some());
 }
 
 #[test]
@@ -678,7 +526,7 @@ fn bds_worlds_need_a_supported_platform_and_the_eula() {
     let status = wait_for(manager, WorldState::Running);
     assert_eq!(status.backend, Some(Backend::Bds));
     assert_eq!(
-        manager.core_report().target.expect("target").transport,
+        manager.world_report().target.expect("target").transport,
         Transport::NetherNet
     );
     let unsupported = fixture(|parts, dir| parts.setup = Some(provisioner(dir, MAC)));
@@ -737,6 +585,118 @@ fn bds_targets_use_lan_discovery_when_the_server_advertises() {
     assert_eq!(target.address, "127.0.0.1:1");
     world.backend = Backend::Dragonfly;
     assert_eq!(target_for(&world, &lan).transport, Transport::RakNet);
+}
+
+/// The actual manager handoff retains the selected BDS level, rather than its HTTP projection.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_local_bds_lan_selection_uses_the_original_process_discovery_endpoint() {
+    let address = "127.0.0.1:7552";
+    let runner = Arc::new(FakeRunner {
+        lan: Some(address.into()),
+        ..Default::default()
+    });
+    let fixture = fixture(|parts, dir| {
+        let process: Arc<dyn Runner> = runner.clone();
+        parts.runners.bds = Some(process);
+        parts.setup = Some(provisioner(dir, LINUX));
+    });
+    let manager = &fixture.manager;
+    let world = manager
+        .create(&NewWorld {
+            name: "selected-local-bds".into(),
+            backend: Some(Backend::Bds),
+            ..Default::default()
+        })
+        .unwrap();
+    manager.accept_eula().unwrap();
+    manager.open(&world.id, None).unwrap();
+    wait_for(manager, WorldState::Running);
+    let selection = manager.native_local_world(&world.id).unwrap();
+    let target = selection.connection_target().unwrap();
+    assert_eq!(
+        target.transport,
+        protocol::NativeTransport::LocalNetherNetLan
+    );
+    assert_eq!(target.address, address);
+    assert_eq!(
+        target.local_lan_route().unwrap(),
+        (
+            address.parse().unwrap(),
+            world.id.as_str(),
+            Duration::from_millis(u64::from(bridge::contract::LOCAL_LAN_DISCOVERY_TIMEOUT_MS)),
+        )
+    );
+    assert_eq!(
+        manager.world_report().target.unwrap().transport,
+        Transport::NetherNetLan
+    );
+    selection.request_close();
+    wait_for(manager, WorldState::Idle);
+    assert_eq!(
+        selection.connection_target().unwrap_err().kind(),
+        std::io::ErrorKind::NotConnected
+    );
+}
+
+/// BDS intent shares the exact original player route and cannot survive a replacement generation.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+#[test]
+fn native_bds_host_intent_keeps_the_original_http_or_lan_opening() {
+    for lan in [None, Some("127.0.0.1:7552".to_owned())] {
+        let has_lan = lan.is_some();
+        let runner = Arc::new(FakeRunner {
+            lan,
+            ..Default::default()
+        });
+        let fixture = fixture(|parts, dir| {
+            let process: Arc<dyn Runner> = runner.clone();
+            parts.runners.bds = Some(process);
+            parts.setup = Some(provisioner(dir, LINUX));
+        });
+        let manager = &fixture.manager;
+        let world = manager
+            .create(&NewWorld {
+                name: "original-host-bds".into(),
+                backend: Some(Backend::Bds),
+                ..Default::default()
+            })
+            .unwrap();
+        manager.accept_eula().unwrap();
+        manager.open(&world.id, None).unwrap();
+        wait_for(manager, WorldState::Running);
+        let intent = manager.native_host_intent().unwrap();
+        let selection = manager.native_local_world(&world.id).unwrap();
+        let selected = selection.connection_target().unwrap();
+        let captured = HostOpening::capture(manager)
+            .unwrap()
+            .native_connection_target()
+            .unwrap();
+        assert_eq!(selected.address, captured.address);
+        assert_eq!(selected.transport, captured.transport);
+        if has_lan {
+            assert_eq!(
+                selected.local_lan_route().unwrap(),
+                captured.local_lan_route().unwrap()
+            );
+        } else {
+            assert!(selected.local_lan_route().is_err());
+            assert!(captured.local_lan_route().is_err());
+        }
+        manager.close();
+        wait_for(manager, WorldState::Idle);
+        manager.open(&world.id, None).unwrap();
+        wait_for(manager, WorldState::Running);
+        assert!(!intent.same(&manager.native_host_intent().unwrap()));
+        assert_eq!(
+            selection.validate().unwrap_err().kind(),
+            std::io::ErrorKind::NotConnected
+        );
+        assert!(
+            !runner.last().stopped(),
+            "old host intent stopped the replacement process"
+        );
+    }
 }
 
 /// The unavailable reason reaches the status, and a Retry that finds Docker flips the default.
@@ -1034,14 +994,14 @@ fn world_options_report_multiplayer_denial_to_the_core() {
         life.world = Some(world);
         life.state = WorldState::Starting;
     }
-    assert!(manager.core_report().world.unwrap().multiplayer_disabled);
+    assert!(manager.world_report().world.unwrap().multiplayer_disabled);
     lock(&manager.inner.life)
         .world
         .as_mut()
         .unwrap()
         .options
         .set(O::Multiplayer, 1);
-    assert!(!manager.core_report().world.unwrap().multiplayer_disabled);
+    assert!(!manager.world_report().world.unwrap().multiplayer_disabled);
 }
 
 #[test]
@@ -1082,6 +1042,9 @@ fn world_options_reopen_reloads_rules_after_the_previous_server_saves() {
 
 #[path = "manager_host_tests.rs"]
 mod host;
+
+#[path = "manager_settings_tests.rs"]
+mod settings;
 #[cfg(unix)]
 #[path = "manager_standby_tests.rs"]
 mod standby;

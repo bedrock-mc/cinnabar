@@ -8,6 +8,8 @@ use {super::*, gameplay::movement::flush_player_auth_inputs};
 mod ready_order;
 #[path = "respawn/riptide.rs"]
 mod riptide;
+#[path = "respawn/terminal.rs"]
+mod terminal;
 
 #[test]
 fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_input() {

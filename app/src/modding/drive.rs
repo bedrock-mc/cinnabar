@@ -193,6 +193,7 @@ pub(super) fn drive_mod(
         world_observation.as_ref(),
         &player_runtime,
         Some(&interaction),
+        network.as_deref(),
     );
     let chat = if world_observation.is_some() {
         presentation_facts::chat_snapshot(&ui)

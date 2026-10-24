@@ -47,13 +47,6 @@ macro_rules! menu_screens {
         impl MenuScreen {
             /// All declared routes, including routes added in future changes.
             pub const ALL: &[Self] = &[$(Self::$name),+];
-            /// Screens entered only from an active play session.
-            pub fn requires_session(self) -> bool {
-                match self {
-                    Self::Pause | Self::Death | Self::Invite => true,
-                    Self::Home | Self::Play | Self::Social | Self::Servers | Self::Profile | Self::DressingRoom | Self::Settings | Self::AddServer | Self::Inbox | Self::Friends => false,
-                }
-            }
         }
     };
 }
@@ -297,3 +290,6 @@ mod address_tests;
 pub const MAX_SERVER_NAME_BYTES: usize = 64;
 /// Maximum saved server address size in UTF-8 bytes.
 pub const MAX_SERVER_ADDRESS_BYTES: usize = 128;
+
+/// How often visible account catalogs refresh across native and Go menu workers.
+pub const CATALOG_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);

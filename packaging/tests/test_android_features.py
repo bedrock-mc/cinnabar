@@ -30,6 +30,7 @@ class AndroidFeatureTests(unittest.TestCase):
                              "with open(os.environ['FEATURE_LOG'], 'a') as output:\n"
                              "    output.write(json.dumps(sys.argv[1:]) + '\\n')\n"
                              "if sys.argv[1] == 'metadata': print(json.dumps({'target_directory': 'unused'}))\n"
+                             "if 'prepare-android-verifier' in sys.argv: raise SystemExit(0)\n"
                              "raise SystemExit(0 if sys.argv[1] == 'ndk' else 77)\n")
             cargo.chmod(0o755)
             log = root / "commands.jsonl"

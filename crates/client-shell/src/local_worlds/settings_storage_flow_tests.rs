@@ -1,4 +1,4 @@
-//! Storage world rows must retain the core's world identity and deletion workflow.
+//! Storage world rows must retain the manager's world identity and deletion workflow.
 
 use {
     super::*,

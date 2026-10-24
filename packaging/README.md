@@ -1,6 +1,6 @@
 # Packaging
 
-Release installers ship the client, the Go core, the dragonfly local-world server and its
+Release installers ship the Rust client, the Dragonfly local-world server and its
 `cinnabar-cxb` verifier beside it, the Cinnangles Sans font and a prep kit, never Mojang-derived
 carriers. A packaged launch whose carriers are
 missing or stale runs `crates/first-run`: a setup window (a `--first-run-setup` child process, or
@@ -20,8 +20,10 @@ in a fresh file, and the newest 10 archives up to 64 MiB are kept.
 | Windows setup EXE + MSI (WiX v5) | `make package-windows` | `WINDOWS_CERT_PFX_BASE64`, `WINDOWS_CERT_PASSWORD` |
 | Linux AppImage | `make package-linux` | none |
 
-All native builds include the local mod host and Settings › Mods. Release targets use
-`--no-default-features` to exclude the acceptance harness. Developer defaults stay enabled for `make play`, live
+All native builds include the local mod host and Settings › Mods. Desktop release targets use
+`--no-default-features --features cinnabar/native-networking` to include Rust networking while
+excluding the acceptance harness. Account and network services run in the client.
+Developer defaults stay enabled for `make play`, live
 testing, CI and client MCP. A local `cargo build --release` still includes acceptance; use
 `make package-binaries` for shipping.
 
@@ -29,9 +31,9 @@ testing, CI and client MCP. A local `cargo build --release` still includes accep
 basename, Cargo package (`-` for Go integrations), and Unix path override variable. Release
 builds, platform staging, signing, payload checks and `dist-local` use this table. Unix packagers
 accept `BINARIES` for the build directory; otherwise helpers default beside the selected local
-server, core or client. `CXB` overrides the verifier path. `dist-local --binaries <DIR>` selects
-companion executables (by default beside `--client`), while `--client` and `--core` retain their
-explicit paths. Missing runtime executables fail staging.
+server or client. `CXB` overrides the verifier path. `dist-local --binaries <DIR>` selects
+companion executables (by default beside `--client`); `--client` selects the client path.
+Missing runtime executables fail staging.
 
 Installers also ship the bundled Cinnangles Sans font at `<resources>/fonts/`, so first-run setup can
 draw before any download.
@@ -165,8 +167,8 @@ Installers ship only the stripped binaries: packagers stage binaries by name and
 rejects any other file. Each package job zips its Rust binaries with their debug files and a
 `manifest.json` (version, commit, platform, and each binary's PE GUID+age, Mach-O UUID or ELF build
 id) into `cinnabar-symbols-<version>-<platform>-<arch>.zip`, named by `release-assets.json`, and
-the release carries it beside the installers. Go binaries (`bedrock-core`, `bedrock-local-server`)
-print symbolized tracebacks themselves and have no symbol files. Android release APKs use the
+the release carries it beside the installers. The Go local-world server (`bedrock-local-server`)
+prints symbolized tracebacks and has no symbol files. Android release APKs use the
 `release` profile with split debug info disabled and have no symbol archive; the separate Android
 CI workflow uses `play`. Releasing an older source branch without debug info publishes no archives
 when run without those overrides, with a workflow warning; `release-symbols.py has-symbols` checks
@@ -188,8 +190,8 @@ the summary; a bare `.dmp` path works too, and `--symbols` also accepts an extra
 Nightly releases replace their symbol archives, so keep the archive for any nightly you need to debug.
 
 ## Sign-in
-The core owns Xbox device-code auth. The client's `AuthState::AwaitingCode { uri, code }` exposes the
-code and URL; no packaging-specific UI exists.
+The selected Rust account service owns Xbox device-code auth. The client's
+`AuthState::AwaitingCode { uri, code }` exposes the code and URL; no packaging-specific UI exists.
 
 ## Crash reports
 The client starts a crash monitor first: the same executable re-run as `cinnabar --crash-monitor
@@ -205,7 +207,7 @@ A native fault's folder is written once the client is gone. Each folder,
 (thread stacks, thread and module lists), `report.json` (schema 1: kind, message, thread,
 backtrace, release, commit, build profile, OS, architecture, GPU and driver, uptime, session ID,
 renderer attempt and game state — session phase, server kind without its address, dimension,
-server pack count; native faults add a `native` object), plus `client.log` and `core.log` with
+server pack count; native faults add a `native` object), plus the available client and local-world log sections with
 this session's part of each log, up to 1 MiB apiece, `packets.txt` (the last 4,096 packet
 headers by name), `decode-samples/` (bodies of packets the session rejected, when any) and
 `flight.log` (the last 2,000 lines of the log flight recorder, `debug` for network, session,
@@ -231,12 +233,9 @@ newest 8 folders are kept. `CINNABAR_CRASH_UI=0` suppresses the window and
 session's folders after redaction. Copy report replaces the home directory with `~`. Nothing is
 uploaded.
 
-A `bedrock-core` process that crashes while the client lives (a Go panic or fatal error, or an
-exit other than 0 or its own logged failure status 1 that the client did not ask for) gets a
-`kind: core` folder written by the client, with `core-crash.txt` holding the Go runtime's
-panic and every goroutine's stack; no crash window opens, since the client shows its own
-disconnect. Every core's stderr goes to `logs/core.log`, one file per client session, each line
-labelled with the process role and pid.
+A local-world server failure is captured by its original process owner. Client networking
+and account failures remain in the client diagnostics; no separate Go client process or
+Go client crash log is shipped.
 
 ## Update channel
 The client checks its selected channel's fixed GitHub Releases manifest at most daily and

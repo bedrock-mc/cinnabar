@@ -127,7 +127,7 @@ fn malformed_archives_and_unsafe_or_duplicate_paths_are_rejected() {
 #[test]
 fn oversized_compressed_sources_and_declared_members_are_rejected() {
     assert!(matches!(
-        parse_skin_pack(&vec![0; resource_pack::MAX_ARCHIVE_BYTES + 1]),
+        parse_skin_pack(&vec![0; resource_pack::MAX_LOCAL_ARCHIVE_BYTES + 1]),
         Err(SkinImportError::TooLarge)
     ));
     let oversized = vec![0; resource_pack::MAX_PACK_TEXTURE_BYTES as usize + 1];

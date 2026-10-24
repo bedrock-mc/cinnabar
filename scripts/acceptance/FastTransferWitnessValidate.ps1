@@ -9,12 +9,9 @@ param(
     [Parameter(Mandatory = $true)][string]$ExpectedPregSha256,
     [Parameter(Mandatory = $true)][string]$ExpectedBregSha256,
     [Parameter(Mandatory = $true)][uint32]$ExpectedProtocol,
-    [Parameter(Mandatory = $true)][string]$ExpectedCoreSha256,
     [Parameter(Mandatory = $true)][string]$ExpectedAppSha256,
     [Parameter(Mandatory = $true)][string]$ExpectedAssetsSha256,
     [Parameter(Mandatory = $true)][string]$ExpectedRunId,
-    [Parameter(Mandatory = $true)][string]$ExpectedBridgeEndpoint,
-    [Parameter(Mandatory = $true)][int]$ExpectedCoreProcessId,
     [Parameter(Mandatory = $true)][int]$ExpectedAppProcessId,
     [ValidateSet('Fifo', 'Immediate')][string]$ExpectedPresentMode = 'Fifo'
 )

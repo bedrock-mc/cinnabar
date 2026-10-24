@@ -80,8 +80,10 @@ fn cache_admission_checks_size_and_digest() {
 }
 #[test]
 fn slots_come_from_the_wire_schema() {
-    let schema: serde_json::Value =
-        serde_json::from_str(include_str!("../../../core/cinnabarapi/schema/v1.json")).unwrap();
+    let schema: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../crates/bridge/data/cinnabar-api/v1.json"
+    ))
+    .unwrap();
     assert_eq!(
         schema["$defs"]["CosmeticSlot"]["x-known-slots"]
             .as_array()

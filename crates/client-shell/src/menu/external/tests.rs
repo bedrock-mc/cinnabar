@@ -8,7 +8,7 @@ fn external_account_actions_never_start_native_helpers() {
     menu.activate(MenuAction::StartSignIn);
     assert_eq!(menu.take_account_intent(), Some(AccountIntent::SignIn));
     assert_eq!(menu.current_auth().as_ref(), &AuthState::Checking);
-    assert!(menu.auth_process.is_none());
+    assert!(menu.owned_auth().is_none());
     menu.sync_external_account(
         AuthState::AwaitingCode {
             uri: "https://example.invalid".into(),

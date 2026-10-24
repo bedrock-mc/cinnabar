@@ -85,6 +85,7 @@ mod tests {
             widget: Default::default(),
             modal_root: None,
             transform: None,
+            anim: None,
         };
         let hits = segments(&region, 3, 2.0, [5.0, 7.0]);
         for (track_x, expected) in [

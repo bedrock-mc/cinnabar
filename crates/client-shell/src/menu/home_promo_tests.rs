@@ -1,6 +1,6 @@
 use bridge::Home;
 use launcher::menu::auth::AuthState;
-use launcher_host::launcher_account::menu_home;
+use launcher_host::account_control::menu_home;
 
 #[test]
 fn snapshot_core_home_promo() {

@@ -341,8 +341,8 @@ fn movement_evidence_is_production_shaped_exact_bounded_and_dimension_correlated
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(identity_json.as_object().unwrap().len(), 15);
-    assert_eq!(identity_json["schema"], "rust-mcbe-movement-identity-v1");
+    assert_eq!(identity_json.as_object().unwrap().len(), 12);
+    assert_eq!(identity_json["schema"], "rust-mcbe-movement-identity-v2");
     assert_eq!(identity_json["target"], "Zeqa");
     assert_eq!(identity_json["protocol"], 2193);
     assert_eq!(identity_json["session_generation"], 7);
@@ -352,9 +352,6 @@ fn movement_evidence_is_production_shaped_exact_bounded_and_dimension_correlated
     assert_eq!(identity_json["source_dirty"], false);
     assert_eq!(identity_json["run_id"], "0123456789abcdef0123456789abcdef");
     assert_eq!(identity_json["endpoint"], "127.0.0.1:19132");
-    assert_eq!(identity_json["bridge_endpoint"], "127.0.0.1:19133");
-    assert_eq!(identity_json["core_sha256"], "33".repeat(32));
-    assert_eq!(identity_json["core_process_id"], 41);
     assert_eq!(identity_json["app_process_id"], 42);
     assert!(evidence.observe_identity(identity).is_empty());
 

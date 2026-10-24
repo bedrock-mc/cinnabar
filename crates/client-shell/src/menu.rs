@@ -9,7 +9,7 @@
 mod account;
 mod account_control;
 mod accounts;
-mod catalog_art;
+mod activation;
 mod construction;
 mod death;
 pub mod disconnect;
@@ -26,9 +26,17 @@ mod invite;
 mod join_requests;
 mod realm_membership;
 pub use join_requests::open_join_requests_from_key;
+#[cfg(feature = "native-networking")]
 pub mod launcher_account;
-mod launcher_core;
+#[cfg(feature = "native-networking")]
+mod launcher_services;
 mod minecraft_import;
+#[cfg(feature = "native-networking")]
+mod native_catalog;
+#[cfg(feature = "native-networking")]
+mod native_gatherings;
+#[cfg(feature = "native-networking")]
+pub mod native_local_world;
 mod navigation;
 mod presence_targets;
 mod reconnect;
@@ -37,8 +45,11 @@ pub mod screen_focus;
 #[cfg(test)]
 mod server_input_tests;
 mod services;
+mod session_intents;
 mod shader_options;
+#[cfg(feature = "native-networking")]
 pub use services::sync_cinnabar_players;
+use session_intents::SessionIntents;
 pub mod settings_options;
 mod settings_paths;
 pub mod settings_storage;
@@ -52,24 +63,26 @@ mod view;
 mod worlds_tab;
 mod xbox_presence;
 
+use launcher::menu::auth::AuthState;
+#[cfg(feature = "native-networking")]
+use launcher_host::auth::AuthSupervisor;
 use launcher_host::{
-    auth, core_process, launcher_core::target_for, server_trust, servers, sign_in_browser,
+    auth::auth_cache_path, destination::target_for, server_trust, servers, sign_in_browser,
 };
 use ui::RenderMode;
-use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 
-use core_process::{auth_cache_path, core_executable};
 pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
 pub use input::{HOTKEY_OPTIONS, drive_menu_input, drive_window_ime};
-use launcher::menu::view::{CatalogFile, MenuFeeds};
+use launcher::menu::view::MenuFeeds;
 
 use launcher::menu::view::{
     JoinKind, LocalWorldCard, MenuFriendCard, MenuRealmCard, MenuServerCard, SavedServer,
 };
 
 pub use account::SignInStatus;
-pub use launcher_core::LauncherCoreSlot;
+#[cfg(feature = "native-networking")]
+pub use launcher_services::LauncherServices;
 use servers::{ServerWriter, load_servers};
 pub use video_settings::persist_video_settings;
 
@@ -93,6 +106,9 @@ use launcher::menu::{MenuAction, MenuDialog, MenuField, MenuScreen, MenuServerTa
 
 #[derive(Debug, Resource)]
 pub struct MenuRuntime {
+    /// Execution only; the application keeps the real Runtime outside the World until workers retire.
+    #[cfg(not(target_arch = "wasm32"))]
+    native_io: Option<bridge::tasks::NativeExecution>,
     visible: bool,
     screen: MenuScreen,
     focused: usize,
@@ -159,17 +175,18 @@ pub struct MenuRuntime {
     /// The session controller's last published state.
     session: SessionStatus,
     featured: MenuList<MenuServerCard>,
+    #[cfg(feature = "native-networking")]
+    native_gatherings:
+        std::collections::HashMap<String, launcher_host::native_account::NativeGatheringSelection>,
     realms: MenuList<MenuRealmCard>,
     friends: MenuList<MenuFriendCard>,
     catalog_message: Option<String>,
-    catalog_started: bool,
-    catalog: launcher_host::catalog::Catalog,
-    catalog_art: Option<launcher_host::catalog_art::CatalogArt>,
+    #[cfg(feature = "native-networking")]
     auth_process: Option<AuthSupervisor>,
+    #[cfg(feature = "native-networking")]
+    native_catalog: native_catalog::Controller,
     auth_attempted: bool,
     auth_restart_requested: bool,
-    /// The account core a held join may still use; `None` when it cannot start for the join.
-    account_core: Option<launcher_core::AccountCore>,
     layout: InstallLayout,
     /// The client's own skin, cloned into every reconnection's `NetworkConfig`.
     player_skin: crate::player_skin::LocalPlayerSkin,
@@ -242,19 +259,6 @@ pub struct MenuRuntime {
     realm_membership: realm_membership::RealmUi,
     /// Discord join requests waiting for the host's answer.
     join_requests: join_requests::JoinRequestUi,
-}
-
-/// Session requests raised by menu actions, for the session controller to take.
-#[derive(Debug, Default)]
-struct SessionIntents {
-    join: Option<JoinIntent>,
-    /// The queued join waits for the saved account's check until this passes.
-    join_sign_in_deadline: Option<std::time::Instant>,
-    /// The background sign-in check serves a join: it may finish, but never prompts.
-    join_sign_in_check: bool,
-    disconnect: bool,
-    respawn: bool,
-    exit: bool,
 }
 
 impl MenuRuntime {
@@ -355,33 +359,18 @@ impl MenuRuntime {
         self.local_world_requested.take()
     }
 
-    /// The queued join, once the saved account's check has settled (bounded) and any
-    /// sign-in helper the join does not outlive has finished cleaning up.
-    pub fn take_join_intent(&mut self) -> Option<JoinIntent> {
-        if self.external.is_some() {
-            return self.intents.join.take();
-        }
-        let helper_outlives_join = match self.settle_join_sign_in(std::time::Instant::now()) {
-            account::JoinSignIn::Waiting => return None,
-            account::JoinSignIn::Settled => false,
-            account::JoinSignIn::Expired => true,
-        };
-        if !helper_outlives_join
-            && self
-                .auth_process
-                .as_ref()
-                .is_some_and(|process| !process.cleanup_complete())
-        {
-            return None;
-        }
-        self.intents.join.take()
-    }
-
     /// A cancelled join drops any queued join and returns to the play screen.
     pub fn cancel_join(&mut self) {
         self.intents.join = None;
+        #[cfg(feature = "native-networking")]
+        {
+            self.native_catalog.cancel_join();
+            self.intents.gathering = None;
+            self.intents.native_world = None;
+        }
         self.intents.join_sign_in_deadline = None;
         self.intents.join_sign_in_check = false;
+        self.intents.native_auth_required = false;
         self.retry_target = None;
         self.show_session_origin(MenuScreen::Play);
     }
@@ -399,7 +388,6 @@ impl MenuRuntime {
             self.disconnect_message = Some(message);
             self.focused = 0;
             self.hovered = None;
-            self.catalog_started = false;
         }
     }
 
@@ -411,7 +399,7 @@ impl MenuRuntime {
     /// Resets the join progress screen for a join to `address`.
     pub fn begin_join_progress(&mut self, address: &str, local_world: bool) {
         self.feeds.join = launcher::menu::view::JoinProgress::new(
-            launcher_host::launcher_core::join_kind(address, local_world),
+            launcher_host::destination::join_kind(address, local_world),
         );
     }
 
@@ -432,16 +420,25 @@ impl MenuRuntime {
         self.message = None;
         self.disconnect_message = Some(error.to_owned());
         // Let the account catalog repopulate now that the session is gone.
-        self.catalog_started = false;
         true
     }
 
     pub fn take_disconnect_request(&mut self) -> bool {
-        std::mem::take(&mut self.intents.disconnect)
+        let requested = std::mem::take(&mut self.intents.disconnect);
+        #[cfg(feature = "native-networking")]
+        if requested {
+            self.native_catalog.cancel_join();
+        }
+        requested
     }
 
     pub fn take_exit_request(&mut self) -> bool {
-        std::mem::take(&mut self.intents.exit)
+        let requested = std::mem::take(&mut self.intents.exit);
+        #[cfg(feature = "native-networking")]
+        if requested {
+            self.native_catalog.cancel_join();
+        }
+        requested
     }
 
     pub fn activate_from_input(&mut self, action: MenuAction) {
@@ -457,370 +454,6 @@ impl MenuRuntime {
             self.settings.record_activation(action, navigation);
         }
         self.activate(action);
-    }
-
-    pub fn activate(&mut self, action: MenuAction) {
-        if self.dismiss_minecraft_import(action) {
-            return;
-        }
-        if self.disconnect_message.is_some() && self.join_request_prompted() {
-            if let MenuAction::JoinRequest(accept) = action {
-                self.answer_join_request(accept);
-            }
-            return;
-        }
-        if action == MenuAction::Reconnect {
-            self.reconnect();
-            return;
-        }
-        if self.disconnect_message.is_some()
-            && !self.is_connecting()
-            && self.dialog.is_none()
-            && self.sign_in_focus().is_none()
-            && matches!(action, MenuAction::DismissDialog | MenuAction::AddBack)
-        {
-            self.dismiss_disconnect();
-            return;
-        }
-        #[cfg(feature = "developer-control")]
-        if self.activate_sign_in_fixture(action) {
-            return;
-        }
-        if self.skin_editor_blocks(action) || self.presentation_blocks(action) {
-            return;
-        }
-        if self.external_action(action) {
-            return;
-        }
-        if self.account_change_pending()
-            && matches!(
-                action,
-                MenuAction::PlaySaved(_)
-                    | MenuAction::PlayFeatured(_)
-                    | MenuAction::PlayRealm(_)
-                    | MenuAction::PlayFriend(_)
-                    | MenuAction::PlayLocalWorld(_)
-                    | MenuAction::OpenLiveEvent
-                    | MenuAction::LocalWorld(_)
-            )
-        {
-            self.message = Some("Please wait for the account change to finish.".into());
-            return;
-        }
-        if let Some(index) = self
-            .focus_actions()
-            .iter()
-            .position(|candidate| *candidate == action)
-        {
-            self.focused = index;
-        }
-        match action.text_field() {
-            Some(field) => self.focus_field(field),
-            None => self.field = None,
-        }
-        self.pressed = Some(action);
-        self.message = None;
-        self.disconnect_message = None;
-        match action {
-            MenuAction::MinecraftImport(action) => self.activate_minecraft_import(action),
-            MenuAction::SelectProfileTab(tab) => self.profile_tab = tab,
-            MenuAction::RefreshProfile => {
-                self.feeds.profile.loaded = false;
-                self.feeds.profile.unavailable = false;
-                self.feeds.profile_refresh_requested = true;
-            }
-            MenuAction::Inbox(action) => self.activate_inbox(action),
-            MenuAction::Navigate(screen) => {
-                if screen == MenuScreen::DressingRoom {
-                    self.ensure_dressing_room();
-                }
-                self.enter(screen);
-            }
-            MenuAction::OpenExitDialog => {
-                self.dialog = Some(MenuDialog::Exit);
-                self.focused = 0;
-            }
-            MenuAction::Update(action) => {
-                if !self.over_world() && launcher_host::lifecycle::update::act(action) {
-                    self.intents.exit = true;
-                }
-            }
-            MenuAction::ConfirmExit => {
-                self.dialog = None;
-                self.intents.exit = true;
-            }
-            MenuAction::OpenDeathQuit => {
-                if self.death_controls_ready() {
-                    self.dialog = Some(MenuDialog::DeathQuit);
-                    self.focused = 0;
-                }
-            }
-            MenuAction::OpenDeathGameMenu => {
-                if self.death_controls_ready() {
-                    self.enter(MenuScreen::Pause);
-                }
-            }
-            MenuAction::DeathExitWorld => {
-                if self.death_controls_ready() && self.death_presentation.hardcore {
-                    self.death_loading = true;
-                    self.death_presentation.exiting_world = true;
-                    self.death_presentation.respawn_seconds = Some(0.0);
-                    self.intents.disconnect = true;
-                    self.dialog = None;
-                }
-            }
-            MenuAction::ConfirmDeathQuit => {
-                if self.dialog == Some(MenuDialog::DeathQuit) {
-                    self.dialog = None;
-                    self.intents.disconnect = true;
-                    self.set_visible(false);
-                }
-            }
-            MenuAction::DismissDialog | MenuAction::CloseExitDialog => self.dismiss_accounts(),
-            MenuAction::Reconnect => {
-                unreachable!("reconnect is handled before clearing the failure")
-            }
-            MenuAction::OpenAccounts => self.open_accounts(),
-            MenuAction::AddAccount => self.add_account(),
-            MenuAction::SwitchAccount(index) => self.switch_account(index),
-            MenuAction::SelectServerTab(tab) => {
-                self.server_tab = tab;
-                self.focused = 0;
-            }
-            MenuAction::RefreshCatalog => {
-                self.stop_catalog();
-                self.catalog_started = false;
-                self.catalog_message = None;
-            }
-            MenuAction::StartSignIn => self.start_sign_in(),
-            MenuAction::OpenSignInLink => self.update_sign_in_browser(true),
-            MenuAction::CancelSignIn | MenuAction::CloseSignIn => {
-                if self.feeds.account_adding {
-                    self.cancel_add_account();
-                } else {
-                    self.stop_sign_in();
-                }
-                if self.dialog == Some(MenuDialog::Accounts) {
-                    self.dialog = None;
-                }
-            }
-            MenuAction::PlayAddServer => {
-                self.editing = None;
-                self.name.clear();
-                self.address.clear();
-                self.port.set_text(DEFAULT_PORT);
-                self.enter(MenuScreen::AddServer);
-                self.focus_field(MenuField::Name);
-            }
-            MenuAction::PlaySaved(index) => {
-                if index < self.servers.len() {
-                    self.servers[index].last_joined_unix = now_unix();
-                    let address = self.servers[index].address.clone();
-                    self.save_servers();
-                    self.request_connect(address);
-                }
-            }
-            MenuAction::PlayFeatured(index) => {
-                if let Some(server) = self.featured.get(index) {
-                    self.request_featured_connect(server.address.clone());
-                }
-            }
-            MenuAction::RealmMembership(action) => self.activate_realm_membership(action),
-            MenuAction::PlayRealm(index) => {
-                if let Some(realm) = self.realms.get(index) {
-                    let target = if realm.target.is_empty() {
-                        realm.address.clone()
-                    } else {
-                        realm.target.clone()
-                    };
-                    if target.is_empty() {
-                        self.message = Some(format!(
-                            "{} is {} and cannot be joined right now.",
-                            realm.name, realm.state
-                        ));
-                    } else {
-                        self.request_connect(target);
-                    }
-                }
-            }
-            MenuAction::ToggleFavorite(index) => {
-                if let Some(server) = self.servers.get_mut(index) {
-                    server.favorite = !server.favorite;
-                    self.message = Some(if server.favorite {
-                        format!("{} added to Favorites.", server.name)
-                    } else {
-                        format!("{} removed from Favorites.", server.name)
-                    });
-                    self.save_servers();
-                }
-            }
-            MenuAction::RemoveSavedDialog(index) => {
-                if index < self.servers.len() {
-                    self.dialog = Some(MenuDialog::RemoveSaved(index));
-                    self.focused = 0;
-                }
-            }
-            MenuAction::ConfirmRemoveSaved(index) => {
-                if index < self.servers.len() {
-                    let removed = self.servers.remove(index);
-                    self.feeds.selected_saved = None;
-                    self.save_servers();
-                    self.message = Some(format!("Removed {}.", removed.name));
-                }
-                self.dialog = None;
-            }
-            MenuAction::PlayFriend(index) => {
-                if let Some(friend) = self.friends.get(index) {
-                    if friend.xuid.is_empty() {
-                        self.message =
-                            Some("That friend world has no stable Xbox identity.".to_owned());
-                    } else {
-                        self.request_connect(format!(
-                            "{}{}",
-                            launcher::menu::FRIEND_ADDRESS_PREFIX,
-                            friend.xuid
-                        ));
-                    }
-                }
-            }
-            MenuAction::AddName
-            | MenuAction::AddAddress
-            | MenuAction::AddPort
-            | MenuAction::EditSkinName
-            | MenuAction::SearchFriends => {}
-            MenuAction::AddSave => {
-                // Saving pops the form back to the tab that opened it.
-                if self.save_draft() {
-                    self.go_back();
-                }
-            }
-            MenuAction::AddSaveConnect => {
-                if self.save_draft() {
-                    self.request_connect(self.draft_endpoint());
-                }
-            }
-            MenuAction::AddBack => self.go_back(),
-            MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
-            MenuAction::ReloadShaders => self.activate_shader_reload(),
-            MenuAction::ImportShaderPacks => self.request_shader_pack_import(),
-            MenuAction::RemoveShaderPackDialog(index, revision) => {
-                self.remove_shader_pack_dialog(index, revision)
-            }
-            MenuAction::ConfirmRemoveShaderPack(index, revision) => {
-                self.confirm_remove_shader_pack(index, revision)
-            }
-            MenuAction::SettingsShaders => self.activate_shaders_tab(),
-            MenuAction::ToggleRenderMode => {
-                if render_model::ENHANCED_RENDERING_ENABLED {
-                    self.render_mode = self.render_mode.toggled();
-                    self.render_mode_request = Some(self.render_mode);
-                }
-            }
-            // The game menu opened from the death screen returns to it.
-            MenuAction::PauseResume if self.death_shown => {
-                self.navigation_focus = navigation::NavigationFocus::default();
-                self.history.reset(MenuScreen::Death);
-                self.show_top();
-            }
-            MenuAction::PauseResume => self.set_visible(false),
-            MenuAction::PauseDisconnect => {
-                self.intents.disconnect = true;
-                self.set_visible(false);
-            }
-            MenuAction::PauseSettings => {
-                self.enter(MenuScreen::Settings);
-            }
-            MenuAction::EditSaved(index) => {
-                if let Some(server) = self.servers.get(index) {
-                    self.name.set_text(&server.name);
-                    let (address, port) = split_address(&server.address);
-                    self.address.set_text(&address);
-                    self.port.set_text(&port);
-                    self.enter(MenuScreen::AddServer);
-                    self.editing = Some(index);
-                    self.focus_field(MenuField::Name);
-                }
-            }
-            MenuAction::SettingsStorage(action) => self.activate_storage(action),
-            MenuAction::SettingsSupport(action) => self.activate_support(action),
-            MenuAction::SettingsSection(section) => self.activate_settings_section(section),
-            MenuAction::SettingsSearchSection(section) => {
-                self.focus_pointer(MenuAction::SettingsSection(section));
-                self.activate_settings_section(section);
-            }
-            action @ (MenuAction::SettingsScale(_)
-            | MenuAction::SearchSettings
-            | MenuAction::ClearSettingsSearch
-            | MenuAction::SettingsScalePicker
-            | MenuAction::SettingsFullscreen(_)
-            | MenuAction::SettingsOption(..)
-            | MenuAction::SettingsVideoPreset(_)
-            | MenuAction::SettingsLanguage(_)
-            | MenuAction::SettingsDropdown(_)
-            | MenuAction::SettingsResetBindings(_)
-            | MenuAction::SettingsResetGroup(_)
-            | MenuAction::SettingsConfirmResetGroup(_)
-            | MenuAction::SettingsConfirmResetBindings(_)
-            | MenuAction::SettingsKey(_)
-            | MenuAction::SettingsResetKey(_)
-            | MenuAction::SettingsMacroCommand(_)
-            | MenuAction::SettingsResetChat
-            | MenuAction::SettingsAdvancedGraphics
-            | MenuAction::EditTouchControls) => self.activate_settings(action),
-            MenuAction::Respawn => {
-                if self.death_controls_ready() {
-                    self.request_respawn();
-                }
-            }
-            MenuAction::SignOut => self.sign_out_requested = true,
-            MenuAction::SelectFeatured(index) => self.feeds.select(index),
-            MenuAction::SelectSaved(index) => self.feeds.select_saved(index),
-            MenuAction::ServerList(action) => {
-                self.settings_dirty |=
-                    std::sync::Arc::make_mut(&mut self.settings_options).apply_server_list(action);
-            }
-            MenuAction::SelectRealm(index) => self.feeds.selected_realm = Some(index),
-            MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
-            MenuAction::OpenLiveEvent => self.open_live_event(),
-            MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
-            MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
-                if !self.over_world() {
-                    self.apply_global_resources_on_leave();
-                    self.settings.section = launcher::menu::settings_sections::SettingSection::Mods
-                        .definition()
-                        .index;
-                    self.enter(MenuScreen::Settings);
-                }
-            }
-            MenuAction::Mods(launcher::mods::Action::OpenUpdate(id)) => {
-                if let Some(update) = self
-                    .mods
-                    .library
-                    .updates
-                    .iter()
-                    .find(|update| update.id == id)
-                {
-                    launcher_host::desktop::open_url(&update.release_url);
-                }
-            }
-            MenuAction::Mods(action) => {
-                if let Some(work) = std::sync::Arc::make_mut(&mut self.mods).apply(action) {
-                    self.mod_actions.push(work);
-                }
-            }
-            MenuAction::DressingRoom(action) => self.activate_dressing_room(action),
-            MenuAction::PlayLocalWorld(index) => {
-                if index < self.local_worlds.len() {
-                    self.local_world_requested = Some(index);
-                }
-            }
-            MenuAction::LocalWorld(action) => self.queue_local_action(action),
-            MenuAction::WorldSettings(action) => self.activate_world_settings(action),
-            MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
-            MenuAction::Invite(action) => self.activate_invite(action),
-            MenuAction::JoinRequest(accept) => self.answer_join_request(accept),
-            MenuAction::ShaderOptions(action) => self.activate_shader_options(action),
-        }
     }
 
     /// The draft's `host:port`; a host typed with its own port keeps it.
@@ -922,6 +555,12 @@ impl MenuRuntime {
 
     /// Queues a join to `address` for the session controller.
     pub fn request_connect(&mut self, address: String) {
+        #[cfg(feature = "native-networking")]
+        {
+            self.native_catalog.cancel_join();
+            self.intents.gathering = None;
+            self.intents.native_world = None;
+        }
         if self.external.is_some() {
             self.request_external_connect(address);
             return;
@@ -936,7 +575,6 @@ impl MenuRuntime {
         }
         bridge::join_profile::JoinProfile::begin();
         self.remember_session_origin();
-        self.stop_catalog();
         self.hold_join_for_sign_in();
         let auth_cache = self.launcher_auth_cache();
         self.remember_retry_target(&address, auth_cache.as_deref(), false);
@@ -967,7 +605,6 @@ impl Drop for MenuRuntime {
             bevy::log::warn!("could not save settings at shutdown: {error}");
         }
         self.stop_sign_in();
-        self.stop_catalog();
     }
 }
 

@@ -26,8 +26,9 @@ pub(super) fn local_pack_view_at(path: &Path) -> Option<LayeredPackView> {
     } else {
         vec![local_archive(path)]
     };
-    let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(archives));
+    let stack = resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(
+        archives,
+    ));
     for rejection in stack.rejections() {
         eprintln!("local pack rejected: {}", rejection.reason);
     }
@@ -35,14 +36,14 @@ pub(super) fn local_pack_view_at(path: &Path) -> Option<LayeredPackView> {
 }
 
 /// One `<uuid>_<version>` archive and its optional `.key`.
-fn local_archive(path: &Path) -> protocol::ResourcePackArchive {
+fn local_archive(path: &Path) -> bedrock_packs::ResourcePackArchive {
     let key = std::fs::read(path.with_extension("key")).unwrap_or_default();
     let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
     let (id, version) = stem.split_once('_').expect("<uuid>_<version> file name");
-    protocol::ResourcePackArchive::with_content_key(
+    bedrock_packs::ResourcePackArchive::with_content_key(
         id.parse().unwrap(),
         version.into(),
-        String::new(),
+        Vec::new(),
         std::fs::read(path).unwrap(),
         key,
     )

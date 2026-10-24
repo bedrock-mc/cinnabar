@@ -67,6 +67,7 @@ pub(super) struct OutboundRuntime<O, P, F, W> {
     pub(super) trace_line: F,
     pub(super) write_trace: W,
     pub(super) fast_transfer_action_marker: Option<&'static str>,
+    pub(super) terminal: Arc<TerminalOwner>,
 }
 
 struct QueuedPacket {
@@ -111,12 +112,28 @@ enum Flush {
     Failed(FlushFailure),
 }
 
+/// Observes a started body's guard drop, without claiming outer tracker-token retirement.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+struct OutboundBodyObservation;
+
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+impl Drop for OutboundBodyObservation {
+    fn drop(&mut self) {
+        tracing::info!(shutdown_phase = "session_outbound_bodyguard_drop");
+    }
+}
+
 pub(super) async fn run_outbound<O, P, F, W>(runtime: OutboundRuntime<O, P, F, W>)
 where
     O: OutboundSession,
     F: FnMut(u64, &Packet) -> Option<String>,
     W: FnMut(&str),
 {
+    // Original runtime fields bind after this guard and therefore drop before it.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    let _body_observation = OutboundBodyObservation;
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    tracing::info!(shutdown_phase = "session_outbound_body_begin");
     let OutboundRuntime {
         mut outbound,
         mut commands,
@@ -127,6 +144,7 @@ where
         mut trace_line,
         mut write_trace,
         fast_transfer_action_marker,
+        terminal,
     } = runtime;
     let mut frame = Vec::new();
     let clock_origin = Instant::now();
@@ -181,6 +199,7 @@ where
                 &experience_gate,
                 (&mut trace_line, &mut write_trace),
                 fast_transfer_action_marker,
+                &terminal,
             )
             .await;
             match flushed {
@@ -215,6 +234,7 @@ async fn flush_frame<O, P, F, W>(
     experience_gate: &experience::ExperienceGate,
     (trace_line, write_trace): (&mut F, &mut W),
     fast_transfer_action_marker: Option<&'static str>,
+    terminal: &TerminalOwner,
 ) -> Flush
 where
     O: OutboundSession,
@@ -297,11 +317,16 @@ where
     }
     match wait_for_send_or_cancel(outbound.send_batch(packets, now), shutdown_rx).await {
         None => Flush::Stopped,
-        Some(Err(error)) => Flush::Failed(FlushFailure {
-            message: error.to_string(),
-            chats: receipts.iter().filter_map(|receipt| receipt.chat).collect(),
-            trace_armed,
-        }),
+        Some(Err(error)) => {
+            if !terminal.network() {
+                return Flush::Stopped;
+            }
+            Flush::Failed(FlushFailure {
+                message: error.to_string(),
+                chats: receipts.iter().filter_map(|receipt| receipt.chat).collect(),
+                trace_armed,
+            })
+        }
         Some(Ok(())) => {
             if let Some((trace, begun, count, tick)) = traced {
                 trace.record(

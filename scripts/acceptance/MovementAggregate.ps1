@@ -8,25 +8,22 @@ function Write-MovementFinalAggregate {
         [Parameter(Mandatory = $true)][string]$RunMetadataPath,
         [Parameter(Mandatory = $true)][string]$MetricsPath,
         [Parameter(Mandatory = $true)][string]$OutputPath,
-        [Parameter(Mandatory = $true)][string]$LogSha256
+        [Parameter(Mandatory = $true)][string]$LogSha256,
+        [Parameter(Mandatory = $true)][string]$ExpectedAppSha256
     )
 
     $metadata = Get-Content -Raw -LiteralPath $RunMetadataPath | ConvertFrom-Json
     $metadataFields = @(
-        'schema', 'run_id', 'target', 'endpoint', 'bridge_endpoint', 'build_commit', 'source_dirty',
-        'core_sha256', 'app_sha256', 'assets_sha256', 'core_process_id', 'app_process_id', 'app_exit_code', 'core_exit_code',
-        'core_terminated_by_launcher', 'timed_out', 'duration_seconds', 'scenario', 'screenshot_slots',
-        'core_extra_arguments'
+        'schema', 'run_id', 'target', 'endpoint', 'build_commit', 'source_dirty',
+        'app_sha256', 'assets_sha256', 'app_process_id', 'app_exit_code', 'timed_out', 'duration_seconds', 'scenario', 'screenshot_slots'
     )
     Assert-ExactProperties $metadata $metadataFields 'run metadata'
-    if ([string]$metadata.schema -cne 'rust-mcbe-movement-run-v1') {
+    if ([string]$metadata.schema -cne 'rust-mcbe-movement-run-v2') {
         throw 'run metadata schema is unsupported'
     }
     foreach ($binding in @(
         @('run_id', [string]$Identity.run_id), @('target', [string]$Identity.target),
-        @('endpoint', [string]$Identity.endpoint), @('build_commit', [string]$Identity.build_commit),
-        @('bridge_endpoint', [string]$Identity.bridge_endpoint),
-        @('core_sha256', [string]$Identity.core_sha256)
+        @('endpoint', [string]$Identity.endpoint), @('build_commit', [string]$Identity.build_commit)
     )) {
         $name = [string]$binding[0]
         if ($metadata.$name -isnot [string] -or [string]$metadata.$name -cne [string]$binding[1]) {
@@ -34,11 +31,9 @@ function Write-MovementFinalAggregate {
         }
     }
     Assert-Boolean $metadata.source_dirty 'run metadata.source_dirty'
-    Assert-Boolean $metadata.core_terminated_by_launcher 'run metadata.core_terminated_by_launcher'
     Assert-Boolean $metadata.timed_out 'run metadata.timed_out'
     if ([bool]$metadata.source_dirty) { throw 'run metadata reports dirty source' }
     if ([bool]$metadata.timed_out) { throw 'movement app timed out' }
-    Assert-Integer $metadata.core_process_id 'run metadata.core_process_id' 1 ([decimal][int]::MaxValue)
     Assert-Integer $metadata.app_process_id 'run metadata.app_process_id' 1 ([decimal][int]::MaxValue)
     Assert-Integer $metadata.app_exit_code 'run metadata.app_exit_code' 0 0
     Assert-Integer $metadata.duration_seconds 'run metadata.duration_seconds' 1 ([decimal][int]::MaxValue)
@@ -49,11 +44,11 @@ function Write-MovementFinalAggregate {
     if ([string]$metadata.target -cne 'Bds' -and [int]$metadata.duration_seconds -lt 300) {
         throw 'remote movement evidence must run for at least five minutes'
     }
-    if ([int]$metadata.core_process_id -ne [int]$Identity.core_process_id -or
-        [int]$metadata.app_process_id -ne [int]$Identity.app_process_id) {
-        throw 'run metadata process IDs do not match the in-process identity'
+    if ([int]$metadata.app_process_id -ne [int]$Identity.app_process_id) {
+        throw 'run metadata app process ID does not match the in-process identity'
     }
-    if ($metadata.app_sha256 -isnot [string] -or [string]$metadata.app_sha256 -cnotmatch '^[0-9a-f]{64}$') {
+    if ($metadata.app_sha256 -isnot [string] -or
+        [string]$metadata.app_sha256 -cne $ExpectedAppSha256) {
         throw 'run metadata app_sha256 is invalid'
     }
     if ($null -ne $metadata.assets_sha256 -and
@@ -63,16 +58,6 @@ function Write-MovementFinalAggregate {
     if ($metadata.screenshot_slots -isnot [System.Array]) {
         throw 'run metadata screenshot_slots must be one JSON array'
     }
-    Assert-MovementCoreArgumentTokens $metadata.core_extra_arguments `
-        'run metadata.core_extra_arguments'
-    if ($null -ne $metadata.core_exit_code) {
-        Assert-Integer $metadata.core_exit_code 'run metadata.core_exit_code' ([int]::MinValue) ([int]::MaxValue)
-        if ([int]$metadata.core_exit_code -ne 0) { throw 'movement core exited with a nonzero code' }
-    }
-    elseif (-not [bool]$metadata.core_terminated_by_launcher) {
-        throw 'movement core has neither a recorded exit nor launcher termination'
-    }
-
     $metrics = Get-Content -Raw -LiteralPath $MetricsPath | ConvertFrom-Json
     foreach ($field in @(
         'session_seconds', 'frame_count', 'p50_frame_ms', 'p95_frame_ms', 'p99_frame_ms',
@@ -283,19 +268,17 @@ function Write-MovementFinalAggregate {
     $sessionSeconds = [double]$metrics.session_seconds
     $frameCount = [uint64]$metrics.frame_count
     $aggregate = [ordered]@{
-        schema = 'rust-mcbe-movement-final-v1'
+        schema = 'rust-mcbe-movement-final-v2'
         status = 'valid'
         scenario = [string]$ScenarioManifest.scenario
         identity = [ordered]@{
             build_commit = [string]$Identity.build_commit
             target = [string]$Identity.target
             endpoint = [string]$Identity.endpoint
-            bridge_endpoint = [string]$Identity.bridge_endpoint
             run_id = [string]$Identity.run_id
             session_generation = [uint64]$Identity.session_generation
             preg_sha256 = [string]$Identity.preg_sha256
             breg_sha256 = [string]$Identity.breg_sha256
-            core_sha256 = [string]$Identity.core_sha256
             app_sha256 = [string]$metadata.app_sha256
             source_dirty = $false
         }
@@ -372,11 +355,8 @@ function Write-MovementFinalAggregate {
             decode_error_count = [uint64]$metrics.decode_error_count
         }
         process = [ordered]@{
-            core_process_id = [uint64]$metadata.core_process_id
             app_process_id = [uint64]$metadata.app_process_id
             app_exit_code = [int]$metadata.app_exit_code
-            core_exit_code = $metadata.core_exit_code
-            core_terminated_by_launcher = [bool]$metadata.core_terminated_by_launcher
             timed_out = [bool]$metadata.timed_out
         }
         evidence = [ordered]@{

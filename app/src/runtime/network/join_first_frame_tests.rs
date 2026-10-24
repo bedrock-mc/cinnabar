@@ -113,7 +113,7 @@ fn join_first_frame_keeps_current_artwork_after_reversed_biome_completion_and_se
         ..Default::default()
     });
     let mut packs = resource_packs::prepare_validated_application(
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::default()),
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::default()),
         inputs,
     );
     let base = app

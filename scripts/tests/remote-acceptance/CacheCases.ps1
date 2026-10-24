@@ -17,15 +17,15 @@
             }
 
             & $write $false $false 0 0 0 0
-            (Get-CacheBoundaryEvidence -CoreLogPath $path).Classification |
+            (Get-CacheBoundaryEvidence -SourceLogPath $path).Classification |
                 Should Be 'negotiation_failure'
 
             & $write $true $true 0 177 0 3894
-            (Get-CacheBoundaryEvidence -CoreLogPath $path).Classification |
+            (Get-CacheBoundaryEvidence -SourceLogPath $path).Classification |
                 Should Be 'server_ordinary_despite_cache_capability'
 
             & $write $true $true 3 174 29 3865
-            (Get-CacheBoundaryEvidence -CoreLogPath $path).Classification |
+            (Get-CacheBoundaryEvidence -SourceLogPath $path).Classification |
                 Should Be 'cache_backed'
         }
         finally {
@@ -39,9 +39,9 @@
             New-Item -ItemType Directory -Path $temporary | Out-Null
             $path = Join-Path $temporary 'core.stderr.log'
             Set-Content -LiteralPath $path -Value 'no cache boundary marker'
-            $missing = Get-CacheBoundaryEvidence -CoreLogPath $path
+            $missing = Get-CacheBoundaryEvidence -SourceLogPath $path
             $missing.classification | Should Be 'unavailable'
-            $missing.reason | Should Be 'core_boundary_marker_not_recorded'
+            $missing.reason | Should Be 'boundary_marker_not_recorded'
             { Assert-CacheBoundaryConsistency -Server Lunar `
                 -ClientBlobCacheRoute cache_backed -BoundaryEvidence $missing } | Should Throw
             { Assert-CacheBoundaryConsistency -Server Zeqa `
@@ -51,21 +51,21 @@
 
             $valid = 'time=sentinel level=INFO msg=BLOB_CACHE_BOUNDARY upstream_status_seen=true upstream_status_enabled=true cached_level_chunks=0 ordinary_level_chunks=1 cached_sub_chunks=0 ordinary_sub_chunks=1'
             @($valid, $valid) | Set-Content -LiteralPath $path
-            { Get-CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+            { Get-CacheBoundaryEvidence -SourceLogPath $path } | Should Throw
 
             ($valid + ' ' + $valid) | Set-Content -LiteralPath $path
-            { Get-CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+            { Get-CacheBoundaryEvidence -SourceLogPath $path } | Should Throw
 
             ($valid + ' extra_field=1') | Set-Content -LiteralPath $path
-            { Get-CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+            { Get-CacheBoundaryEvidence -SourceLogPath $path } | Should Throw
 
             $valid.Replace('upstream_status_seen=true', 'upstream_status_seen=false') |
                 Set-Content -LiteralPath $path
-            { Get-CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+            { Get-CacheBoundaryEvidence -SourceLogPath $path } | Should Throw
 
             'time=sentinel level=INFO msg=BLOB_CACHE_BOUNDARY upstream_status_seen=true upstream_status_enabled=true cached_level_chunks=0 ordinary_level_chunks=0 cached_sub_chunks=0 ordinary_sub_chunks=0' |
                 Set-Content -LiteralPath $path
-            { Get-CacheBoundaryEvidence -CoreLogPath $path } | Should Throw
+            { Get-CacheBoundaryEvidence -SourceLogPath $path } | Should Throw
         }
         finally {
             Remove-Item -LiteralPath $temporary -Recurse -Force -ErrorAction SilentlyContinue
@@ -130,7 +130,7 @@
             $manifest = [pscustomobject][ordered]@{ mode = 'Diagnostic'; initial_radius = 16 }
 
             { Complete-PublicationDiagnosticEvidence -Manifest $manifest -ClientLogPath $clientPath `
-                -CoreLogPath $corePath -ExpectedPresentMode Fifo -WorldReadyObserved:$false `
+                -SourceLogPath $corePath -ExpectedPresentMode Fifo -WorldReadyObserved:$false `
                 -Server Lunar } | Should Throw
 
             $manifest.cache_boundary_evidence.classification |
@@ -382,7 +382,7 @@
                 Set-Content -LiteralPath $clientPath
             $manifest = [pscustomobject](New-SyntheticLunarManifest -Mode Diagnostic)
             Complete-PublicationDiagnosticEvidence -Manifest $manifest -ClientLogPath $clientPath `
-                -CoreLogPath $corePath -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar
+                -SourceLogPath $corePath -ExpectedPresentMode Fifo -WorldReadyObserved:$false -Server Lunar
             $manifest.diagnostic_complete | Should Be $true
             $manifest.behavior_gate_passed | Should Be $false
             $manifest.cache_boundary_evidence.classification | Should Be 'unavailable'

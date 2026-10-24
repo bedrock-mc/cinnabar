@@ -178,10 +178,8 @@ $script:AcceptanceValidationPhase = {
     $RunDirectory = Join-Path (Join-Path $ProjectRoot '.local\acceptance') $RunName
     $TransparentWitnessRequestPath = Join-Path $RunDirectory 'transparent-witness-request.json'
     $ModelWitnessRequestPath = Join-Path $RunDirectory 'model-witness-request.json'
-    $SocketDirectory = Join-Path $RunDirectory 'socket'
     $CanonicalMetrics = Join-Path $RunDirectory 'app-metrics.json'
     $BdsExecutable = Join-Path $RuntimeDirectory $BdsExecutableName
-    $CoreExecutable = Join-Path $ProjectRoot 'target\release\bedrock-core.exe'
     $AppExecutable = if ($hasClientExecutable) {
         $ClientExecutable
     }
@@ -193,14 +191,12 @@ $script:AcceptanceValidationPhase = {
             -ClientExecutable $ClientExecutable `
             -RuntimeDirectory $RuntimeDirectory `
             -RunDirectory $RunDirectory `
-            -CoreExecutable $CoreExecutable `
             -MetricsOut $MetricsOut
     }
     $Upstream = '127.0.0.1:19132'
     $BdsArguments = @()
-    $CoreArguments = @('-socket-dir', $SocketDirectory, '-upstream', $Upstream)
     $AppArguments = @(
-        '--socket-dir', $SocketDirectory,
+        '--address', $Upstream, '--native-networking', 'raknet', '--display-name', 'AcceptanceGuest',
         '--acceptance-seconds', $DurationSeconds.ToString([Globalization.CultureInfo]::InvariantCulture),
         '--metrics-out', $CanonicalMetrics
     )
@@ -223,12 +219,10 @@ $script:AcceptanceValidationPhase = {
         $AppArguments += '--no-vsync'
     }
     $BdsCommand = Format-ResolvedCommand $BdsExecutable $BdsArguments
-    $CoreCommand = Format-ResolvedCommand $CoreExecutable $CoreArguments
     $AppCommand = Format-ResolvedCommand $AppExecutable $AppArguments
     
     if ($DryRun) {
         Write-Output "BDS_COMMAND=$BdsCommand"
-        Write-Output "CORE_COMMAND=$CoreCommand"
         Write-Output "APP_COMMAND=$AppCommand"
         Write-Output 'BUILD_PROFILE=release'
         if ($NoVsync) {
@@ -307,7 +301,6 @@ $script:AcceptanceValidationPhase = {
     $portReservation = $null
     $portV6Reservation = $null
     $bdsHandle = $null
-    $coreHandle = $null
     $appHandle = $null
     $runFailure = $null
     $metadata = $null

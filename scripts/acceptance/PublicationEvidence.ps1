@@ -43,7 +43,7 @@ function Assert-PublicationEvidence {
 
     $resources = Get-Content -Raw -LiteralPath $ResourcesPath | ConvertFrom-Json
     $samples = @($resources.samples)
-    if ([string]$resources.schema -cne 'rust-mcbe-publication-resources-v1' -or
+    if ([string]$resources.schema -cne 'rust-mcbe-publication-resources-v2' -or
         [int]$resources.warmup_seconds -ne 30 -or
         [int]$resources.duration_seconds -ne 120 -or
         [int]$resources.processor_count -le 0 -or
@@ -60,7 +60,7 @@ function Assert-PublicationEvidence {
         if ($delta -lt 0.5 -or $delta -gt 1.5) {
             throw "publication resource cadence was not one second: delta=$delta"
         }
-        $rss.Add([uint64]$sample.combined_rss_bytes)
+        $rss.Add([uint64]$sample.client_rss_bytes)
         $cpu.Add([double]$sample.cpu_percent)
         $previous = $elapsed
     }
@@ -71,7 +71,7 @@ function Assert-PublicationEvidence {
     if ($maxRss -gt 650MB -or $meanCpu -gt 15.0 -or $p95Cpu -gt 15.0) {
         throw "publication resource gate failed: rss=$maxRss mean_cpu=$meanCpu p95_cpu=$p95Cpu"
     }
-    if ([uint64]$resources.summary.max_combined_rss_bytes -ne $maxRss -or
+    if ([uint64]$resources.summary.max_client_rss_bytes -ne $maxRss -or
         [Math]::Abs([double]$resources.summary.mean_cpu_percent - $meanCpu) -gt 0.000001 -or
         [Math]::Abs([double]$resources.summary.p95_cpu_percent - $p95Cpu) -gt 0.000001) {
         throw 'publication resource summary does not match its samples'
@@ -112,33 +112,29 @@ function Assert-PublicationEvidence {
 function Measure-PublicationResources {
     param(
         [Parameter(Mandatory = $true)]$ClientHandle,
-        [Parameter(Mandatory = $true)]$CoreHandle,
         [Parameter(Mandatory = $true)][string]$OutputPath
     )
 
     $client = $ClientHandle.Process
-    $core = $CoreHandle.Process
     $client.Refresh()
-    $core.Refresh()
-    $previousCpu = $client.TotalProcessorTime.TotalSeconds + $core.TotalProcessorTime.TotalSeconds
+    $previousCpu = $client.TotalProcessorTime.TotalSeconds
     $previousWall = 0.0
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $samples = [Collections.Generic.List[object]]::new()
     for ($second = 1; $second -le 150; $second++) {
         Start-Sleep -Seconds 1
-        if ($client.HasExited -or $core.HasExited) {
-            throw 'client or core exited before the publication performance window completed'
+        if ($client.HasExited) {
+            throw 'client exited before the publication performance window completed'
         }
         $client.Refresh()
-        $core.Refresh()
         $wall = $stopwatch.Elapsed.TotalSeconds
-        $cpuTotal = $client.TotalProcessorTime.TotalSeconds + $core.TotalProcessorTime.TotalSeconds
+        $cpuTotal = $client.TotalProcessorTime.TotalSeconds
         $wallDelta = $wall - $previousWall
         $cpuDelta = $cpuTotal - $previousCpu
         if ($second -gt 30) {
             $samples.Add([pscustomobject][ordered]@{
                 elapsed_seconds = $wall - 30.0
-                combined_rss_bytes = [uint64]($client.WorkingSet64 + $core.WorkingSet64)
+                client_rss_bytes = [uint64]$client.WorkingSet64
                 cpu_percent = [Math]::Max(0.0, 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount))
             })
         }
@@ -146,17 +142,17 @@ function Measure-PublicationResources {
         $previousCpu = $cpuTotal
     }
     $stopwatch.Stop()
-    $rss = @($samples | ForEach-Object { [uint64]$_.combined_rss_bytes })
+    $rss = @($samples | ForEach-Object { [uint64]$_.client_rss_bytes })
     $cpu = @($samples | ForEach-Object { [double]$_.cpu_percent } | Sort-Object)
     $document = [pscustomobject][ordered]@{
-        schema = 'rust-mcbe-publication-resources-v1'
+        schema = 'rust-mcbe-publication-resources-v2'
         warmup_seconds = 30
         duration_seconds = 120
         processor_count = [Environment]::ProcessorCount
         samples = @($samples)
         summary = [pscustomobject][ordered]@{
             sample_count = $samples.Count
-            max_combined_rss_bytes = [uint64](($rss | Measure-Object -Maximum).Maximum)
+            max_client_rss_bytes = [uint64](($rss | Measure-Object -Maximum).Maximum)
             mean_cpu_percent = [double](($cpu | Measure-Object -Average).Average)
             p95_cpu_percent = [double]$cpu[[Math]::Ceiling(($cpu.Count - 1) * 0.95)]
         }

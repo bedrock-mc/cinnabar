@@ -112,7 +112,8 @@ fn compile_audio_source(
     if sound_definitions_sha256 != required_source_sha256 {
         return Err(AudioCompileError::SourcePin);
     }
-    let root: RawRoot = pack_json::parse_jsonc(source).map_err(AudioCompileError::Json)?;
+    let root: RawRoot =
+        bedrock_packs::jsonc::parse_jsonc(source).map_err(AudioCompileError::Json)?;
     if root.sound_definitions.len() > MAX_AUDIO_DEFINITIONS {
         return invalid("sound definition count exceeds bound");
     }

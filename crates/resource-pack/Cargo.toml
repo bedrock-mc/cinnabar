@@ -6,15 +6,12 @@ rust-version.workspace = true
 publish = false
 
 [features]
-default = ["handoff"]
-handoff = ["dep:protocol"]
-test-support = ["handoff"]
+test-support = []
 
 [dependencies]
-pack-json = { path = "../pack-json" }
+bedrock-packs.workspace = true
 rayon.workspace = true
 aes = "0.9.3"
-protocol = { path = "../protocol", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
@@ -24,7 +21,13 @@ zip = { version = "7", default-features = false, features = ["deflate-flate2-zli
 zeroize = "1"
 zip-footer = { path = "../zip-footer" }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+uuid = { workspace = true, features = ["v4"] }
+cap-std = "3.4.5"
+cap-fs-ext = "3.4.5"
+
 [dev-dependencies]
+tempfile = "3"
 zip = { version = "7", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]

@@ -61,10 +61,14 @@ impl Manager {
     /// saved settings its server has not taken live, any other world and any other state close as
     /// [`Self::close`] does, so the next open starts with those settings.
     pub fn leave(&self) {
+        self.leave_locked(lock(&self.inner.life));
+    }
+
+    /// Leaves the checked opening under its lifecycle lock, preserving original ownership.
+    pub(super) fn leave_locked(&self, mut life: MutexGuard<'_, Life>) {
         let Some(keep) = self.inner.standby else {
-            return self.close();
+            return self.close_locked(life);
         };
-        let mut life = lock(&self.inner.life);
         let keeps = life.state == WorldState::Running
             && !life.standby
             && life.instance.is_some()
@@ -77,6 +81,10 @@ impl Manager {
             return self.close_locked(life);
         }
         let (timer, expired) = cancel_pair();
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        {
+            life.opening = Arc::new(());
+        }
         life.standby = true;
         life.standby_timer = Some(timer);
         life.unrecorded = Some(OptionChanges::default());
@@ -87,6 +95,7 @@ impl Manager {
             "keeping the left local world's server for {} s",
             keep.as_secs()
         );
+        let fallback = expired.clone();
         let started = self.background(move |manager| {
             let cancelled = crossbeam_channel::select! {
                 recv(expired.receiver()) -> _ => true,
@@ -97,7 +106,7 @@ impl Manager {
             }
         });
         if !started {
-            self.close();
+            self.end_standby(&fallback);
         }
     }
 

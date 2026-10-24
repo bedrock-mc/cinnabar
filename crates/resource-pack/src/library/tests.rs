@@ -729,3 +729,44 @@ fn review_corrupt_nested_archive_keeps_valid_siblings() {
     assert_eq!(report.imported.len(), 1);
     assert_eq!(report.rejected.len(), 1);
 }
+
+#[test]
+fn format_zero_resource_packs_import_and_reopen_with_the_selected_identity() {
+    for format in [
+        Some(serde_json::json!(0)),
+        Some(serde_json::json!("2.0")),
+        Some(serde_json::json!([2, 0, 0])),
+        None,
+    ] {
+        let fixture = Fixture::new();
+        let mut library = fixture.library();
+        let id = Uuid::from_u128(117);
+        let version = [65535_u32, 1, 2];
+        let mut root = serde_json::json!({
+            "header": {
+                "pack_id": id.to_string(),
+                "packs_version": version,
+                "name": "Format zero",
+                "modules": [{"type": "resources"}]
+            }
+        });
+        if let Some(format) = format {
+            root["format_version"] = format;
+        }
+        let manifest = serde_json::to_vec(&root).unwrap();
+        let bytes = zip(&[("manifest.json", &manifest), ("marker.txt", b"format zero")]);
+        let report = library
+            .import(&fixture.write("legacy.mcpack", &bytes))
+            .unwrap();
+        assert!(report.rejected.is_empty(), "{:?}", report.rejected);
+        assert_eq!(report.imported.len(), 1);
+        assert_eq!(report.imported[0].id, id);
+        assert_eq!(report.imported[0].version, version);
+        library.activate(id).unwrap();
+        library.apply().unwrap();
+        let mut reopened = fixture.library();
+        assert_eq!(reopened.available()[0].version, version);
+        let view = LayeredPackView::new(reopened.preview().unwrap());
+        assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"format zero");
+    }
+}

@@ -60,27 +60,3 @@ fn generated_version_and_port_follow_their_sources() {
         contract::DEFAULT_BEDROCK_PORT.to_string()
     );
 }
-
-#[test]
-fn endpoints_use_the_shared_platform_names() {
-    let directory = std::path::Path::new("bridge-contract-test");
-    let (control, session) = if cfg!(windows) {
-        (
-            contract::CONTROL_WINDOWS_ENDPOINT_NAME,
-            contract::SESSION_WINDOWS_ENDPOINT_NAME,
-        )
-    } else {
-        (
-            contract::CONTROL_UNIX_ENDPOINT_NAME,
-            contract::SESSION_UNIX_ENDPOINT_NAME,
-        )
-    };
-    assert_eq!(
-        bridge::control_endpoint_path(directory),
-        directory.join(control)
-    );
-    assert_eq!(
-        bridge::session_endpoint_path(directory),
-        directory.join(session)
-    );
-}

@@ -214,12 +214,12 @@ fn referenced_textures(files: &[UiFile]) -> BTreeSet<String> {
     }
     let mut paths = BTreeSet::new();
     for file in files.iter().filter(|file| file.path.starts_with("ui/")) {
-        if let Ok(value) = pack_json::parse_jsonc(&file.bytes) {
+        if let Ok(value) = bedrock_packs::jsonc::parse_jsonc(&file.bytes) {
             visit(&value, &mut paths);
         }
     }
-    let builtin =
-        pack_json::parse_jsonc(assets::TOUCH_LAYOUT).expect("built-in touch layout parses");
+    let builtin = bedrock_packs::jsonc::parse_jsonc(assets::TOUCH_LAYOUT)
+        .expect("built-in touch layout parses");
     visit(&builtin, &mut paths);
     paths
 }
@@ -387,7 +387,7 @@ fn read_sidecars(pack: &Path, sidecar_paths: &[String]) -> Result<SidecarSet, As
         let bytes = read_bounded(&path, MAX_UI_SIDECAR_BYTES)?;
         let Some(meta) = bytes
             .as_ref()
-            .and_then(|bytes| pack_json::parse_jsonc::<Value>(bytes).ok())
+            .and_then(|bytes| bedrock_packs::jsonc::parse_jsonc::<Value>(bytes).ok())
             .as_ref()
             .and_then(parse_sidecar)
         else {

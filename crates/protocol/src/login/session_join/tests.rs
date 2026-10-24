@@ -1,3 +1,4 @@
+use bedrock_packs::ResourcePackHandoff;
 use std::path::{Path, PathBuf};
 
 use bedrock_protocol_1_26_51::enums::PlayStatusType;
@@ -7,8 +8,8 @@ use bedrock_protocol_1_26_51::packets::{
 use bedrock_protocol_1_26_51::types::{ActorRuntimeID, ItemData};
 use bedrock_protocol_1_26_51::wire;
 use bytes::{BufMut, Bytes, BytesMut};
+use tokio::io::DuplexStream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{UnixListener, UnixStream};
 
 use super::*;
 use crate::Packet;
@@ -16,15 +17,8 @@ use crate::Packet;
 const RUNTIME_ID: u64 = 7;
 
 /// A core that speaks the session endpoint's frames to one client.
-struct FakeCore<S = UnixStream> {
+struct FakeCore<S = DuplexStream> {
     stream: S,
-}
-
-impl FakeCore<UnixStream> {
-    async fn accept(listener: &UnixListener) -> Self {
-        let (stream, _) = listener.accept().await.expect("client connects");
-        Self { stream }
-    }
 }
 
 impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> FakeCore<S> {
@@ -56,10 +50,10 @@ impl<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin> FakeCore<S> {
     }
 }
 
-/// A socket directory removed when the test ends.
-struct SocketDir(PathBuf);
+/// A scratch archive/cache directory removed when the test ends.
+struct ScratchDir(PathBuf);
 
-impl SocketDir {
+impl ScratchDir {
     fn new(name: &str) -> Self {
         let dir = std::env::temp_dir().join(format!("cinnabar-join-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -72,15 +66,10 @@ impl SocketDir {
     }
 }
 
-impl Drop for SocketDir {
+impl Drop for ScratchDir {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(bridge::session_endpoint_path(&self.0));
         let _ = std::fs::remove_dir_all(&self.0);
     }
-}
-
-fn listen(dir: &Path) -> UnixListener {
-    UnixListener::bind(bridge::session_endpoint_path(dir)).expect("bind session endpoint")
 }
 
 /// One packet's bytes, header included, as a batch carries it.
@@ -180,7 +169,7 @@ async fn joins_with_the_handed_off_packs_and_waits_for_presentation() {
 /// Exercises a complete join with streamed packs and with a mixed cache/stream stack.
 async fn check_handed_off_packs(cached: bool) {
     use sha2::{Digest, Sha256};
-    let dir = SocketDir::new("packs");
+    let dir = ScratchDir::new("packs");
     let cache_root = dir.path().join("cache");
     std::fs::create_dir(&cache_root).unwrap();
     let cache_root = cache_root.canonicalize().unwrap();
@@ -192,9 +181,9 @@ async fn check_handed_off_packs(cached: bool) {
         view_distance_chunks: if cached { 35 } else { 8 },
         ..Default::default()
     };
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         let connect = core.receive().await;
         assert_eq!(connect[0], 1, "the first frame is the Connect");
         let request: serde_json::Value = serde_json::from_slice(&connect[1..]).unwrap();
@@ -238,15 +227,25 @@ async fn check_handed_off_packs(cached: bool) {
         core.send(batch_frame(&spawn_prerequisites())).await;
         core
     };
-    let join = LoginSequence::connect_session(
-        dir.path(),
-        "Fixture",
-        crate::ClientRandomId::new(-7).unwrap(),
-        Some(ClientBlobCache::default()),
-        None,
-        &settings,
-        None,
-        None,
+    let join = LoginSequence::connect_prepared(
+        SessionIo {
+            reader: framed_reader,
+            frames,
+            timers: bridge::tasks::Timers::tokio(),
+        },
+        SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
+            display_name: "Fixture",
+            client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+            cache: Some(ClientBlobCache::default()),
+            skin: None,
+            settings: &settings,
+            relay: None,
+            tap: None,
+            target: None,
+        },
+        &NativeJoinPreparation,
         keep_prepared,
     );
     let (joined, mut core) = tokio::join!(join, core);
@@ -278,15 +277,15 @@ async fn check_handed_off_packs(cached: bool) {
         [
             (
                 "00112233-4455-6677-8899-aabbccddeeff".to_owned(),
-                "1.0.0".to_owned(),
-                "high".to_owned(),
+                b"1.0.0".to_vec(),
+                b"high".to_vec(),
                 b"key-a".to_vec(),
                 b"abcde".to_vec()
             ),
             (
                 "11223344-5566-7788-99aa-bbccddeeff00".to_owned(),
-                "2.0.0".to_owned(),
-                String::new(),
+                b"2.0.0".to_vec(),
+                Vec::new(),
                 Vec::new(),
                 b"xyz".to_vec()
             ),
@@ -309,9 +308,8 @@ async fn check_handed_off_packs(cached: bool) {
 /// produce, still join.
 #[tokio::test]
 async fn a_startup_longer_than_one_batch_still_joins() {
-    let dir = SocketDir::new("long-startup");
     let settings = LoginSettings::default();
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let mut startup: Vec<Packet> = (0..2_000)
         .map(|time| {
             crate::Packet::new(SetTime {
@@ -321,7 +319,7 @@ async fn a_startup_longer_than_one_batch_still_joins() {
         .collect();
     startup.push(start_game());
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         core.receive().await;
         core.send(handoff_frame(
             serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
@@ -333,15 +331,25 @@ async fn a_startup_longer_than_one_batch_still_joins() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(
-            dir.path(),
-            "Fixture",
-            crate::ClientRandomId::new(-7).unwrap(),
-            None,
-            None,
-            &settings,
-            None,
-            None,
+        LoginSequence::connect_prepared(
+            SessionIo {
+                reader: framed_reader,
+                frames,
+                timers: bridge::tasks::Timers::tokio()
+            },
+            SessionLogin {
+                #[cfg(not(target_arch = "wasm32"))]
+                execution: None,
+                display_name: "Fixture",
+                client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+                cache: None,
+                skin: None,
+                settings: &settings,
+                relay: None,
+                tap: None,
+                target: None,
+            },
+            &NativeJoinPreparation,
             keep_prepared,
         ),
         core
@@ -354,12 +362,11 @@ async fn a_startup_longer_than_one_batch_still_joins() {
 /// slow preparation overlaps the server's spawn instead of following it.
 #[tokio::test]
 async fn pack_preparation_starts_before_player_spawn() {
-    let dir = SocketDir::new("early-preparation");
     let settings = LoginSettings::default();
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let (started, preparing) = tokio::sync::oneshot::channel();
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         core.receive().await;
         core.send(handoff_frame(
             serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
@@ -375,15 +382,25 @@ async fn pack_preparation_starts_before_player_spawn() {
         core.send(batch_frame(&[radius, spawn])).await;
         (core, runtime_id)
     };
-    let join = LoginSequence::connect_session(
-        dir.path(),
-        "Fixture",
-        crate::ClientRandomId::new(-7).unwrap(),
-        None,
-        None,
-        &settings,
-        None,
-        None,
+    let join = LoginSequence::connect_prepared(
+        SessionIo {
+            reader: framed_reader,
+            frames,
+            timers: bridge::tasks::Timers::tokio(),
+        },
+        SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
+            display_name: "Fixture",
+            client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+            cache: None,
+            skin: None,
+            settings: &settings,
+            relay: None,
+            tap: None,
+            target: None,
+        },
+        &NativeJoinPreparation,
         move |_, game_data| {
             let _ = started.send(game_data.world.local_player_runtime_id);
         },
@@ -402,9 +419,8 @@ async fn pack_preparation_starts_before_player_spawn() {
 #[tokio::test]
 async fn the_session_is_read_while_packs_prepare() {
     const BACKLOG: usize = 64;
-    let dir = SocketDir::new("read-while-preparing");
     let settings = LoginSettings::default();
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let (release, released) = std::sync::mpsc::channel::<()>();
     let backlog = |index: usize| {
         crate::Packet::new(packets::ScriptMessage {
@@ -413,7 +429,7 @@ async fn the_session_is_read_while_packs_prepare() {
         })
     };
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         core.receive().await;
         core.send(handoff_frame(
             serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
@@ -432,15 +448,25 @@ async fn the_session_is_read_while_packs_prepare() {
         assert!(written.is_ok(), "the core blocked while packs prepared");
         core
     };
-    let join = LoginSequence::connect_session(
-        dir.path(),
-        "Fixture",
-        crate::ClientRandomId::new(-7).unwrap(),
-        None,
-        None,
-        &settings,
-        None,
-        None,
+    let join = LoginSequence::connect_prepared(
+        SessionIo {
+            reader: framed_reader,
+            frames,
+            timers: bridge::tasks::Timers::tokio(),
+        },
+        SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
+            display_name: "Fixture",
+            client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+            cache: None,
+            skin: None,
+            settings: &settings,
+            relay: None,
+            tap: None,
+            target: None,
+        },
+        &NativeJoinPreparation,
         move |_, _| released.recv().unwrap(),
     );
     let (joined, _core) = tokio::join!(join, core);
@@ -463,11 +489,10 @@ async fn the_session_is_read_while_packs_prepare() {
 /// A join the core could not make ends with the server's disconnect screen text.
 #[tokio::test]
 async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
-    let dir = SocketDir::new("disconnect");
     let settings = LoginSettings::default();
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         core.receive().await;
         let mut frame = BytesMut::from(&[6u8][..]);
         frame.extend_from_slice(
@@ -477,15 +502,25 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(
-            dir.path(),
-            "Fixture",
-            crate::ClientRandomId::new(-7).unwrap(),
-            None,
-            None,
-            &settings,
-            None,
-            None,
+        LoginSequence::connect_prepared(
+            SessionIo {
+                reader: framed_reader,
+                frames,
+                timers: bridge::tasks::Timers::tokio()
+            },
+            SessionLogin {
+                #[cfg(not(target_arch = "wasm32"))]
+                execution: None,
+                display_name: "Fixture",
+                client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+                cache: None,
+                skin: None,
+                settings: &settings,
+                relay: None,
+                tap: None,
+                target: None,
+            },
+            &NativeJoinPreparation,
             keep_prepared,
         ),
         core
@@ -502,11 +537,10 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
 /// A transfer before the handoff is followed like a login-time transfer.
 #[tokio::test]
 async fn a_transfer_before_the_handoff_is_a_server_transfer() {
-    let dir = SocketDir::new("transfer");
     let settings = LoginSettings::default();
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         core.receive().await;
         let mut frame = BytesMut::from(&[5u8][..]);
         frame.extend_from_slice(
@@ -516,15 +550,25 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
         core
     };
     let (joined, _core) = tokio::join!(
-        LoginSequence::connect_session(
-            dir.path(),
-            "Fixture",
-            crate::ClientRandomId::new(-7).unwrap(),
-            None,
-            None,
-            &settings,
-            None,
-            None,
+        LoginSequence::connect_prepared(
+            SessionIo {
+                reader: framed_reader,
+                frames,
+                timers: bridge::tasks::Timers::tokio()
+            },
+            SessionLogin {
+                #[cfg(not(target_arch = "wasm32"))]
+                execution: None,
+                display_name: "Fixture",
+                client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+                cache: None,
+                skin: None,
+                settings: &settings,
+                relay: None,
+                tap: None,
+                target: None,
+            },
+            &NativeJoinPreparation,
             keep_prepared,
         ),
         core
@@ -542,17 +586,17 @@ async fn a_transfer_before_the_handoff_is_a_server_transfer() {
 /// Invalid cache references fail the join before the client starts its spawn sequence.
 #[tokio::test]
 async fn invalid_cached_archive_is_reported_as_a_join_error() {
-    let dir = SocketDir::new("bad-cache");
+    let dir = ScratchDir::new("bad-cache");
     let cache_root = dir.path().canonicalize().unwrap();
     let path = cache_root.join("archive.mcpack");
     std::fs::write(&path, b"bad").unwrap();
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let settings = LoginSettings {
         resource_pack_cache_dir: Some(cache_root),
         ..Default::default()
     };
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         core.receive().await;
         core.send(handoff_frame(serde_json::json!({
             "identity": identity("Fixture"), "client_cache": false, "packs_required": true,
@@ -561,15 +605,25 @@ async fn invalid_cached_archive_is_reported_as_a_join_error() {
         }), &[start_game()])).await;
         core
     };
-    let join = LoginSequence::connect_session(
-        dir.path(),
-        "Fixture",
-        ClientRandomId::new(-7).unwrap(),
-        None,
-        None,
-        &settings,
-        None,
-        None,
+    let join = LoginSequence::connect_prepared(
+        SessionIo {
+            reader: framed_reader,
+            frames,
+            timers: bridge::tasks::Timers::tokio(),
+        },
+        SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
+            display_name: "Fixture",
+            client_random_id: ClientRandomId::new(-7).unwrap(),
+            cache: None,
+            skin: None,
+            settings: &settings,
+            relay: None,
+            tap: None,
+            target: None,
+        },
+        &NativeJoinPreparation,
         keep_prepared,
     );
     let (result, _core) = tokio::join!(join, core);
@@ -601,8 +655,7 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
             }),
         ),
     ] {
-        let dir = SocketDir::new(name);
-        let listener = listen(dir.path());
+        let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
         let settings = LoginSettings::default();
         let tap = Arc::new(RecordingTap::default());
         let expected = packet_bytes(&invalid);
@@ -610,7 +663,7 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
         let packet_id = reader.read_var_u32().unwrap();
         let body = &expected[reader.position()..];
         let core = async {
-            let mut core = FakeCore::accept(&listener).await;
+            let mut core = FakeCore { stream: peer };
             core.receive().await;
             core.send(handoff_frame(
                 serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
@@ -621,21 +674,31 @@ async fn invalid_spawn_prerequisites_are_recorded_as_failed() {
             core
         };
         let (result, _core) = tokio::join!(
-            LoginSequence::connect_session(
-                dir.path(),
-                "Fixture",
-                crate::ClientRandomId::new(-7).unwrap(),
-                None,
-                None,
-                &settings,
-                None,
-                Some(tap.clone()),
+            LoginSequence::connect_prepared(
+                SessionIo {
+                    reader: framed_reader,
+                    frames,
+                    timers: bridge::tasks::Timers::tokio()
+                },
+                SessionLogin {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    execution: None,
+                    display_name: "Fixture",
+                    client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+                    cache: None,
+                    skin: None,
+                    settings: &settings,
+                    relay: None,
+                    tap: Some(tap.clone()),
+                    target: None,
+                },
+                &NativeJoinPreparation,
                 keep_prepared,
             ),
             core,
         );
         assert!(matches!(result, Err(ProtocolError::Session(ref error))
-            if matches!(error.0, SessionFailure::UnexpectedStartup(_))));
+            if matches!(error.0, SessionFailure::ClientSpawn(_))));
         assert!(
             tap.events().iter().any(|event| matches!(event,
                 TapEvent::Reject(_, id, PacketOutcome::Failed, rejected)
@@ -653,12 +716,11 @@ async fn a_relay_starts_with_the_session_and_adds_its_packs() {
     use crate::packet_relay::tests::FakeRelay;
     use crate::packet_tap::PacketDirection;
     use crate::session_transport::tests::{RecordingTap, TapEvent};
-    let dir = SocketDir::new("relay");
     let settings = LoginSettings {
         server_address: "game.example.test:19132".into(),
         ..Default::default()
     };
-    let listener = listen(dir.path());
+    let (framed_reader, frames, peer, _writer) = crate::tests::framed::pair();
     let startup = [
         crate::Packet::new(SetTime {
             time: wire::ZigZag32(4),
@@ -666,7 +728,7 @@ async fn a_relay_starts_with_the_session_and_adds_its_packs() {
         start_game(),
     ];
     let core = async {
-        let mut core = FakeCore::accept(&listener).await;
+        let mut core = FakeCore { stream: peer };
         core.receive().await;
         core.send(handoff_frame(
             serde_json::json!({"identity": identity("Fixture"), "client_cache": false, "packs_required": false, "packs": []}),
@@ -681,15 +743,25 @@ async fn a_relay_starts_with_the_session_and_adds_its_packs() {
     let tap = Arc::new(RecordingTap::default());
     relay.state().packs = vec![(b"pack".to_vec(), true)];
     let (joined, mut core) = tokio::join!(
-        LoginSequence::connect_session(
-            dir.path(),
-            "Fixture",
-            crate::ClientRandomId::new(-7).unwrap(),
-            None,
-            None,
-            &settings,
-            Some(relay.clone()),
-            Some(tap.clone()),
+        LoginSequence::connect_prepared(
+            SessionIo {
+                reader: framed_reader,
+                frames,
+                timers: bridge::tasks::Timers::tokio()
+            },
+            SessionLogin {
+                #[cfg(not(target_arch = "wasm32"))]
+                execution: None,
+                display_name: "Fixture",
+                client_random_id: crate::ClientRandomId::new(-7).unwrap(),
+                cache: None,
+                skin: None,
+                settings: &settings,
+                relay: Some(relay.clone()),
+                tap: Some(tap.clone()),
+                target: None,
+            },
+            &NativeJoinPreparation,
             keep_prepared,
         ),
         core

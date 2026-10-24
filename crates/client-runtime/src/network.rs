@@ -11,7 +11,7 @@ use bevy::render::{
     Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
     renderer::{RenderQueue, render_system},
 };
-use std::{collections::VecDeque, path::PathBuf};
+use std::collections::VecDeque;
 
 /// A Bevy resource retaining the domain's exact command and event queues.
 #[derive(Resource, Deref, DerefMut)]
@@ -19,7 +19,7 @@ pub struct NetworkHandle<P: Send + Sync + 'static> {
     #[deref]
     inner: client_session::NetworkHandle<P>,
     pending_world_ingress: VecDeque<client_session::WorldIngress>,
-    core_socket_dir: Option<PathBuf>, // Set only while a joined session is live.
+    connected: bool,
     join_profile: bridge::join_profile::JoinProfile,
 }
 
@@ -28,7 +28,7 @@ impl<P: Send + Sync + 'static> From<client_session::NetworkHandle<P>> for Networ
         Self {
             inner,
             pending_world_ingress: VecDeque::new(),
-            core_socket_dir: None,
+            connected: false,
             join_profile: bridge::join_profile::JoinProfile::current(),
         }
     }
@@ -55,26 +55,22 @@ impl<P: Send + Sync + 'static> NetworkHandle<P> {
             .saturating_add(self.pending_world_ingress.len())
     }
 
-    /// Adopts the domain queues and the endpoint used by this live session.
-    pub fn connected(inner: client_session::NetworkHandle<P>, socket_dir: PathBuf) -> Self {
-        let mut handle = Self::from(inner);
-        handle.core_socket_dir = Some(socket_dir);
-        handle
-    }
-
     /// Binds event processing to this session's captured diagnostic attempt.
     pub fn enter_join_profile(&self) -> bridge::join_profile::Binding {
         self.join_profile.enter()
     }
 
-    /// Returns the control endpoint only while this handle belongs to a live session.
-    pub fn core_socket_dir(&self) -> Option<&std::path::Path> {
-        self.core_socket_dir.as_deref()
+    /// Adopts the queues of a live native session.
+    pub fn native(inner: client_session::NetworkHandle<P>) -> Self {
+        Self {
+            connected: true,
+            ..Self::from(inner)
+        }
     }
 
-    /// Retires the control endpoint and stops the owned network worker.
+    /// Stops the owned network worker and retires this connection.
     pub fn shutdown(&mut self) {
-        self.core_socket_dir = None;
+        self.connected = false;
         self.inner.shutdown();
     }
 
@@ -153,7 +149,7 @@ fn advance_network_simulation<P: Send + Sync + 'static>(
     network: Option<Res<NetworkHandle<P>>>,
 ) {
     if let (Some(time), Some(network)) = (time, network)
-        && network.core_socket_dir.is_some()
+        && network.connected
     {
         network.advance_simulation(time.delta());
     }

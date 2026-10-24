@@ -29,7 +29,7 @@ windows_runtime_libraries() {
 # runtime_binary_source <name> <override>: a configured executable or its sibling build output.
 runtime_binary_source() {
     local name="$1" override="$2" directory
-    directory="${BINARIES:-$(dirname -- "${LOCAL_SERVER:-${CORE:-${CLIENT:-$repo_root/target/release/_}}}")}"
+    directory="${BINARIES:-$(dirname -- "${LOCAL_SERVER:-${CLIENT:-$repo_root/target/release/_}}")}"
     printf '%s\n' "${!override:-$directory/$name}"
 }
 

@@ -1,8 +1,8 @@
 //! Copies a user pack directory into a bounded in-memory archive for ordinary validation.
 
+use crate::MAX_LOCAL_ARCHIVE_BYTES;
 use crate::{
-    AdmissionError, LibraryError, MAX_ARCHIVE_BYTES, MAX_DECLARED_BYTES_PER_PACK,
-    MAX_ENTRIES_PER_PACK, MAX_FILE_BYTES,
+    AdmissionError, LibraryError, MAX_DECLARED_BYTES_PER_PACK, MAX_ENTRIES_PER_PACK, MAX_FILE_BYTES,
 };
 use std::{
     fs,
@@ -91,7 +91,7 @@ struct BoundedArchive(Cursor<Vec<u8>>);
 impl Write for BoundedArchive {
     /// Refuses writes past the archive ceiling before the buffer can grow.
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if self.0.position().saturating_add(bytes.len() as u64) > MAX_ARCHIVE_BYTES as u64 {
+        if self.0.position().saturating_add(bytes.len() as u64) > MAX_LOCAL_ARCHIVE_BYTES as u64 {
             return Err(io::Error::other(
                 "resource pack exceeds the archive size limit",
             ));

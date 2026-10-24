@@ -16,8 +16,10 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use first_run::Outcome;
 use jni::{
-    JNIEnv, JavaVM, NativeMethod,
+    Env, EnvUnowned, JavaVM, NativeMethod, jni_sig, jni_str,
     objects::{JObject, JString, JValue},
+    signature::RuntimeMethodSignature,
+    strings::JNIString,
     sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong, jstring},
 };
 
@@ -37,27 +39,32 @@ static SETUP: Mutex<()> = Mutex::new(());
     reason = "the library loads before any logging exists, so stderr is the only sink"
 )]
 pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_void) -> jint {
-    let registered = unsafe { JavaVM::from_raw(vm) }.and_then(|vm| {
+    // SAFETY: Android passes its live VM to this load callback.
+    let vm = unsafe { JavaVM::from_raw(vm) };
+    let registered = vm.with_top_local_frame(|env| -> jni::errors::Result<()> {
         let class = format!(
             "{}/BootstrapActivity",
             super::runtime().application_id.replace('.', "/")
         );
-        let mut env = vm.get_env()?;
-        env.register_native_methods(
-            class,
-            &[
-                NativeMethod {
-                    name: "prepare".into(),
-                    sig: "(Ljava/lang/String;Ljava/lang/String;J)Ljava/lang/String;".into(),
-                    fn_ptr: prepare as *mut c_void,
-                },
-                NativeMethod {
-                    name: "cancel".into(),
-                    sig: "(J)V".into(),
-                    fn_ptr: cancel as *mut c_void,
-                },
-            ],
-        )
+        let class = env.find_class(JNIString::new(class))?;
+        // SAFETY: Both functions are instance natives with the exact declared Java signatures.
+        unsafe {
+            env.register_native_methods(
+                class,
+                &[
+                    NativeMethod::from_raw_parts(
+                        jni_str!("prepare"),
+                        jni_str!("(Ljava/lang/String;Ljava/lang/String;J)Ljava/lang/String;"),
+                        prepare as *mut c_void,
+                    ),
+                    NativeMethod::from_raw_parts(
+                        jni_str!("cancel"),
+                        jni_str!("(J)V"),
+                        cancel as *mut c_void,
+                    ),
+                ],
+            )
+        }
     });
     match registered {
         Ok(()) => JNI_VERSION_1_6,
@@ -69,43 +76,64 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
 }
 
 extern "system" fn prepare<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     activity: JObject<'local>,
     files_dir: JString<'local>,
     native_library_dir: JString<'local>,
     attempt: jlong,
 ) -> jstring {
+    env.with_env(|env| -> jni::errors::Result<jstring> {
+        Ok(prepare_inner(
+            env,
+            &activity,
+            &files_dir,
+            &native_library_dir,
+            attempt,
+        ))
+    })
+    .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// Keeps the original serialized setup, cancellation and Java reply contract in its JNI frame.
+fn prepare_inner(
+    env: &mut Env<'_>,
+    activity: &JObject<'_>,
+    files_dir: &JString<'_>,
+    native_library_dir: &JString<'_>,
+    attempt: jlong,
+) -> jstring {
     let _serial = SETUP.lock().unwrap_or_else(PoisonError::into_inner);
     let outcome = if CANCELLATION.begin(attempt as u64) {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            setup(&mut env, &activity, &files_dir, &native_library_dir)
+            setup(env, activity, files_dir, native_library_dir)
         }))
         .unwrap_or_else(|_| Err(anyhow!("setup panicked")))
     } else {
         Ok(Outcome::Quit)
     };
-    clear_exception(&mut env);
+    clear_exception(env);
     let reply = match outcome {
         Ok(Outcome::Quit) => String::new(),
         Ok(Outcome::NotNeeded | Outcome::Prepared) => return std::ptr::null_mut(),
         Err(error) => format!("{error:#}"),
     };
     env.new_string(reply)
-        .map_or(std::ptr::null_mut(), JString::into_raw)
+        .map_or(std::ptr::null_mut(), |value| value.into_raw())
 }
 
-extern "system" fn cancel(_env: JNIEnv<'_>, _activity: JObject<'_>, attempt: jlong) {
+extern "system" fn cancel(_env: EnvUnowned<'_>, _activity: JObject<'_>, attempt: jlong) {
     CANCELLATION.cancel(attempt as u64);
 }
 
 fn setup(
-    env: &mut JNIEnv<'_>,
+    env: &mut Env<'_>,
     activity: &JObject<'_>,
     files_dir: &JString<'_>,
     native_library_dir: &JString<'_>,
 ) -> Result<Outcome> {
-    let files_dir = PathBuf::from(String::from(env.get_string(files_dir)?));
-    let native_library_dir = PathBuf::from(String::from(env.get_string(native_library_dir)?));
+    super::initialize_tls(env, activity)?;
+    let files_dir = PathBuf::from(files_dir.try_to_string(env)?);
+    let native_library_dir = PathBuf::from(native_library_dir.try_to_string(env)?);
     let layout = super::layout(&files_dir, &native_library_dir);
     launcher::install_layout::configure_android(layout.clone())?;
     export_platform_trust(env, activity, &layout.user_data_root)?;
@@ -153,7 +181,7 @@ fn setup(
 }
 
 /// Refreshes the server's platform trust, refusing setup if stale trust cannot be invalidated.
-fn export_platform_trust(env: &mut JNIEnv<'_>, activity: &JObject<'_>, root: &Path) -> Result<()> {
+fn export_platform_trust(env: &mut Env<'_>, activity: &JObject<'_>, root: &Path) -> Result<()> {
     let pem = platform_trust_pem(env, activity);
     let available = launcher_host::local_worlds::refresh_android_server_trust(
         root,
@@ -171,15 +199,20 @@ fn export_platform_trust(env: &mut JNIEnv<'_>, activity: &JObject<'_>, root: &Pa
 
 /// Returns the activity's `platformTrustPem` export, clearing any exception it threw; a thrown,
 /// null or empty export is an error.
-fn platform_trust_pem(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Result<String> {
+fn platform_trust_pem(env: &mut Env<'_>, activity: &JObject<'_>) -> Result<String> {
     let result = env.with_local_frame(4, |env| -> Result<String> {
         let pem = env
-            .call_method(activity, "platformTrustPem", "()Ljava/lang/String;", &[])?
+            .call_method(
+                activity,
+                jni_str!("platformTrustPem"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?
             .l()?;
         if pem.is_null() {
             bail!("platform trust export returned null");
         }
-        Ok(String::from(env.get_string(&JString::from(pem))?))
+        Ok(env.cast_local::<JString>(pem)?.try_to_string(env)?)
     });
     if result.is_err() {
         clear_exception(env);
@@ -192,14 +225,14 @@ fn platform_trust_pem(env: &mut JNIEnv<'_>, activity: &JObject<'_>) -> Result<St
 }
 
 /// Logs `message` at warning priority under the product's tag, discarding any logging failure.
-fn log_warning(env: &mut JNIEnv<'_>, message: &str) {
+fn log_warning(env: &mut Env<'_>, message: &str) {
     let logged = env.with_local_frame(4, |env| -> jni::errors::Result<()> {
         let tag = env.new_string(launcher::PRODUCT_NAME)?;
         let message = env.new_string(message)?;
         env.call_static_method(
-            "android/util/Log",
-            "w",
-            "(Ljava/lang/String;Ljava/lang/String;)I",
+            jni_str!("android/util/Log"),
+            jni_str!("w"),
+            jni_sig!("(Ljava/lang/String;Ljava/lang/String;)I"),
             &[JValue::Object(&tag), JValue::Object(&message)],
         )?;
         Ok(())
@@ -212,7 +245,7 @@ fn log_warning(env: &mut JNIEnv<'_>, message: &str) {
 /// Calls an activity method with string arguments in its own local frame; a `Z` method returns
 /// its result and any other returns false.
 fn call_activity(
-    env: &mut JNIEnv<'_>,
+    env: &mut Env<'_>,
     activity: &JObject<'_>,
     (name, signature): (&str, &str),
     args: &[&str],
@@ -222,13 +255,16 @@ fn call_activity(
             .iter()
             .map(|arg| env.new_string(*arg).map(JObject::from))
             .collect::<jni::errors::Result<Vec<_>>>()?;
-        let values: Vec<JValue<'_, '_>> = strings.iter().map(JValue::Object).collect();
-        let value = env.call_method(activity, name, signature, &values)?;
-        Ok(if signature.ends_with('Z') {
-            value.z()?
-        } else {
-            false
-        })
+        let values: Vec<_> = strings.iter().map(JValue::Object).collect();
+        let returns_bool = signature.ends_with('Z');
+        let signature = RuntimeMethodSignature::from_str(signature)?;
+        let value = env.call_method(
+            activity,
+            JNIString::new(name),
+            signature.method_signature(),
+            &values,
+        )?;
+        Ok(if returns_bool { value.z()? } else { false })
     });
     if result.is_err() {
         clear_exception(env);
@@ -237,8 +273,8 @@ fn call_activity(
 }
 
 /// A pending Java exception would make every later JNI call on this thread fail.
-fn clear_exception(env: &mut JNIEnv<'_>) {
-    if env.exception_check().unwrap_or(false) {
-        let _ = env.exception_clear();
+fn clear_exception(env: &mut Env<'_>) {
+    if env.exception_check() {
+        env.exception_clear();
     }
 }

@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: "41 */6 * * *"
   workflow_dispatch:
+    inputs:
+      native_macos_artifact:
+        description: Build the native macOS client, MCP and preparation compiler for local acceptance
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -30,6 +35,33 @@ permissions:
   pull-requests: read
 
 jobs:
+  native-macos-artifact:
+    name: Native macOS acceptance artifact
+    if: github.event_name == 'workflow_dispatch' && inputs.native_macos_artifact
+    runs-on: macos-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install the pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: clippy
+      - name: Restore Rust build cache
+        uses: ./.github/actions/build-cache
+      - name: Build and record the native executables
+        id: build
+        run: python3 .github/scripts/native_macos_artifact.py
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.build.outputs.archive }}
+          retention-days: 7
+          if-no-files-found: error
+
   changes:
     name: Plan
     runs-on: ubuntu-latest
@@ -88,7 +120,7 @@ jobs:
               - scripts/**
               - assets/bedrock-target.json
               - assets/vanilla-source.json
-              - core/go.mod
+              - tools/localserver/go.mod
       - name: Classify standalone documentation changes
         id: classify
         if: github.event_name == 'pull_request'
@@ -147,6 +179,21 @@ jobs:
         with:
           # The merge commit's first parent is the base it is compared against.
           fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+      - name: Verify Git dependency identities
+        run: |
+          python3 - <<'PY'
+          import tomllib
+          sources = {}
+          with open("Cargo.lock", "rb") as lock:
+              for package in tomllib.load(lock)["package"]:
+                  source = package.get("source", "")
+                  if source.startswith("git+"):
+                      repository = source.removeprefix("git+").split("#", 1)[0].split("?", 1)[0]
+                      sources.setdefault(repository, set()).add(source)
+          duplicated = [repository for repository, identities in sources.items() if len(identities) != 1]
+          if duplicated:
+              raise SystemExit("Multiple Git identities: " + ", ".join(sorted(duplicated)))
+          PY
       - uses: dtolnay/rust-toolchain@1.99.0
         with:
           components: rustfmt
@@ -218,10 +265,20 @@ jobs:
             cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
             cargo clippy -p cinnabar --features shaderpacks --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
+            cargo clippy -p cinnabar --features native-networking --all-targets --locked -- -D warnings
           fi
           if affected asset-compiler; then
             cargo clippy -p asset-compiler --features shaderpacks --all-targets --locked -- -D warnings
           fi
+      - name: Test native connection and account state
+        if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' protocol ') || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}
+        run: |
+          cargo test -p protocol --features native-networking --lib --locked -- session_transport
+          cargo test -p protocol --features native-networking --lib --locked -- login::outbound
+          cargo test -p protocol --features native-networking --lib --locked -- login::native_network
+          cargo test -p protocol --features native-networking --lib --locked -- login::client_data
+          cargo test -p launcher-host --features native-networking --lib --locked -- native
+          cargo test -p client-shell --features native-networking --lib --locked -- native
       - name: Test developer control adapters
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}
         run: cargo test -p cinnabar --features developer-control --lib --locked -- developer_control
@@ -378,15 +435,6 @@ jobs:
         uses: ./.github/actions/build-cache
         with:
           language: go
-      - name: Build release Go core
-        run: go build -trimpath -ldflags "$(bash packaging/common/core-ldflags.sh)" -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
-      - name: Test and vet Go core
-        env:
-          GOFLAGS: ${{ env.RACE_TEST_FLAGS }}
-        run: |
-          go test ./core/...
-          unset GOFLAGS
-          go vet ./core/...
       - name: Test and vet protocol registry tools
         env:
           GOFLAGS: ${{ env.RACE_TEST_FLAGS }}
@@ -394,6 +442,8 @@ jobs:
           go -C tools/registrygen test ./... -count=1
           unset GOFLAGS
           go -C tools/registrygen vet ./...
+      - name: Fetch pinned Rust sources for protocol ID contracts
+        run: cargo fetch --locked
       - name: Test protocol packet fixtures and ID contracts
         env:
           GOFLAGS: ${{ env.RACE_TEST_FLAGS }}
@@ -505,10 +555,6 @@ jobs:
       # crates to build. A package subset would unify features differently and rebuild dependencies.
       - name: Lint Rust workspace
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - name: Build release Go core
-        run: go build -trimpath -ldflags "$(bash packaging/common/core-ldflags.sh)" -o "$RUNNER_TEMP/bedrock-core$(go env GOEXE)" ./core/cmd/bedrock-core
-      - name: Test Go local transport and credential storage
-        run: go test ./core/internal/streamnet ./core/internal/lockfile ./core/authcache
       - name: Test affected platform crates
         if: env.PLATFORM != 'none()'
         run: |
@@ -575,6 +621,7 @@ jobs:
     name: ci-ok
     if: always()
     needs:
+      - native-macos-artifact
       - changes
       - preflight
       - verify

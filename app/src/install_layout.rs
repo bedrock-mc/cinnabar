@@ -20,7 +20,7 @@ mod tests {
                 &layout.resource_root,
                 &layout.compiled_assets,
                 &layout.physics_registry,
-                &layout.core_executable,
+                &layout.local_server_executable,
                 &layout.user_config_root,
                 &layout.user_data_root,
                 &layout.runtime_root,
@@ -29,7 +29,7 @@ mod tests {
                 assert!(path.starts_with(&base), "{platform:?}: {}", path.display());
             }
             assert_eq!(
-                layout.core_executable.extension().is_some(),
+                layout.local_server_executable.extension().is_some(),
                 platform == Platform::Windows
             );
         }

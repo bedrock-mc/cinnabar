@@ -2,10 +2,9 @@
   "application_id": "app.cinnabar.client",
   "min_sdk": 26,
   "target_sdk": 35,
-  "build_tools": "35.0.0",
+  "build_tools": "36.1.0",
   "ndk": "28.2.13676358",
   "cargo_ndk": "3.5.4",
-  "core_library": "libbedrock_core.so",
   "local_server_library": "libbedrock_local_server.so",
   "bds_translation": {
     "helper_library": "libbox64.so",

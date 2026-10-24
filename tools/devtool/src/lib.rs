@@ -4,6 +4,7 @@
     reason = "devtool commands report selections, summaries and replayed command output on the terminal"
 )]
 
+mod android_verifier;
 mod baseline;
 mod capture;
 mod cargo_failures;
@@ -55,6 +56,8 @@ pub enum DevtoolError {
     /// A crash input or symbol source that `symbolicate` cannot read.
     #[error("{0}")]
     Symbolicate(String),
+    #[error("Android platform verifier: {0}")]
+    Android(String),
     #[error("web bundle: {0}")]
     Web(String),
 }
@@ -68,6 +71,7 @@ pub fn dispatch(args: Vec<String>) -> Result<(), DevtoolError> {
         Some("trace-summary") => capture::run(&args[1..], true),
         Some("wt-gc") => worktrees::run(&args[1..]),
         Some("symbolicate") => symbolicate::run(&args[1..]),
+        Some("prepare-android-verifier") => android_verifier::run(&args[1..]),
         Some("build-web") => web::run(&args[1..]),
         Some("check-web") => web::check(&args[1..]),
         _ => parse_args(args).and_then(|options| run(&options)),

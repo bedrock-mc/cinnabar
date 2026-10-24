@@ -11,7 +11,7 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 
 use crate::{
     AdmissionError, GlobalPackLibrary, LayeredPackView,
-    manifest::{Version, read_manifest},
+    manifest::{Purpose, read_manifest},
 };
 
 const PACK_ID: Uuid = Uuid::from_u128(1);
@@ -77,7 +77,8 @@ fn tiered_archive(manifest: &Value) -> Vec<u8> {
 fn manifest_preserves_all_declared_subpacks_and_checks_identity() {
     for count in [64, 65] {
         let bytes = serde_json::to_vec(&manifest(PACK_ID, count)).unwrap();
-        let parsed = read_manifest(&bytes, PACK_ID, Version::parse(VERSION).unwrap()).unwrap();
+        let parsed = read_manifest(&bytes, PACK_ID, VERSION, Purpose::Rendering).unwrap();
+
         assert_eq!(parsed.subpacks.len(), count);
         for (index, subpack) in parsed.subpacks.iter().enumerate() {
             assert_eq!(subpack.folder, format!("p{index}"));
@@ -85,7 +86,7 @@ fn manifest_preserves_all_declared_subpacks_and_checks_identity() {
             assert_eq!(subpack.memory_tier, 1);
         }
         assert_eq!(
-            read_manifest(&bytes, Uuid::from_u128(2), Version::parse(VERSION).unwrap()).err(),
+            read_manifest(&bytes, Uuid::from_u128(2), VERSION, Purpose::Rendering).err(),
             Some(AdmissionError::ManifestIdentityMismatch)
         );
     }
@@ -110,7 +111,8 @@ fn malformed_folder_rows_do_not_hide_valid_subpacks() {
     let parsed = read_manifest(
         &serde_json::to_vec(&manifest).unwrap(),
         PACK_ID,
-        Version::parse(VERSION).unwrap(),
+        VERSION,
+        Purpose::Rendering,
     )
     .unwrap();
     assert_eq!(parsed.subpacks.len(), 65);
@@ -123,10 +125,9 @@ fn malformed_folder_rows_do_not_hide_valid_subpacks() {
     );
 }
 
-#[cfg(feature = "handoff")]
 #[test]
 fn server_handoff_keeps_last_subpack_and_layer_precedence() {
-    use protocol::{ResourcePackArchive, ResourcePackHandoff};
+    use bedrock_packs::{ResourcePackArchive, ResourcePackHandoff};
 
     for count in [64, 65] {
         let manifest = manifest(PACK_ID, count);
@@ -158,7 +159,7 @@ fn server_handoff_keeps_last_subpack_and_layer_precedence() {
                     ResourcePackArchive::unencrypted(
                         lower_id,
                         VERSION.into(),
-                        String::new(),
+                        Vec::new(),
                         lower.clone(),
                     ),
                 ]),
@@ -166,7 +167,7 @@ fn server_handoff_keeps_last_subpack_and_layer_precedence() {
             );
             assert!(stack.rejections().is_empty(), "{stack:?}");
             assert_eq!(stack.packs().len(), 2);
-            assert_eq!(stack.packs()[1].sub_pack_name(), expected);
+            assert_eq!(stack.packs()[1].sub_pack_name(), expected.as_bytes());
             let view = LayeredPackView::new(stack);
             assert_eq!(
                 view.read("marker.txt").unwrap().as_ref(),

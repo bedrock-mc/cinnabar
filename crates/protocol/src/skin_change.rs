@@ -2,6 +2,7 @@
 
 use render_api::DEFAULT_SKIN_GEOMETRY_ENGINE_VERSION;
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use bedrock_protocol_1_26_51::enums::PersonaArmSizeType;
 use bedrock_protocol_1_26_51::packets::{self, PlayerSkin};
 use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage};
@@ -23,9 +24,10 @@ pub fn builtin_skin_id(name: &str) -> String {
     format!("{CLASSIC_SKIN_PACK_ID}.{name}")
 }
 
-/// Returns an imported skin's pack identity from its persisted image name.
+/// Returns a stable, bounded imported wire identity from the full persisted image name.
 pub fn custom_skin_id(image_name: &str) -> String {
-    format!("{CUSTOM_SKIN_PACK_ID}.{image_name}")
+    let digest = URL_SAFE_NO_PAD.encode(Sha256::digest(image_name.as_bytes()));
+    format!("{CUSTOM_SKIN_PACK_ID}.{digest}")
 }
 
 /// Returns the classic model's skin-pack identity, independent of login and player UUIDs.
@@ -127,6 +129,58 @@ pub fn player_skin_packet(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn imported_digest_skin_identity_fits_login_and_preserves_distinct_names() {
+        let names = ["a".repeat(64), format!("{}b", "a".repeat(63))];
+        let ids = names.each_ref().map(|name| custom_skin_id(name));
+        assert_ne!(
+            ids[0], ids[1],
+            "the final digest character owns identity too"
+        );
+        let mut lengths = Vec::new();
+        for (name, id) in names.iter().zip(&ids) {
+            assert_eq!(
+                &custom_skin_id(name),
+                id,
+                "logins retain a stable wire identity"
+            );
+            assert!(!id.trim().is_empty() && id.is_ascii());
+            let skin = crate::ClientSkin {
+                id: id.clone(),
+                rgba8: vec![7; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4],
+                width: render_api::CLASSIC_SKIN_SIDE as u32,
+                height: render_api::CLASSIC_SKIN_SIDE as u32,
+                arm_size: "wide".to_owned(),
+                cape: None,
+                geometry: None,
+            };
+            let claims = crate::login_client_data(
+                "Fixture",
+                crate::ClientRandomId::new(7).unwrap(),
+                Some(&skin),
+                &crate::LoginSettings::default(),
+            );
+            assert_eq!(claims["SkinId"].as_str(), Some(id.as_str()));
+            let appearance = render_api::StandardSkin {
+                width: skin.width,
+                height: skin.height,
+                rgba8: skin.rgba8.into(),
+                cape: None,
+                geometry: None,
+            };
+            let packet = player_skin_packet([9; 16], &appearance, "wide", id, "Fixture");
+            let packets::Packet::PlayerSkin(update) = *packet.data else {
+                panic!("appearance update must retain the login identity");
+            };
+            assert_eq!(update.serialized_skin.id, id.as_str());
+            lengths.push(claims["SkinId"].as_str().unwrap().len());
+        }
+        assert!(
+            lengths.iter().all(|length| *length < 100),
+            "imported login identities must fit the platform skin bound: {lengths:?}"
+        );
+    }
 
     #[test]
     fn selected_skin_update_preserves_wire_pixels_geometry_and_model() {

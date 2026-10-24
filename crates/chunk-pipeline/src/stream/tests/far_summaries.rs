@@ -56,11 +56,18 @@ fn stream(enabled: bool) -> WorldStream {
 
 fn drain_until(stream: &mut WorldStream, count: usize) -> Vec<FarColumnSummary> {
     let mut summaries = Vec::new();
-    test_time::eventually("far-terrain summaries", || {
+    let completed = test_time::wait_until(test_time::DEFAULT_TIMEOUT, || {
         stream.dispatch_far_summaries();
         stream.drain_far_summaries(&mut summaries);
         summaries.len() >= count
     });
+    assert!(
+        completed,
+        "timed out after {:?} waiting for far-terrain summaries: delivered={}/{count}, {}",
+        test_time::DEFAULT_TIMEOUT,
+        summaries.len(),
+        stream.far_summary_progress(),
+    );
     summaries
 }
 

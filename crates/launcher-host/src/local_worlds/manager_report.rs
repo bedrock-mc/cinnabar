@@ -1,10 +1,18 @@
 //! What the menu and the core learn about the open world; a hidden server reports none.
 
-use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
-use launcher::local_worlds::world::{World, WorldStatus};
+use bridge::WorldState;
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use bridge::{Backend, LocalTarget, Transport};
+#[cfg(test)]
+use bridge::{LocalWorld, LocalWorldInfo};
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use launcher::local_worlds::world::World;
+use launcher::local_worlds::world::WorldStatus;
 
 use super::Manager;
-use crate::local_worlds::{lock, process::Instance};
+use crate::local_worlds::lock;
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use crate::local_worlds::process::Instance;
 
 impl Manager {
     /// The open world's lifecycle and the dedicated server's setup.
@@ -41,8 +49,9 @@ impl Manager {
         status
     }
 
-    /// The open world as the core routes and hosts it.
-    pub(crate) fn core_report(&self) -> LocalWorld {
+    /// Observes the visible opening and original target for owning lifecycle fixtures.
+    #[cfg(test)]
+    pub(crate) fn world_report(&self) -> LocalWorld {
         let life = lock(&self.inner.life);
         if life.standby {
             return LocalWorld::default();
@@ -87,6 +96,7 @@ impl Manager {
 
 /// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
 /// LAN advertisement when the server publishes one.
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
 pub(super) fn target_for(world: &World, instance: &dyn Instance) -> LocalTarget {
     let address = instance.address().to_owned();
     match (world.backend, instance.lan_address()) {
