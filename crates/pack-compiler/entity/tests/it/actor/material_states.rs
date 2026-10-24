@@ -1,6 +1,7 @@
 use super::{MANIFEST, pack, write};
 use serde_json::{Value, json};
 
+/// Compiles and round-trips the material selected by one fixture actor.
 fn state(material: &str, definitions: Option<&Value>) -> Value {
     let fixture = pack(0, material, false);
     if let Some(definitions) = definitions {
@@ -442,5 +443,117 @@ fn always_passing_depth_function_is_inherited_and_restored_by_less_equal() {
     assert_eq!(
         state("fixture_marker_tested", Some(&definitions)),
         json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true})
+    );
+}
+
+#[test]
+fn native_emissive_aliases_preserve_authored_body_and_eye_states() {
+    for (material, alpha_test, cull, only_emissive) in [
+        ("blaze_body", false, true, false),
+        ("blaze_head", true, false, false),
+        ("magma_cube", true, false, false),
+        ("glow_squid", false, true, false),
+        ("spider", true, false, false),
+        ("spider_invisible", true, false, true),
+        ("enderman", true, false, false),
+        ("enderman_invisible", true, false, true),
+        ("phantom", true, false, false),
+        ("phantom_invisible", true, false, true),
+    ] {
+        for name in [material.to_owned(), format!("{material}.skinning")] {
+            let compiled = state(&name, None);
+            assert_eq!(compiled["emissive"], true, "{name}");
+            assert_eq!(compiled["alpha_test"], alpha_test, "{name}");
+            assert_eq!(compiled["cull"], cull, "{name}");
+            assert_eq!(compiled["blend"], false, "{name}");
+            assert_eq!(compiled["depth_write"], true, "{name}");
+            assert_eq!(
+                compiled["only_emissive"].as_bool().unwrap_or(false),
+                only_emissive,
+                "{name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn only_emissive_define_is_inherited_removed_and_replaced() {
+    let definitions = json!({"materials": {
+        "fixture_eyes:spider_invisible": {},
+        "fixture_body:fixture_eyes": {"-defines": ["USE_ONLY_EMISSIVE"]},
+        "fixture_replaced:fixture_eyes": {"defines": ["ALPHA_TEST"]},
+        "spider:entity": {"+defines": ["ALPHA_TEST"]}
+    }});
+    assert_eq!(
+        state("fixture_eyes", Some(&definitions))["only_emissive"],
+        true
+    );
+    for name in ["fixture_body", "fixture_replaced", "spider"] {
+        assert_ne!(
+            state(name, Some(&definitions))["only_emissive"],
+            true,
+            "{name}"
+        );
+    }
+    assert_ne!(state("spider", Some(&definitions))["emissive"], true);
+}
+
+#[test]
+fn generated_materials_reach_the_carrier_without_fallback() {
+    for (name, mut expected) in assets::facts::pack::rules().material_states() {
+        expected.alpha_test &= !expected.blend;
+        assert_eq!(
+            state(name, None),
+            serde_json::to_value(expected).unwrap(),
+            "{name}"
+        );
+    }
+    assert!(state("cushion", None).is_null());
+}
+
+#[test]
+fn ordinary_aliases_keep_cutouts_and_one_sided_limbs() {
+    for name in ["allay", "armor_stand", "arrow"] {
+        assert_eq!(
+            state(name, None),
+            json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true}),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        state("turtle", None),
+        json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true})
+    );
+    assert_eq!(
+        state("axolotl_limbs", None),
+        json!({"alpha_test":true,"cull":true,"blend":false,"depth_write":true})
+    );
+    assert_eq!(
+        state("wither_boss_armor", None),
+        json!({"alpha_test":false,"cull":false,"blend":true,"depth_write":true,"additive":true,"disable_overlay":true})
+    );
+}
+
+#[test]
+fn depth_and_channel_write_states_inherit_and_reset_independently() {
+    let definitions = json!({"materials": {
+        "fixture:entity": {"depthFunc":"Equal", "+states":["DisableAlphaWrite","DisableColorWrite"]},
+        "fixture_child:fixture": {},
+        "fixture_removed:fixture": {"depthFunc":"LessEqual", "-states":["DisableAlphaWrite","DisableColorWrite"]},
+        "fixture_replaced:fixture": {"depthFunc":"Always", "states":[]}
+    }});
+    for name in ["fixture", "fixture_child"] {
+        assert_eq!(
+            state(name, Some(&definitions)),
+            json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true,"depth_equal":true,"disable_alpha_write":true,"disable_color_write":true})
+        );
+    }
+    assert_eq!(
+        state("fixture_removed", Some(&definitions)),
+        json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true})
+    );
+    assert_eq!(
+        state("fixture_replaced", Some(&definitions)),
+        json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true,"depth_always":true})
     );
 }

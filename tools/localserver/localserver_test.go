@@ -176,13 +176,17 @@ func TestSetPausedSuspendsAndRestoresWorlds(t *testing.T) {
 	stopped.StopTime()
 	worlds := []*world.World{cycling, stopped}
 
-	setPaused(worlds, true)
+	pauses := &pauseState{settings: settings{gameMode: "survival", diff: "normal"}}
+	for _, w := range worlds {
+		pauses.WorldOpened(w)
+	}
+	pauses.request(true)
 	for _, w := range worlds {
 		if !w.Paused() {
 			t.Fatal("world not paused")
 		}
 	}
-	setPaused(worlds, false)
+	pauses.request(false)
 	if cycling.Paused() || stopped.Paused() {
 		t.Fatal("world still paused after resume")
 	}

@@ -33,6 +33,11 @@ pub(super) struct ControllerFrame {
     pub requested_sprint: bool,
     pub sprint_down: bool,
     pub server_sprinting: Option<bool>,
+    /// Flags and accepted writes at this input boundary.
+    pub flags: flag_frame::FrameFlags,
+    /// The camera eye this tick started with, which replay restores for the
+    /// frame it starts from and refreshes for later ones.
+    pub entry_eye: eye::LocalEyeOffset,
     pub input_mode: PlayerInputMode,
     pub mode_override: Option<sim::MovementMode>,
     pub sneak_override: Option<bool>,
@@ -46,10 +51,6 @@ pub(super) struct ControllerFrame {
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
-    /// Original live pre-input flags, including accepted writes; replay never changes them.
-    pub entry_climber: Option<ClimberFlags>,
-    /// Server writes consumed before this input, overlaid on regenerated contact during replay.
-    pub climber_write: climber_authority::ClimberWrite,
     /// Block-climber flags reported by the prediction sync after this tick.
     pub climber: Option<ClimberFlags>,
 }
@@ -61,7 +62,7 @@ impl ControllerFrame {
             self.input.mode,
             self.input.sneaking,
             self.input.sneak_profile,
-            state.spin_attack_ticks.is_some(),
+            state.spin_attack_ticks.is_some() || self.input.horizontal_pose,
         );
         self.eye_offset = *eye;
     }
@@ -106,7 +107,7 @@ impl ControllerFrame {
             self.sprint_override = Some(input.sprinting);
         }
         input.liquid_contact_height =
-            Some(modes.liquid_contact_height(state.spin_attack_ticks.is_some()));
+            Some(modes.spin_aware_contact_height(state.spin_attack_ticks.is_some()));
         input.liquid_flow_enabled = Some(modes.mode() != sim::MovementMode::Flying);
         input.sprinting = self.sprint_override.unwrap_or(self.requested_sprint);
         if let Some(sprinting) = self.sprint_override {
@@ -134,6 +135,7 @@ impl ControllerFrame {
             liquid_contact_height: input.liquid_contact_height,
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
+            spinning: state.spin_attack_ticks.is_some(),
         };
         anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
         state.position = observed.feet;
@@ -154,6 +156,8 @@ impl ControllerFrame {
         input.mode = self.mode_override.unwrap_or(choice.mode);
         input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);
+        input.horizontal_pose = modes.pose_flags().horizontal();
+        input.swim_pose_active = Some(modes.pose_flags().swim_pose());
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
         if self.flight_request.is_some() {

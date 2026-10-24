@@ -20,7 +20,6 @@ const INCOMPLETE: &[&str] = &[
     "minecraft:moving_block",
     "minecraft:ominous_item_spawner",
     "minecraft:thrown_trident",
-    "minecraft:turtle",
     "minecraft:shield",
 ];
 

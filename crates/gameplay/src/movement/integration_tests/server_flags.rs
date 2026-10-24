@@ -1,0 +1,972 @@
+//! Server pose, Riptide spin and item-use flags enter local state as vanilla's
+//! flag component writes do: they start or end the state without actions, and
+//! the client's own rules then continue or end it.
+
+use super::*;
+
+mod combinations;
+mod replay_blend;
+mod replay_policy;
+
+/// An airborne controller and outbox, high enough for a full spin or glide.
+fn airborne() -> (LocalPhysicsController, MovementTicker) {
+    let origin = [0.0, 65.620_01, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    (physics, ticker)
+}
+
+/// A context whose chest slot holds an unbroken elytra.
+fn elytra(ready: bool) -> PhysicsSampleContext {
+    PhysicsSampleContext {
+        mode_intent: super::super::ModeIntent {
+            elytra_ready: ready,
+            ..Default::default()
+        },
+        ..PhysicsSampleContext::default()
+    }
+}
+
+/// Runs one tick with `input` and queues the sample.
+fn tick_with(
+    physics: &mut LocalPhysicsController,
+    ticker: &mut MovementTicker,
+    input: MovementInput,
+    context: PhysicsSampleContext,
+) -> PhysicsMovementSample {
+    let frame = physics.advance_with_context(
+        simulation_clock::TICK_DURATION,
+        input,
+        context,
+        &VersionedFloor(1),
+    );
+    let sample = frame
+        .samples
+        .into_iter()
+        .next()
+        .expect("one completed tick");
+    ticker.enqueue_completed_physics(sample.clone()).unwrap();
+    sample
+}
+
+fn tick(
+    physics: &mut LocalPhysicsController,
+    ticker: &mut MovementTicker,
+    context: PhysicsSampleContext,
+) -> PhysicsMovementSample {
+    tick_with(physics, ticker, MovementInput::default(), context)
+}
+
+/// How many queued inputs carry `flag`.
+fn count(ticker: &MovementTicker, flag: PlayerInputFlags) -> usize {
+    ticker
+        .pending_snapshots()
+        .iter()
+        .filter(|snapshot| snapshot.flags.bits() & flag.bits() != 0)
+        .count()
+}
+
+/// A server glide flag starts the glide without a StartGliding action, and the
+/// glide's own rules keep an equipped player gliding or end it without an elytra.
+#[test]
+fn a_live_server_glide_starts_the_pose_and_its_own_rules_continue_it() {
+    for (ready, expected) in [
+        (true, sim::MovementMode::Gliding),
+        (false, sim::MovementMode::Walking),
+    ] {
+        let (mut physics, mut ticker) = airborne();
+        tick(&mut physics, &mut ticker, elytra(ready));
+        let start = flags(|flags| flags.gliding = Some(true));
+        assert_eq!(physics.apply_server_movement_flags(0, start), None);
+        assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+        let sample = tick(&mut physics, &mut ticker, elytra(ready));
+        assert_eq!(sample.processed.mode, expected, "elytra {ready}");
+        assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+        assert_eq!(
+            count(&ticker, PlayerInputFlags::STOP_GLIDING),
+            usize::from(!ready),
+            "only the client's own stop is an action"
+        );
+    }
+}
+
+/// A server pose clear ends a local glide without a stop action.
+#[test]
+fn a_live_server_pose_clear_reports_no_stop_action() {
+    let (mut physics, mut ticker) = airborne();
+    for jumping in [false, true] {
+        let input = MovementInput {
+            jumping,
+            ..MovementInput::default()
+        };
+        tick_with(&mut physics, &mut ticker, input, elytra(true));
+    }
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let clear = flags(|flags| flags.gliding = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(0, clear), None);
+    let sample = tick(&mut physics, &mut ticker, elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Walking);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 1);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_GLIDING), 0);
+}
+
+/// A stamped glide start applies from the tick after its stamp through replay;
+/// an echo of the local pose at the stamp changes nothing.
+#[test]
+fn a_retained_server_glide_start_replays_from_its_stamp() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let walking = flags(|flags| flags.gliding = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(101, walking), None);
+    let start = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, start), Some(101));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+    let echo = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(102, echo), None);
+}
+
+/// A server spin flag starts a spin without a start action; the spin's own
+/// lifetime ends it on its twentieth tick with one stop action.
+#[test]
+fn a_live_server_spin_lasts_the_vanilla_lifetime() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let start = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(0, start), None);
+    assert_eq!(
+        physics.state().unwrap().spin_attack_ticks,
+        Some(0),
+        "the spin starts its own lifetime"
+    );
+    for index in 0..20 {
+        let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+        assert_eq!(sample.processed.spinning, index < 19, "tick {index}");
+    }
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 1);
+}
+
+/// A server clear cancels a local Riptide spin without a stop action.
+#[test]
+fn a_live_server_spin_clear_cancels_the_local_spin() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        assert!(
+            tick(&mut physics, &mut ticker, PhysicsSampleContext::default())
+                .processed
+                .spinning
+        );
+    }
+    let clear = flags(|flags| flags.spinning = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(0, clear), None);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(!sample.processed.spinning);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 1);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// A stamped spin start enters the live state at once and replays from its
+/// stamp. Replay copies the spin flag back but not its counter, which vanilla
+/// keeps in a separate component, so the live spin keeps its own lifetime.
+#[test]
+fn a_retained_server_spin_start_replays_from_its_stamp() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let start = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, start), Some(101));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// Stamped spin and glide writes stay in their frame when a later replay
+/// starts from an earlier tick.
+#[test]
+fn retained_server_writes_survive_an_earlier_rewind() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let start = flags(|flags| {
+        flags.gliding = Some(true);
+        flags.spinning = Some(true);
+    });
+    assert_eq!(physics.apply_server_movement_flags(102, start), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+    // Replay keeps the live spin counter, which the write started at zero.
+    let expected = physics.state().cloned();
+    assert_eq!(expected.as_ref().unwrap().spin_attack_ticks, Some(0));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    assert_eq!(
+        physics.state().unwrap().spin_attack_ticks,
+        Some(0),
+        "the spin written before tick 103 replays again"
+    );
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
+}
+
+/// A later write with the same stamp compares with the frame's capture, as
+/// vanilla's flag correction does, so a clear matching it leaves the start.
+#[test]
+fn a_same_stamp_clear_compares_with_the_frame_capture() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let set = |value| {
+        flags(|flags| {
+            flags.gliding = Some(value);
+            flags.spinning = Some(value);
+        })
+    };
+    assert_eq!(
+        physics.apply_server_movement_flags(101, set(true)),
+        Some(101)
+    );
+    assert_eq!(physics.apply_server_movement_flags(101, set(false)), None);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
+}
+
+/// A clear and a set before the next tick keep the spin's counter, as
+/// vanilla's counter outlives its flag until a tick processes the clear.
+#[test]
+fn a_clear_and_set_before_a_tick_keep_the_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}
+
+/// A stamped spin cancel also applies to the live state at once, so it holds
+/// even when no replay follows.
+#[test]
+fn a_stamped_spin_cancel_applies_live() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let clear = flags(|flags| flags.spinning = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// A live glide and spin write survives a later replay through the tick it
+/// preceded, whatever the stamp it was delivered with.
+#[test]
+fn live_server_writes_survive_a_replay_through_their_tick() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, elytra(true));
+    let start = flags(|flags| {
+        flags.gliding = Some(true);
+        flags.spinning = Some(true);
+    });
+    assert_eq!(physics.apply_server_movement_flags(101, start), None);
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let expected = physics.state().unwrap().spin_attack_ticks;
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, expected);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_SPIN_ATTACK), 0);
+}
+
+/// A stamped spin clear keeps its action baseline through replay and the next input.
+#[test]
+fn a_stamped_spin_clear_reports_no_stop_action() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let clear = flags(|flags| flags.spinning = Some(false));
+    assert_eq!(physics.apply_server_movement_flags(102, clear), Some(102));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+    let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(!sample.processed.spinning);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// A glide clear and set before a tick keep the glide counter, so a jump
+/// after eleven gliding ticks still ends the glide.
+#[test]
+fn a_glide_clear_and_set_before_a_tick_keep_the_glide_counter() {
+    let (mut physics, mut ticker) = airborne();
+    let jump = |jumping| MovementInput {
+        jumping,
+        ..MovementInput::default()
+    };
+    tick_with(&mut physics, &mut ticker, jump(false), elytra(true));
+    for _ in 0..12 {
+        tick_with(&mut physics, &mut ticker, jump(true), elytra(true));
+    }
+    tick_with(&mut physics, &mut ticker, jump(false), elytra(true));
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let write = |value| flags(|flags| flags.gliding = Some(value));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.apply_server_movement_flags(0, write(true));
+    let sample = tick_with(&mut physics, &mut ticker, jump(true), elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Walking);
+}
+
+/// A tickless frame between a server spin set and clear, and a replay after
+/// them, leave no stop action: each tick's baseline is the word it starts with.
+#[test]
+fn a_tickless_frame_and_replay_report_no_server_spin_action() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    let frame = physics.advance_with_context(
+        Duration::ZERO,
+        MovementInput::default(),
+        PhysicsSampleContext::default(),
+        &VersionedFloor(1),
+    );
+    assert!(frame.samples.is_empty());
+    physics.apply_server_movement_flags(0, write(false));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(!sample.processed.spinning);
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// A hard anchor such as respawn discards a spin counter a clear saved, so a
+/// new life's spin counts from zero.
+#[test]
+fn a_reanchor_discards_a_saved_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    physics.request_riptide(3, [0.0; 2]);
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let tick = physics.state().unwrap().tick;
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.reanchor_network_position([0.0, 65.620_01, 0.0], tick, false);
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+}
+
+/// After a replay applied a stamped spin start, a later write with the same
+/// stamp compares with the frame's capture, as vanilla's does, and leaves it.
+#[test]
+fn a_replayed_stamped_write_is_not_the_base_for_later_writes() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(
+        physics.apply_server_movement_flags(101, write(true)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.apply_server_movement_flags(101, write(false)), None);
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+}
+
+/// A replay from an earlier tick refreshes the captures of the frames it
+/// rebuilt, so a live write no longer serves as their base afterwards.
+#[test]
+fn an_earlier_replay_refreshes_captured_live_writes() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(physics.apply_server_movement_flags(0, write(true)), None);
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    assert_eq!(
+        physics.apply_server_movement_flags(102, write(false)),
+        Some(102)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 102, &VersionedFloor(1)).unwrap();
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(
+        physics.apply_server_movement_flags(102, write(true)),
+        Some(102)
+    );
+}
+
+/// A live write captured with a frame stays that frame's base after a stamped
+/// correction replays, so a later echo of the live value changes nothing.
+#[test]
+fn a_captured_live_write_stays_the_base_after_a_correction() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(physics.apply_server_movement_flags(0, write(true)), None);
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    assert_eq!(
+        physics.apply_server_movement_flags(101, write(false)),
+        Some(101)
+    );
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.apply_server_movement_flags(101, write(true)), None);
+}
+
+/// Each write compares with its own frame's capture even while another awaits replay.
+#[test]
+fn a_write_compares_with_its_capture_while_another_awaits_replay() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    assert_eq!(
+        physics.apply_server_movement_flags(101, write(true)),
+        Some(101)
+    );
+    assert_eq!(physics.apply_server_movement_flags(102, write(false)), None);
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+}
+
+/// A server pose write keeps flight, which vanilla holds beside pose flags.
+#[test]
+fn a_server_pose_write_keeps_flight() {
+    let (mut physics, mut ticker) = airborne();
+    let flying = PhysicsSampleContext {
+        mode_intent: super::super::ModeIntent {
+            can_fly: true,
+            flight: client_world::game_mode_capabilities::FlightAuthority::Mutable(true),
+            ..Default::default()
+        },
+        ..PhysicsSampleContext::default()
+    };
+    tick(&mut physics, &mut ticker, flying);
+    assert_eq!(physics.mode(), sim::MovementMode::Flying);
+    let crawl = flags(|flags| flags.crawling = Some(true));
+    physics.apply_server_movement_flags(0, crawl);
+    assert_eq!(physics.mode(), sim::MovementMode::Flying);
+    let sample = tick(&mut physics, &mut ticker, flying);
+    assert_eq!(sample.processed.mode, sim::MovementMode::Flying);
+}
+
+/// Respawn retires a server spin baseline the old life left for the next
+/// input, so the new life reports no stop action.
+#[test]
+fn respawn_retires_pending_server_spin_baselines() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    physics.apply_server_movement_flags(0, flags(|flags| flags.spinning = Some(true)));
+    ticker.discard_respawn_actions(&mut physics);
+    let tick_now = physics.state().unwrap().tick;
+    physics.reanchor_network_position([0.0, 65.620_01, 0.0], tick_now, false);
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert_eq!(count(&ticker, PlayerInputFlags::STOP_SPIN_ATTACK), 0);
+}
+
+/// A tick that fails keeps a queued correction for its retry, so a later
+/// rewind through that frame still applies it.
+#[test]
+fn a_failed_tick_keeps_its_queued_correction() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(102, spin), None);
+    let failed = physics.advance_with_context(
+        simulation_clock::TICK_DURATION,
+        MovementInput::default(),
+        PhysicsSampleContext::default(),
+        &UnavailableWorld,
+    );
+    assert!(failed.samples.is_empty());
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let expected = physics.state().unwrap().spin_attack_ticks;
+    assert!(expected.is_some());
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, expected);
+}
+
+/// The first tick after a reanchor also starts from the word server writes
+/// left, so a server glide start reports no start action.
+#[test]
+fn the_first_tick_after_a_reanchor_reports_no_server_start() {
+    let (mut physics, mut ticker) = airborne();
+    let start = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(0, start), None);
+    let sample = tick(&mut physics, &mut ticker, elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Gliding);
+    assert_eq!(count(&ticker, PlayerInputFlags::START_GLIDING), 0);
+}
+
+/// A retained spin write applies live immediately and requests replay from its capture.
+#[test]
+fn a_stamped_flag_write_requests_replay() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..25 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, spin), Some(101));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// Capturing a queued correction does not apply it again, so an unstamped
+/// clear after a current-stamped set keeps the spin cleared.
+#[test]
+fn capturing_a_queued_correction_keeps_a_later_clear() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(101, write(true));
+    physics.apply_server_movement_flags(0, write(false));
+    let sample = tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(!sample.processed.spinning);
+}
+
+/// Replay copies its whole flag word back, as vanilla's fixed copy-back mask
+/// does, so a live spin a current-stamped write started for the next frame
+/// gives way to a replay whose ticks never spin.
+#[test]
+fn replay_overwrites_a_live_flag_written_after_its_last_tick() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(104, spin), None);
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// A write stamped past the current tick, whose frame does not exist yet,
+/// joins the current frame's corrections, so a replay through that frame
+/// applies it after a later unstamped clear.
+#[test]
+fn a_future_stamped_write_joins_the_current_frame() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(105, write(true));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.queue_server_motion([0.0; 3], 103);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 103, &VersionedFloor(1)).unwrap();
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+}
+
+/// A stale write whose clamped frame has no following frame yet applies live
+/// and waits for the next capture instead of being dropped.
+#[test]
+fn a_stale_write_without_a_following_frame_applies_live() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    physics.apply_server_movement_flags(50, write(false));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// A spin that starts and expires within a replay stays expired, although
+/// the original ticks also ended without a spin.
+#[test]
+fn replay_keeps_a_spin_that_expired_within_it() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..25 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let spin = flags(|flags| flags.spinning = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, spin), Some(101));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// A retained glide start that the replayed tick ends at once (no elytra)
+/// counts as a replayed change, so the live glide the write began ends too.
+#[test]
+fn replay_ends_a_glide_its_correction_started_and_ended() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..4 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let glide = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(102, glide), Some(102));
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_ne!(physics.mode(), sim::MovementMode::Gliding);
+}
+
+/// A server swim start between ticks is the flag the next tick's swim blend
+/// reads, so the blend starts rising on that tick.
+#[test]
+fn a_server_swim_start_advances_the_swim_blend_on_the_next_tick() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let swim = flags(|flags| flags.swimming = Some(true));
+    physics.apply_server_movement_flags(0, swim);
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    assert!(physics.state().unwrap().swim_amount > 0.0);
+}
+
+/// A replay right after a same-tick server clear restores the spin with the
+/// counter the clear saved, since no tick has processed the clear yet.
+#[test]
+fn replay_after_a_same_tick_clear_keeps_the_saved_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(101, write(true));
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    physics.apply_server_movement_flags(0, write(false));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}
+
+/// Replay through a retained server glide start leaves the live glide
+/// counter, which vanilla keeps in its own component, so a fresh jump right
+/// after does not end the glide the write just began.
+#[test]
+fn replaying_a_server_glide_start_keeps_the_live_glide_counter() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..13 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let glide = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, glide), Some(101));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+    let jump = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let sample = tick_with(&mut physics, &mut ticker, jump, elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Gliding);
+}
+
+/// A replay that clears a running spin saves its counter, so a server set on
+/// the same tick resumes it instead of restarting the spin.
+#[test]
+fn a_set_after_a_replay_clear_resumes_the_spin_counter() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..3 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    for _ in 0..2 {
+        tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    }
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}
+
+/// A spin a side collision ends keeps a counter of one until the next tick
+/// processes the clear, as vanilla's post-spin step counts the stopping tick,
+/// so a server set before that tick resumes from it.
+#[test]
+fn a_set_after_a_collision_stop_resumes_the_counted_stop() {
+    let origin = [0.5, 2.620_01, -1.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let wall = VersionedWall(1);
+    let advance = |physics: &mut LocalPhysicsController| {
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &wall,
+        )
+    };
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    let write = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, write(true));
+    physics.queue_server_motion([0.0, 0.0, -0.6], 0);
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    let state = physics.state().unwrap();
+    assert!(state.collisions.z);
+    assert_eq!(state.spin_attack_ticks, None);
+    physics.apply_server_movement_flags(0, write(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(1));
+}
+
+/// A Riptide launch that hits a side wall on its own tick also keeps the
+/// counted stop, though the tick started without a spin.
+#[test]
+fn a_launch_into_a_wall_keeps_the_counted_stop() {
+    let origin = [0.5, 2.620_01, -2.5];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let wall = VersionedWall(1);
+    let advance = |physics: &mut LocalPhysicsController| {
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &wall,
+        )
+    };
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    assert!(physics.request_riptide(3, [0.0; 2]));
+    assert_eq!(advance(&mut physics).samples.len(), 1);
+    let state = physics.state().unwrap();
+    assert!(state.collisions.z);
+    assert_eq!(state.spin_attack_ticks, None);
+    let spin = flags(|flags| flags.spinning = Some(true));
+    physics.apply_server_movement_flags(0, spin);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(1));
+}
+
+/// The floor fixture far below and a wall reaching high above it, so an
+/// airborne player can strike the wall without landing.
+struct TallWall;
+
+impl CollisionWorld for TallWall {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        VersionedFloor(1).registry_identity()
+    }
+
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let mut boxes = VersionedFloor(1).collision_boxes(query)?;
+        let wall = Aabb::new(Vec3::new(-64.0, 1.0, -2.0), Vec3::new(64.0, 200.0, -1.5));
+        if wall.intersects(query) {
+            boxes.value.push(wall);
+        }
+        Ok(boxes)
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        VersionedFloor(1).block_physics(block)
+    }
+}
+
+/// Replay restores a spin a correction sets right after a side-collision
+/// stop with the counted stop, as vanilla's snapshots keep the inactive
+/// counter, so the replayed spin expires on the tick the live one did.
+#[test]
+fn replay_resumes_a_spin_set_after_a_collision_stop_from_its_counted_stop() {
+    let origin = [0.5, 101.620_01, -1.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let step = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+        let frame = physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &TallWall,
+        );
+        let sample = frame
+            .samples
+            .into_iter()
+            .next()
+            .expect("one completed tick");
+        ticker.enqueue_completed_physics(sample).unwrap();
+    };
+    step(&mut physics, &mut ticker);
+    let spin = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, spin(true));
+    physics.queue_server_motion([0.0, 0.0, -0.6], 0);
+    step(&mut physics, &mut ticker);
+    assert!(physics.state().unwrap().collisions.z);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+    let stopped = physics.state().unwrap().tick;
+    physics.apply_server_movement_flags(stopped, spin(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(1));
+    while physics.state().unwrap().spin_attack_ticks.is_some() {
+        step(&mut physics, &mut ticker);
+    }
+    physics.queue_server_motion([0.0; 3], stopped);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, stopped, &TallWall).unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// A later rewind starts from the counters the starting frame captured live,
+/// not from history an earlier replay rebuilt, so a jump the live glide
+/// survived still continues it after replay from just before the jump.
+#[test]
+fn a_later_rewind_starts_from_the_frame_captured_glide_counter() {
+    let (mut physics, mut ticker) = airborne();
+    for _ in 0..13 {
+        tick(&mut physics, &mut ticker, elytra(true));
+    }
+    let glide = flags(|flags| flags.gliding = Some(true));
+    assert_eq!(physics.apply_server_movement_flags(101, glide), Some(101));
+    physics.queue_server_motion([0.0; 3], 101);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 101, &VersionedFloor(1)).unwrap();
+    let jump = MovementInput {
+        jumping: true,
+        ..MovementInput::default()
+    };
+    let sample = tick_with(&mut physics, &mut ticker, jump, elytra(true));
+    assert_eq!(sample.processed.mode, sim::MovementMode::Gliding);
+    physics.queue_server_motion([0.0; 3], 113);
+    reconcile_timeline_rewind(&mut ticker, &mut physics, 113, &VersionedFloor(1)).unwrap();
+    assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+}
+
+/// A positional correction at a side-collision stop keeps the counted stop
+/// the next frame captured, so a spin a correction sets there still resumes
+/// from one and expires on the tick the live one did.
+#[test]
+fn a_positional_correction_keeps_the_counted_spin_stop() {
+    let origin = [0.5, 101.620_01, -1.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    let step = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+        let frame = physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            PhysicsSampleContext::default(),
+            &TallWall,
+        );
+        let sample = frame
+            .samples
+            .into_iter()
+            .next()
+            .expect("one completed tick");
+        ticker.enqueue_completed_physics(sample).unwrap();
+    };
+    step(&mut physics, &mut ticker);
+    let spin = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, spin(true));
+    physics.queue_server_motion([0.0, 0.0, -0.6], 0);
+    step(&mut physics, &mut ticker);
+    let stopped = physics.state().unwrap().tick;
+    physics.apply_server_movement_flags(stopped, spin(true));
+    while physics.state().unwrap().spin_attack_ticks.is_some() {
+        step(&mut physics, &mut ticker);
+    }
+    let mut position = physics.sample_at(stopped).unwrap().position;
+    position[0] += 0.25;
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        position,
+        stopped,
+        false,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &TallWall,
+    )
+    .unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, None);
+}
+
+/// A positional correction at the current tick replays no tick, so it moves
+/// the player without touching the flags: a spin the server set since stays.
+#[test]
+fn a_current_tick_correction_keeps_a_live_spin() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let spin = flags(|flags| flags.spinning = Some(true));
+    physics.apply_server_movement_flags(101, spin);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+    let mut position = physics.sample_at(101).unwrap().position;
+    position[0] += 0.25;
+    reconcile_candidate_physics_correction(
+        &mut ticker,
+        &mut physics,
+        position,
+        101,
+        false,
+        PhysicsCorrectionMode::ReplayIfRetained,
+        &VersionedFloor(1),
+    )
+    .unwrap();
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, Some(0));
+}
+
+/// A spatial snap moves the player without touching the spin: an active spin
+/// keeps running and a counter a server clear saved still resumes.
+#[test]
+fn a_snap_keeps_the_spin_and_its_saved_counter() {
+    let (mut physics, mut ticker) = airborne();
+    tick(&mut physics, &mut ticker, PhysicsSampleContext::default());
+    let spin = |value| flags(|flags| flags.spinning = Some(value));
+    physics.apply_server_movement_flags(0, spin(true));
+    let mut last = None;
+    for _ in 0..3 {
+        last = Some(tick(
+            &mut physics,
+            &mut ticker,
+            PhysicsSampleContext::default(),
+        ));
+    }
+    let last = last.unwrap();
+    let counter = physics.state().unwrap().spin_attack_ticks;
+    assert!(counter.is_some_and(|ticks| ticks > 0));
+    let snap = |physics: &mut LocalPhysicsController, ticker: &mut MovementTicker| {
+        reconcile_candidate_physics_correction(
+            ticker,
+            physics,
+            last.position,
+            last.tick,
+            true,
+            PhysicsCorrectionMode::Snap,
+            &VersionedFloor(1),
+        )
+        .unwrap();
+    };
+    snap(&mut physics, &mut ticker);
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+    physics.apply_server_movement_flags(0, spin(false));
+    snap(&mut physics, &mut ticker);
+    physics.apply_server_movement_flags(0, spin(true));
+    assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
+}

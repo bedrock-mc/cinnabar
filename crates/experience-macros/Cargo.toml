@@ -1,0 +1,16 @@
+[package]
+name = "experience-macros"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+
+[lints]
+workspace = true

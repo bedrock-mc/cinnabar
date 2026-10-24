@@ -19,10 +19,12 @@ mod correction;
 mod dimension_wait;
 mod prediction_corrections;
 mod riptide;
+mod server_flags;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
 mod fixed_ticks;
+mod flag_frame;
 mod input_requests;
 mod lifecycle;
 mod motion_ticks;
@@ -289,6 +291,8 @@ pub struct LocalPhysicsController {
     server_control_flags: Option<ServerControlFlags>,
     /// Accepted server posture newer than the latest completed sample.
     live_posture: ServerControlFlags,
+    /// Retained server flag writes and the pending item-use value.
+    server_flags: server_flags::ServerFlagAuthority,
     sync_state: posture::SyncState,
     /// Ordered writes belong to the timeline and survive actor-state replacement.
     sync_pending: Vec<posture::ServerWrite>,
@@ -341,6 +345,7 @@ impl Default for LocalPhysicsController {
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             live_posture: Default::default(),
+            server_flags: Default::default(),
             sync_state: Default::default(),
             sync_pending: Vec::new(),
             riptide_pending: None,
@@ -393,14 +398,6 @@ impl LocalPhysicsController {
     ) {
         self.reanchor_network_position(network_position, tick, on_ground);
         self.discard_next_elapsed = self.is_active();
-    }
-
-    /// Fixed ticks a frame of `elapsed` would complete, without advancing the clock.
-    pub fn ticks_due(&self, elapsed: Duration) -> u64 {
-        if self.state.is_none() || self.discard_next_elapsed {
-            return 0;
-        }
-        fixed_ticks::whole_ticks(self.accumulated_seconds + elapsed.as_secs_f64())
     }
 
     /// Advances only when a finite, simulable server motion enters live prediction.

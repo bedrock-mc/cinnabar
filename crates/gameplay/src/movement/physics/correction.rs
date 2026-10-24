@@ -46,6 +46,14 @@ impl LocalPhysicsController {
             let jump_edge_pending = self.jump_edge_pending;
             let input_edges = self.input_edges;
             let modes = self.modes;
+            // The spin and its counter, including one a server clear saved, are
+            // flag state a spatial snap leaves alone.
+            let spin = self.state.as_ref().map(|state| {
+                (
+                    state.spin_attack_ticks,
+                    self.server_flags.cleared_spin_on(state.tick),
+                )
+            });
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // As in vanilla, MovePlayer changes spatial state without resetting
             // jump input, movement abilities or the block climber's contact.
@@ -62,6 +70,12 @@ impl LocalPhysicsController {
                 state.jump_delay = jump_delay;
                 state.swim_amount = swim_amount;
                 state.swim_pose_active = swim_pose_active;
+                if let Some((ticks, cleared)) = spin {
+                    state.spin_attack_ticks = ticks;
+                    if let Some(cleared) = cleared {
+                        self.server_flags.save_cleared_spin(state.tick, cleared);
+                    }
+                }
             }
             if let (Some(velocity), Some(state)) = (velocity, self.state.as_mut()) {
                 state.velocity = velocity;
@@ -233,6 +247,25 @@ impl LocalPhysicsController {
         let mut eye = anchor_controller.eye_offset;
         let mut sync_state = anchor_controller.sync_state;
         let deferred_corrections = self.deferred_corrections.clone();
+        // Replay copies the flags back but not the spin counter, which a clear
+        // on the current tick has not reset yet, nor the swim blend.
+        let live_spin = self.state.as_ref().and_then(|state| {
+            state
+                .spin_attack_ticks
+                .or_else(|| self.server_flags.cleared_spin_on(state.tick))
+        });
+        let live_swim_amount = self.state.as_ref().map(|state| state.swim_amount);
+        let live_modes = self.modes;
+        let live_flag_state = self
+            .state
+            .as_ref()
+            .map(|state| (state.spin_attack_ticks, state.swim_pose_active));
+        // Whether a spin was active during the previous replayed tick, which
+        // decides the inactive counter a spin set on the next frame resumes.
+        let mut spun = anchor_controller.flags.pose_word().spinning()
+            || anchor_controller.input.riptide.is_some();
+        // Each replayed tick's action baseline: the pose and spin it starts with.
+        let mut baselines = Vec::new();
         let boosts = self.boosts.clone();
         let pending_climber = self.pending_climber.clone();
         let mut effective_climber = anchor_controller.climber;
@@ -260,9 +293,20 @@ impl LocalPhysicsController {
                         );
                         effective_climber = frame.climber;
                         frame.finish_eye(&mut eye, state);
-                        sync_state.replay_server(&frame.sync_server);
                         sync_state.complete_tick(frame, state);
                         frame.sync_state = sync_state;
+                    }
+                    // Vanilla restores the starting frame's eye from its snapshot and
+                    // refreshes later frames' from the replayed state.
+                    if let Some(frame) = controller_frames
+                        .iter_mut()
+                        .find(|frame| frame.tick == state.tick + 1)
+                    {
+                        if frame.tick == tick + 1 {
+                            eye = frame.entry_eye;
+                        } else {
+                            frame.entry_eye = eye;
+                        }
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
@@ -271,25 +315,41 @@ impl LocalPhysicsController {
                         .iter_mut()
                         .find(|frame| frame.tick == next_tick)
                         .expect("controller and prediction histories retain the same ticks");
-                    frame
-                        .climber_write
-                        .merge(pending_climber.for_replay(next_tick));
-                    effective_climber = frame.climber_write.apply_flags(effective_climber);
-                    if let Some(climber) = effective_climber {
-                        climber.apply(state, ClimberFlags::mask());
-                    }
-                    boosts.apply(state.tick + 1, &mut input.effects);
+                    boosts.apply(next_tick, &mut input.effects);
+                    let replacement = frame
+                        .sync_server
+                        .iter()
+                        .any(|write| matches!(write, posture::ServerWrite::Replacement(..)));
+                    frame.flags.replay(
+                        &mut modes,
+                        state,
+                        frame.tick == tick + 1 || replacement,
+                        spun,
+                        pending_climber.for_replay(next_tick),
+                        &mut effective_climber,
+                    );
+                    // Accepted pose changes resize before local producers can end them.
+                    // Replay them with dimensions in their original arrival order.
+                    sync_state.replay_server(&frame.sync_server);
+                    baselines.push((
+                        frame.tick,
+                        modes.mode(),
+                        modes.pose_flags(),
+                        state.spin_attack_ticks.is_some(),
+                    ));
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
-                    frame.prepare(
+                    let prepared = frame.prepare(
                         &mut modes,
                         &mut anchor_state,
                         environment,
                         state,
                         input,
                         world,
-                    )
+                    );
+                    spun = frame.flags.pose_word().spinning() || input.riptide.is_some();
+                    prepared
                 },
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
@@ -319,7 +379,6 @@ impl LocalPhysicsController {
             frame.climber =
                 ClimberFlags::after_tick(&frame.input, &frame.environment, effective_climber);
             frame.finish_eye(&mut eye, state);
-            sync_state.replay_server(&frame.sync_server);
             sync_state.complete_tick(frame, state);
             frame.sync_state = sync_state;
         }
@@ -352,6 +411,13 @@ impl LocalPhysicsController {
             else {
                 return Err(PhysicsCorrectionError::NotRetained { tick: result.tick });
             };
+            if let Some((_, mode, poses, spinning)) =
+                baselines.iter().find(|(tick, ..)| *tick == result.tick)
+            {
+                retained.input.server_mode = Some(*mode);
+                retained.input.server_pose_flags = Some(*poses);
+                retained.input.server_spinning = Some(*spinning);
+            }
             if self.history.world_at(result.tick).is_none()
                 && retained.world_identity != result.world_identity
                 && (immobility_edits.binary_search(&result.tick).is_err()
@@ -396,6 +462,10 @@ impl LocalPhysicsController {
             retained.processed.sneaking = frame_input.sneaking;
             retained.processed.sprinting = frame_input.sprinting;
             retained.processed.mode = frame_input.mode;
+            retained.processed.pose_flags = controller_frames
+                .iter()
+                .find(|frame| frame.tick == result.tick)
+                .map(|frame| frame.modes.pose_flags());
             retained.processed.spin_started = frame_input.riptide.is_some()
                 && frame_input.mode != sim::MovementMode::Riding
                 && !frame_input.spectator;
@@ -421,10 +491,46 @@ impl LocalPhysicsController {
             replayed_samples.push(retained.clone());
         }
         self.processed_jump_arc_active = jump_fold.arc_active();
-        posture::replay_actor_modes(&self.sync_pending, &mut modes);
+        // With no tick replayed, no flag word is rebuilt: the live pose and spin
+        // stand, as vanilla's current-tick correction moves the actor without
+        // touching its flags.
+        let keep_live_flags = replay.replayed_ticks == 0
+            || self
+                .sync_pending
+                .iter()
+                .any(|write| matches!(write, posture::ServerWrite::Replacement(..)));
+        if keep_live_flags {
+            modes = live_modes;
+            if let (Some(state), Some((spin, swim_pose))) = (self.state.as_mut(), live_flag_state) {
+                state.spin_attack_ticks = spin;
+                state.swim_pose_active = swim_pose;
+            }
+        }
+        // Vanilla copies every client-owned flag of the replayed word back to
+        // the live actor, so the replayed pose and spin stand. The spin and
+        // glide counters and the swim blend live in their own components,
+        // which copy-back leaves live; a spin the live state lacked counts
+        // from zero, and one copy-back clears keeps its counter until a tick
+        // processes the clear.
+        if let Some(state) = self.state.as_mut() {
+            if state.spin_attack_ticks.is_none()
+                && let Some(ticks) = live_spin
+            {
+                self.server_flags.save_cleared_spin(state.tick, ticks);
+            }
+            state.spin_attack_ticks = state.spin_attack_ticks.map(|_| live_spin.unwrap_or(0));
+            if let Some(amount) = live_swim_amount {
+                state.swim_amount = amount;
+            }
+        }
+        modes.set_glide_counter(self.modes.fall_fly_ticks());
+        if !keep_live_flags {
+            posture::replay_actor_modes(&self.sync_pending, &mut modes);
+        }
         self.modes = modes;
-        eye.preserve_interpolation_hold(self.eye_offset);
-        self.eye_offset = eye;
+        // Vanilla's replay ticks the eye offset only on its temporary replay
+        // entity and copy-back leaves the live one, so the live eye blend
+        // stands; retained frames keep their replayed eye.
         self.last_environment = controller_frames
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
@@ -438,8 +544,11 @@ impl LocalPhysicsController {
             controller_frames.back().map_or(tick, |frame| frame.tick),
         );
         self.controller_history = controller_frames;
-        sync_state.replay_server(&self.sync_pending);
-        self.sync_state = sync_state;
+        // Without replayed ticks, no producer superseded the live size or its owner.
+        if !keep_live_flags {
+            sync_state.replay_pending(&mut self.sync_pending);
+            self.sync_state = sync_state;
+        }
         self.live_climber = self.pending_climber.apply_flags(self.live_climber);
         if let Some(state) = self.state.as_mut() {
             self.pending_climber.apply(state);

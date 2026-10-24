@@ -145,4 +145,51 @@ mod replacement_tests {
             .for_each_instance(&mut |instance| replaced.push(instance.index));
         assert_eq!(replaced, [0]);
     }
+
+    #[test]
+    fn equal_depth_overlays_keep_their_depth_producers_on_the_native_path() {
+        use crate::actor_render::tests::allocation_fault_tests::{
+            draw_frame, fixture, publication,
+        };
+        let mut app = fixture();
+        app.sub_app_mut(RenderApp)
+            .insert_resource(crate::actor::gpu::ArtworkRawViews(true));
+        let mut frame = publication(1, &[55, 55, 77], 1);
+        let manifest = Arc::make_mut(&mut frame.rig.manifest);
+        manifest[1].identity.runtime_id = manifest[0].identity.runtime_id;
+        manifest[1].identity.layer = render_model::ACTOR_LAYER_BODY + 1;
+        let eye_state = assets::EntityRenderMaterialState {
+            depth_equal: true,
+            ..Default::default()
+        };
+        Arc::make_mut(&mut frame.rig.instances)[1].material =
+            assets::EntityRenderMaterial::Default.word(Some(eye_state));
+        draw_frame(&mut app, &frame);
+        let world = app.sub_app(RenderApp).world();
+        let gpu = world.resource::<ActorGpu>();
+        assert!(gpu.artwork.page(0).unwrap().raw_texture().is_some());
+        assert!(gpu.spans.len() >= 2);
+        assert!(gpu.spans.iter().all(|span| !gpu.pack_supports_span(span)));
+        let mut exported = Vec::new();
+        shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| exported.push(instance.index));
+        assert!(
+            exported.is_empty(),
+            "a pack vertex transform must not split a native depth pair"
+        );
+
+        frame.rig.frame_generation += 1;
+        Arc::make_mut(&mut frame.rig.instances)[1].material =
+            assets::EntityRenderMaterial::Default as u32;
+        draw_frame(&mut app, &frame);
+        let world = app.sub_app(RenderApp).world();
+        let gpu = world.resource::<ActorGpu>();
+        assert!(gpu.spans.iter().all(|span| gpu.pack_supports_span(span)));
+        let mut exported = Vec::new();
+        shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| exported.push(instance.index));
+        assert_eq!(exported.len(), 3);
+    }
 }

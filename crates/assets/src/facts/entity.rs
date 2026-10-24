@@ -57,6 +57,7 @@ pub enum NativeEntityClass {
     DragonFireball,
     FireworksRocket,
     AreaEffectCloud,
+    Shulker,
 }
 
 impl NativeEntityClass {

@@ -12,8 +12,8 @@ fn crystal_pack(alpha: u8) -> TempDir {
 }
 
 #[test]
-fn crystal_alpha_test_keeps_the_actor_and_bakes_native_half_alpha_coverage() {
-    for (alpha, coverage) in [(0, 0), (127, 0), (128, 255), (255, 255)] {
+fn crystal_cutout_preserves_shader_alpha_and_actor_binding() {
+    for alpha in [0, 127, 128, 255] {
         let pack = crystal_pack(alpha);
         let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
         assert_eq!(
@@ -28,12 +28,12 @@ fn crystal_alpha_test_keeps_the_actor_and_bakes_native_half_alpha_coverage() {
             &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
         )
         .unwrap();
-        assert_eq!(catalog.textures()[0].rgba8[PROBE_ALPHA], coverage);
+        assert_eq!(catalog.textures()[0].rgba8[PROBE_ALPHA], alpha);
     }
 }
 
 #[test]
-fn installed_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
+fn fetched_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
     let manifest: serde_json::Value = serde_json::from_slice(MANIFEST).unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../..")
@@ -41,7 +41,7 @@ fn installed_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
         .join("resource_pack");
     if !root.is_dir() {
         eprintln!(
-            "skipping installed crystal fixture: {} is absent",
+            "missing fetched crystal fixture: {} is absent",
             root.display()
         );
         return;
@@ -80,6 +80,11 @@ fn installed_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
     assert_eq!(geometry.bones[3].name.as_ref(), "base");
     assert!(!entities.animation_channels.is_empty());
     assert_eq!(entities.render.visibility.len(), 1);
+    assert!(
+        entities.render.layers[0]
+            .material_state
+            .is_some_and(|state| state.alpha_test && !state.blend)
+    );
     let original = image::open(root.join("textures/entity/endercrystal/endercrystal.png"))
         .unwrap()
         .into_rgba8();
@@ -89,6 +94,6 @@ fn installed_crystal_art_compiles_with_its_nested_frames_base_and_animation() {
         .zip(catalog.textures()[0].rgba8.as_chunks::<4>().0.iter())
     {
         assert_eq!(&actual[..3], &original.0[..3]);
-        assert_eq!(actual[3], if original[3] >= 128 { 255 } else { 0 });
+        assert_eq!(actual[3], original[3]);
     }
 }

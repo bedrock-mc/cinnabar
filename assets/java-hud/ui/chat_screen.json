@@ -15,8 +15,12 @@
       {
         "messages_panel@chat.messages_scrolling_panel": {
           "$history_anchor": "bottom_left",
-          "$history_offset": [ 0, "$cinnabar_chat_history_bottom" ],
+          "$cinnabar_hotbar_lift": 0,
+          "$history_offset": [ 0, "($cinnabar_chat_history_bottom + $cinnabar_hotbar_lift)" ],
           "variables": [{
+            "requires": "$cinnabar_bedrock_hotbar",
+            "$cinnabar_hotbar_lift": "$cinnabar_bedrock_hotbar_lift"
+          }, {
             "requires": "$cinnabar_chat_top",
             "$history_anchor": "top_left",
             "$history_offset": [ 0, 0 ]

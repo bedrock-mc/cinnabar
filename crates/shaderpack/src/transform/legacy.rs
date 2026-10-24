@@ -36,6 +36,18 @@ const RESERVED_SINCE_130: &[&str] = &[
 /// Vulkan GLSL type keywords that are plain identifiers in OpenGL GLSL.
 const RESERVED_VULKAN: &[&str] = &["sampler", "samplerShadow", "subpassInput"];
 
+/// A GLSL identifier that keeps a sampler named `texture` distinct from lookup calls.
+const RENAMED_TEXTURE: &str = "_r_texture";
+
+/// Returns the pack's sampler name before renaming `texture` for GLSL.
+pub(super) fn sampler_name(name: &str) -> &str {
+    if name == RENAMED_TEXTURE {
+        "texture"
+    } else {
+        name
+    }
+}
+
 /// Result of the legacy pass.
 pub(super) struct Legacy {
     pub toks: Vec<Tok>,
@@ -286,10 +298,9 @@ pub(super) fn rewrite(
         };
         let name = name.as_str();
         let called = src.get(i + 1).is_some_and(|n| n.is("("));
-        // Iris renames a non-call `texture` to `gtexture` in every version (SEUS Renewed's
-        // `#version 130` gbuffers declare `uniform sampler2D texture`).
+        // Keep sampler identifiers distinct from the lookup function until resolution.
         if name == "texture" && !called {
-            toks.push(id("gtexture").at(line));
+            toks.push(id(RENAMED_TEXTURE).at(line));
             i += 1;
             continue;
         }

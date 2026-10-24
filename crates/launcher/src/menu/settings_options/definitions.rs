@@ -195,6 +195,10 @@ pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
 /// Keeps the crosshair's background inversion enabled unless the player opts out.
 pub const INVERT_CROSSHAIR_OPTION: SettingDefinition = SettingId::InvertCrosshair.definition();
 
+/// Raises the built-in HUD's hotbar from Java's flush placement to vanilla Bedrock's height.
+/// Its name is also the HUD pack's context flag.
+pub const BEDROCK_HOTBAR_OPTION: SettingDefinition = SettingId::CinnabarBedrockHotbar.definition();
+
 /// Percent slider over vanilla's `0.0..=1.0` mouse sensitivity option.
 pub const MOUSE_SENSITIVITY_OPTION: SettingDefinition =
     SettingId::KeyboardMouseSensitivity.definition();
@@ -401,6 +405,8 @@ settings! {
         [(SettingPanel::VideoGraphics, 0)], [SettingsGroup::Video], None, None;
     InterfaceOpacity => "interface_opacity", slider("options.hudOpacity", 0, 100, 100),
         [(SettingPanel::VideoCustomization, 8)], [SettingsGroup::Video], None, None;
+    CinnabarBedrockHotbar => "cinnabar_bedrock_hotbar", toggle("Bedrock Hotbar Position", false),
+        [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, None;
     DamageBob => "damage_bob", slider("options.damageBobbing", 0, 100, 100),
         [(SettingPanel::VideoAccessibility, 6)], [SettingsGroup::Video], None, None;
     PanoramaSpeed => "panorama_speed", slider("options.panoramaSpeed", 0, 100, 100),
@@ -512,11 +518,11 @@ settings! {
     AlwaysSprint => "always_sprint", toggle("Always Sprint", false),
         [(SettingPanel::Keyboard, 3)], [], None, None;
     ShowExactServerPing => "show_exact_server_ping", toggle("options.showExactServerPing", false),
-        [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, None;
-    OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
         [(SettingPanel::VideoCustomization, 10)], [SettingsGroup::Video], None, None;
+    OreuiDarkMode => "oreui_dark_mode", toggle("options.oreuiDarkMode", false),
+        [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     F5SelfVisuals => "f5_self_visuals", toggle("options.f5SelfVisuals", false),
-        [(SettingPanel::VideoCustomization, 12)], [SettingsGroup::Video], None, Some("options.f5SelfVisuals.name");
+        [(SettingPanel::VideoCustomization, 13)], [SettingsGroup::Video], None, Some("options.f5SelfVisuals.name");
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
         [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
     DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),
@@ -530,7 +536,7 @@ settings! {
     NativeSkyboxOffset => "native_skybox_offset", toggle("Bedrock Skybox Vertical Offset", assets::DEFAULT_NATIVE_SKYBOX_OFFSET),
         [(SettingPanel::VideoGraphics, 9)], [SettingsGroup::Video], None, None;
     ShowCustomItemModels => "show_custom_item_models", toggle("Custom 3D Item Models", ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS),
-        [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoCustomization, 12)], [SettingsGroup::Video], None, None;
     FullScreen => "full_screen", host("options.fullscreen"),
         [(SettingPanel::VideoCustomization, 0)], [SettingsGroup::Video], None, None;
     GuiScale => "gui_scale", host("options.guiScale.optionName"),

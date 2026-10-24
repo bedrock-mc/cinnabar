@@ -45,11 +45,14 @@ fn implicit_cube_pivot_keeps_a_rotated_body_at_its_authored_center() {
 }
 
 #[test]
-#[ignore = "requires CINNABAR_VANILLA_QUADRUPED_MODELS pointing to downloaded model sources"]
 fn downloaded_pig_and_cow_body_cubes_match_native_model_space_bounds() {
-    let root = std::path::PathBuf::from(
-        std::env::var_os("CINNABAR_VANILLA_QUADRUPED_MODELS").expect("model source directory"),
-    );
+    let Some(root) = std::env::var_os("CINNABAR_VANILLA_QUADRUPED_MODELS") else {
+        eprintln!(
+            "skipping downloaded_pig_and_cow_body_cubes_match_native_model_space_bounds: missing model source fixture (CINNABAR_VANILLA_QUADRUPED_MODELS)"
+        );
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
     for (file, identifier, first_body_min, first_body_max) in [
         (
             "pig.v3.geo.json",
@@ -89,9 +92,14 @@ fn downloaded_pig_and_cow_body_cubes_match_native_model_space_bounds() {
 }
 
 #[test]
-#[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to the compiled pinned entity carrier"]
 fn pinned_fox_cube_binds_keep_body_horizontal_and_tail_clear_of_the_floor() {
-    let bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
+    let Some(path) = std::env::var_os("CINNABAR_ENTITY_CARRIER") else {
+        eprintln!(
+            "skipping pinned_fox_cube_binds_keep_body_horizontal_and_tail_clear_of_the_floor: missing entity carrier fixture (CINNABAR_ENTITY_CARRIER)"
+        );
+        return;
+    };
+    let bytes = std::fs::read(path).expect("supplied entity carrier fixture must be readable");
     let assets = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
     let index = find_geometry_index(&assets, "geometry.fox").unwrap() as usize;
     let bones = resolve_geometry_bones(&assets, index).unwrap();

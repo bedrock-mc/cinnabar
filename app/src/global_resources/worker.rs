@@ -192,7 +192,15 @@ fn run(
                 action: Action::Import,
                 ..
             } => match picker::pick_files(&PACKS) {
-                Ok(paths) => import_files(&mut library, paths, &mut snapshot, refresh_icons),
+                Ok(paths) => import_files(
+                    &mut library,
+                    paths
+                        .iter()
+                        .map(|file| file.as_ref().to_path_buf())
+                        .collect(),
+                    &mut snapshot,
+                    refresh_icons,
+                ),
                 Err(error) => {
                     snapshot.message = error;
                     Ok(())

@@ -67,6 +67,7 @@ struct ModelTick {
     input: sim::MovementInput,
     entry: u64,
     edits: Vec<Edit>,
+    server_flags: client_world::MovementFlagUpdate,
 }
 
 /// Reads only the locally owned climber flags, without consuming a sync countdown.
@@ -104,6 +105,11 @@ fn run_live_model(
     let mut samples = Vec::new();
     for tick in ticks {
         apply_edits(&mut physics, &tick.edits);
+        let current = physics.state().unwrap().tick;
+        assert_eq!(
+            physics.apply_server_movement_flags(current, tick.server_flags),
+            None
+        );
         let frame = physics.advance(simulation_clock::TICK_DURATION, tick.input, world);
         assert_eq!(frame.completed_ticks, 1);
         samples.extend(frame.samples);
@@ -144,10 +150,35 @@ fn check_replay(
             "seed={seed} anchor={anchor} tick={}",
             actual.tick
         );
+        assert_eq!(
+            actual.processed, expected.processed,
+            "seed={seed} anchor={anchor} tick={}",
+            actual.tick
+        );
+        assert_eq!(
+            actual.input.server_pose_flags, expected.input.server_pose_flags,
+            "seed={seed} anchor={anchor} tick={}",
+            actual.tick
+        );
+        assert_eq!(
+            actual.input.server_spinning, expected.input.server_spinning,
+            "seed={seed} anchor={anchor} tick={}",
+            actual.tick
+        );
     }
     assert_eq!(
         flags(physics),
         flags(&expected),
+        "seed={seed} anchor={anchor}"
+    );
+    assert_eq!(
+        physics.pose_flags(),
+        expected.pose_flags(),
+        "seed={seed} anchor={anchor}"
+    );
+    assert_eq!(
+        physics.state().unwrap().swim_pose_active,
+        expected.state().unwrap().swim_pose_active,
         "seed={seed} anchor={anchor}"
     );
 }
@@ -164,6 +195,7 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
             input: first,
             entry: 0,
             edits: Vec::new(),
+            server_flags: Default::default(),
         }];
         let mut pending = Vec::<Edit>::new();
         for _ in 0..20 {
@@ -257,7 +289,49 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                     );
                 }
             }
+            let choices = random.next();
+            let poses = physics.pose_flags();
+            let server_flags = match choices % 8 {
+                0 => client_world::MovementFlagUpdate::default(),
+                1 => client_world::MovementFlagUpdate {
+                    swimming: Some(!poses.swimming),
+                    ..Default::default()
+                },
+                2 => client_world::MovementFlagUpdate {
+                    crawling: Some(!poses.crawling),
+                    ..Default::default()
+                },
+                3 => client_world::MovementFlagUpdate {
+                    gliding: Some(!poses.gliding),
+                    ..Default::default()
+                },
+                4 => client_world::MovementFlagUpdate {
+                    spinning: Some(physics.state().unwrap().spin_attack_ticks.is_none()),
+                    ..Default::default()
+                },
+                5 => client_world::MovementFlagUpdate {
+                    swimming: Some(poses.swimming),
+                    crawling: Some(poses.crawling),
+                    gliding: Some(poses.gliding),
+                    spinning: Some(physics.state().unwrap().spin_attack_ticks.is_some()),
+                    ..Default::default()
+                },
+                6 => client_world::MovementFlagUpdate {
+                    swimming: Some(choices & 8 != 0),
+                    ..Default::default()
+                },
+                _ => client_world::MovementFlagUpdate {
+                    crawling: Some(choices & 8 != 0),
+                    ..Default::default()
+                },
+            };
+            assert_eq!(
+                physics.apply_server_movement_flags(current, server_flags),
+                None
+            );
             let input = sim::MovementInput {
+                immobile: choices & 16 != 0,
+                jumping: choices & 32 != 0,
                 sneaking: random.next() & 1 != 0,
                 forward: (random.next() % 3) as f64 - 1.0,
                 strafe: (random.next() % 3) as f64 - 1.0,
@@ -270,6 +344,7 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                 input,
                 entry,
                 edits: std::mem::take(&mut pending),
+                server_flags,
             });
             let (expected, samples) = run_live_model(&ticks, &pending, &world);
             assert_eq!(
@@ -286,6 +361,9 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
             );
             let anchor = 101 + random.next() % ticks.len() as u64;
             check_replay(&mut physics, anchor, &ticks, &pending, &world, seed);
+            for start in 101..=current + 1 {
+                check_replay(&mut physics.clone(), start, &ticks, &pending, &world, seed);
+            }
         }
 
         // Every live set capture must still admit a clear after arbitrary replay history.

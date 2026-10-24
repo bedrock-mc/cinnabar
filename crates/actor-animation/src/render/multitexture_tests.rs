@@ -2,10 +2,13 @@ use super::super::*;
 use protocol_ids::ActorFlag;
 
 #[test]
-#[ignore = "requires a pinned entity carrier; set CINNABAR_ENTITY_CARRIER"]
 fn pinned_trader_llama_draws_body_and_carpet_as_one_three_sampler_layer() {
-    let bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ENTITY_CARRIER",
+        "pinned_trader_llama_draws_body_and_carpet_as_one_three_sampler_layer",
+    ) else {
+        return;
+    };
     for baby in [false, true] {
         for variant in 0..4 {
             let mut actor = tests::actor_with_metadata(HashMap::from([

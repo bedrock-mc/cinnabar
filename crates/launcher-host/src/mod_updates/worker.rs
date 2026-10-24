@@ -62,6 +62,7 @@ pub(super) fn network(
     permission: Arc<AtomicU64>,
     max_component_bytes: usize,
     progress: super::progress::Progress,
+    staging: &std::path::Path,
 ) -> Result<()> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -100,6 +101,7 @@ pub(super) fn network(
                     progress: progress.clone(),
                 },
                 max_component_bytes,
+                staging,
             )) {
                 Ok(download) => Some(download),
                 Err(error) => {

@@ -1083,5 +1083,5 @@ fn world_options_reopen_reloads_rules_after_the_previous_server_saves() {
 #[path = "manager_host_tests.rs"]
 mod host;
 #[cfg(unix)]
-#[path = "manager_standby_tests.rs"]
-mod standby;
+#[path = "manager_leave_tests.rs"]
+mod leave;

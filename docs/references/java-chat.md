@@ -18,6 +18,11 @@ The editor, suggestions, server HUD widgets and built-in chat priority retain
 their existing behavior. This placement choice is a Cinnabar presentation
 extension, not a new vanilla parity claim.
 
+**Bedrock Hotbar Position**, off by default, lifts the Java-look hotbar to
+vanilla desktop's height: the pinned pack's hotbar ends 1.5 GUI px above the
+bottom edge. Status rows, XP bar, offhand, item name, HUD chat and focused
+history rise with it, so their Java spacing above the hotbar stays the same.
+
 ## Vanilla rules
 
 | Rule | Behaviour |

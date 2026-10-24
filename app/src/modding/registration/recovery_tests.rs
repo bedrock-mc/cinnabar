@@ -119,13 +119,13 @@ fn repaired_disk_settings_retry_a_cached_initial_admission_failure() {
     let mut admissions = candidate::Admissions::default();
     assert!(
         admissions
-            .prepare(source::source_snapshot(entry.clone()).unwrap(), None)
+            .prepare(source_snapshot(entry.clone()).unwrap(), None)
             .is_err()
     );
     let seed = "{\"repaired\":true}";
     fs::write(path, seed).unwrap();
     let fresh = admissions
-        .prepare(source::source_snapshot(entry).unwrap(), None)
+        .prepare(source_snapshot(entry).unwrap(), None)
         .expect("a repaired settings companion retries the same component");
     assert_eq!(fresh.frame_host().unwrap().settings_snapshot(), Some(seed));
 }
@@ -171,11 +171,11 @@ fn committed_settings_override_an_unreadable_companion_on_retry() {
     let mut admissions = candidate::Admissions::default();
     assert!(
         admissions
-            .prepare(source::source_snapshot(entry.clone()).unwrap(), None)
+            .prepare(source_snapshot(entry.clone()).unwrap(), None)
             .is_err()
     );
     let accepted = admissions
-        .prepare(source::source_snapshot(entry).unwrap(), Some(&committed))
+        .prepare(source_snapshot(entry).unwrap(), Some(&committed))
         .unwrap();
     assert_eq!(
         accepted.frame_host().unwrap().settings_snapshot(),
@@ -192,7 +192,7 @@ fn captured_disk_settings_survive_a_later_companion_edit() {
     let path = mod_host::settings_companion(&entry.component);
     let seed = "{\"captured\":true}";
     fs::write(&path, seed).unwrap();
-    let snapshot = source::source_snapshot(entry).unwrap();
+    let snapshot = source_snapshot(entry).unwrap();
     fs::write(path, [0xff]).unwrap();
     let accepted = build_candidate(snapshot).unwrap();
     assert_eq!(
@@ -217,16 +217,14 @@ fn duplicate_admission_preserves_an_already_current_guests_state() {
         world.resource::<ModRuntime>().hosts.host(0).label(),
         Some("ello")
     );
-    let duplicate =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let duplicate = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     apply(&mut world, vec![entry.clone()], vec![change(duplicate)]);
     assert_eq!(
         world.resource::<ModRuntime>().hosts.host(0).label(),
         Some("ello")
     );
     entry.reload += 1;
-    let explicit =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let explicit = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     apply(&mut world, vec![entry], vec![change(explicit)]);
     assert_eq!(
         world.resource::<ModRuntime>().hosts.host(0).label(),
@@ -243,7 +241,7 @@ fn unloaded_settings_do_not_override_a_later_disk_seed() {
     entry.grants.settings = true;
     let path = mod_host::settings_companion(&entry.component);
     fs::write(&path, "{\"previous\":true}").unwrap();
-    let first = Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let first = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     apply(&mut world, vec![entry.clone()], vec![change(first)]);
     install::sync_authority(&mut world);
     apply(&mut world, Vec::new(), Vec::new());
@@ -259,7 +257,7 @@ fn unloaded_settings_do_not_override_a_later_disk_seed() {
         .get(&entry.component)
         .cloned();
     let fresh = candidate::Admissions::default()
-        .prepare(source::source_snapshot(entry).unwrap(), current.as_ref())
+        .prepare(source_snapshot(entry).unwrap(), current.as_ref())
         .unwrap();
     assert_eq!(fresh.frame_host().unwrap().settings_snapshot(), Some(seed));
 }
@@ -318,7 +316,7 @@ fn delayed_admission_keeps_the_observed_settings_input() {
     let path = mod_host::settings_companion(&entry.component);
     let seed = "{\"observed\":true}";
     fs::write(&path, seed).unwrap();
-    let snapshot = source::source_snapshot(entry).unwrap();
+    let snapshot = source_snapshot(entry).unwrap();
     fs::write(path, [0xff]).unwrap();
     let accepted = candidate::Admissions::default()
         .prepare(snapshot, None)
@@ -339,7 +337,7 @@ fn delayed_worker_reobserves_changed_preferences_before_admission() {
         let path = mod_host::settings_companion(&entry.component);
         let seed = "{\"observed\":true}";
         fs::write(&path, seed).unwrap();
-        let snapshot = source::source_snapshot(entry.clone()).unwrap();
+        let snapshot = source_snapshot(entry.clone()).unwrap();
         let request = |snapshot| LoadRequest {
             generation: 1,
             registration: Registration {
@@ -366,7 +364,7 @@ fn delayed_worker_reobserves_changed_preferences_before_admission() {
         // A returns before the next observation, without editing the source or registration.
         settings.lock().unwrap().clear();
         fs::write(&path, seed).unwrap();
-        let snapshot = source::source_snapshot(entry.clone()).unwrap();
+        let snapshot = source_snapshot(entry.clone()).unwrap();
         let worker::LoadResult::Ready(accepted) =
             worker::load_request(request(snapshot), &settings, &mut admissions)
         else {

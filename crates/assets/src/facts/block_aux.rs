@@ -58,23 +58,29 @@ mod tests {
         assert_valid_catalog(SOURCE);
     }
 
+    /// Rebuilds the catalog row by row so edits match on any checkout line ending.
+    fn edit_rows(edit: impl Fn(&str) -> Vec<&str>) -> String {
+        let rows: Vec<_> = SOURCE.lines().flat_map(edit).collect();
+        assert_ne!(rows, SOURCE.lines().collect::<Vec<_>>());
+        rows.join("\n")
+    }
+
     #[test]
     #[should_panic(expected = "aux-state owner membership differs from the pinned source")]
     fn aux_state_owner_validation_rejects_an_omission() {
-        let omitted = SOURCE.replace("minecraft:anvil\n", "");
-        assert_ne!(omitted, SOURCE);
-        assert_valid_catalog(&omitted);
+        assert_valid_catalog(&edit_rows(|row| match row {
+            "minecraft:anvil" => vec![],
+            row => vec![row],
+        }));
     }
 
     #[test]
     #[should_panic(expected = "aux-state owner membership differs from the pinned source")]
     fn aux_state_owner_validation_rejects_an_extra() {
-        let extra = SOURCE.replace(
-            "minecraft:bone_block\n",
-            "minecraft:blue_terracotta\nminecraft:bone_block\n",
-        );
-        assert_ne!(extra, SOURCE);
-        assert_valid_catalog(&extra);
+        assert_valid_catalog(&edit_rows(|row| match row {
+            "minecraft:bone_block" => vec!["minecraft:blue_terracotta", row],
+            row => vec![row],
+        }));
     }
 
     #[test]

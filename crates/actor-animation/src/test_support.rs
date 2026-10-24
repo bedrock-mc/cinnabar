@@ -194,12 +194,14 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
         item_visuals: Box::new([]),
         item_visual_aliases: Box::new([]),
         render: EntityRenderData {
+            material_selections: Box::new([]),
             layers: vec![EntityRenderLayer {
                 material: Default::default(),
                 material_state: None,
                 hurt_color: None,
                 rig: 0,
                 condition: None,
+                material_selection: None,
                 first_slot: 0,
                 slot_count: 1,
                 unresolved_textures: false,
@@ -349,6 +351,23 @@ pub fn initialized_pose_compiled() -> assets::CompiledEntityAssets {
     compiled.molang_ops = ops.into_boxed_slice();
     compiled.molang_expressions = expressions.into_boxed_slice();
     compiled
+}
+
+/// Uses an explicit carrier when supplied, otherwise admits the installed fixture.
+/// A bad supplied path or invalid carrier fails instead of being treated as unavailable.
+pub fn entity_assets(variable: &str, fixture: &str) -> Option<Arc<RuntimeEntityAssets>> {
+    let Some(path) = std::env::var_os(variable) else {
+        return installed_entity_assets(fixture);
+    };
+    let bytes = std::fs::read(&path).unwrap_or_else(|error| {
+        panic!(
+            "{fixture}: supplied carrier fixture {} could not be read: {error}",
+            std::path::Path::new(&path).display()
+        )
+    });
+    Some(Arc::new(
+        RuntimeEntityAssets::decode(&bytes).expect("supplied entity carrier fixture must decode"),
+    ))
 }
 
 /// The installed entity carrier, or `None` after naming the missing `fixture`.

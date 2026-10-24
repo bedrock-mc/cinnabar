@@ -138,9 +138,14 @@ fn inherited_head_face_and_outer_cube_both_emit_vertices() {
 }
 
 #[test]
-#[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to the pinned compiled entity catalog"]
 fn pinned_adult_sheep_keeps_its_base_face_and_wool_overlay_baby_and_sheared_stay_single_cube() {
-    let bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
+    let Some(path) = std::env::var_os("CINNABAR_ENTITY_CARRIER") else {
+        eprintln!(
+            "skipping pinned_adult_sheep_keeps_its_base_face_and_wool_overlay_baby_and_sheared_stay_single_cube: missing entity carrier fixture (CINNABAR_ENTITY_CARRIER)"
+        );
+        return;
+    };
+    let bytes = std::fs::read(path).expect("supplied entity carrier fixture must be readable");
     let catalog = RuntimeEntityAssets::decode(&bytes).unwrap();
     let geometry = |name: &str| find_geometry_index(&catalog, name).unwrap() as usize;
     let adult_index = geometry("geometry.sheep.v1.8");

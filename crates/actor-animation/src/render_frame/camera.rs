@@ -32,6 +32,7 @@ pub(crate) fn active_pose_inputs(
         .map(|c| layout.controller_inputs(c.controller))
         .chain(clips.iter().map(|c| layout.clip_inputs(c.clip)))
     {
+        expressions.frame |= inputs.frame;
         expressions.camera |= inputs.camera;
         expressions.swing |= inputs.swing;
     }
@@ -46,6 +47,7 @@ pub(crate) fn presentation_expressions(
     geometry_binding: usize,
 ) -> evaluation::PresentationReads {
     evaluation::PresentationReads {
+        frame: super::sampling::needs_frame_sampling(assets, layout, rig_binding),
         camera: needs_pose_sampling(
             assets,
             layout,
@@ -99,27 +101,15 @@ fn needs_pose_sampling(
     let samples_clip = |clip: usize| {
         include_clips && camera_clip_with_layers(assets, layout, rig_binding, clip, swing)
     };
-    if swing
-        && include_clips
-        && super::sampling::render_expressions(assets, rig_binding)
-            .into_iter()
-            .any(|expression| camera_expression(layout, expression as usize, true))
+    let expressions = if include_clips {
+        super::sampling::render_expressions(assets, rig_binding)
+    } else {
+        super::sampling::rig_expressions(assets, rig_binding)
+    };
+    if expressions
+        .into_iter()
+        .any(|expression| camera_expression(layout, expression as usize, swing))
     {
-        return true;
-    }
-    if assets.render_layers(rig_binding).iter().any(|layer| {
-        layer
-            .light_color_multiplier
-            .is_some_and(|expression| camera_expression(layout, expression as usize, swing))
-    }) {
-        return true;
-    }
-    if assets.rig_bindings().get(rig_binding).is_some_and(|rig| {
-        [rig.pre_animation, rig.held_item_scale]
-            .into_iter()
-            .flatten()
-            .any(|script| camera_expression(layout, script as usize, swing))
-    }) {
         return true;
     }
     let Some(geometry) = assets.rig_geometries().get(geometry_binding) else {
@@ -293,14 +283,8 @@ pub(crate) fn camera_symbol(assets: &RuntimeEntityAssets, symbol: u32, swing: bo
                 || symbol
                     .identifier
                     .starts_with("variable.tp_melee_spear_use_")
-                || matches!(
-                    assets::MolangQuery::from_name(&symbol.identifier),
-                    Some(
-                        assets::MolangQuery::CameraDistanceRangeLerp
-                            | assets::MolangQuery::CameraRotation
-                            | assets::MolangQuery::DistanceFromCamera
-                            | assets::MolangQuery::RotationToCamera
-                    )
-                )
+                || assets::MolangQuery::from_name(&symbol.identifier).is_some_and(|query| {
+                    query.descriptor().sampling == assets::MolangQuerySampling::Camera
+                })
         })
 }

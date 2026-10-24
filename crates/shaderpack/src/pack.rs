@@ -1,6 +1,6 @@
 //! A loaded shader pack, its configuration metadata and whole-pack translation.
 
-use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
+use crate::buffers::{BufferDirectives, BufferFormat};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
 use crate::flips::{program_releases, samples_released_override};
@@ -13,7 +13,6 @@ use crate::options::{
 use crate::programs::{ProgramGroup, ProgramSource, enumerate_programs};
 use crate::properties::ShaderProperties;
 use crate::reflect::output_buffer;
-use crate::reflection::SamplerClass;
 use crate::source::{PackError, PackSource};
 use crate::transform::SamplerClasses;
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
@@ -348,29 +347,30 @@ impl ShaderPack {
             .collect();
         // Custom images clamp and filter linearly; custom textures follow their `.mcmeta`
         // for samplers of their shape, a stage's own binding winning over `texture.noise`.
-        let mut sampler_classes: SamplerClasses = properties
-            .images
-            .iter()
-            .map(|i| {
-                (
-                    (canonical_sampler_name(&i.sampler), None),
-                    SamplerClass::ClampLinear,
-                )
-            })
-            .collect();
+        let mut sampler_classes = SamplerClasses::default();
+        for image in &properties.images {
+            sampler_classes
+                .images
+                .insert(image.sampler.clone(), image.sampler_binding_name());
+        }
         for noise in [true, false] {
             for t in &properties.custom_textures {
                 if t.applies_to(program.group)
                     && (t.stage == "noise") == noise
                     && !t.released_by(released)
                 {
-                    sampler_classes.insert(
-                        (
-                            canonical_sampler_name(t.uniform()),
-                            Some(t.source.dimension()),
-                        ),
-                        t.sampler_class(&self.source),
-                    );
+                    let dimension = t.source.dimension();
+                    let class = t.sampler_class(&self.source);
+                    if t.is_unit_override() {
+                        sampler_classes
+                            .units
+                            .insert((t.binding_name(), dimension), class);
+                    } else {
+                        sampler_classes.named.insert(
+                            (t.uniform().to_string(), dimension),
+                            (t.binding_name(), class),
+                        );
+                    }
                 }
             }
         }

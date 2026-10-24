@@ -139,9 +139,9 @@ impl LocalPhysicsController {
             None
         };
         // Completed inputs compare with their original live entry, including accepted writes.
-        let baseline = historical
-            .as_ref()
-            .map_or(live, |frame| frame.entry_climber.unwrap_or_default().word());
+        let baseline = historical.as_ref().map_or(live, |frame| {
+            frame.flags.captured_climber.unwrap_or_default().word()
+        });
         let mask = (baseline ^ word) & ClimberFlags::mask();
         let flags = ClimberFlags::from_word((live & !mask) | (word & mask));
         self.live_climber = Some(flags);

@@ -180,7 +180,7 @@ mod tests {
         engine.pending.push(super::super::PendingStart {
             request,
             managed: None,
-            roll: [0.0; 3],
+            roll: [0.0; super::super::START_ROLLS],
             path: "sounds/music.fixture.credits".into(),
             category: AudioCategory::Music,
             patient: true,

@@ -71,6 +71,13 @@ impl LocalPhysicsController {
                 .map(|request| request.launch);
             input.skip_travel = self.skip_travel_pending;
             let mut tick_input = self.input_edges.sample(context.input);
+            let mut flags = flag_frame::FrameFlags::capture(
+                &mut self.server_flags,
+                &self.modes,
+                state,
+                &mut tick_input,
+                self.live_climber,
+            );
             // Bedrock auto-jump semantics treat a held jump as a fresh request
             // once the player is grounded again. Preserve the render-frame edge
             // latch for taps shorter than one fixed tick, but never inject the
@@ -89,7 +96,7 @@ impl LocalPhysicsController {
             input.movement_speed = requested_movement_speed;
             input.liquid_contact_height = Some(
                 self.modes
-                    .liquid_contact_height(state.spin_attack_ticks.is_some()),
+                    .spin_aware_contact_height(state.spin_attack_ticks.is_some()),
             );
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
@@ -116,6 +123,7 @@ impl LocalPhysicsController {
                 liquid_contact_height: input.liquid_contact_height,
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
+                spinning: state.spin_attack_ticks.is_some(),
             };
             self.anchor_state.prepare_tick(
                 world,
@@ -145,6 +153,8 @@ impl LocalPhysicsController {
                 }
                 Err(error) => mode_error = Some(error),
             }
+            input.horizontal_pose = self.modes.pose_flags().horizontal();
+            input.swim_pose_active = Some(self.modes.pose_flags().swim_pose());
             if input.mode == sim::MovementMode::Riding {
                 input.sneaking = false;
             }
@@ -222,12 +232,18 @@ impl LocalPhysicsController {
                     self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
+                    let launched = input.riptide.is_some()
+                        && input.mode != sim::MovementMode::Riding
+                        && !input.spectator;
+                    let spun = flags.pose_entry.spinning() || launched;
+                    server_flags::note_spin_end(&mut self.server_flags, spun, launched, state);
                     let previous = self.live_climber;
                     let climber = ClimberFlags::after_tick(&input, &result.environment, previous);
                     self.live_climber = climber;
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
+                    flags.climber_write = self.pending_climber.consume_live();
                     let mut controller = ControllerFrame {
                         tick: state.tick,
                         sync_state: Default::default(),
@@ -244,6 +260,8 @@ impl LocalPhysicsController {
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
                         server_sprinting: tick_input.server_sprinting,
+                        flags,
+                        entry_eye: self.eye_offset,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
@@ -257,8 +275,6 @@ impl LocalPhysicsController {
                         input,
                         modes: self.modes,
                         environment: result.environment,
-                        entry_climber: previous,
-                        climber_write: self.pending_climber.consume_live(),
                         climber,
                     };
                     controller.finish_eye(&mut self.eye_offset, state);
@@ -281,6 +297,7 @@ impl LocalPhysicsController {
                         input.sprinting,
                     );
                     processed.mode = input.mode;
+                    processed.pose_flags = Some(self.modes.pose_flags());
                     processed.spinning = state.spin_attack_ticks.is_some();
                     processed.spin_started = input.riptide.is_some()
                         && input.mode != sim::MovementMode::Riding

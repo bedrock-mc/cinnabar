@@ -228,6 +228,7 @@ fn corrected_pair(
     assert!(physics.state().unwrap().spin_attack_ticks.is_some());
     let tick = (facing as i64 + anchor_offset) as u64;
     let position = equivalent.sample_at(tick).unwrap().position;
+    let before = physics.clone();
     let retained = written.then(|| physics.clone());
     for (ticker, physics) in [
         (&mut ticker, &mut physics),
@@ -253,8 +254,9 @@ fn corrected_pair(
         physics.state().unwrap().spin_attack_ticks.is_some(),
         written
     );
+    // Vanilla's replay never ticks or copies back the live camera eye offset.
+    assert_camera(&physics, &before);
     if let Some(retained) = retained {
-        assert_camera(&physics, &retained);
         // The accepted network anchor rounds body coordinates through f32; pose offsets stay exact.
         assert_eye_history(&physics, &retained, facing, &world);
     }
@@ -383,13 +385,16 @@ fn assert_eye_history(
     }
 }
 
+/// Replay leaves the live camera eye blend, as vanilla ticks the eye offset
+/// only on its temporary replay entity and copy-back leaves the live one;
+/// live ticks then ease it toward the replayed pose.
 #[test]
-fn riptide_cancelled_release_rebuilds_camera_eye_interpolation() {
+fn riptide_cancelled_release_replay_leaves_the_live_camera_eye() {
     for pose in [Pose::Standing, Pose::Sneaking, Pose::Swimming] {
         for predicted in [1, 4] {
             for offset in [-1, 0, predicted as i64] {
-                let (physics, equivalent, _, _) = corrected_pair(pose, predicted, offset, false);
-                assert_camera(&physics, &equivalent);
+                // `corrected_pair` checks the camera against the pre-correction one.
+                corrected_pair(pose, predicted, offset, false);
             }
         }
     }
@@ -426,9 +431,11 @@ fn riptide_eye_replay_preserves_nonzero_anchors_and_repeated_rewinds() {
         "the initial neutral eye is outside the retained window"
     );
     for tick in [oldest, physics.state().unwrap().tick, facing, oldest] {
+        let (live, equivalent_live) = (physics.clone(), equivalent.clone());
         physics.replay_retained_from(tick, &world).unwrap();
         equivalent.replay_retained_from(tick, &world).unwrap();
-        assert_camera(&physics, &equivalent);
+        assert_camera(&physics, &live);
+        assert_camera(&equivalent, &equivalent_live);
         assert_history(&physics, &equivalent, facing, &world);
     }
 }
@@ -511,4 +518,44 @@ fn a_failed_riptide_preparation_keeps_the_prediction_sync() {
             .is_err()
     );
     assert!(scheduled(&physics));
+}
+
+/// A rewind starts its first frame from the eye that frame started with live,
+/// not from an earlier replay's rebuilt eye for the frame before it, so the
+/// liquid attach height the frame used survives.
+#[test]
+fn a_later_rewind_starts_from_the_frame_entry_eye() {
+    let world = Pool(false);
+    let origin = [0.0, PLAYER_NETWORK_OFFSET + 0.1, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let step = |physics: &mut LocalPhysicsController| {
+        assert_eq!(
+            physics
+                .advance(
+                    simulation_clock::TICK_DURATION,
+                    MovementInput::default(),
+                    &world
+                )
+                .samples
+                .len(),
+            1
+        );
+    };
+    for _ in 0..3 {
+        step(&mut physics);
+    }
+    let spin = client_world::MovementFlagUpdate {
+        spinning: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(101, spin);
+    physics.replay_retained_from(101, &world).unwrap();
+    step(&mut physics);
+    let live = physics.history.input_at(104).unwrap().liquid_attach_height;
+    physics.replay_retained_from(103, &world).unwrap();
+    assert_eq!(
+        physics.history.input_at(104).unwrap().liquid_attach_height,
+        live
+    );
 }

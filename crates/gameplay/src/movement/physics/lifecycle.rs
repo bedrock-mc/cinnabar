@@ -36,6 +36,7 @@ impl LocalPhysicsController {
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
+        self.server_flags = Default::default();
         self.riptide_pending = None;
         self.boosts.clear();
         self.modes.reset();
@@ -101,6 +102,7 @@ impl LocalPhysicsController {
             .as_ref()
             .map(motion_ticks::CompletedMotionTick::anchor);
         self.server_motions.clear();
+        self.server_flags.reset_history();
         self.actor_position_pending = None;
         self.deferred_corrections = Default::default();
         self.modes.reset();

@@ -7,6 +7,7 @@ mod cosmetics;
 mod hud_card_fit;
 mod hud_cards;
 mod hud_editor;
+mod hud_hotbar;
 mod local_identity;
 mod minecraft_import;
 mod mods;
@@ -76,6 +77,11 @@ pub enum Fixture {
     /// Gameplay touch controls and their utility overlays.
     #[cfg(feature = "test-support")]
     TouchUtilities(TouchUtilityView),
+    /// The survival HUD's hotbar flush with the bottom edge or at vanilla Bedrock's height.
+    #[cfg(feature = "test-support")]
+    BedrockHotbar {
+        raised: bool,
+    },
     Loading(ui::LoadingStage),
     Chat {
         draft: &'static str,
@@ -986,5 +992,6 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(settings_screens::WORLD_STATES)
         .chain(settings_screens::PAGE_STATES)
         .chain(server_forms::STATES)
+        .chain(hud_hotbar::STATES)
         .chain(touch_editor::STATES)
 }

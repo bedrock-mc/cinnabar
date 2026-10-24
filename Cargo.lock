@@ -2412,6 +2412,9 @@ name = "cinnabar-cxb"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-runtime",
+ "experience-sdk",
+ "mod-host",
  "protocol",
  "ring",
  "serde",
@@ -3069,6 +3072,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cosmic-mod"
+version = "0.1.0"
+dependencies = [
+ "experience-sdk",
+]
+
+[[package]]
 name = "cpal"
 version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3579,6 +3589,7 @@ dependencies = [
 name = "devtool"
 version = "0.1.28"
 dependencies = [
+ "cinnabar-cxb",
  "crash-report",
  "csv",
  "ctrlc",
@@ -3956,6 +3967,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-macros"
+version = "0.1.28"
+dependencies = [
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "experience-probe"
 version = "0.1.28"
 dependencies = [
@@ -3967,6 +3986,7 @@ name = "experience-runtime"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-sdk",
  "serde",
  "serde_json",
  "sha2",
@@ -3982,8 +4002,14 @@ dependencies = [
 name = "experience-sdk"
 version = "0.1.28"
 dependencies = [
+ "anyhow",
+ "experience-macros",
+ "quote",
  "serde",
  "serde_json",
+ "sha2",
+ "syn 2.0.118",
+ "tempfile",
  "toml 0.9.12+spec-1.1.0",
  "wit-bindgen",
 ]

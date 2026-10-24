@@ -551,6 +551,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
                     ..change
                 },
                 stream.local_player_runtime_id(),
+                !respawn.awaiting_respawn(),
                 time.elapsed(),
             );
         }

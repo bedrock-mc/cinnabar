@@ -289,3 +289,24 @@ fn build_assets_are_indexed_under_their_relative_paths() {
     assert!(!cxb(&args).status.success());
     assert!(!rejected.exists());
 }
+
+/// Standalone development launches reject relocated outputs before building any project.
+#[test]
+fn mod_run_refuses_external_cargo_target_dir() {
+    let root = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_cinnabar-cxb"))
+        .args(["mod", "run"])
+        .current_dir(root.path())
+        .env("CARGO_TARGET_DIR", root.path().join("external-target"))
+        .env_remove("CARGO_BUILD_TARGET_DIR")
+        .env_remove("CARGO_BUILD_TARGET")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("mod run launches the client from target/<profile>; unset CARGO_TARGET_DIR"),
+        "{error}"
+    );
+    assert!(!root.path().join("external-target").exists());
+}
