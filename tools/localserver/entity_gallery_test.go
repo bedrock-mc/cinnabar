@@ -134,6 +134,24 @@ func TestEntityGalleryReplacementClearsActorsAndLabels(t *testing.T) {
 	}
 }
 
+func TestEntityCloudAppearancePreservesMetadataTypes(t *testing.T) {
+	appearance := entityAppearance{Identifier: "minecraft:area_effect_cloud", Cloud: &entityCloudAppearance{
+		Radius: 3.5, Duration: -1, Particle: 32, Color: -1,
+	}}
+	metadata := appearance.metadata()
+	for key, expected := range map[uint32]any{
+		protocol.EntityDataKeyDataRadius:     float32(3.5),
+		protocol.EntityDataKeyDataDuration:   int32(-1),
+		protocol.EntityDataKeyDataParticle:   int32(32),
+		protocol.EntityDataKeyEffectColor:    int32(-1),
+		protocol.EntityDataKeyDataChangeRate: float32(0),
+	} {
+		if metadata[key] != expected {
+			t.Errorf("cloud metadata %d = %#v, want %#v", key, metadata[key], expected)
+		}
+	}
+}
+
 func TestEntityGallerySpawnHeightsMatchEntityFacts(t *testing.T) {
 	paths, err := filepath.Glob("../../crates/assets/data/entity-facts-*.bin")
 	if err != nil || len(paths) == 0 {

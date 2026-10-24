@@ -466,6 +466,11 @@ Camera distance controls server render limits and score range; passenger mounts 
 their name without a score line. Depth testing honors sneaking and the nameplate flag.
 Matched rendered-frame qualification remains open.
 
+Modern lingering effect clouds draw the potion emitter for non-dragon profiles and
+carry their packed effect color into its RGBA variables. Potion clouds emit every two
+ticks; dragon breath retains its five-tick emitter. Legacy emission and matched
+rendered-frame qualification remain open.
+
 Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
 lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity
 materials but do not define them, so all but the verified kinds in `registry-policy.json`

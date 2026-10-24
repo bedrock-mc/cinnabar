@@ -46,6 +46,15 @@ type entityAppearance struct {
 	Attributes []protocol.AttributeValue  `json:"attributes"`
 	Properties protocol.EntityProperties  `json:"properties"`
 	Armour     *packet.MobArmourEquipment `json:"armour"`
+	Cloud      *entityCloudAppearance     `json:"cloud"`
+}
+
+// entityCloudAppearance supplies the typed state needed to display a lingering cloud.
+type entityCloudAppearance struct {
+	Radius   float32 `json:"radius"`
+	Duration int32   `json:"duration"`
+	Particle int32   `json:"particle"`
+	Color    int32   `json:"color"`
 }
 
 // loadEntityGallery derives default cases from the registry and rejects stale appearance identities.
@@ -342,6 +351,13 @@ func (a entityAppearance) metadata() protocol.EntityMetadata {
 	}
 	if a.Height > 0 {
 		metadata[protocol.EntityDataKeyHeight] = a.Height
+	}
+	if a.Cloud != nil {
+		metadata[protocol.EntityDataKeyDataRadius] = a.Cloud.Radius
+		metadata[protocol.EntityDataKeyDataDuration] = a.Cloud.Duration
+		metadata[protocol.EntityDataKeyDataParticle] = a.Cloud.Particle
+		metadata[protocol.EntityDataKeyEffectColor] = a.Cloud.Color
+		metadata[protocol.EntityDataKeyDataChangeRate] = float32(0)
 	}
 	return metadata
 }
