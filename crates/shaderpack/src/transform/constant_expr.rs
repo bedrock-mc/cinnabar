@@ -144,13 +144,7 @@ impl Value {
                     Self::Int(value as i32)
                 }
             }
-            TokKind::Float(text) => {
-                if let Some(digits) = text.strip_suffix("lf").or_else(|| text.strip_suffix("LF")) {
-                    Self::Double(digits.parse().ok()?)
-                } else {
-                    Self::Float(text.trim_end_matches(['f', 'F']).parse().ok()?)
-                }
-            }
+            TokKind::Float(text) => Self::Float(text.trim_end_matches(['f', 'F']).parse().ok()?),
             TokKind::Ident(text) if text == "true" || text == "false" => Self::Bool(text == "true"),
             _ => return None,
         };
@@ -426,7 +420,7 @@ mod tests {
             ("uint(true) + int(2.75)", Uint(3)),
             ("bool(0.0) == false", Bool(true)),
             ("double(16777216) + 1 - 16777216", Double(1.0)),
-            ("1.0lf / 4", Double(0.25)),
+            ("double(1.0) / 4", Double(0.25)),
         ] {
             assert_eq!(evaluate(&lex(source), |_| None), Some(expected), "{source}");
         }
