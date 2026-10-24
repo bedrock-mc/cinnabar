@@ -268,8 +268,15 @@ impl ActorStore {
             self.effect_members.collidable.update(actor);
             return;
         }
-        let mut actor =
-            ActorSnapshot::local_player(unique_id, runtime_id, revision, uuid, username, feed);
+        let mut actor = ActorSnapshot::local_player(
+            unique_id,
+            runtime_id,
+            self.latest_sequence,
+            revision,
+            uuid,
+            username,
+            feed,
+        );
         actor.player_game_mode = feed.game_mode.map(protocol::GameModeUpdate::Explicit);
         self.unique_to_runtime.insert(unique_id, runtime_id);
         self.effect_members.update(&mut actor);

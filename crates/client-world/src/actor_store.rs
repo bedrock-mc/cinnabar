@@ -123,6 +123,8 @@ pub struct ActorSnapshot {
     pub painting: Option<protocol::PaintingData>,
     pub unique_id: i64,
     pub runtime_id: u64,
+    /// Spawn arrival, or the last admitted actor arrival for a synthetic local actor.
+    /// Zero identifies an initial synthetic actor before any actor event arrived.
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
@@ -306,13 +308,13 @@ impl ActorSnapshot {
         snapshot
     }
 
-    /// Builds the client-owned local-player snapshot; `revision` seeds both the spawn and the
-    /// initial movement revision so the rig identity is exact from the first presented frame.
-    /// `uuid`/`username` are the resolved identity by which the skin is looked up.
+    /// Creates a synthetic actor in arrival order, with a separate presentation revision.
+    /// The resolved player identity selects its skin.
     fn local_player(
         unique_id: i64,
         runtime_id: u64,
-        revision: u64,
+        spawn_revision: u64,
+        movement_revision: u64,
         uuid: [u8; 16],
         username: std::sync::Arc<str>,
         feed: &LocalPlayerFeed,
@@ -328,8 +330,8 @@ impl ActorSnapshot {
             painting: None,
             unique_id,
             runtime_id,
-            spawn_revision: revision,
-            movement_revision: revision,
+            spawn_revision,
+            movement_revision,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player { uuid, username },
             entity_fact: EntityFacts::pinned().player(),
@@ -348,7 +350,7 @@ impl ActorSnapshot {
             player_game_mode: None,
             source_tick: None,
             metadata: HashMap::new(),
-            explicit_dimensions: ExplicitDimensions::for_spawn(revision),
+            explicit_dimensions: ExplicitDimensions::for_spawn(spawn_revision),
             local_presentation_flags: None,
             attributes: HashMap::new(),
             int_properties: HashMap::new(),
