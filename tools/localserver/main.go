@@ -180,6 +180,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		if err := host.BindDefaultWorlds(worlds...); err != nil {
 			return errors.Join(err, srv.Close(), host.Close())
 		}
+		if err := host.ConfigureWorlds(ctx, filepath.Join(cfg.dir, "experience-worlds")); err != nil {
+			return errors.Join(err, srv.Close(), host.Close())
+		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
 		// without them: each loads again with them.
 		for id := range exps.sups {
@@ -211,6 +214,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		defer close(accepting)
 		for p := range srv.Accept() {
 			p.Handle(&localPlayerHandler{host: host})
+			if host != nil {
+				host.PlayerJoined(p)
+			}
 		}
 	}()
 	fmt.Fprintln(stdout, "ready")

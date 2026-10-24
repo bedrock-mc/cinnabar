@@ -529,3 +529,23 @@ fn api_must_match_the_component() {
         );
     }
 }
+
+/// Existing 0.6 artifacts retain their imports, registration and scheduled-update export.
+#[test]
+fn v0_6_artifact_loads_and_runs() {
+    let dir = common::v0_6_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.6");
+    assert!(loaded.worlds.is_none());
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.6")]
+        }
+    );
+    assert_eq!(
+        run(&engine, &loaded, &scheduled(0)),
+        Outcome::Committed { ops: vec![] }
+    );
+}

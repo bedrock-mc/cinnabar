@@ -73,6 +73,7 @@ const SERVER_WIT_0_3: &str = include_str!("../../../wit/0.3/server.wit");
 /// The server WIT 0.4, which the runtime still accepts.
 const SERVER_WIT_0_4: &str = include_str!("../../../wit/0.4/server.wit");
 /// The server WIT 0.5, which the runtime still accepts.
+const SERVER_WIT_0_6: &str = include_str!("../../../wit/0.6/server.wit");
 const SERVER_WIT_0_5: &str = include_str!("../../../wit/0.5/server.wit");
 
 /// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
@@ -503,7 +504,7 @@ pub fn edit_manifest(dir: &Path, edit: impl FnOnce(&mut toml::Table)) {
 /// A probe artifact whose `server.wasm` is [`LOOPING_REGISTER`] with the `server` world
 /// embedded, the way wit-bindgen embeds it in a guest.
 pub fn looping_register_dir() -> TempDir {
-    wat_dir(LOOPING_REGISTER, SERVER_WIT)
+    wat_dir(LOOPING_REGISTER, SERVER_WIT_0_6)
 }
 
 /// A probe artifact whose `server.wasm` is [`V0_1_GUEST`] with the 0.1 `server` world embedded,
@@ -662,6 +663,7 @@ pub fn callback(anchor: BlockPos, call: Call) -> Request {
     Request::Callback {
         seq: 1,
         info: Info {
+            context: None,
             world_id: "world".to_owned(),
             dimension_id: "overworld".to_owned(),
             tick: 1,
@@ -762,4 +764,16 @@ pub fn send(channel: &str, schema: u16, payload: Vec<Scalar>) -> Op {
         schema,
         payload,
     }
+}
+
+/// A frozen 0.6 component with the 0.5 fixture's content and a scheduled-update export.
+pub fn v0_6_dir() -> TempDir {
+    let guest = V0_5_GUEST
+        .replace("@0.5.0", "@0.6.0")
+        .replace("v0.5", "v0.6");
+    let guest = guest.trim_end().strip_suffix(')').unwrap();
+    let guest = format!(
+        "{guest}(func (export \"on-scheduled-update\") (param i32 i32 i32 i32) (result i32) (call $drop (local.get 0)) (i32.const 0)))"
+    );
+    wat_dir(&guest, SERVER_WIT_0_6)
 }

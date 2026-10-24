@@ -20,7 +20,7 @@ type localPlayerHandler struct {
 // HandleQuit forgets this player's focus when the server hosts Experiences.
 func (h *localPlayerHandler) HandleQuit(p *player.Player) {
 	if h.host != nil {
-		h.host.PlayerLeft(p.UUID())
+		h.host.PlayerDisconnected(p)
 	}
 }
 

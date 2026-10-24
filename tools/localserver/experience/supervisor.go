@@ -304,6 +304,9 @@ func matchRegistration(registered, loaded Loaded) error {
 	if loaded.ID != registered.ID {
 		return fmt.Errorf("its id changed from %q to %q", registered.ID, loaded.ID)
 	}
+	if !reflect.DeepEqual(loaded.Worlds, registered.Worlds) {
+		return errors.New("its world definitions changed")
+	}
 	if loaded.Focus != registered.Focus {
 		return fmt.Errorf("whether it takes a focus changed from %v to %v", registered.Focus, loaded.Focus)
 	}

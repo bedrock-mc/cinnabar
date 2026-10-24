@@ -96,6 +96,7 @@ impl Fixture {
         let request = Request::Callback {
             seq: 1,
             info: Info {
+                context: None,
                 world_id: "world".to_owned(),
                 dimension_id: "overworld".to_owned(),
                 tick: 1,
@@ -141,6 +142,7 @@ impl Fixture {
             ]
             .into(),
             recipes: Vec::new(),
+            worlds: Default::default(),
         };
         let (res, _) = prepare(&Arc::new(own), &request).unwrap();
         res
@@ -152,6 +154,7 @@ impl Fixture {
         let request = Request::Callback {
             seq: 1,
             info: Info {
+                context: None,
                 world_id: "world".to_owned(),
                 dimension_id: "overworld".to_owned(),
                 tick: 1,
@@ -175,6 +178,7 @@ impl Fixture {
             items: [(CELL.to_owned(), 1)].into(),
             server: [server_item(STONE, 0, 64, false)].into(),
             recipes: Vec::new(),
+            worlds: Default::default(),
         };
         prepare(&Arc::new(own), &request).map(|(res, _)| res)
     }
@@ -1196,3 +1200,5 @@ fn malformed_inventories_are_refused() {
         Err(error) => assert!(error.contains("bytes"), "{error}"),
     }
 }
+
+mod worlds;

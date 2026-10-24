@@ -31,6 +31,10 @@ func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel str
 	if !ok || h.closed.Load() {
 		return false
 	}
+	epoch, admitted := h.admitPlayerWork(player)
+	if !admitted {
+		return false
+	}
 	call := &ClientMessageCall{
 		Player:  player.UUID().String(),
 		Channel: channel,
@@ -39,7 +43,7 @@ func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel str
 		Payload: append(make([]Scalar, 0, len(payload)), payload...),
 	}
 	select {
-	case d.events <- event{actor: player, call: Call{ClientMessage: call}}:
+	case d.events <- event{actor: player, epoch: epoch, call: Call{ClientMessage: call}}:
 		return true
 	default:
 		h.drop(d)
@@ -57,9 +61,16 @@ func (h *Host) DeliverEpoch(player *world.EntityHandle, exp string) bool {
 	if !ok || h.closed.Load() {
 		return false
 	}
+	if h.deferEpoch(player, exp) {
+		return true
+	}
+	epoch, admitted := h.admitPlayerWork(player)
+	if !admitted {
+		return false
+	}
 	call := &EpochCall{Player: player.UUID().String()}
 	select {
-	case d.events <- event{actor: player, call: Call{Epoch: call}}:
+	case d.events <- event{actor: player, epoch: epoch, call: Call{Epoch: call}}:
 		return true
 	default:
 		h.drop(d)
@@ -99,4 +110,46 @@ func (c *dropCount) add() (uint64, bool) {
 	now := time.Now().UnixNano()
 	last := c.lastLog.Load()
 	return n, now-last >= int64(dropLogInterval) && c.lastLog.CompareAndSwap(last, now)
+}
+
+// sendCurrent holds the departure fence through delivery, closing the post-commit send race.
+func (h *Host) sendCurrent(d *dispatcher, ev event, op *SendClientOp) {
+	h.players.mu.Lock()
+	defer h.players.mu.Unlock()
+	if ev.actor == nil {
+		return
+	}
+	if ev.epoch != 0 {
+		state := h.players.items[ev.actor]
+		if state == nil || state.transferring || state.location.Epoch != ev.epoch {
+			return
+		}
+	}
+	h.sendClient(d, ev.actor.UUID(), op)
+}
+
+// admitPlayerWork captures admission and its epoch together, before any possible departure.
+func (h *Host) admitPlayerWork(handle *world.EntityHandle) (uint64, bool) {
+	h.players.mu.Lock()
+	defer h.players.mu.Unlock()
+	state := h.players.items[handle]
+	if state == nil {
+		return 0, true
+	}
+	return state.location.Epoch, !state.transferring
+}
+
+// deferEpoch retains control acknowledgments received during destination publication.
+func (h *Host) deferEpoch(handle *world.EntityHandle, exp string) bool {
+	h.players.mu.Lock()
+	defer h.players.mu.Unlock()
+	state := h.players.items[handle]
+	if state == nil || !state.publishing {
+		return false
+	}
+	if state.pendingEpochs == nil {
+		state.pendingEpochs = make(map[string]bool)
+	}
+	state.pendingEpochs[exp] = true
+	return true
 }

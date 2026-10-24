@@ -18,8 +18,8 @@ type WorldInstanceID string
 
 // WorldHandle identifies one live opening of an instance. Closing it invalidates the handle.
 type WorldHandle struct {
-	ID         WorldInstanceID
-	Generation uint64
+	ID         WorldInstanceID `json:"id"`
+	Generation uint64          `json:"generation"`
 }
 
 // The default instance IDs also identify the worlds in a migrated dimension-keyed store.
@@ -54,7 +54,7 @@ type worldBindings struct {
 }
 
 // bind associates a stable instance ID with a live world and assigns a fresh generation.
-func (b *worldBindings) bind(id WorldInstanceID, w *world.World) (WorldHandle, error) {
+func (b *worldBindings) bind(id WorldInstanceID, w *world.World, generation uint64) (WorldHandle, error) {
 	if id == "" || strings.TrimSpace(string(id)) != string(id) || w == nil {
 		return WorldHandle{}, errors.New("a nonempty instance ID and world are required")
 	}
@@ -81,8 +81,13 @@ func (b *worldBindings) bind(id WorldInstanceID, w *world.World) (WorldHandle, e
 		b.byWorld = make(map[*world.World]worldInstance)
 		b.byID = make(map[WorldInstanceID]*world.World)
 	}
-	b.next++
-	handle := WorldHandle{ID: id, Generation: b.next}
+	if generation == 0 {
+		b.next++
+		generation = b.next
+	} else {
+		b.next = max(b.next, generation)
+	}
+	handle := WorldHandle{ID: id, Generation: generation}
 	b.byWorld[w] = worldInstance{handle: handle, id: strings.ToLower(name)}
 	b.byID[id] = w
 	return handle, nil
@@ -140,7 +145,15 @@ func (h *Host) BindWorld(id WorldInstanceID, w *world.World) (WorldHandle, error
 	if h.closed.Load() {
 		return WorldHandle{}, errors.New("experience host is closed")
 	}
-	return h.worlds.bind(id, w)
+	var generation uint64
+	if h.store != nil {
+		var err error
+		generation, err = h.store.reserveWorldGeneration()
+		if err != nil {
+			return WorldHandle{}, err
+		}
+	}
+	return h.worlds.bind(id, w, generation)
 }
 
 // ResolveWorld rejects stale handles instead of resolving them to a later instance opening.

@@ -24,6 +24,7 @@ mod experience {
 use experience::channels;
 
 mod contract;
+mod worlds;
 
 const COUNTER: &str = "probe:counter";
 const AIR: &str = "minecraft:air";
@@ -36,6 +37,20 @@ static MEMORY: AtomicU32 = AtomicU32::new(0);
 struct Probe;
 
 impl Experience for Probe {
+    /// Exercises ordered player observations through the canonical server world.
+    fn on_player(
+        ctx: &Callback,
+        player: PlayerId,
+        event: experience_sdk::server::PlayerEvent,
+    ) -> Result<(), GuestError> {
+        worlds::on_player(ctx, player, event)
+    }
+
+    /// Registers a destination definition for world API probes.
+    fn world_definitions() -> Result<experience_sdk::server::WorldRegistration, GuestError> {
+        Ok(worlds::definitions())
+    }
+
     /// The 0.5 export: the counter, the lamp and the node.
     fn registration() -> Result<Registration, GuestError> {
         Ok(contract::registration(COUNTER))
@@ -226,6 +241,7 @@ fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), GuestError>
         27 => tell(&contract::make_stacks(ctx, up)),
         28 => tell(&contract::craft(ctx)),
         29 => tell(&contract::schedule(ctx, p)),
+        30..=33 => return worlds::interact(ctx, player, p.x),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())

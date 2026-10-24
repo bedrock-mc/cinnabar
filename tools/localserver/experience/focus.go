@@ -13,6 +13,7 @@ import (
 type focus struct {
 	// player is the player's handle in the session that used the block; a later session of the
 	// same player has another.
+	epoch    uint64
 	player   *world.EntityHandle
 	instance WorldHandle
 	pos      cube.Pos
@@ -52,7 +53,7 @@ func (d *dispatcher) recordFocus(ev event, snap snapshot) {
 	d.focusMu.Lock()
 	defer d.focusMu.Unlock()
 	d.focuses[ev.actor.UUID()] = focus{
-		player: ev.actor, instance: ev.instance.handle, pos: anchor.pos, generation: anchor.token.Generation,
+		epoch: ev.epoch, player: ev.actor, instance: ev.instance.handle, pos: anchor.pos, generation: anchor.token.Generation,
 	}
 }
 
@@ -73,7 +74,7 @@ func (h *Host) focusOn(tx *world.Tx, d *dispatcher, ev *event, actor world.Entit
 		return
 	}
 	f, ok := d.focusOf(ev.actor)
-	if !ok || f.instance != ev.instance.handle {
+	if !ok || f.instance != ev.instance.handle || f.epoch != ev.epoch {
 		return
 	}
 	if entity.EyePosition(actor).Sub(f.pos.Vec3Centre()).Len() > provisionalFocusRange {
@@ -88,7 +89,10 @@ func (h *Host) focusOn(tx *world.Tx, d *dispatcher, ev *event, actor world.Entit
 
 // PlayerLeft forgets the focus of the player with the UUID in every Experience. The server calls
 // it when that player disconnects.
-func (h *Host) PlayerLeft(player uuid.UUID) {
+func (h *Host) PlayerLeft(player uuid.UUID) { h.flushFocus(player) }
+
+// flushFocus revokes every mod's remembered block at a departure boundary.
+func (h *Host) flushFocus(player uuid.UUID) {
 	for _, d := range h.dispatchers {
 		d.focusMu.Lock()
 		delete(d.focuses, player)

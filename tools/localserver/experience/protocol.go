@@ -17,7 +17,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 6
+const protocolVersion = 7
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -46,10 +46,11 @@ func (f *Face) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, f, 
 
 // Info describes the world and the event that a callback runs for.
 type Info struct {
-	WorldID       string `json:"world_id"`
-	DimensionID   string `json:"dimension_id"`
-	Tick          uint64 `json:"tick"`
-	EventSequence uint64 `json:"event_sequence"`
+	Context       *WorldContext `json:"context,omitempty"`
+	WorldID       string        `json:"world_id"`
+	DimensionID   string        `json:"dimension_id"`
+	Tick          uint64        `json:"tick"`
+	EventSequence uint64        `json:"event_sequence"`
 }
 
 // Cell is one snapshot cell. ID is empty when the cell is not loaded; Data is lowercase hex.
@@ -103,10 +104,11 @@ type Scalar struct {
 
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
 type Call struct {
-	Place         *PlaceCall
-	Break         *BreakCall
-	Interact      *InteractCall
-	Neighbor      *NeighborCall
+	Player          *PlayerCall
+	Place           *PlaceCall
+	Break           *BreakCall
+	Interact        *InteractCall
+	Neighbor        *NeighborCall
 	ClientMessage   *ClientMessageCall
 	Epoch           *EpochCall
 	ScheduledUpdate *ScheduledUpdateCall
@@ -242,11 +244,13 @@ func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data,
 
 // Op is a staged operation. Exactly one field is set.
 type Op struct {
-	SetBlock      *SetBlockOp
-	SetBlockData  *SetBlockDataOp
-	Tell          *TellOp
-	SendClient    *SendClientOp
-	SetBlockState *SetBlockStateOp
+	World          *WorldActionOp
+	StoreWrite     *StoreWriteOp
+	SetBlock       *SetBlockOp
+	SetBlockData   *SetBlockDataOp
+	Tell           *TellOp
+	SendClient     *SendClientOp
+	SetBlockState  *SetBlockStateOp
 	SetSlot        *SetSlotOp
 	DropItem       *DropItemOp
 	ScheduleUpdate *ScheduleUpdateOp
@@ -313,12 +317,13 @@ type Response struct {
 // the Experience's world takes its player's focus in client messages and epochs; one that does
 // not is never given one.
 type Loaded struct {
-	Protocol uint32     `json:"protocol"`
-	ID       string     `json:"id"`
-	Version  string     `json:"version"`
-	Blocks   []BlockDef `json:"blocks"`
-	Items    []ItemDef  `json:"items"`
-	Focus    bool       `json:"focus"`
+	Worlds   *WorldRegistration `json:"worlds,omitempty"`
+	Protocol uint32             `json:"protocol"`
+	ID       string             `json:"id"`
+	Version  string             `json:"version"`
+	Blocks   []BlockDef         `json:"blocks"`
+	Items    []ItemDef          `json:"items"`
+	Focus    bool               `json:"focus"`
 }
 
 // LoadFailed answers load when the artifact does not load; the runtime then exits.
@@ -565,6 +570,8 @@ func fresh[T any](p **T) *T {
 
 func (c Call) MarshalJSON() ([]byte, error) {
 	switch {
+	case c.Player != nil:
+		return json.Marshal(playerCallWire{variantTag{"player"}, c.Player})
 	case c.Place != nil:
 		return json.Marshal(placeWire{variantTag{typePlace}, c.Place})
 	case c.Break != nil:
@@ -590,6 +597,8 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 	}
 	*c = Call{}
 	switch tag {
+	case "player":
+		return decodeStrict(data, &playerCallWire{PlayerCall: fresh(&c.Player)})
 	case typePlace:
 		return decodeStrict(data, &placeWire{PlaceCall: fresh(&c.Place)})
 	case typeBreak:
@@ -731,6 +740,10 @@ func (m *Mining) UnmarshalJSON(data []byte) error {
 
 func (o Op) MarshalJSON() ([]byte, error) {
 	switch {
+	case o.World != nil:
+		return json.Marshal(worldActionWire{variantTag{"world"}, o.World})
+	case o.StoreWrite != nil:
+		return json.Marshal(storeWriteWire{variantTag{"store_write"}, o.StoreWrite})
 	case o.SetBlock != nil:
 		return json.Marshal(setBlockWire{variantTag{typeSetBlock}, o.SetBlock})
 	case o.SetBlockData != nil:
@@ -758,6 +771,10 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 	}
 	*o = Op{}
 	switch tag {
+	case "world":
+		return decodeStrict(data, &worldActionWire{WorldActionOp: fresh(&o.World)})
+	case "store_write":
+		return decodeStrict(data, &storeWriteWire{StoreWriteOp: fresh(&o.StoreWrite)})
 	case typeSetBlock:
 		return decodeStrict(data, &setBlockWire{SetBlockOp: fresh(&o.SetBlock)})
 	case typeSetBlockData:

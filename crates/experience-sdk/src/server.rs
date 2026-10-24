@@ -35,10 +35,13 @@ pub use bindings::cinnabar::experience_server::{
     diagnostics::log,
     types::{
         BlockChange, BlockDef, BlockPos, BlockState, BlockType, BoneVisibility, CallbackInfo,
-        ChangeCause, Condition, Crafted, Face, Flipbook, GuestError, Inventory, ItemDef, ItemKey,
-        ItemStack, LogLevel, Material, Mining, Network, NewStack, Permutation, Pixel, PixelBox,
-        PlacementStates, PlayerId, QuarterTurns, Registration, RenderMethod, Scalar, StateDef,
-        StateTest, StateValue, StateValues, TextureBinding, ValueNode, Visual, WorldError,
+        ChangeCause, Condition, Crafted, DimensionType, Face, Flipbook, Generator, GuestError,
+        Inventory, ItemDef, ItemKey, ItemStack, LogLevel, Material, Mining, Network, NewStack,
+        Permutation, Pixel, PixelBox, PlacementStates, PlayerEvent, PlayerId, PlayerLocation,
+        PlayerTransition, Position, QuarterTurns, Registration, RenderMethod, Scalar, StateDef,
+        StateTest, StateValue, StateValues, StoreKey, StoreScope, TextureBinding, ValueNode,
+        Visual, WorldDefinition, WorldDefinitionId, WorldError, WorldHandle, WorldInstance,
+        WorldInstanceId, WorldRegistration, WorldSettings,
     },
     world_access::Callback,
 };
@@ -65,6 +68,22 @@ pub fn cube(def: BlockDef) -> BlockType {
 /// Implement [`Experience::registration`], or [`Experience::register`] for plain cube blocks
 /// alone; the callbacks default to `Ok(())`, which accepts the event without staging anything.
 pub trait Experience {
+    /// Declares world definitions and instances to open before admitting players.
+    fn world_definitions() -> Result<WorldRegistration, GuestError> {
+        Ok(WorldRegistration {
+            definitions: Vec::new(),
+            startup: Vec::new(),
+        })
+    }
+    /// Observes an admitted join, departure, transfer, or coalesced movement.
+    fn on_player(
+        _ctx: &Callback,
+        _player: PlayerId,
+        _event: PlayerEvent,
+    ) -> Result<(), GuestError> {
+        Ok(())
+    }
+
     /// Declares the plain cube blocks this Experience owns. It runs once, at startup, through
     /// the default [`Experience::registration`].
     fn register() -> Result<Vec<BlockDef>, GuestError> {
@@ -145,6 +164,13 @@ pub trait Experience {
 macro_rules! export_experience {
     ($ty:ident) => {
         impl $crate::server::bindings::Guest for $ty {
+            fn world_definitions() -> ::core::result::Result<$crate::server::WorldRegistration, $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::world_definitions()
+            }
+            fn on_player(ctx: &$crate::server::Callback, player: $crate::server::PlayerId, event: $crate::server::PlayerEvent) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_player(ctx, player, event)
+            }
+
             fn register() -> ::core::result::Result<
                 $crate::server::Registration,
                 $crate::server::GuestError,
@@ -217,3 +243,6 @@ macro_rules! export_experience {
         $crate::server::bindings::export!($ty with_types_in $crate::server::bindings);
     };
 }
+
+mod stores;
+pub use stores::{Persistent, StateError};

@@ -94,6 +94,7 @@ fn failed(error: &anyhow::Error) -> Outcome {
 /// staged, and how much of its caps it has used.
 pub struct CallbackRes {
     info: CallbackInfo,
+    context: Option<protocol::WorldContext>,
     actor: Option<String>,
     /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
     /// its anchor would have.
@@ -155,6 +156,10 @@ struct Slot {
 
 /// The export a callback calls, with its arguments.
 enum Export<'a> {
+    Player {
+        player: &'a wit::PlayerId,
+        event: wit::PlayerEvent,
+    },
     Place(wit::BlockChange),
     Break(wit::BlockChange),
     Interact {
@@ -208,6 +213,19 @@ fn prepare<'a>(
     player_id("actor", actor.as_deref())?;
     let mut focused = None;
     let (anchor, export) = match call {
+        Call::Player { player, event } => {
+            player_id("player", Some(player))?;
+            if !snapshot.is_empty() || actor.as_deref().is_some_and(|actor| actor != player) {
+                return Err("player observation has unauthorized snapshot or actor".into());
+            }
+            (
+                None,
+                Export::Player {
+                    player,
+                    event: event.clone().into(),
+                },
+            )
+        }
         Call::Place { change } => (Some(change.pos), Export::Place(block_change(change)?)),
         Call::Break { change } => (Some(change.pos), Export::Break(block_change(change)?)),
         Call::Interact { player, pos, face } => {
@@ -285,6 +303,7 @@ fn prepare<'a>(
         items::check_inventory(own, inventory, actor.as_deref())?;
     }
     let res = CallbackRes {
+        context: info.context.clone(),
         info: CallbackInfo {
             world_id: info.world_id.clone(),
             dimension_id: info.dimension_id.clone(),
@@ -698,6 +717,9 @@ impl CallbackRes {
 
 /// Appends `op`; the op past [`MAX_STAGED_OPS`] traps.
 fn stage(ops: &mut Vec<Op>, op: Op) -> Result<()> {
+    if ops.iter().any(|op| matches!(op, Op::World { .. })) {
+        bail!("a world lifecycle operation must be the only staged operation");
+    }
     if ops.len() == MAX_STAGED_OPS {
         return Err(LimitExceeded(format!("more than {MAX_STAGED_OPS} staged ops")).into());
     }
@@ -745,6 +767,9 @@ fn data_op(ops: &[Op], pos: BlockPos) -> Option<usize> {
 fn staged_len(op: &Op) -> usize {
     match op {
         Op::SetBlockData {
+            data: Some(hex), ..
+        }
+        | Op::StoreWrite {
             data: Some(hex), ..
         } => hex.len() / 2,
         _ => 0,
@@ -815,3 +840,5 @@ mod invoke;
 mod items;
 #[cfg(test)]
 mod tests;
+
+mod worlds;

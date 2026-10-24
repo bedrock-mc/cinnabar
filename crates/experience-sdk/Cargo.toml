@@ -11,7 +11,7 @@ publish = false
 [features]
 default = ["server", "client", "declarations"]
 # The server half: `server::Experience` and `export_experience!`.
-server = ["dep:wit-bindgen"]
+server = ["dep:wit-bindgen", "dep:serde", "dep:serde_json"]
 # The client part: `client::ClientPart`, `client::send` and `export_client_part!`.
 client = ["dep:wit-bindgen", "dep:serde", "dep:serde_json"]
 # For build scripts: `declarations::generate` reads `experience.toml`.

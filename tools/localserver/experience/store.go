@@ -18,7 +18,7 @@ import (
 )
 
 // storeSchema identifies instance-keyed block data. Schema 1 is migrated when it is opened.
-const storeSchema = 2
+const storeSchema = 3
 
 // installedSchema identifies the installation manifest, whose format has not changed.
 const installedSchema = 1
@@ -52,6 +52,7 @@ type entry struct {
 }
 
 type experienceData struct {
+	states  map[stateAddress]stateEntry
 	entries map[Key]entry
 	used    uint64
 	dirty   bool
@@ -62,11 +63,12 @@ type experienceData struct {
 type Store struct {
 	dir string
 
-	mu              sync.Mutex
-	experiences     map[string]*experienceData
-	nextGeneration  uint64
-	installed       []string
-	installedBlocks map[string][]string
+	mu                  sync.Mutex
+	experiences         map[string]*experienceData
+	nextGeneration      uint64
+	nextWorldGeneration uint64
+	installed           []string
+	installedBlocks     map[string][]string
 
 	// flushMu serialises Flush calls so two never write the same temp file.
 	flushMu sync.Mutex
@@ -84,9 +86,10 @@ type fileEntry struct {
 }
 
 type experienceFile struct {
-	Schema         int         `json:"schema"`
-	NextGeneration uint64      `json:"next_generation"`
-	Entries        []fileEntry `json:"entries"`
+	Schema         int           `json:"schema"`
+	NextGeneration uint64        `json:"next_generation"`
+	Entries        []fileEntry   `json:"entries"`
+	States         []storedState `json:"states,omitempty"`
 }
 
 // OpenStore loads every <id>.json file and _installed.json in dir (normally
@@ -108,6 +111,10 @@ func OpenStore(dir string) (*Store, error) {
 		case strings.HasSuffix(name, ".tmp"):
 			if err := os.Remove(path); err != nil {
 				return nil, fmt.Errorf("remove stray temp file %s: %w", path, err)
+			}
+		case name == worldGenerationFile:
+			if err := s.loadWorldGenerations(path); err != nil {
+				return nil, fmt.Errorf("load %s: %w", path, err)
 			}
 		case name == installedFile:
 			if err := s.loadInstalled(path); err != nil {
@@ -133,7 +140,7 @@ func (s *Store) loadExperience(id, path string) error {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return err
 	}
-	if f.Schema != 1 && f.Schema != storeSchema {
+	if f.Schema != 1 && f.Schema != 2 && f.Schema != storeSchema {
 		return fmt.Errorf("schema %d, want %d", f.Schema, storeSchema)
 	}
 	e := &experienceData{entries: make(map[Key]entry, len(f.Entries)), dirty: f.Schema != storeSchema}
@@ -163,6 +170,28 @@ func (s *Store) loadExperience(id, path string) error {
 		e.entries[k] = entry{token: Token{Generation: fe.Generation, Revision: fe.Revision}, data: data}
 		e.used += uint64(len(data))
 		s.nextGeneration = max(s.nextGeneration, fe.Generation+1)
+	}
+	e.states = make(map[stateAddress]stateEntry)
+	for _, record := range f.States {
+		address := stateAddress{Scope: record.Scope, Owner: record.Owner}
+		if !validStateAddress(address) {
+			return errors.New("invalid scoped state address")
+		}
+		if _, duplicate := e.states[address]; duplicate {
+			return errors.New("duplicate scoped state")
+		}
+		var data []byte
+		if record.Data != nil {
+			data, err = hex.DecodeString(*record.Data)
+			if err != nil || len(data) > maxBlockDataBytes {
+				return errors.New("invalid scoped state data")
+			}
+		}
+		e.states[address] = stateEntry{Schema: record.Schema, Revision: record.Revision, Data: data}
+		e.used += uint64(len(data))
+	}
+	if e.used > dataQuota {
+		return ErrQuota
 	}
 	s.experiences[id] = e
 	return nil
@@ -291,6 +320,7 @@ func (s *Store) Flush() error {
 		next    uint64
 		keys    []Key
 		entries []entry
+		states  []storedState
 	}
 	var work []pending
 	s.mu.Lock()
@@ -304,6 +334,7 @@ func (s *Store) Flush() error {
 			p.keys = append(p.keys, k)
 			p.entries = append(p.entries, en)
 		}
+		p.states = storedStates(e.states)
 		work = append(work, p)
 	}
 	s.mu.Unlock()
@@ -311,7 +342,7 @@ func (s *Store) Flush() error {
 	// Stored data slices are never mutated, so they are encoded outside the lock.
 	var errs []error
 	for _, p := range work {
-		f := experienceFile{Schema: storeSchema, NextGeneration: p.next, Entries: make([]fileEntry, len(p.keys))}
+		f := experienceFile{Schema: storeSchema, NextGeneration: p.next, Entries: make([]fileEntry, len(p.keys)), States: p.states}
 		for i, k := range p.keys {
 			en := p.entries[i]
 			fe := fileEntry{Instance: k.Instance, X: k.X, Y: k.Y, Z: k.Z, Generation: en.token.Generation, Revision: en.token.Revision}

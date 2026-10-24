@@ -29,11 +29,14 @@ const airID = "minecraft:air"
 // current and the result valid before it applies anything. Client messages that a commit stages
 // go out through channels afterwards, and client messages that players send queue like events.
 type Host struct {
-	reg     *Registry
-	store   *Store
-	log     *slog.Logger
-	worldID string
-	worlds  worldBindings
+	reg          *Registry
+	store        *Store
+	log          *slog.Logger
+	worldID      string
+	worlds       worldBindings
+	manager      worldManager
+	players      playerLocations
+	worldChanged func(uuid.UUID, WorldHandle, uint64) bool
 	// channels is the server half of the client parts; nil when the server has none, which
 	// drops every staged client message.
 	channels ClientChannels
@@ -99,6 +102,7 @@ type neighborTick struct {
 // event is one hook's callback, queued for its Experience's worker. A client message's or an
 // epoch's event has no world until its snapshot finds the actor's.
 type event struct {
+	epoch    uint64
 	w        *world.World
 	instance worldInstance
 	// anchor is the block the callback is for. It bounds the snapshot and the writes.
@@ -112,7 +116,7 @@ type event struct {
 // an epoch are about their player: they run in the world that player is in, and have an anchor
 // and a snapshot only with that player's focus.
 func (c Call) anchored() bool {
-	return (c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil
+	return c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
 }
 
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
@@ -161,6 +165,7 @@ func (h *Host) Run(ctx context.Context) {
 		return
 	}
 	h.running = true
+	h.workers.Go(func() { h.runPlayerTicks(ctx) })
 	for _, d := range h.dispatchers {
 		h.workers.Go(func() { h.work(ctx, d) })
 	}
@@ -215,6 +220,9 @@ func (h *Host) Close() error {
 	installedHooks.CompareAndSwap(h.holder, nil)
 
 	var errs []error
+	if err := h.closeWorlds(); err != nil {
+		errs = append(errs, err)
+	}
 	if err := h.store.Flush(); err != nil {
 		errs = append(errs, fmt.Errorf("flushing experience data: %w", err))
 	}
@@ -385,6 +393,7 @@ func (h *Host) enqueue(exp string, ev event) {
 	if !ok || h.closed.Load() {
 		return
 	}
+	ev.epoch = h.epoch(ev.actor)
 	select {
 	case d.events <- ev:
 	default:
@@ -451,7 +460,7 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 	if r := outcome.Rejected; r != nil {
 		h.log.Debug("callback rejected", "experience", d.id, "reason", r.Reason)
 	}
-	if outcome.Committed == nil || !h.resumed(ctx) {
+	if outcome.Committed == nil || d.sup.Quarantined() || !h.resumed(ctx) {
 		return
 	}
 	h.commit(ctx, d, ev, snap, outcome.Committed.Ops)
@@ -490,9 +499,18 @@ type cellState struct {
 // one its snapshot holds no cell.
 func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot, error) {
 	var snap snapshot
+	if ev.call.Player != nil {
+		return h.observationSnapshot(d, *ev), nil
+	}
+	if !h.playerCurrent(*ev) {
+		return snapshot{}, errStale
+	}
 	if ev.call.anchored() {
 		valid := false
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) {
+			if !h.playerCurrent(*ev) {
+				return
+			}
 			instance, ok := h.worlds.of(tx.World())
 			valid = ok && instance.handle == ev.instance.handle
 			if valid {
@@ -508,6 +526,9 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	}
 	found := false
 	task := ev.actor.Do(func(tx *world.Tx, actor world.Entity) {
+		if !h.playerCurrent(*ev) {
+			return
+		}
 		if ev.instance, found = h.worlds.of(tx.World()); found {
 			ev.w = tx.World()
 			h.focusOn(tx, d, ev, actor)
@@ -586,6 +607,9 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		snap.cells = append(snap.cells, st)
 	}
 	h.network(tx, d, ev, &snap)
+	if d.sup != nil && d.sup.registered.Worlds != nil {
+		snap.req.Info.Context = h.worldContext(tx, d, ev, snap.req.Actor)
+	}
 	return snap
 }
 
