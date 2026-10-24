@@ -321,6 +321,15 @@ mod review_tests {
         let loaded = load_entity_assets(&world)
             .unwrap_or_else(|error| panic!("load valid catalog: {error}"));
         assert_eq!(loaded.runtime().symbols().len(), expected_symbols);
+
+        let file = std::fs::File::create(entity_asset_path(&world)).unwrap();
+        file.set_len(crate::MAX_ENTITY_CATALOG_BYTES as u64 + 1)
+            .unwrap();
+        assert!(matches!(
+            load_entity_assets(&world),
+            Err(AssetStartupError::EntityAssetsTooLarge { max_bytes, .. })
+                if max_bytes == crate::MAX_ENTITY_CATALOG_BYTES as u64
+        ));
     }
 
     #[test]
