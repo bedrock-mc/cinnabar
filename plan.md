@@ -359,6 +359,7 @@ and rendered qualification remain incomplete.
   server flags control visibility through revival. Original Zeqa acceptance remains open.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
+  Dropped crossed plants use their carried sprites; falling blocks retain their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.

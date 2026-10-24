@@ -267,6 +267,7 @@ fn dropped_crossed_plants_use_sprites_while_falling_blocks_keep_their_model() {
             assets::BlockVisual {
                 kind: VisualKind::Cube,
                 flags: assets::BlockFlags::CUBE_GEOMETRY,
+                model_template: assets::NO_MODEL_TEMPLATE,
                 ..cross
             },
         ],
