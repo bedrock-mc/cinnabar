@@ -2,6 +2,13 @@
 
 use super::*;
 
+/// Metadata words in the movement prediction packet's fixed wire order.
+const FLAG_KEYS: [ActorDataKey; 3] = [
+    ActorDataKey::Flags,
+    ActorDataKey::FlagsTwo,
+    ActorDataKey::FlagsThird,
+];
+
 /// Movement-affecting metadata one local-player update carries; `None`
 /// when the flag word holding it was absent.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -23,19 +30,14 @@ pub struct MovementFlagUpdate {
 impl MovementFlagUpdate {
     /// Supplies every actor-owned flag, using spawn defaults for absent words.
     pub(crate) fn for_replacement(actor: Option<&ActorSnapshot>) -> Self {
-        let words = [
-            ActorDataKey::Flags,
-            ActorDataKey::FlagsTwo,
-            ActorDataKey::FlagsThird,
-        ]
-        .map(
-            |key| match actor.and_then(|actor| actor.metadata.get(&key.wire_value())) {
+        let words = FLAG_KEYS.map(|key| {
+            match actor.and_then(|actor| actor.metadata.get(&key.wire_value())) {
                 Some(ActorMetadataValue::Flags(word) | ActorMetadataValue::FlagsExtended(word)) => {
                     Some(*word)
                 }
                 _ => None,
-            },
-        );
+            }
+        });
         let flags = Self::from_words(words);
         Self {
             immobile: Some(flags.immobile.unwrap_or(false)),
@@ -84,15 +86,34 @@ impl MovementFlagUpdate {
                 _ => None,
             })
         };
-        let words = [
-            word(ActorDataKey::Flags.wire_value()),
-            word(ActorDataKey::FlagsTwo.wire_value()),
-            word(ActorDataKey::FlagsThird.wire_value()),
-        ];
+        let words = FLAG_KEYS.map(|key| word(key.wire_value()));
         if words.iter().all(Option::is_none) {
             return None;
         }
         Some(Self::from_words(words))
+    }
+
+    /// Reads supplied flag words only when the actor retained them after admission.
+    pub(crate) fn from_admitted_metadata(
+        metadata: &[protocol::ActorMetadata],
+        actor: &ActorSnapshot,
+    ) -> Option<Self> {
+        let words = FLAG_KEYS.map(|key| {
+            let key = key.wire_value();
+            if !metadata.iter().any(|entry| entry.key == key) {
+                return None;
+            }
+            match actor.metadata.get(&key) {
+                Some(ActorMetadataValue::Flags(word) | ActorMetadataValue::FlagsExtended(word)) => {
+                    Some(*word)
+                }
+                _ => None,
+            }
+        });
+        words
+            .iter()
+            .any(Option::is_some)
+            .then(|| Self::from_words(words))
     }
 
     /// Decodes the shared sparse movement fields from their three accepted flag words.

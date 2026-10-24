@@ -352,3 +352,157 @@ fn local_air_drag_modifier_commits_finite_values_with_their_tick() {
                 ))
     );
 }
+
+/// A full actor budget rejects a new flag word while retaining updates to an existing one.
+#[test]
+fn local_metadata_controls_follow_partial_admission() {
+    let mut authority = spawn_authority();
+    let mut spawn = spawn_with_use(None);
+    spawn.metadata = (1..=protocol::MAX_ACTOR_METADATA_ENTRIES as u32)
+        .map(|key| ActorMetadata {
+            key,
+            value: ActorMetadataValue::Int(0),
+        })
+        .collect();
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Spawn(spawn)), Some(1))
+        .unwrap();
+    authority.take_committed_controls();
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 2,
+                runtime_id: 41,
+                tick: 0,
+                metadata: [
+                    ActorMetadata {
+                        key: ActorDataKey::Flags.wire_value(),
+                        value: ActorMetadataValue::Flags(1 << ActorFlag::UsingItem.wire_value()),
+                    },
+                    ActorMetadata {
+                        key: ActorDataKey::FlagsTwo.wire_value(),
+                        value: ActorMetadataValue::FlagsExtended(u64::MAX),
+                    },
+                ]
+                .into(),
+                properties: [].into(),
+            })),
+            Some(2),
+        )
+        .unwrap();
+    assert!(!authority.actor(41).unwrap().is_using_item());
+    let controls = authority.take_committed_controls();
+    assert!(
+        matches!(controls.as_slice(), [CommittedControlEvent::LocalMovementFlags { flags, .. }]
+        if flags.using_item.is_none() && flags.crawling == Some(true))
+    );
+}
+
+/// Stale actor packets cannot replace already accepted flag or attribute controls.
+#[test]
+fn local_movement_controls_skip_stale_packets() {
+    let mut authority = spawn_authority();
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Spawn(spawn_with_use(Some(true)))),
+            Some(3),
+        )
+        .unwrap();
+    authority.take_committed_controls();
+    authority
+        .apply_ordered_event(metadata(41, 2, 0), Some(2))
+        .unwrap();
+    assert!(authority.take_committed_controls().is_empty());
+    assert!(authority.actor(41).unwrap().is_using_item());
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 2,
+                runtime_id: 41,
+                tick: 0,
+                attributes: [ActorAttribute {
+                    name: Attribute::Movement.wire_name().into(),
+                    min: 0.0,
+                    max: 1.0,
+                    current: 0.2,
+                    default: Some(0.2),
+                    modifiers: [].into(),
+                }]
+                .into(),
+            })),
+            Some(2),
+        )
+        .unwrap();
+    assert_eq!(authority.local_movement_speed(), None);
+    assert!(authority.take_committed_controls().is_empty());
+}
+
+/// Rejected attributes cannot create movement authority absent from the admitted actor.
+#[test]
+fn local_attribute_controls_follow_partial_admission() {
+    let mut authority = spawn_authority();
+    let mut spawn = spawn_with_use(None);
+    spawn.attributes = (0..protocol::MAX_ACTOR_ATTRIBUTES)
+        .map(|index| ActorAttribute {
+            name: if index == 0 {
+                Attribute::AirDragModifier.wire_name().into()
+            } else {
+                format!("fixture:{index}").into()
+            },
+            min: 0.0,
+            max: 1.0,
+            current: 0.1,
+            default: Some(0.1),
+            modifiers: [].into(),
+        })
+        .collect();
+    authority
+        .apply_ordered_event(WorldEvent::Actor(ActorEvent::Spawn(spawn)), Some(1))
+        .unwrap();
+    authority.take_committed_controls();
+    authority
+        .apply_ordered_event(
+            WorldEvent::Actor(ActorEvent::Attributes(ActorAttributesUpdateEvent {
+                dimension: 2,
+                runtime_id: 41,
+                tick: 0,
+                attributes: [
+                    ActorAttribute {
+                        name: Attribute::Movement.wire_name().into(),
+                        min: 0.0,
+                        max: 1.0,
+                        current: 0.2,
+                        default: Some(0.2),
+                        modifiers: [].into(),
+                    },
+                    ActorAttribute {
+                        name: Attribute::AirDragModifier.wire_name().into(),
+                        min: 0.0,
+                        max: 10.0,
+                        current: 2.0,
+                        default: Some(1.0),
+                        modifiers: [].into(),
+                    },
+                ]
+                .into(),
+            })),
+            Some(2),
+        )
+        .unwrap();
+    assert!(
+        !authority
+            .actor(41)
+            .unwrap()
+            .attributes
+            .contains_key(Attribute::Movement.wire_name())
+    );
+    assert_eq!(authority.local_movement_speed(), None);
+    assert!(matches!(
+        authority.take_committed_controls().as_slice(),
+        [CommittedControlEvent::LocalMovementSpeed {
+            movement_received: false,
+            air_drag_modifier: Some(2.0),
+            ..
+        }]
+    ));
+}

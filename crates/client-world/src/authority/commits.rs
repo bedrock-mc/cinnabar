@@ -155,7 +155,7 @@ impl WorldAuthority {
                 let local_removal = matches!(&event, ActorEvent::Remove(remove)
                     if remove.unique_id == self.local_player_unique_id && remove.dimension == self.current_dimension);
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
-                if let ActorEvent::Attributes(update) = &event
+                let local_attributes = if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
                 {
@@ -164,50 +164,10 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
-                    let movement_received = update.attributes.iter().rev().find(|attribute| {
-                        attribute.name.as_ref() == Attribute::Movement.wire_name()
-                    });
-                    let movement =
-                        movement_received.and_then(MovementSpeedAttribute::from_attribute);
-                    let liquid = |name: &str| {
-                        update
-                            .attributes
-                            .iter()
-                            .rev()
-                            .find(|attribute| attribute.name.as_ref() == name)
-                            .map(|attribute| f64::from(attribute.current))
-                    };
-                    let underwater = liquid(Attribute::UnderwaterMovement.wire_name());
-                    let lava = liquid(Attribute::LavaMovement.wire_name());
-                    let air_drag_modifier = update
-                        .attributes
-                        .iter()
-                        .rev()
-                        .find(|attribute| {
-                            attribute.name.as_ref() == Attribute::AirDragModifier.wire_name()
-                        })
-                        .map(|attribute| attribute.current)
-                        .filter(|current| current.is_finite());
-                    if let Some(attribute) = movement {
-                        self.local_movement_speed = Some(attribute.current);
-                    }
-                    if movement_received.is_some()
-                        || underwater.is_some()
-                        || lava.is_some()
-                        || air_drag_modifier.is_some()
-                    {
-                        self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
-                            sequence,
-                            dimension: update.dimension,
-                            movement,
-                            movement_received: movement_received.is_some(),
-                            underwater,
-                            lava,
-                            air_drag_modifier,
-                            tick: update.tick,
-                        });
-                    }
-                }
+                    Some((update.tick, Arc::clone(&update.attributes)))
+                } else {
+                    None
+                };
                 let mut local_metadata = None;
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
@@ -218,10 +178,7 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         metadata: Arc::clone(&update.metadata),
                     });
-                    local_metadata = Some((
-                        update.tick,
-                        crate::MovementFlagUpdate::from_metadata(&update.metadata),
-                    ));
+                    local_metadata = Some((update.tick, Arc::clone(&update.metadata)));
                 }
                 let local_hurt = matches!(
                     &event,
@@ -285,25 +242,29 @@ impl WorldAuthority {
                 }
                 self.publish_local_actor_replacement(sequence);
 
-                if let Some((tick, flags)) = local_metadata {
-                    let dimensions = self
-                        .actors
-                        .actor_authority(self.local_player_runtime_id)
-                        .filter(|_| {
-                            matches!(
-                                result,
-                                crate::actor_store::ActorApplyResult::Updated
-                                    | crate::actor_store::ActorApplyResult::MissingActor
-                                    | crate::actor_store::ActorApplyResult::CapacityRejected
-                            )
-                        })
-                        .map(|actor| actor.explicit_dimensions)
-                        .filter(|dimensions| {
-                            [dimensions.width, dimensions.height]
-                                .into_iter()
-                                .flatten()
-                                .any(|write| write.sequence == sequence)
-                        });
+                let data_admitted = matches!(
+                    result,
+                    crate::actor_store::ActorApplyResult::Updated
+                        | crate::actor_store::ActorApplyResult::MissingActor
+                        | crate::actor_store::ActorApplyResult::CapacityRejected
+                );
+                if data_admitted && let Some((tick, attributes)) = local_attributes {
+                    self.publish_local_attribute_update(sequence, tick, &attributes);
+                }
+                if data_admitted && let Some((tick, metadata)) = local_metadata {
+                    let actor = self.actors.actor_authority(self.local_player_runtime_id);
+                    let flags = actor.and_then(|actor| {
+                        crate::MovementFlagUpdate::from_admitted_metadata(&metadata, actor)
+                    });
+                    let dimensions =
+                        actor
+                            .map(|actor| actor.explicit_dimensions)
+                            .filter(|dimensions| {
+                                [dimensions.width, dimensions.height]
+                                    .into_iter()
+                                    .flatten()
+                                    .any(|write| write.sequence == sequence)
+                            });
                     if flags.is_some() || dimensions.is_some() {
                         self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
                             sequence,

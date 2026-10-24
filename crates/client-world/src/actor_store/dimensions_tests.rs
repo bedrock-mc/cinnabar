@@ -5,6 +5,7 @@ use std::sync::Arc;
 #[test]
 fn synthetic_and_network_dimensions_share_lifetime_order() {
     let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(7);
     let feed = super::local_tests::local_feed(0.0, 0.0);
     store.sync_local_player(7, 70, &feed);
     let first = store.get(7).unwrap().explicit_dimensions;
