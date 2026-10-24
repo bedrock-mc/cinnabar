@@ -138,6 +138,22 @@ impl ActorStore {
         self.local_vehicle.held_passengers = self.hold_passengers_on(runtime_id);
     }
 
+    /// Holds the predicted boat's pick state at its fed render pose, as each actor tick holds
+    /// the live boat, so picks seat its passengers where they are drawn.
+    pub(super) fn hold_local_vehicle_pick(&mut self) {
+        let Some((runtime_id, pose)) = self.local_vehicle.render else {
+            return;
+        };
+        if let Ok(index) = self
+            .pick_states
+            .binary_search_by_key(&runtime_id, |pick| pick.runtime_id)
+        {
+            let pick = &mut self.pick_states[index];
+            pick.previous_yaw = pose.yaw;
+            pick.state.pose = pose;
+        }
+    }
+
     /// Returns a boat no longer fed to its ticked pose and body yaw.
     fn release_local_vehicle_render(&mut self) {
         let boat = self

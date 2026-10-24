@@ -72,6 +72,7 @@ impl ActorStore {
                 pick.previous_yaw = pick.state.pose.yaw;
                 pick.state.tick();
             }
+            self.hold_local_vehicle_pick();
             self.seat_pick_riders();
         }
     }

@@ -716,6 +716,49 @@ fn passengers_ride_the_predicted_boat_between_ticks() {
     assert!((seated(&store) - before - 0.5).abs() < 1.0e-4);
 }
 
+/// On an actor-tick frame, picks seat the predicted boat's passengers on its fed render pose,
+/// where the live tick seats and draws them, not on its tick pose.
+#[test]
+fn picks_seat_passengers_on_the_predicted_boat_s_render_pose() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    sequence += 1;
+    store.apply(
+        1,
+        sequence,
+        spawn(
+            OTHER_PLAYER,
+            player("Other"),
+            vec![ActorMetadata {
+                key: ActorDataKey::SeatOffset.wire_value(),
+                value: ActorMetadataValue::Vector([0.0, 0.5, 0.0]),
+            }],
+        ),
+    );
+    board(
+        &mut store,
+        &mut sequence,
+        &[
+            (PLAYER, ActorLinkType::Rider),
+            (OTHER_PLAYER, ActorLinkType::Passenger),
+        ],
+    );
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        revision: crate::VehicleRevision::default(),
+        position: [12.0, 5.0, 10.0],
+        yaw: 0.0,
+        velocity: [0.0; 3],
+        render_position: [11.0, 5.0, 10.0],
+        render_yaw: 0.0,
+    }));
+    store.predict_remote_motion(1);
+    let picked = store.pick_pose(OTHER_PLAYER as u64).unwrap().position;
+    store.advance_interpolation_ticks(1);
+    let live = store.snapshot_by_unique(OTHER_PLAYER).unwrap().position;
+    assert_eq!(picked, live);
+    assert!((picked[0] - 11.0).abs() < 1.0e-4, "{picked:?}");
+}
+
 /// A ride restored on join links the local driver before its actor exists; a remote player
 /// linked after it does not take its seat when the local actor appears.
 #[test]
