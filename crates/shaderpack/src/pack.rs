@@ -313,26 +313,28 @@ impl ShaderPack {
             .collect();
         // Custom images clamp and filter linearly; custom textures follow their `.mcmeta`
         // for samplers of their shape, a stage's own binding winning over `texture.noise`.
-        let mut sampler_classes: SamplerClasses = properties
-            .images
-            .iter()
-            .map(|i| {
-                (
-                    (canonical_sampler_name(&i.sampler), None),
-                    SamplerClass::ClampLinear,
-                )
-            })
-            .collect();
+        let mut sampler_classes = SamplerClasses::default();
+        for image in &properties.images {
+            sampler_classes.units.insert(
+                (canonical_sampler_name(&image.sampler), None),
+                SamplerClass::ClampLinear,
+            );
+        }
         for noise in [true, false] {
             for t in &properties.custom_textures {
                 if t.applies_to(program.group) && (t.stage == "noise") == noise {
-                    sampler_classes.insert(
-                        (
-                            canonical_sampler_name(t.uniform()),
-                            Some(t.source.dimension()),
-                        ),
-                        t.sampler_class(&self.source),
-                    );
+                    let dimension = t.source.dimension();
+                    let class = t.sampler_class(&self.source);
+                    if t.is_unit_override() {
+                        sampler_classes
+                            .units
+                            .insert((t.binding_name(), Some(dimension)), class);
+                    } else {
+                        sampler_classes.named.insert(
+                            (t.uniform().to_string(), dimension),
+                            (t.binding_name(), class),
+                        );
+                    }
                 }
             }
         }

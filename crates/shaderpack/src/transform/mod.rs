@@ -16,6 +16,7 @@ mod legacy;
 mod math;
 mod missing;
 mod narrow;
+mod samplers;
 mod shared;
 mod specialize;
 
@@ -23,7 +24,6 @@ use crate::preprocess::Preprocessed;
 use crate::programs::StageKind;
 use crate::reflection::{
     LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, SamplerClass, TEXTURE_GROUP,
-    TextureDimension,
 };
 use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
@@ -31,6 +31,7 @@ use body::{BodyContext, SamplerUse, convert_returns, return_type, rewrite_body, 
 pub(crate) use interface::ProgramInterface;
 use items::{Item, func_params, parse_decl, split_items};
 pub(crate) use missing::vertex_outputs;
+pub(crate) use samplers::SamplerClasses;
 use std::collections::{HashMap, HashSet};
 
 /// A transform failure at a 1-based line of the include-expanded source (0 if unknown).
@@ -75,10 +76,6 @@ pub(crate) struct StageDraft {
     /// Pack-visible resource names as (group, binding, name).
     pub resource_names: Vec<(u32, u32, String)>,
 }
-
-/// Sampler name and shape (`None` for any shape) → class, where the program's custom
-/// textures and images override [`SamplerClass::for_name`].
-pub(crate) type SamplerClasses = HashMap<(String, Option<TextureDimension>), SamplerClass>;
 
 /// Pack-level facts about resource names, from `shaders.properties`.
 pub(crate) struct ResourceNames<'a> {

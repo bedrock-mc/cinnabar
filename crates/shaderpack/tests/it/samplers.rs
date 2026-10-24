@@ -229,6 +229,46 @@ fn geometry_unit_zero_aliases_share_custom_texture_classes() {
 }
 
 #[test]
+fn raw_geometry_textures_keep_other_unit_zero_samplers_on_the_atlas() {
+    for uniform in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let fragment = format!(
+            "#version 120\nuniform sampler2D {uniform}; uniform sampler2D albedo;\n\
+             void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D(albedo, vec2(0.5)); }}"
+        );
+        let properties = format!(
+            "texture.gbuffers.{uniform} = lut.dat TEXTURE_2D RGBA8 16 16 RGBA UNSIGNED_BYTE\n"
+        );
+        let translated = pack(
+            "#version 120\nvoid main() { gl_FragData[0] = vec4(1.0); }",
+            &properties,
+            &[
+                ("gbuffers_basic.vsh", VERTEX),
+                ("gbuffers_basic.fsh", &fragment),
+            ],
+        )
+        .translate(&TranslateConfig::default());
+        let geometry = program(&translated, "gbuffers_basic");
+        fragment_stage(geometry);
+        let reflected = reflection(geometry);
+        let mut classes: Vec<_> = reflected
+            .samplers
+            .iter()
+            .filter_map(|sampler| sampler.class())
+            .collect();
+        classes.sort();
+        assert_eq!(
+            classes,
+            [SamplerClass::ClampLinear, SamplerClass::RepeatNearest],
+            "{uniform}"
+        );
+        let textures = &reflected.textures;
+        assert_eq!(textures.len(), 2);
+        assert_ne!(textures[0].name, textures[1].name);
+        assert!(textures.iter().any(|texture| texture.name == "gtexture"));
+    }
+}
+
+#[test]
 fn custom_texture_classes_follow_the_program_stage_and_noise_override() {
     let fragment = "#version 120\n\
         uniform sampler2D colortex0;\n\
@@ -236,8 +276,9 @@ fn custom_texture_classes_follow_the_program_stage_and_noise_override() {
         varying vec2 uv;\n\
         void main() { gl_FragData[0] = texture2D(colortex0, uv) + texture2D(noisetex, uv); }\n";
     // `colortex0` is only replaced in deferred programs; `texture.noise` applies everywhere
-    // and its clamp-only .mcmeta makes it nearest.
-    let properties = "texture.deferred.colortex0 = tex/a.png\ntexture.noise = tex/noise.png\n";
+    // and its clamp-only .mcmeta makes it nearest, overriding the image's linear class.
+    let properties = "image.noiseImage = noisetex rgba rgba8 unsigned_byte true false 1 1\n\
+        texture.deferred.colortex0 = tex/a.png\ntexture.noise = tex/noise.png\n";
     let mcmeta = r#"{"texture":{"clamp":true}}"#;
     let p = pack(fragment, properties, &[("tex/noise.png.mcmeta", mcmeta)]);
     let t = p.translate(&TranslateConfig::default());

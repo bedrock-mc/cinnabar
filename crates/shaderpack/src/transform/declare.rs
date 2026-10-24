@@ -8,10 +8,9 @@ use super::items::{
     parse_decl, sampler_info, split_items, strip_layout_keys,
 };
 use super::{ProgramInterface, ResourceNames, TransformError, UboMember};
-use crate::buffers::{canonical_sampler_name, unit_zero_texture};
 use crate::programs::StageKind;
 use crate::reflection::{
-    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, SamplerClass, StoredNumbers,
+    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, StoredNumbers,
     TEXTURE_GROUP, TextureDimension, UNIFORM_GROUP, VertexAttribute,
 };
 use crate::token::{Tok, id, lex, p};
@@ -544,25 +543,13 @@ fn uniforms(
         if is_opaque(&d.ty) {
             if let Some((tex_ty, shadow)) = sampler_info(&d.ty) {
                 let b = iface.texture_binding(name);
-                let classes = names.sampler_classes;
-                let dimension = texture_dimension(tex_ty);
-                let custom = |name: &str| {
-                    let key = canonical_sampler_name(name);
-                    classes
-                        .get(&(key.clone(), Some(dimension)))
-                        .or_else(|| classes.get(&(key, None)))
-                        .copied()
-                };
-                // The texture the binding reads, as Iris names it. Unit 0's 2D target holds
-                // a float colour texture, so only plain `sampler2D`s reach it.
-                let bound = match custom(name) {
-                    None if d.ty == "sampler2D" && d.ty_arr.is_empty() && arr.is_empty() => {
-                        unit_zero_texture(&canonical_sampler_name(name), names.geometry)
-                            .map_or_else(|| name.clone(), str::to_owned)
-                    }
-                    _ => name.clone(),
-                };
-                let class = custom(&bound).unwrap_or_else(|| SamplerClass::for_name(&bound));
+                // Only scalar float sampler2D uniforms can read unit zero's 2D target.
+                let (bound, class) = names.sampler_classes.resolve(
+                    name,
+                    texture_dimension(tex_ty),
+                    d.ty == "sampler2D" && d.ty_arr.is_empty() && arr.is_empty(),
+                    names.geometry,
+                );
                 c.resource_names.push((TEXTURE_GROUP, b, bound));
                 c.samplers
                     .insert(name.clone(), (d.ty.clone(), shadow, class));
@@ -848,7 +835,7 @@ mod tests {
     /// Resource names with the given image formats and no custom sampler classes.
     fn names(image_formats: &HashMap<String, String>) -> ResourceNames<'_> {
         static NO_CLASSES: std::sync::LazyLock<SamplerClasses> =
-            std::sync::LazyLock::new(SamplerClasses::new);
+            std::sync::LazyLock::new(SamplerClasses::default);
         ResourceNames {
             image_formats,
             sampler_classes: &NO_CLASSES,

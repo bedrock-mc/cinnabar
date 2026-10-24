@@ -481,6 +481,80 @@ fn geometry_unit_zero_aliases_bind_the_custom_texture() {
 }
 
 #[test]
+fn raw_tex_keeps_gtexture_and_unbound_samplers_on_the_atlas() {
+    let Some(gpu) = gpu() else { return };
+    for uniform in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let properties = format!(
+            "texture.gbuffers.{uniform} = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n"
+        );
+        let (directory, _pack) = png_pack(&properties);
+        let shaders = directory.path().join("shaders");
+        std::fs::write(shaders.join("lut.dat"), [0, 255, 0, 255, 255, 255, 0, 255]).unwrap();
+        std::fs::write(
+            shaders.join("gbuffers_basic.vsh"),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        let atlas = if uniform == "gtexture" {
+            "albedo"
+        } else {
+            "gtexture"
+        };
+        std::fs::write(
+            shaders.join("gbuffers_basic.fsh"),
+            format!(
+                "#version 120\nuniform sampler2D {uniform}; uniform sampler2D {atlas};\n\
+                 void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D({atlas}, vec2(0.5)); }}"
+            ),
+        ).unwrap();
+        let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+        let translation = pack.translate(&Default::default());
+        let program = translation
+            .programs
+            .iter()
+            .find(|program| program.program.name == "gbuffers_basic")
+            .unwrap();
+        assert!(program.is_ok());
+        let vanilla = VanillaTextures::default();
+        let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            program.reflection.as_ref().unwrap(),
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            bindings
+                .textures
+                .iter()
+                .filter(|source| matches!(source, TextureSource::Atlas(AtlasLayer::Color)))
+                .count(),
+            1,
+            "raw {uniform} must leave {atlas} on the atlas: {:?}",
+            bindings.textures
+        );
+        let constants: Vec<_> = bindings
+            .textures
+            .iter()
+            .filter_map(|source| match source {
+                TextureSource::Constant { index, .. } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(constants.len(), 1);
+        assert_eq!(
+            read_rows(&gpu, &builder.constant(constants[0]).view),
+            [[0, 255, 0, 255], [255, 255, 0, 255]]
+        );
+    }
+}
+
+#[test]
 fn depth_placeholders_bind_with_the_requested_array_or_cube_shape() {
     let Some(gpu) = gpu() else { return };
     let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));

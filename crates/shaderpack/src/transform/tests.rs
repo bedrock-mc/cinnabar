@@ -39,7 +39,7 @@ fn draft(
     let pp = preprocess(expanded, &[]).expect("preprocesses");
     let names = ResourceNames {
         image_formats: &HashMap::new(),
-        sampler_classes: &SamplerClasses::new(),
+        sampler_classes: &SamplerClasses::default(),
         geometry: file.starts_with("gbuffers_"),
     };
     let draft = transform(&pp, stage, iface, &names).expect("transforms");

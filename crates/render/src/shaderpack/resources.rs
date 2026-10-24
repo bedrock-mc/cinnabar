@@ -507,10 +507,8 @@ impl<'a> ConstantBuilder<'a> {
         Ok(texture)
     }
 
-    /// The stage's custom texture for sampler `name` declared with `dimension`: OptiFine binds
-    /// each shape on its own target of the unit, so `texture.composite.colortex0 = x.dat
-    /// TEXTURE_3D` replaces only a `sampler3D colortex0` and a `sampler2D colortex0` still
-    /// reads the buffer.
+    /// The stage's custom texture for reflected binding `name` and `dimension`.
+    /// Plain overrides share texture-unit aliases; raw bindings keep their own name and shape.
     fn custom(
         &mut self,
         stage: &str,
@@ -529,9 +527,7 @@ impl<'a> ConstantBuilder<'a> {
             .iter()
             .rev()
             .find(|t| {
-                t.stage == stage
-                    && shaderpack::canonical_sampler_name(t.uniform()) == name
-                    && t.source.dimension() == dimension
+                t.stage == stage && t.binding_name() == name && t.source.dimension() == dimension
             })?
             .source
             .clone();
