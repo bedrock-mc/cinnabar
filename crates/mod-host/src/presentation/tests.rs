@@ -463,7 +463,7 @@ fn bundle_triangle_budget_counts_expanded_lines_per_placement() {
             |_| true,
         )
         .unwrap_err();
-    assert_eq!(error.to_string(), "bundle triangle budget exceeded");
+    assert!(error.to_string().contains("budget exceeded"));
     assert_eq!(receiver.output().1, revision);
 }
 
@@ -503,7 +503,7 @@ fn bundle_triangle_budget_combines_retained_and_immediate_geometry() {
             true
         })
         .unwrap_err();
-    assert_eq!(error.to_string(), "bundle triangle budget exceeded");
+    assert!(error.to_string().contains("budget exceeded"));
     assert_eq!(receiver.output().1, revision);
 }
 

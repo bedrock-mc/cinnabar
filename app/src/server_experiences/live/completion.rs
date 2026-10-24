@@ -300,6 +300,7 @@ impl<H> Instance<H> {
                 )?;
             }
         }
+        self.presentation.check_scene_budget(&self.contributions)?;
         modal::note_opened(self, &transaction, modal_order);
         Ok(transaction.commands)
     }

@@ -1,5 +1,6 @@
 use super::*;
 
+mod budget;
 mod liveness;
 
 #[test]

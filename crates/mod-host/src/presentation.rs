@@ -118,6 +118,14 @@ impl Receiver {
         (&self.output, self.revision)
     }
 
+    /// Rechecks the active drawing and legacy scene after either contribution changes.
+    pub fn check_scene_budget(
+        &self,
+        contributions: &server_experience::runtime::Contributions,
+    ) -> Result<()> {
+        check_scene_budget(&self.output, contributions)
+    }
+
     /// Assembles a committed scene within its reservation and publishes it atomically.
     /// `valid` queries the current native actor store, independently of drawing visibility.
     pub fn receive(
@@ -180,31 +188,10 @@ impl Receiver {
                 },
             )
             .map_err(|error| anyhow::anyhow!("drawing: {}", error.detail))?;
-        ensure!(
-            resources.instances.len() <= server_experience::policy::MAX_DRAWS as usize,
-            "bundle draw budget exceeded"
-        );
         let mut primitives = mod_render::Primitives::default();
         primitives
             .append_checked(input.primitives)
             .map_err(anyhow::Error::msg)?;
-        let vertices = mod_render::geometry::vertex_count(&primitives);
-        ensure!(
-            resources
-                .instances
-                .values()
-                .filter_map(|instance| resources.geometry.get(&instance.geometry))
-                .map(|geometry| geometry.triangles())
-                .sum::<usize>()
-                + vertices / 3
-                <= server_experience::policy::MAX_TRIANGLES as usize,
-            "bundle triangle budget exceeded"
-        );
-        let draws = resources.instances.len() + primitives.draw_count();
-        ensure!(
-            draws <= server_experience::policy::MAX_DRAWS as usize,
-            "bundle draw budget exceeded"
-        );
         output.primitives = if primitives == *self.output.primitives {
             Arc::clone(&self.output.primitives)
         } else {
@@ -347,6 +334,7 @@ impl Receiver {
                 .unwrap_or_else(|| Arc::new(resources));
             output.retained.push(retained);
         }
+        check_scene_budget(&output, &Default::default())?;
         owners.retain(|_, local| {
             output.retained.iter().any(|resources| {
                 resources
@@ -374,6 +362,33 @@ impl Receiver {
             .saturating_add(stale_references as u64);
         Ok(())
     }
+}
+
+/// Charges every active retained placement and immediate primitive alongside legacy objects.
+fn check_scene_budget(
+    output: &RenderOutput,
+    contributions: &server_experience::runtime::Contributions,
+) -> Result<()> {
+    let draws = output.primitives.draw_count()
+        + output
+            .retained
+            .iter()
+            .map(|resources| resources.instances.len())
+            .sum::<usize>();
+    let triangles = mod_render::geometry::vertex_count(&output.primitives) / 3
+        + output
+            .retained
+            .iter()
+            .map(|resources| {
+                resources
+                    .instances
+                    .values()
+                    .filter_map(|instance| resources.geometry.get(&instance.geometry))
+                    .map(|geometry| geometry.triangles())
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+    contributions.check_scene_budget(draws, triangles as u64)
 }
 
 #[cfg(test)]

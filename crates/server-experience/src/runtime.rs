@@ -318,18 +318,25 @@ impl Contributions {
             "widget budget exceeded"
         );
         candidate.modal.check()?;
+        candidate.check_scene_budget(0, 0)?;
+        *self = candidate;
+        Ok(())
+    }
+
+    /// Checks legacy scene costs together with the caller's active drawing placements.
+    pub fn check_scene_budget(&self, drawing_draws: usize, drawing_triangles: u64) -> Result<()> {
         ensure!(
-            candidate.scene.len() <= MAX_DRAWS as usize,
+            self.scene.len().saturating_add(drawing_draws) <= MAX_DRAWS as usize,
             "draw budget exceeded"
         );
-        let mut triangles = 0u64;
+        let mut triangles = drawing_triangles;
         let mut particles = 0u64;
-        for object in candidate.scene.values() {
+        for object in self.scene.values() {
             match object {
-                SceneObject::Quad { .. } => triangles += 2,
+                SceneObject::Quad { .. } => triangles = triangles.saturating_add(2),
                 SceneObject::Mesh {
                     triangles: count, ..
-                } => triangles += u64::from(*count),
+                } => triangles = triangles.saturating_add(u64::from(*count)),
                 SceneObject::Particles { count, .. } => particles += u64::from(*count),
             }
         }
@@ -337,7 +344,6 @@ impl Contributions {
             triangles <= u64::from(MAX_TRIANGLES) && particles <= u64::from(MAX_PARTICLES),
             "scene budget exceeded"
         );
-        *self = candidate;
         Ok(())
     }
 }
