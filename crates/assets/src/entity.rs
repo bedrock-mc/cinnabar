@@ -9,6 +9,7 @@ pub use engine_variables::EngineVariable;
 pub mod interactions;
 pub mod item_use;
 mod molang_program;
+pub mod offered_use;
 pub mod placement;
 mod query_manifest;
 pub mod seats;
@@ -68,7 +69,7 @@ pub use v4::{
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
 /// Includes item-use, seat, interaction, rig-frame, intrinsic shine and geometry-locator facts;
 /// stale carriers need `make assets`.
-pub const ENTITY_BLOB_VERSION: u32 = 23;
+pub const ENTITY_BLOB_VERSION: u32 = 24;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).

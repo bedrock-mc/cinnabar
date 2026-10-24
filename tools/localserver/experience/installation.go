@@ -26,8 +26,8 @@ func readInstalled(path string) (installedRecord, error) {
 	if err := json.Unmarshal(raw, &rec); err != nil {
 		return rec, err
 	}
-	if rec.Schema != storeSchema {
-		return rec, fmt.Errorf("schema %d, want %d", rec.Schema, storeSchema)
+	if rec.Schema != installedSchema {
+		return rec, fmt.Errorf("schema %d, want %d", rec.Schema, installedSchema)
 	}
 	rec.IDs = sortedUnique(rec.IDs)
 	return rec, nil
@@ -104,7 +104,7 @@ func (s *Store) SetInstalled(loaded []Loaded) error {
 	if err := s.ValidateInstalled(loaded); err != nil {
 		return err
 	}
-	rec := installedRecord{Schema: storeSchema, Blocks: make(map[string][]string, len(loaded))}
+	rec := installedRecord{Schema: installedSchema, Blocks: make(map[string][]string, len(loaded))}
 	for _, l := range loaded {
 		rec.IDs = append(rec.IDs, l.ID)
 		ids := make([]string, 0, len(l.Blocks))

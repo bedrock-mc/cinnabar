@@ -132,8 +132,7 @@ fn collect_shapes(
             let shown = match display_state {
                 Some(HeldDisplay::Block(shown)) => shown,
                 None if display.is_some()
-                    && definition.key.identifier.as_ref()
-                        == assets::facts::pack::PackBlock::DriedGhast.identifier() =>
+                    && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>
                 {
                     visual
                 }

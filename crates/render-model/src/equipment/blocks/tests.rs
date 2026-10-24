@@ -679,29 +679,34 @@ fn pinned_end_rod_is_carried_as_a_three_dimensional_model() {
 }
 
 #[test]
-fn pinned_dried_ghast_keeps_its_three_dimensional_held_model() {
+fn pinned_carried_shapes_keep_their_three_dimensional_held_models() {
     let Some((world, entities, icons)) = pinned_carriers() else {
         return;
     };
-    let visual = entities
-        .item_visuals()
-        .iter()
-        .find(|entry| {
-            entry.key.identifier.as_ref() == assets::facts::pack::PackBlock::DriedGhast.identifier()
-        })
-        .and_then(|entry| match entry.route {
-            ItemVisualDefinitionRoute::BlockItem { block_visual } => Some(block_visual.0),
-            _ => None,
-        })
-        .expect("registered dried ghast block item");
-    let held = collect_held(&world, &entities, &icons);
-    assert!(
-        !held
-            .models
-            .get(&visual)
-            .expect("carried thumbnail retains the held model")
-            .is_empty()
-    );
+    for name in [
+        assets::facts::pack::PackBlock::DriedGhast,
+        assets::facts::pack::PackBlock::SculkSensor,
+        assets::facts::pack::PackBlock::CalibratedSculkSensor,
+        assets::facts::pack::PackBlock::SculkShrieker,
+    ] {
+        let visual = entities
+            .item_visuals()
+            .iter()
+            .find(|entry| entry.key.identifier.as_ref() == name.identifier())
+            .and_then(|entry| match entry.route {
+                ItemVisualDefinitionRoute::BlockItem { block_visual } => Some(block_visual.0),
+                _ => None,
+            })
+            .expect("registered dried ghast block item");
+        let held = collect_held(&world, &entities, &icons);
+        assert!(
+            !held
+                .models
+                .get(&visual)
+                .expect("carried thumbnail retains the held model")
+                .is_empty()
+        );
+    }
 }
 
 #[test]
