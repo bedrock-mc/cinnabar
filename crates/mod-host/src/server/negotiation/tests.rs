@@ -14,12 +14,18 @@ use server_experience::{
 
 /// Grants the registry-aware probe its declared UI, input and handshake channels.
 fn waiting() -> BundleHost {
+    waiting_with(&[])
+}
+
+/// Adds presentation grants to the registry-aware guest before its initialization runs.
+fn waiting_with(extra: &[Permission]) -> BundleHost {
     let mut capabilities = screen_capabilities(&[
         Permission::Ui,
         Permission::ModalUi,
         Permission::Input,
         Permission::Messaging,
     ]);
+    capabilities.scope.permissions.extend(extra.iter().copied());
     for (id, direction) in [
         ("demo.registry", Direction::ToClient),
         ("demo.registry_request", Direction::ToServer),
@@ -248,4 +254,50 @@ fn registry_mismatch_quarantines_the_waiting_client() {
     assert!(host.waiting_for().is_none());
     assert!(host.take_transaction().commands.is_empty());
     assert!(host.dispatch(&pending, 1, &drawing_context(1)).is_err());
+}
+
+/// Replaying an acknowledged world notice preserves handles initialized after confirmation.
+#[test]
+fn replayed_epoch_preserves_initialized_drawing_handles() {
+    use crate::runtime::cinnabar::world_draw::drawing as draw;
+    use draw::Host as _;
+    let mut host = waiting_with(&[Permission::WorldDraw]);
+    host.take_transaction();
+    assert!(matches!(
+        host.dispatch(&Event::Epoch, 2, &drawing_context(2))
+            .unwrap(),
+        DispatchResult::NotReady(_)
+    ));
+    assert!(matches!(
+        host.dispatch(&confirmation(), 2, &drawing_context(2))
+            .unwrap(),
+        DispatchResult::Committed(_)
+    ));
+    let state = &mut host.store.data_mut().presentation;
+    let geometry = state
+        .create_geometry(draw::GeometrySpec::Triangles(draw::Mesh {
+            vertices: [(0., 0., 0.), (1., 0., 0.), (0., 1., 0.)]
+                .map(|position| draw::Vertex {
+                    position,
+                    color: (1., 1., 1., 1.),
+                    uv: (0., 0.),
+                    data: (0., 0., 0., 0.),
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+        }))
+        .unwrap()
+        .unwrap();
+    state.commit_presentation();
+    assert!(matches!(
+        host.dispatch(&Event::Epoch, 2, &drawing_context(2))
+            .unwrap(),
+        DispatchResult::Committed(_)
+    ));
+    host.store
+        .data_mut()
+        .presentation
+        .remove(geometry)
+        .unwrap()
+        .expect("replayed epoch revoked initialized drawing handle");
 }

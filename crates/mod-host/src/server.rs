@@ -657,8 +657,7 @@ impl BundleHost {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
         drawing.check(epoch)?;
-        let rebound =
-            self.drawing_context.fence() != drawing.fence() || matches!(event, Event::Epoch);
+        let rebound = self.drawing_context.fence() != drawing.fence();
         if rebound {
             self.presentation_pending = None;
             self.presentation_sent = None;

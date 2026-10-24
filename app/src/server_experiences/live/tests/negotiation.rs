@@ -256,12 +256,7 @@ fn modal_state_overflow_stops_the_part() {
 #[test]
 fn resize_overflow_removes_cached_media_screen() {
     let mut live = negotiating(1);
-    live.instances
-        .get_mut("bundle0")
-        .unwrap()
-        .contributions
-        .scene
-        .insert(1, media_quad(5.0));
+    publish_media_quad(&mut live, "bundle0", 5.0);
     live.media_mut().set_frame(
         "bundle0",
         INTRO,

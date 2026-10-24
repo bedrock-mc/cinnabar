@@ -278,6 +278,7 @@ fn a_server_world_notice_rebinds_drawing_before_the_epoch_callback() {
         .scope
         .permissions
         .insert(Permission::WorldDraw);
+    instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
     instance.helper.as_mut().unwrap().observe_epoch = true;
     let notice = serde_json::to_vec(&Control::Epoch {
         session: live.grant.session.clone(),
