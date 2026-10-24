@@ -203,7 +203,7 @@ fn held_lectern_reuses_the_stand_with_volume_and_a_sloped_board() {
     assert_eq!(kind, HeldBlockEntity::Lectern);
     let atlas = atlas_with_textures(texture_names(kind).into_iter());
     let model = held_block_entity_model(EntityRigId(1), &atlas, kind).unwrap();
-    let vertices = model.geometry.vertices();
+    let vertices = &model.geometry.vertices;
     let first = vertices.first().unwrap();
     let origin = glam::Vec3::from(first.position);
     let normal = glam::Vec3::from(first.normal);

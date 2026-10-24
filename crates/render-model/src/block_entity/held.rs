@@ -600,6 +600,7 @@ mod tests {
             "minecraft:oxidized_copper_chest",
             "minecraft:decorated_pot",
             "minecraft:conduit",
+            "minecraft:lectern",
         ]
         .into_iter()
         .map(String::from)
