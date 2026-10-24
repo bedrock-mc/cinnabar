@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 
 const entityGalleryFirstID = 9300000
 const entityGalleryPageSize = 16
+const entityGalleryFallingBlockHeight float32 = 0.98
 
 // entityGalleryFlagWords follows the client's flag layout, including the third-word key alias.
 var entityGalleryFlagWords = [...]uint32{protocol.EntityDataKeyFlags, protocol.EntityDataKeyFlagsTwo, protocol.EntityDataKeyArrowShooterID}
@@ -262,11 +264,11 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 				runtimeID, meta, _ := world.ItemRuntimeID(item.Diamond{})
 				stack = &protocol.ItemInstance{StackNetworkID: 1, Stack: protocol.ItemStack{ItemType: protocol.ItemType{NetworkID: runtimeID, MetadataValue: uint32(meta)}, Count: 1}}
 			}
-			actor = &packet.AddItemActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), Position: position, Item: *stack, EntityMetadata: metadata}
+			actor = &packet.AddItemActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), Position: position.Add(mgl32.Vec3{0, appearance.spawnOffset(), 0}), Item: *stack, EntityMetadata: metadata}
 		} else if appearance.Identifier == "minecraft:player" {
 			identity := entityGalleryUUID(id)
 			packets = append(packets, &packet.PlayerList{Entries: []protocol.PlayerListEntry{{ActionType: protocol.PlayerListActionAdd, UUID: identity, EntityUniqueID: id, Username: "Gallery player", Skin: actorBurstSkin(0, 0)}}})
-			actor = &packet.AddPlayer{UUID: identity, Username: "Gallery player", EntityRuntimeID: uint64(id), Position: position.Add(mgl32.Vec3{0, 1.62, 0}), EntityMetadata: metadata, EntityProperties: appearance.Properties, AbilityData: protocol.AbilityData{EntityUniqueID: id}}
+			actor = &packet.AddPlayer{UUID: identity, Username: "Gallery player", EntityRuntimeID: uint64(id), Position: position, EntityMetadata: metadata, EntityProperties: appearance.Properties, AbilityData: protocol.AbilityData{EntityUniqueID: id}}
 		}
 		label := protocol.EntityMetadata{protocol.EntityDataKeyFlags: int64(0), protocol.EntityDataKeyName: appearance.Identifier + "\n" + appearance.Name, protocol.EntityDataKeyScale: float32(0), protocol.EntityDataKeyWidth: float32(0), protocol.EntityDataKeyHeight: float32(0), protocol.EntityDataKeyAlwaysShowNameTag: uint8(1)}
 		label.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagShowName)
@@ -293,13 +295,27 @@ func entityGalleryUUID(id int64) uuid.UUID {
 	return uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("entity-gallery-%d", id)))
 }
 
-// spawnOffset compensates for constructor offsets checked against the shared entity facts.
+// spawnOffset compensates for the client's spawn normalization, including effective block size.
 func (a entityAppearance) spawnOffset() float32 {
 	switch a.Identifier {
 	case "minecraft:boat", "minecraft:chest_boat":
 		return 0.375
 	case "minecraft:falling_block":
-		return 0.5
+		baseOffset := float32(0.5)
+		height, scale := entityGalleryFallingBlockHeight, float32(1)
+		if a.Height > 0 && !math.IsInf(float64(a.Height), 0) {
+			height = a.Height
+		}
+		if a.Scale != nil && *a.Scale >= 0 && !math.IsInf(float64(*a.Scale), 0) {
+			scale = *a.Scale
+		}
+		offset := baseOffset * height * scale / entityGalleryFallingBlockHeight
+		if !math.IsInf(float64(offset), 0) && !math.IsNaN(float64(offset)) {
+			return offset
+		}
+		return baseOffset
+	case "minecraft:item":
+		return 0.125
 	default:
 		return 0
 	}

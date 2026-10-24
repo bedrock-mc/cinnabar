@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -138,36 +140,129 @@ func TestEntityGallerySpawnHeightsMatchEntityFacts(t *testing.T) {
 		t.Fatal("missing pinned entity facts registry")
 	}
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var facts struct {
-			Records []struct {
-				Identifier string `json:"identifier"`
-				Fact       struct {
-					NativeClass    string  `json:"native_class"`
-					NetworkYOffset float32 `json:"network_y_offset"`
-				} `json:"fact"`
-			} `json:"records"`
-		}
-		if err := json.Unmarshal(data[8:len(data)-32], &facts); err != nil {
-			t.Fatal(err)
-		}
-		for _, record := range facts.Records {
-			offset := float32(0)
-			if record.Fact.NativeClass == "Boat" || record.Fact.NativeClass == "FallingBlock" {
-				offset = record.Fact.NetworkYOffset
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
 			}
-			packets := entityGalleryPackets([]entityAppearance{{Identifier: record.Identifier}}, mgl32.Vec3{0, 65.62, 0})
-			for _, pk := range packets {
-				if actor, ok := pk.(*packet.AddActor); ok && actor.EntityRuntimeID == entityGalleryFirstID {
-					if want := float32(65.62) - float32(1.62) + offset; actor.Position[1] != want {
-						t.Errorf("%s: network height %v, want %v from %s", record.Identifier, actor.Position[1], want, path)
-					}
+			var facts struct {
+				Records []struct {
+					Identifier string `json:"identifier"`
+					Fact       struct {
+						NativeClass    string  `json:"native_class"`
+						NetworkYOffset float32 `json:"network_y_offset"`
+					} `json:"fact"`
+				} `json:"records"`
+			}
+			if err := json.Unmarshal(data[8:len(data)-32], &facts); err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range facts.Records {
+				for _, size := range []struct {
+					name   string
+					scale  *float32
+					height float32
+				}{
+					{name: "default"},
+					{name: "double-scale", scale: new(float32(2))},
+					{name: "double-height", height: 2 * entityGalleryFallingBlockHeight},
+					{name: "scaled-height", scale: new(float32(0.5)), height: 2 * entityGalleryFallingBlockHeight},
+					{name: "zero-scale", scale: new(float32(0))},
+					{name: "negative-scale", scale: new(float32(-1))},
+					{name: "nan-scale", scale: new(float32(math.NaN()))},
+					{name: "infinite-scale", scale: new(float32(math.Inf(1)))},
+					{name: "nan-height", height: float32(math.NaN())},
+					{name: "infinite-height", height: float32(math.Inf(1))},
+					{name: "overflow-size", scale: new(float32(math.MaxFloat32)), height: math.MaxFloat32},
+				} {
+					t.Run(record.Identifier+"/"+size.name, func(t *testing.T) {
+						appearance := entityAppearance{Identifier: record.Identifier, Scale: size.scale, Height: size.height}
+						spawns := 0
+						for _, pk := range entityGalleryPackets([]entityAppearance{appearance}, mgl32.Vec3{0, 65.62, 0}) {
+							var position mgl32.Vec3
+							switch actor := pk.(type) {
+							case *packet.AddActor:
+								if actor.EntityRuntimeID != entityGalleryFirstID {
+									continue // Labels have a separate height.
+								}
+								position = actor.Position
+								// The client removes constructor offsets only for these AddActor classes.
+								switch record.Fact.NativeClass {
+								case "Boat":
+									position[1] -= record.Fact.NetworkYOffset
+								case "FallingBlock":
+									height, scale := entityGalleryFallingBlockHeight, float32(1)
+									if value, ok := actor.EntityMetadata[protocol.EntityDataKeyHeight].(float32); ok && value >= 0 && !math.IsInf(float64(value), 0) {
+										height = value
+									}
+									if value, ok := actor.EntityMetadata[protocol.EntityDataKeyScale].(float32); ok && value >= 0 && !math.IsInf(float64(value), 0) {
+										scale = value
+									}
+									offset := record.Fact.NetworkYOffset * height * scale / entityGalleryFallingBlockHeight
+									if math.IsInf(float64(offset), 0) || math.IsNaN(float64(offset)) {
+										offset = record.Fact.NetworkYOffset
+									}
+									position[1] -= offset
+								}
+							case *packet.AddPlayer:
+								position = actor.Position // Player spawns already carry feet.
+							case *packet.AddItemActor:
+								position = actor.Position
+								position[1] -= record.Fact.NetworkYOffset
+							case *packet.AddPainting:
+								position = actor.Position // The client retains the painting anchor unchanged.
+							default:
+								continue
+							}
+							spawns++
+							if math.IsNaN(float64(position[1])) || math.Abs(float64(position[1]-64)) > 0.00001 {
+								t.Errorf("client height %v, want floor height 64", position[1])
+							}
+						}
+						if spawns != 1 {
+							t.Fatalf("checked %d actor spawns, want 1", spawns)
+						}
+					})
 				}
 			}
-		}
+		})
+	}
+}
+
+func TestInvalidEntityGalleryFailsBeforeExperiencesStart(t *testing.T) {
+	for _, input := range []string{"registry", "appearances"} {
+		t.Run(input, func(t *testing.T) {
+			dir := t.TempDir()
+			artifacts := t.TempDir()
+			artifact := filepath.Join(artifacts, "probe")
+			if err := os.Mkdir(artifact, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(artifact, manifestFile), nil, 0600); err != nil {
+				t.Fatal(err)
+			}
+			invalid := filepath.Join(t.TempDir(), "invalid")
+			if err := os.WriteFile(invalid, []byte("invalid"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"-dir", dir, "-addr", "127.0.0.1:0", "-experiences", artifacts, "-experience-runtime", filepath.Join(dir, "no-runtime")}
+			if input == "registry" {
+				args = append(args, "-entity-gallery", invalid)
+			} else {
+				args = append(args, "-entity-gallery", "../../crates/protocol/data/retail_actors_1_26_50.txt", "-entity-gallery-appearances", invalid)
+			}
+			var stdout bytes.Buffer
+			err := run(args, strings.NewReader("stop\n"), &stdout, io.Discard)
+			if err == nil || !strings.Contains(err.Error(), "prepare entity gallery:") {
+				t.Errorf("startup error = %v, want gallery validation before any helper start", err)
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("invalid gallery started server: %q", stdout.String())
+			}
+			if _, err := os.Stat(filepath.Join(dir, experienceDataDir)); !os.IsNotExist(err) {
+				t.Errorf("experience store initialized before gallery validation: %v", err)
+			}
+		})
 	}
 }
 
