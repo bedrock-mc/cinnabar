@@ -378,3 +378,20 @@ fn compatibility_missing_variables_use_resolved_fragment_reads() {
         success(vertex, fragment);
     }
 }
+
+#[test]
+fn compatibility_locals_named_after_their_struct_type_hide_it_in_their_scope() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        Face load(float size) { return Face(vec3(0.5), size); }
+        vec4 shade(float size) {
+            Face Face = Face(vec3(1.0), size);
+            if (Face.size < 1e-6) return vec4(-1.0);
+            for (int i = 0; i < 2; i++) { Face.tint *= 0.5; }
+            return vec4(Face.tint, Face.size);
+        }
+        vec4 other() { Face face = load(2.0); return vec4(face.tint, 1.0); }
+        out vec4 color; void main() { color = shade(1.0) + other(); }",
+    );
+}

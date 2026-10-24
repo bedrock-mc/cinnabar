@@ -18,6 +18,7 @@ mod missing;
 mod narrow;
 mod shared;
 mod specialize;
+mod type_shadow;
 
 use crate::preprocess::Preprocessed;
 use crate::programs::StageKind;
@@ -123,6 +124,7 @@ pub(crate) fn transform(
         }
     }
     math::defer_negative_sqrt(&mut items, &user_funcs, &lg.toks);
+    type_shadow::rename_struct_shadowing_locals(&mut items, &lg.toks);
     let items = shared::split_declarations(items);
     let items = specialize::specialize_opaque_params(items)?;
     let mut c = declare::collect(items, stage, iface, names)?;

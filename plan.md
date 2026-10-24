@@ -957,7 +957,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   option menus, profiles and option files, evaluates custom uniforms and translates programs
   to validated naga modules, with calls ordered after forward declarations and generated
   helpers. Compatibility rewriting accepts empty top-level declarations, defers square roots
-  of negative float literals and separates shared-memory array declarations. Missing vertex
+  of negative float literals and separates shared-memory array declarations. Function-local
+  variables named after a struct type (`Face Face = ...;`) are renamed for the rest of the
+  scope in which they hide that type. Missing vertex
   varying locations receive zero outputs. Unresolved vertex variables receive numeric
   declarations from used fragment inputs, with zero initialization at user main entry.
   Iris preprocessing recovers empty expanded conditions, malformed conditional macro
