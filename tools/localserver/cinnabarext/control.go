@@ -80,6 +80,10 @@ func (c *Conn) retryControls() {
 
 // retryControlTick retries retained replies under c.mu and reports whether the worker can exit.
 func (c *Conn) retryControlTick() bool {
+	// An aborted preparation keeps the current epoch and its accepted replies.
+	if c.phase == active && c.fence.HasPreparation() && uint64(c.s.now().Unix()) < c.expires {
+		return len(c.controls) == 0
+	}
 	for _, route := range slices.SortedFunc(maps.Keys(c.controls), compareControlRoutes) {
 		if err := c.sendLocked(route.Bundle, route.Channel, route.Schema, c.controls[route]); !errors.Is(err, ErrRateExceeded) {
 			delete(c.controls, route)

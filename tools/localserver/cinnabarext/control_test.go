@@ -128,3 +128,57 @@ func TestControlRetriesReplaceAndExpire(t *testing.T) {
 		}
 	}
 }
+
+// TestRetainedControlSurvivesAbortedPreparation keeps accepted replies across a temporary fence.
+func TestRetainedControlSurvivesAbortedPreparation(t *testing.T) {
+	for _, retry := range []string{"tick", "data send"} {
+		for _, budget := range []string{"messages", "bytes"} {
+			t.Run(retry+"/"+budget, func(t *testing.T) {
+				f, _ := readyFixture(t)
+				c := f.conn.(*Conn)
+				// Drive retries directly so each attempt occurs at a known fence state.
+				c.retryingControls = true
+				if budget == "messages" {
+					c.egress.messages = 0
+				} else {
+					c.egress.bytes = 0
+				}
+				ch := f.channel(ToClient)
+				message := testMessage{Route{f.manifest.ID, ch.ID, ch.Schema}, 7}
+				if err := f.s.SendControl(f.player, message); err != nil {
+					t.Fatalf("control not retained: %v", err)
+				}
+				change, err := c.PrepareWorldChange(CoordinatedChange)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before := len(f.carrier())
+				f.clock.Advance(time.Second)
+				if retry == "tick" {
+					c.mu.Lock()
+					done := c.retryControlTick()
+					c.mu.Unlock()
+					if done {
+						t.Fatal("temporary preparation discarded the retained reply")
+					}
+				} else if f.sendToClient(1) {
+					t.Fatal("data crossed the preparation fence")
+				}
+				if len(c.controls) != 1 || len(f.carrier()) != before {
+					t.Fatal("preparation sent or discarded the retained reply")
+				}
+				change.Abort()
+				c.mu.Lock()
+				done := c.retryControlTick()
+				c.mu.Unlock()
+				if !done || len(c.controls) != 0 || len(f.carrier()) != before+1 {
+					t.Fatal("aborting did not resume retained control delivery")
+				}
+				var envelope Envelope
+				if err := Decode(f.carrier()[before], &envelope); err != nil || *envelope.Payload[0].Integer != message.number {
+					t.Fatalf("reply: %+v, %v", envelope, err)
+				}
+			})
+		}
+	}
+}
