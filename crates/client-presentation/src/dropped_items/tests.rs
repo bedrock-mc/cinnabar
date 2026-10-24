@@ -379,6 +379,65 @@ fn dropped_lantern_and_chain_variants_use_sprites_without_changing_other_block_r
     );
 }
 
+#[test]
+fn dropped_torches_use_sprites_and_keep_the_identity_guard_current() {
+    let registry = protocol::vanilla_item_registry();
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let torches: std::collections::BTreeSet<_> = registry
+        .iter()
+        .filter(|entry| {
+            records.iter().any(|record| {
+                record.name.as_ref() == entry.identifier.as_ref()
+                    && record.model_family == assets::ModelFamily::Torch
+            })
+        })
+        .map(|entry| entry.identifier.as_ref())
+        .collect();
+    assert_eq!(
+        TORCH_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        torches
+    );
+    let stream = stream(false, 1);
+    for identifier in torches {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier}"
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1)),
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}
+
 use assets::{CompiledAssets, RegistryRecord};
 use std::fs;
 /// Compiles real barrel selectors with original opaque sprite artwork for held-consumer checks.
