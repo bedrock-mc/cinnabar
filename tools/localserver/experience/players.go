@@ -29,6 +29,8 @@ type playerState struct {
 type playerLocations struct {
 	mu    sync.Mutex
 	items map[*world.EntityHandle]*playerState
+	// leaves retains final observations during shutdown, outside the bounded callback queues.
+	leaves []event
 }
 
 // positionOf converts a position read under the player's world transaction.
@@ -117,18 +119,24 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 	if loc == nil {
 		loc = observation.After
 	}
+	ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
+	if observation.Type == "leave" {
+		ev.actor = nil
+		if h.closed.Load() {
+			h.players.leaves = append(h.players.leaves, ev)
+			return
+		}
+	}
 	for _, d := range h.dispatchers {
-		if d.sup.registered.Worlds == nil || h.closed.Load() && observation.Type != "leave" {
+		if d.sup.registered.Worlds == nil || h.closed.Load() {
 			continue
 		}
-		ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
-		if observation.Type == "leave" {
-			ev.actor = nil
-		} else {
-			ev.inventory, ev.slots = inventoryOf(d.id, p)
+		queued := ev
+		if queued.actor != nil {
+			queued.inventory, queued.slots = inventoryOf(d.id, p)
 		}
 		select {
-		case d.events <- ev:
+		case d.events <- queued:
 		default:
 			// Losing a lifecycle observation would violate ordering. Suspend this mod instead.
 			d.sup.quarantined.Store(true)

@@ -28,6 +28,10 @@ func (h *Host) Drain(ctx context.Context) error {
 			errs = append(errs, err)
 		}
 	}
+	h.players.mu.Lock()
+	leaves := h.players.leaves
+	h.players.leaves = nil
+	h.players.mu.Unlock()
 	h.mu.Lock()
 	running := h.running && !h.stopping
 	if !running && !h.stopping {
@@ -35,26 +39,10 @@ func (h *Host) Drain(ctx context.Context) error {
 		close(h.stop)
 	}
 	h.mu.Unlock()
-	if running {
-		for _, d := range h.dispatchers {
-			barrier := make(chan struct{})
-			select {
-			case d.events <- event{barrier: barrier}:
-				select {
-				case <-barrier:
-				case <-ctx.Done():
-					errs = append(errs, ctx.Err())
-				}
-			case <-ctx.Done():
-				errs = append(errs, ctx.Err())
-			}
-		}
-	} else {
-		// Startup may be stopped before Run gets its first turn. Own its queues here.
-		for _, d := range h.dispatchers {
-			for len(d.events) != 0 && ctx.Err() == nil {
-				h.dispatch(ctx, d, <-d.events)
-			}
+	for _, d := range h.dispatchers {
+		if err := h.drainDispatcher(ctx, d, leaves, running); err != nil {
+			errs = append(errs, err)
+			break
 		}
 	}
 	h.stopWorkers()
@@ -65,7 +53,9 @@ func (h *Host) Drain(ctx context.Context) error {
 // stopAdmission waits for queue producers already admitted before closing the gate.
 func (h *Host) stopAdmission() {
 	h.admission.Lock()
+	h.players.mu.Lock()
 	h.closed.Store(true)
+	h.players.mu.Unlock()
 	h.admission.Unlock()
 }
 
@@ -78,4 +68,45 @@ func (h *Host) stopWorkers() {
 	}
 	h.mu.Unlock()
 	h.workers.Wait()
+}
+
+// drainDispatcher delivers retained leaves outside world tasks, then waits for their final commits.
+// If Run never started, the shutdown caller owns the queue and dispatches it synchronously.
+func (h *Host) drainDispatcher(ctx context.Context, d *dispatcher, leaves []event, running bool) error {
+	if !running {
+		for len(d.events) != 0 && ctx.Err() == nil {
+			h.dispatch(ctx, d, <-d.events)
+		}
+	}
+	if d.sup.registered.Worlds != nil {
+		for _, leave := range leaves {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if !running {
+				h.dispatch(ctx, d, leave)
+				continue
+			}
+			select {
+			case d.events <- leave:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+	if !running {
+		return ctx.Err()
+	}
+	barrier := make(chan struct{})
+	select {
+	case d.events <- event{barrier: barrier}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-barrier:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

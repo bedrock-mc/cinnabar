@@ -564,7 +564,8 @@ If it is closed, or an older save has no instance metadata, the player starts at
 Overworld spawn. Saved coordinates from another instance never carry over to that fallback.
 
 Shutdown stops event admission, queues leave for each admitted session and drains callbacks with
-a ten-second deadline before flushing stores and closing the server and worlds. A missed deadline
+a ten-second deadline before flushing stores and closing the server and worlds. Final leaves
+wait outside world transactions for callback queue space, so a full queue does not drop them. A missed deadline
 is reported as a shutdown error. Leave commits retain scoped revision checks and need no live world.
 
 Go integrations now use `cinnabarext.WorldID` as the shared stable instance-ID type. JSON storage

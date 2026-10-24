@@ -144,3 +144,24 @@ func TestClosedAdmissionRejectsUntrackedActorWork(t *testing.T) {
 		t.Fatal("closed admission retained untracked actor authority")
 	}
 }
+
+// TestDrainRetainsLeaveBehindFullQueue preserves final writes when admission stops at capacity.
+func TestDrainRetainsLeaveBehindFullQueue(t *testing.T) {
+	f := newRuntimeFixture(t)
+	sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
+	sup.registered.Worlds = f.d.sup.registered.Worlds
+	f.d.sup = sup
+	join := <-f.d.events
+	for range cap(f.d.events) {
+		f.d.events <- join
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := f.h.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	state := openTestStore(t, f.h.store.dir).readStates("probe", []stateAddress{{Scope: StorePlayer, Owner: f.actor.UUID().String()}})[0]
+	if state.Revision != 1 || state.Data == nil || *state.Data != "01" {
+		t.Fatalf("full queue lost leave write: %+v", state)
+	}
+}
