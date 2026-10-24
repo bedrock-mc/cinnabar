@@ -41,8 +41,22 @@ impl RigSource for ShaderpackActors<'_> {
 
     fn for_each_instance(&self, visit: &mut dyn FnMut(RigInstance<'_>)) {
         let gpu = self.gpu;
-        let camera_count = gpu.manifest.len() as u32;
-        for span in &gpu.spans {
+        // Mask-only instances follow the camera-drawn prefix and still cast pack shadows.
+        let camera_count = gpu.main_manifest.len() as u32;
+        let shadow_only: Vec<_> = gpu
+            .mask_spans
+            .iter()
+            .filter_map(|span| {
+                let first = span.first.max(camera_count);
+                let end = span.first + span.count;
+                (first < end).then(|| crate::actor::gpu::ActorDrawSpan {
+                    first,
+                    count: end - first,
+                    ..*span
+                })
+            })
+            .collect();
+        for span in gpu.spans.iter().chain(&shadow_only) {
             if !gpu.pack_supports_span(span) {
                 continue;
             }
@@ -144,6 +158,29 @@ mod replacement_tests {
             .unwrap()
             .for_each_instance(&mut |instance| replaced.push(instance.index));
         assert_eq!(replaced, [0]);
+    }
+
+    /// A body hidden from the camera, such as the local player in first person, still reaches
+    /// the pack's shadow pass while staying out of its camera passes.
+    #[test]
+    fn mask_only_bodies_are_exported_as_shadow_only_instances() {
+        use crate::actor_render::tests::allocation_fault_tests::{
+            draw_frame, fixture, publication,
+        };
+        let mut app = fixture();
+        app.sub_app_mut(RenderApp)
+            .insert_resource(crate::actor::gpu::ArtworkRawViews(true));
+        let mut frame = publication(1, &[55, 77], 1);
+        let hidden = frame.rig.manifest[1].identity.runtime_id;
+        frame.mask_only_runtime_ids = Arc::from([hidden]);
+        frame.main_pass_instance_count = Some(1);
+        draw_frame(&mut app, &frame);
+        let world = app.sub_app(RenderApp).world();
+        let mut exported = Vec::new();
+        shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| exported.push((instance.index, instance.camera)));
+        assert_eq!(exported, [(0, true), (1, false)]);
     }
 
     #[test]

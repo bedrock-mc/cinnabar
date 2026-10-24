@@ -57,6 +57,12 @@ impl super::ActorPresentationState<'_, '_> {
             .and_then(|(_, projection)| crate::camera::first_person_hand_fov(projection))
     }
 
+    /// Whether the world camera draws through a shader pack, whose shadow pass also needs the
+    /// local body that first person hides from the camera.
+    pub(super) fn shader_pack_rendering(&self) -> bool {
+        !self.pack_cameras.is_empty()
+    }
+
     /// Captures the active render camera's actor admission bounds.
     pub(super) fn cull_view(&self) -> Option<render_model::ActorCullView> {
         self.camera

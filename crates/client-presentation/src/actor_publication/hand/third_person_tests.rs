@@ -14,24 +14,35 @@ enum BodyCase {
     Persona,
     Coverage,
     CoverageEmpty,
+    /// First person through a shader pack, whose shadow pass still draws the local body.
+    PackShadow,
+}
+
+impl BodyCase {
+    /// Cases whose first-person local body is published hidden from the camera.
+    fn hidden_body(self) -> bool {
+        matches!(
+            self,
+            Self::Coverage | Self::CoverageEmpty | Self::PackShadow
+        )
+    }
 }
 
 /// Runs the actual early and final publication owners with independent interpolation clocks.
 fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
     for duration in [6.0f32, 4.0, 8.0] {
         for (actor_alpha, physics_alpha) in [(0.1, 0.75), (0.9, 0.25)] {
-            let ((mut stream, equipment, artwork, input), entities) =
-                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
-                    super::native_tests::fixture_with_hidden_body(
-                        (case == BodyCase::Coverage).then_some("minecraft:shield"),
-                    )
-                } else {
-                    super::native_tests::fixture_with_appearance(
-                        Some("minecraft:shield"),
-                        false,
-                        case == BodyCase::Persona,
-                    )
-                };
+            let ((mut stream, equipment, artwork, input), entities) = if case.hidden_body() {
+                super::native_tests::fixture_with_hidden_body(
+                    (case != BodyCase::CoverageEmpty).then_some("minecraft:shield"),
+                )
+            } else {
+                super::native_tests::fixture_with_appearance(
+                    Some("minecraft:shield"),
+                    false,
+                    case == BodyCase::Persona,
+                )
+            };
             if case == BodyCase::JavaFallback {
                 stream
                     .submit(
@@ -94,21 +105,27 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
             world.init_resource::<crate::local_player::LocalAvatarVisibilityCarrier>();
             let mut settings = crate::camera::CameraSettingsAuthority::default();
             let mut user = ui::UserSettings::default();
-            user.gameplay.default_perspective =
-                if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
-                    semantic_input::PerspectiveMode::FirstPerson
-                } else {
-                    semantic_input::PerspectiveMode::ThirdPersonBack
-                };
+            user.gameplay.default_perspective = if case.hidden_body() {
+                semantic_input::PerspectiveMode::FirstPerson
+            } else {
+                semantic_input::PerspectiveMode::ThirdPersonBack
+            };
             user.video.java_animations = case == BodyCase::JavaFallback;
             settings.replace(1, &user).unwrap();
             world.insert_resource(settings);
             world.insert_resource(crate::local_player::LocalViewPose::default());
-            world.spawn((
-                Transform::default(),
-                Projection::Perspective(PerspectiveProjection::default()),
-                crate::camera::FlyCamera::default(),
-            ));
+            let camera = world
+                .spawn((
+                    Transform::default(),
+                    Projection::Perspective(PerspectiveProjection::default()),
+                    crate::camera::FlyCamera::default(),
+                ))
+                .id();
+            if case == BodyCase::PackShadow {
+                world
+                    .entity_mut(camera)
+                    .insert(render_scene::shaderpack::ShaderPackRendering);
+            }
             let mut params = SystemState::<super::super::ActorFramePublication>::new(&mut world);
             let mut prepared_artwork = None;
             super::super::advance_actor_frame(
@@ -184,7 +201,18 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 .find(|draw| draw.input.identity.layer == render_model::ACTOR_LAYER_BODY)
                 .unwrap()
                 .clone();
-            if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
+            if case.hidden_body() {
+                if case == BodyCase::PackShadow {
+                    let pending = world
+                        .resource::<super::super::PreparedActorPublication>()
+                        .0
+                        .as_ref()
+                        .unwrap();
+                    assert!(
+                        pending.mask_only_runtime_ids.contains(&1),
+                        "the first-person body reaches only the pack's shadow pass"
+                    );
+                }
                 let full = crate::presentation::actors::convert_bones(
                     stream.authority().actor_ui_pose(1).unwrap(),
                 )
@@ -405,4 +433,10 @@ fn native_third_person_persona_layer_samples_its_own_physics_pose() {
 fn first_person_coverage_uses_full_body_pose_without_changing_hand_or_actor_state() {
     assert_native_body_sample(false, BodyCase::Coverage);
     assert_native_body_sample(false, BodyCase::CoverageEmpty);
+}
+
+/// Shader packs draw the player into their shadow map in first person, as Iris does.
+#[test]
+fn first_person_shader_pack_keeps_a_shadow_only_full_body() {
+    assert_native_body_sample(false, BodyCase::PackShadow);
 }

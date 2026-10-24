@@ -105,6 +105,15 @@ pub struct ActorPresentationState<'w, 's> {
     server_camera: Option<Res<'w, crate::camera::ServerCameraView>>,
     view: Res<'w, LocalViewPose>,
     camera: Query<'w, 's, (&'static Transform, &'static Projection), With<FlyCamera>>,
+    pack_cameras: Query<
+        'w,
+        's,
+        (),
+        (
+            With<FlyCamera>,
+            With<render_scene::shaderpack::ShaderPackRendering>,
+        ),
+    >,
 }
 
 /// Optional validated cosmetic tint of already active native actor damage overlays.
@@ -256,7 +265,10 @@ pub fn prepare_actor_render_frame(
             equipment: params.equipment.as_deref_mut(),
         },
     );
-    let coverage_local = coverage.contains(&bodies.local_runtime_id);
+    // Iris's shadow pass draws the player in first person too, so a pack camera keeps the
+    // hidden local body as a shadow-only submission.
+    let shadow_local = state.first_person && params.presentation.shader_pack_rendering();
+    let coverage_local = coverage.contains(&bodies.local_runtime_id) || shadow_local;
     if state.first_person
         && coverage_local
         && let Some(stream) = stream
@@ -313,6 +325,10 @@ pub fn prepare_actor_render_frame(
     let hidden_companion_body = (!local_visible && !coverage_local)
         .then(|| local.as_ref().map(|local| local.submission.clone()))
         .flatten();
+    // Mod coverage keeps the local cosmetics; a shadow-only body keeps only companions and
+    // anchors no fishing line.
+    let shadow_only_local =
+        !local_visible && shadow_local && !coverage.contains(&bodies.local_runtime_id);
     let mut batch = select_actor_presentations(
         bodies.local_runtime_id,
         local_visible || coverage_local,
@@ -375,6 +391,7 @@ pub fn prepare_actor_render_frame(
         hats::AttachmentFrame {
             collisions: client_world.collisions,
             hidden_local: hidden_companion_body.as_ref(),
+            shadow_only_local,
             geometries: &new_geometries,
             equipment: params.equipment.as_deref(),
             local_emote: bodies.local_emote_pose.as_ref(),
@@ -428,6 +445,9 @@ pub fn prepare_actor_render_frame(
     });
     let mut fishing_line_anchors =
         fishing_line::fishing_line_anchors_for(&batch, step.partial_tick, owner_holds_rod);
+    if shadow_only_local {
+        fishing_line_anchors.retain(|known| known.runtime_id != bodies.local_runtime_id);
+    }
     if let Some(anchor) = first_person_fishing_line_anchor {
         fishing_line_anchors.retain(|known| known.runtime_id != anchor.runtime_id);
         fishing_line_anchors.push(anchor);

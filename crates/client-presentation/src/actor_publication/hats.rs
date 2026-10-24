@@ -40,6 +40,9 @@ pub struct CosmeticEmitterPlacements(pub Vec<CosmeticEmitterPlacement>);
 pub(super) struct AttachmentFrame<'a> {
     pub collisions: Option<&'a dyn crate::observations::CollisionLookup>,
     pub hidden_local: Option<&'a render_model::ActorRigSubmission>,
+    /// The batch's local body is drawn only into shader-pack shadows, so it keeps just the
+    /// companions a hidden local body keeps.
+    pub shadow_only_local: bool,
     pub geometries: &'a [render_model::ActorRigGeometry],
     pub equipment: Option<&'a crate::presentation::equipment::EquipmentRuntime>,
     pub local_emote: Option<&'a actor_animation::CustomEmotePose>,
@@ -264,6 +267,7 @@ impl HatState {
                 continue;
             };
             let local = id == stream.local_player_runtime_id();
+            let hidden = hidden || (local && frame.shadow_only_local);
             let selected: Vec<_> = if local {
                 self.local.clone()
             } else {
