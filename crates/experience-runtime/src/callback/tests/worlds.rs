@@ -11,6 +11,7 @@ fn world_callback() -> CallbackRes {
         generation: 7,
     };
     res.context = Some(p::WorldContext {
+        entities: Vec::new(),
         current: handle.clone(),
         player: Some(p::PlayerLocation {
             world: handle.clone(),

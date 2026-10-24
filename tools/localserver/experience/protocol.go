@@ -19,7 +19,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 8
+const protocolVersion = 9
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -94,6 +94,7 @@ type Change struct {
 
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
 type Call struct {
+	Entity          *EntityCall
 	Tick            *TickCall
 	Timer           *TimerCall
 	Player          *PlayerCall
@@ -236,6 +237,7 @@ func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data,
 
 // Op is a staged operation. Exactly one field is set.
 type Op struct {
+	Entity         *EntityCommand
 	Schedule       *ScheduleOp
 	CancelSchedule *CancelScheduleOp
 	World          *WorldActionOp
@@ -311,6 +313,7 @@ type Response struct {
 // the Experience's world takes its player's focus in client messages and epochs; one that does
 // not is never given one.
 type Loaded struct {
+	Entities   []EntityDefinition `json:"entities,omitempty"`
 	Simulation bool               `json:"simulation,omitempty"`
 	Worlds     *WorldRegistration `json:"worlds,omitempty"`
 	Protocol   uint32             `json:"protocol"`
@@ -553,6 +556,8 @@ func fresh[T any](p **T) *T {
 
 func (c Call) MarshalJSON() ([]byte, error) {
 	switch {
+	case c.Entity != nil:
+		return json.Marshal(entityCallWire{variantTag{"entity"}, c.Entity})
 	case c.Tick != nil:
 		return json.Marshal(tickCallWire{variantTag{"tick"}, c.Tick})
 	case c.Timer != nil:
@@ -584,6 +589,8 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 	}
 	*c = Call{}
 	switch tag {
+	case "entity":
+		return decodeStrict(data, &entityCallWire{EntityCall: fresh(&c.Entity)})
 	case "tick":
 		return decodeStrict(data, &tickCallWire{TickCall: fresh(&c.Tick)})
 	case "timer":
@@ -664,6 +671,8 @@ func (m *Mining) UnmarshalJSON(data []byte) error {
 
 func (o Op) MarshalJSON() ([]byte, error) {
 	switch {
+	case o.Entity != nil:
+		return json.Marshal(entityCommandWire{variantTag{"entity"}, o.Entity})
 	case o.Schedule != nil:
 		return json.Marshal(scheduleWire{variantTag{"schedule"}, o.Schedule})
 	case o.CancelSchedule != nil:
@@ -699,6 +708,8 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 	}
 	*o = Op{}
 	switch tag {
+	case "entity":
+		return decodeStrict(data, &entityCommandWire{EntityCommand: fresh(&o.Entity)})
 	case "schedule":
 		return decodeStrict(data, &scheduleWire{ScheduleOp: fresh(&o.Schedule)})
 	case "cancel_schedule":

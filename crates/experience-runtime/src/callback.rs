@@ -158,6 +158,10 @@ struct Slot {
 
 /// The export a callback calls, with its arguments.
 enum Export<'a> {
+    Entity {
+        handle: wit::EntityHandle,
+        event: wit::EntityEvent,
+    },
     Tick(wit::SimulationStep),
     Timer {
         handle: wit::ScheduleHandle,
@@ -218,8 +222,35 @@ fn prepare<'a>(
         return Err("not a callback".to_owned());
     };
     player_id("actor", actor.as_deref())?;
+    if let Some(context) = &info.context {
+        entities::check_context(own, context)?;
+    }
     let mut focused = None;
     let (anchor, export) = match call {
+        Call::Entity { handle, event } => {
+            if !snapshot.is_empty() {
+                return Err("entity observation has a block snapshot".into());
+            }
+            let principal = match event {
+                protocol::EntityEvent::Interact { player, .. }
+                | protocol::EntityEvent::Attacked { player, .. } => Some(player.as_str()),
+                protocol::EntityEvent::Mounted { rider }
+                | protocol::EntityEvent::Dismounted { rider } => Some(rider.player.as_str()),
+                protocol::EntityEvent::Steering { input } => Some(input.rider.player.as_str()),
+                protocol::EntityEvent::Despawned {} => None,
+            };
+            player_id("entity actor", principal)?;
+            if actor.as_deref() != principal {
+                return Err("entity actor differs from observation".into());
+            }
+            (
+                None,
+                Export::Entity {
+                    handle: (*handle).into(),
+                    event: entities::event(event.clone())?,
+                },
+            )
+        }
         Call::Tick { step } | Call::Timer { step, .. } => {
             if actor.is_some()
                 || !snapshot.is_empty()
@@ -875,6 +906,7 @@ impl From<protocol::Cause> for ChangeCause {
 }
 
 mod craft;
+mod entities;
 mod invoke;
 mod items;
 #[cfg(test)]

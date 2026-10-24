@@ -65,6 +65,7 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
         &loaded.manifest,
         &loaded.blocks,
         &loaded.items,
+        &loaded.entities,
         loaded.focus,
         loaded.worlds.clone(),
     )? {
@@ -111,11 +112,16 @@ fn answer_loaded(
     manifest: &Manifest,
     blocks: &[BlockDef],
     items: &[ItemDef],
+    entities: &[crate::protocol::EntityDefinition],
     focus: bool,
     worlds: Option<crate::protocol::WorldRegistration>,
 ) -> io::Result<bool> {
     let response = Response::Loaded {
-        simulation: manifest.api == crate::host::Api::V0_8.api(),
+        entities: entities.to_vec(),
+        simulation: matches!(
+            crate::host::Api::of(&manifest.api),
+            Some(crate::host::Api::V0_8 | crate::host::Api::V0_9)
+        ),
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),
         version: manifest.version.clone(),
@@ -194,6 +200,7 @@ fn write_or(
 /// The `type` of `call` in the protocol.
 fn call_kind(call: &Call) -> &'static str {
     match call {
+        Call::Entity { .. } => "entity",
         Call::Tick { .. } => "tick",
         Call::Timer { .. } => "timer",
         Call::Player { .. } => "player",
@@ -239,7 +246,7 @@ mod tests {
             network: false,
         };
         let mut output = Vec::new();
-        assert!(!answer_loaded(&mut output, &manifest, &[block], &[], false, None).unwrap());
+        assert!(!answer_loaded(&mut output, &manifest, &[block], &[], &[], false, None).unwrap());
         let mut frames = output.as_slice();
         let failed = Response::LoadFailed {
             reason: OVERSIZED_LOADED.to_owned(),

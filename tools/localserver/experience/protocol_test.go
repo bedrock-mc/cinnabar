@@ -16,6 +16,10 @@ import (
 
 // fixtureLimits mirrors the limits fixture: the constants the Go adapter must share with Rust.
 type fixtureLimits struct {
+	MaxEntityTypes      int    `json:"max_entity_types"`
+	MaxEntitySeats      int    `json:"max_entity_seats"`
+	MaxEntityProperties int    `json:"max_entity_properties"`
+	MaxEntities         int    `json:"max_entities"`
 	SimulationStepNanos uint64 `json:"simulation_step_nanos"`
 	MaxFrameBytes       int    `json:"max_frame_bytes"`
 	Protocol            uint32 `json:"protocol"`
@@ -398,6 +402,10 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxRecipeInputItems", maxRecipeInputItems, rust.MaxRecipeInputs},
 		{"maxScheduleTicks", maxScheduleTicks, rust.MaxScheduleTicks},
 		{"maxScheduledUpdates", maxScheduledUpdates, rust.MaxScheduled},
+		{"maxEntityTypes", maxEntityTypes, rust.MaxEntityTypes},
+		{"maxEntitySeats", maxEntitySeats, rust.MaxEntitySeats},
+		{"maxEntityProperties", maxEntityProperties, rust.MaxEntityProperties},
+		{"maxEntities", maxEntities, rust.MaxEntities},
 	} {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)

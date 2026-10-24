@@ -94,6 +94,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	if err := slotsCurrent(actor, snap, plan.slots); err != nil {
 		return nil, err
 	}
+	if err := h.validateEntities(tx, exp, ev, snap, actor, ops); err != nil {
+		return nil, err
+	}
 	h.simulation.mu.Lock()
 	defer h.simulation.mu.Unlock()
 	timers, err := h.validateTimers(exp, ev, snap, ops)
@@ -161,6 +164,7 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	if timers != nil {
 		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
 	}
+	h.applyEntities(tx, exp, ev, actor, ops)
 	var sends []*SendClientOp
 	for _, op := range ops {
 		switch {
@@ -315,6 +319,8 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 	tells, sends := 0, 0
 	for i, op := range ops {
 		switch {
+		case op.Entity != nil:
+			// Checked against the live world transaction before any mutation.
 		case op.Schedule != nil || op.CancelSchedule != nil:
 			// Checked together under the simulation lock before any mutation.
 		case op.World != nil:

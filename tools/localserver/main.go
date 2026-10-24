@@ -162,6 +162,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		})
 	}
 	var closeUnstarted func() error
+	if exps != nil {
+		conf.Entities = exps.reg.EntityRegistry()
+	}
 	srv, closeUnstarted = newLocalServer(conf)
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
 	pauses := &pauseState{settings: cfg}

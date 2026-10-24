@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.8.0;
+package cinnabar:experience-server@0.9.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -123,6 +123,36 @@ interface types {
     record world-instance { id: world-instance-id, definition: world-definition-id }
     record world-registration { definitions: list<world-definition>, startup: list<world-instance> }
     record position { x: f64, y: f64, z: f64 }
+    /// An entity definition from the generated shared declarations.
+    record entity-type-id { value: string }
+    /// An entity identity reserved by the callback; its generation belongs to a world opening.
+    record entity-handle { id: u64, generation: u64 }
+    record entity-rotation { yaw: f64, pitch: f64 }
+    record entity-box { min: position, max: position }
+    record entity-seat { position: position, rotation-limit: option<f64>, steers: bool }
+    /// Pack-relative assets become validated files in the generated server resource pack.
+    record entity-art { geometry: string, texture: string, render-controller: string }
+    variant entity-appearance { vanilla(entity-type-id), custom(entity-art) }
+    record entity-property-id { value: string }
+    record entity-property-def { id: entity-property-id, min: f32, max: f32, initial: f32 }
+    record entity-property { id: entity-property-id, value: f32 }
+    record entity-definition {
+        id: entity-type-id, collision: entity-box, appearance: entity-appearance,
+        seats: list<entity-seat>, properties: list<entity-property-def>,
+    }
+    record entity-state {
+        handle: entity-handle, kind: entity-type-id, position: position,
+        rotation: entity-rotation, velocity: position, name-tag: string, scale: f32,
+        %variant: s32, properties: list<entity-property>,
+    }
+    enum entity-hand { main, off }
+    record entity-interaction { player: player-id, hand: entity-hand, item: option<item-stack> }
+    record entity-rider { player: player-id, seat: u32 }
+    record entity-input { rider: entity-rider, sideways: f32, forward: f32, yaw: f64, pitch: f64, jump: bool, sneak: bool }
+    variant entity-event {
+        interact(entity-interaction), attacked(entity-interaction), mounted(entity-rider),
+        dismounted(entity-rider), steering(entity-input), despawned,
+    }
     record player-location { %world: world-handle, epoch: u64, position: position }
     record player-transition { before: player-location, after: player-location }
     variant player-event { join(player-location), leave(player-location), world-change(player-transition), move(player-transition) }
@@ -146,10 +176,20 @@ interface world-access {
         block-pos, player-id, callback-info, world-error, value-node, block-state, network,
         inventory, new-stack, item-key, crafted, world-handle, world-instance, world-instance-id,
         player-location, position, store-key, simulation-step, schedule-handle,
+        entity-type-id, entity-handle, entity-state, entity-rotation,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
         info: func() -> callback-info;
+        /// Reads only this mod's entities in the current instance, with staged writes applied.
+        entities: func() -> list<entity-state>;
+        spawn-entity: func(kind: entity-type-id, position: position, rotation: entity-rotation) -> result<entity-handle, world-error>;
+        /// Server-driven movement interpolates unless teleport is true. Velocity is in blocks per tick.
+        update-entity: func(state: entity-state, teleport: bool) -> result<_, world-error>;
+        despawn-entity: func(handle: entity-handle) -> result<_, world-error>;
+        /// Only the current actor may mount or dismount, in the current world opening.
+        mount-entity: func(handle: entity-handle, seat: u32) -> result<_, world-error>;
+        dismount-entity: func() -> result<_, world-error>;
         /// Fixed-step simulation time for this instance, independent of viewers.
         simulation: func() -> result<simulation-step, world-error>;
         /// Schedule relative to commit. A zero period runs once; otherwise it repeats.
@@ -223,7 +263,9 @@ world server {
     import world-access;
     import diagnostics;
     use world-access.{callback};
-    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event, simulation-step, schedule-handle};
+    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event, simulation-step, schedule-handle, entity-definition, entity-handle, entity-event};
+    export entity-definitions: func() -> result<list<entity-definition>, guest-error>;
+    export on-entity: func(ctx: borrow<callback>, handle: entity-handle, event: entity-event) -> result<_, guest-error>;
     /// Declares the Experience's blocks and items; it runs once, at startup.
     export world-definitions: func() -> result<world-registration, guest-error>;
     /// Ordered observations. Move events retain the first and last position in one host tick.

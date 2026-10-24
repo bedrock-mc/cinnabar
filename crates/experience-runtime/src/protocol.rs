@@ -18,7 +18,9 @@ use crate::limits::{
     MAX_STATE_VALUES, MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
 
+mod entities;
 mod simulation;
+pub use entities::*;
 pub use simulation::{ScheduleHandle, SimulationContext, SimulationStep};
 mod player;
 mod recipes;
@@ -46,7 +48,7 @@ pub use visuals::{
 /// and visuals, items, the actor's inventory, the network scope and their ops; 6 server WIT 0.6's
 /// recipes in `load`, the `scheduled_update` call and the `schedule_update` op; 7 worlds,
 /// players and scoped state; 8 instance simulation and scheduled callbacks.
-pub const PROTOCOL_VERSION: u32 = 8;
+pub const PROTOCOL_VERSION: u32 = 9;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -138,6 +140,10 @@ pub enum Scalar {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
+    Entity {
+        handle: EntityHandle,
+        event: EntityEvent,
+    },
     Tick {
         step: SimulationStep,
     },
@@ -277,6 +283,9 @@ pub enum FailKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
+    Entity {
+        action: EntityOp,
+    },
     Schedule {
         handle: ScheduleHandle,
         after: u32,
@@ -356,6 +365,8 @@ pub enum Response {
     /// `focus` is set when the Experience's world takes its player's focus in client messages
     /// and epochs; the adapter gives none to one that does not.
     Loaded {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        entities: Vec<EntityDefinition>,
         protocol: u32,
         id: String,
         version: String,

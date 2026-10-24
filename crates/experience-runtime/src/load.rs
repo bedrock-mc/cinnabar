@@ -2,6 +2,7 @@
 //! and validate the blocks it declares.
 
 mod block_type;
+pub(crate) mod entities;
 mod geometry;
 mod items;
 pub(crate) mod worlds;
@@ -44,6 +45,7 @@ const FACES: [&str; 6] = ["up", "down", "north", "south", "east", "west"];
 /// adapter lists when it loads the Experience.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Catalog {
+    pub entities: Vec<protocol::EntityDefinition>,
     pub blocks: HashMap<String, Vec<StateDef>>,
     pub items: HashMap<String, u8>,
     pub server: HashMap<String, HashMap<u16, protocol::ServerItem>>,
@@ -55,6 +57,7 @@ pub(crate) struct Catalog {
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
 /// the `server` world of its `api`, ready for a fresh instance per callback.
 pub struct Loaded {
+    pub entities: Vec<protocol::EntityDefinition>,
     pub manifest: Manifest,
     /// Asset paths are absolute.
     pub blocks: Vec<protocol::BlockDef>,
@@ -153,6 +156,11 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
                 .instantiate(&mut store)?
                 .call_world_definitions(&mut store)?,
         ),
+        Pre::V0_9(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
         _ => None,
     };
     let worlds = declared
@@ -163,7 +171,17 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             )
         })
         .transpose()?;
+    let entities = if let Pre::V0_9(component) = &pre {
+        let definitions = component
+            .instantiate(&mut store)?
+            .call_entity_definitions(&mut store)?
+            .map_err(|e| anyhow!("entity definitions failed: {e:?}"))?;
+        entities::validate(dir, &manifest, definitions)?
+    } else {
+        Vec::new()
+    };
     let catalog = Catalog {
+        entities: entities.clone(),
         blocks: blocks
             .iter()
             .map(|block| (block.id.clone(), axes(&block.states, &block.placement)))
@@ -177,6 +195,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         worlds: worlds.clone().unwrap_or_default(),
     };
     Ok(Loaded {
+        entities,
         manifest,
         blocks,
         items,

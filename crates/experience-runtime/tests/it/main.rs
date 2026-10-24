@@ -8,4 +8,5 @@ mod serve;
 
 mod worlds;
 
+mod entities;
 mod simulation;

@@ -8,6 +8,7 @@ use crate::protocol::{
 fn callback() -> CallbackRes {
     let mut res = Fixture::new().res();
     res.context = Some(WorldContext {
+        entities: Vec::new(),
         current: WorldHandle {
             id: "probe:clock".into(),
             generation: 3,

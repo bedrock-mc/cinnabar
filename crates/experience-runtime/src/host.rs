@@ -24,6 +24,7 @@ pub(crate) mod v0_4;
 pub(crate) mod v0_5;
 pub(crate) mod v0_6;
 pub(crate) mod v0_7;
+pub(crate) mod v0_8;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -63,10 +64,12 @@ pub(crate) enum Api {
     V0_7,
     /// Simulation ticks and cancellable callbacks.
     V0_8,
+    /// Registered entities, seats and entity observations.
+    V0_9,
 }
 
 impl Api {
-    pub(crate) const ALL: [Api; 8] = [
+    pub(crate) const ALL: [Api; 9] = [
         Api::V0_1,
         Api::V0_2,
         Api::V0_3,
@@ -75,13 +78,14 @@ impl Api {
         Api::V0_6,
         Api::V0_7,
         Api::V0_8,
+        Api::V0_9,
     ];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_7 | Api::V0_8 => true,
+            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_7 | Api::V0_8 | Api::V0_9 => true,
         }
     }
 
@@ -100,7 +104,8 @@ impl Api {
             Api::V0_5 => v0_5::WIT,
             Api::V0_6 => v0_6::WIT,
             Api::V0_7 => v0_7::WIT,
-            Api::V0_8 => WIT,
+            Api::V0_8 => v0_8::WIT,
+            Api::V0_9 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -126,7 +131,8 @@ pub(crate) enum Pre {
     V0_5(v0_5::ServerPre<HostState>),
     V0_6(v0_6::ServerPre<HostState>),
     V0_7(v0_7::ServerPre<HostState>),
-    V0_8(ServerPre<HostState>),
+    V0_8(v0_8::ServerPre<HostState>),
+    V0_9(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -162,8 +168,12 @@ impl Pre {
                 Self::V0_7(v0_7::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_8 => {
+                v0_8::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_8(v0_8::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_9 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_8(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_9(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -210,6 +220,10 @@ impl Pre {
                 .with_context(instantiating)?
                 .call_register(store),
             Self::V0_8(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_9(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -434,6 +448,52 @@ impl world_access::Host for HostState {}
 
 /// Each method acts on the callback that `ctx` names; see [`CallbackRes`] for the rules.
 impl world_access::HostCallback for HostState {
+    /// Reads the current callback's owned entity snapshot.
+    fn entities(&mut self, ctx: Resource<CallbackRes>) -> Result<Vec<wit::EntityState>> {
+        self.table.get_mut(&ctx)?.entities()
+    }
+    /// Reserves an entity in the callback's world opening.
+    fn spawn_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        kind: wit::EntityTypeId,
+        position: wit::Position,
+        rotation: wit::EntityRotation,
+    ) -> Result<Result<wit::EntityHandle, WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .spawn_entity(kind, position, rotation)
+    }
+    /// Stages mutable state for a currently owned entity.
+    fn update_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        state: wit::EntityState,
+        teleport: bool,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.update_entity(state, teleport)
+    }
+    /// Stages removal of a visible generation-bearing entity.
+    fn despawn_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        handle: wit::EntityHandle,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.despawn_entity(handle)
+    }
+    /// Stages boarding by this callback's actor.
+    fn mount_entity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        handle: wit::EntityHandle,
+        seat: u32,
+    ) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.mount_entity(handle, seat)
+    }
+    /// Stages departure by this callback's actor.
+    fn dismount_entity(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<(), WorldError>> {
+        self.table.get_mut(&ctx)?.dismount_entity()
+    }
     fn info(&mut self, ctx: Resource<CallbackRes>) -> Result<CallbackInfo> {
         self.table.get_mut(&ctx)?.info()
     }

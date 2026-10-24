@@ -103,6 +103,8 @@ pub struct StateRecord {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldContext {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub entities: Vec<super::EntitySnapshot>,
     pub current: WorldHandle,
     pub player: Option<PlayerLocation>,
     pub instances: Vec<WorldHandle>,

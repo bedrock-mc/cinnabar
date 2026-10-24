@@ -35,13 +35,16 @@ pub use bindings::cinnabar::experience_server::{
     diagnostics::log,
     types::{
         BlockChange, BlockDef, BlockPos, BlockState, BlockType, BoneVisibility, CallbackInfo,
-        ChangeCause, Condition, Crafted, DimensionType, Face, Flipbook, Generator, GuestError,
-        Inventory, ItemDef, ItemKey, ItemStack, LogLevel, Material, Mining, Network, NewStack,
-        Permutation, Pixel, PixelBox, PlacementStates, PlayerEvent, PlayerId, PlayerLocation,
-        PlayerTransition, Position, QuarterTurns, Registration, RenderMethod, Scalar,
-        ScheduleHandle, SimulationStep, StateDef, StateTest, StateValue, StateValues, StoreKey,
-        StoreScope, TextureBinding, ValueNode, Visual, WorldDefinition, WorldDefinitionId,
-        WorldError, WorldHandle, WorldInstance, WorldInstanceId, WorldRegistration, WorldSettings,
+        ChangeCause, Condition, Crafted, DimensionType, EntityAppearance, EntityArt, EntityBox,
+        EntityDefinition, EntityEvent, EntityHand, EntityHandle, EntityInput, EntityInteraction,
+        EntityProperty, EntityPropertyDef, EntityPropertyId, EntityRider, EntityRotation,
+        EntitySeat, EntityState, EntityTypeId, Face, Flipbook, Generator, GuestError, Inventory,
+        ItemDef, ItemKey, ItemStack, LogLevel, Material, Mining, Network, NewStack, Permutation,
+        Pixel, PixelBox, PlacementStates, PlayerEvent, PlayerId, PlayerLocation, PlayerTransition,
+        Position, QuarterTurns, Registration, RenderMethod, Scalar, ScheduleHandle, SimulationStep,
+        StateDef, StateTest, StateValue, StateValues, StoreKey, StoreScope, TextureBinding,
+        ValueNode, Visual, WorldDefinition, WorldDefinitionId, WorldError, WorldHandle,
+        WorldInstance, WorldInstanceId, WorldRegistration, WorldSettings,
     },
     world_access::Callback,
 };
@@ -68,6 +71,18 @@ pub fn cube(def: BlockDef) -> BlockType {
 /// Implement [`Experience::registration`], or [`Experience::register`] for plain cube blocks
 /// alone; the callbacks default to `Ok(())`, which accepts the event without staging anything.
 pub trait Experience {
+    /// Declares the entity types whose identities appear in the shared module.
+    fn entity_definitions() -> Result<Vec<EntityDefinition>, GuestError> {
+        Ok(Vec::new())
+    }
+    /// Receives interactions, attacks, seat changes, input and entity removal in queue order.
+    fn on_entity(
+        _ctx: &Callback,
+        _handle: EntityHandle,
+        _event: EntityEvent,
+    ) -> Result<(), GuestError> {
+        Ok(())
+    }
     /// Receives one admitted fixed-step callback for each live world instance.
     fn on_tick(_ctx: &Callback, _step: SimulationStep) -> Result<(), GuestError> {
         Ok(())
@@ -177,6 +192,12 @@ pub trait Experience {
 macro_rules! export_experience {
     ($ty:ident) => {
         impl $crate::server::bindings::Guest for $ty {
+            fn entity_definitions() -> ::core::result::Result<::std::vec::Vec<$crate::server::EntityDefinition>, $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::entity_definitions()
+            }
+            fn on_entity(ctx: &$crate::server::Callback, handle: $crate::server::EntityHandle, event: $crate::server::EntityEvent) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_entity(ctx, handle, event)
+            }
             fn on_tick(ctx: &$crate::server::Callback, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
                 <$ty as $crate::server::Experience>::on_tick(ctx, step)
             }

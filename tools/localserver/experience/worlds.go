@@ -169,7 +169,8 @@ func (h *Host) UnbindWorld(ctx context.Context, handle WorldHandle) error {
 		return err
 	}
 	var result error
-	if err := await(ctx, w.Do(func(*world.Tx) {
+	if err := await(ctx, w.Do(func(tx *world.Tx) {
+		h.closeEntities(tx)
 		result = h.worlds.unbind(handle)
 		if result == nil {
 			h.forgetSimulation(handle)

@@ -102,9 +102,9 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 			return
 		}
 		h.players.mu.Lock()
-		defer h.players.mu.Unlock()
 		state := h.players.items[ev.actor]
 		if state == nil || state.transferring || state.location.Epoch == math.MaxUint64 {
+			h.players.mu.Unlock()
 			result = errStale
 			return
 		}
@@ -112,6 +112,7 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 		before.Position = positionOf(actor.Position())
 		state.location.Epoch++
 		state.transferring = true
+		h.players.mu.Unlock()
 		h.flushFocus(ev.actor.UUID())
 		tx.RemoveEntity(actor)
 		detached = true
