@@ -21,19 +21,22 @@ pub(crate) fn synchronize_scope(
     );
 }
 
+/// Applies server events before the ordered batch can select a slot or use an item.
+pub(crate) fn synchronize_server_events(
+    mut runtime: ResMut<ItemUseRuntime>,
+    mut physics: Option<ResMut<client_interaction::movement::LocalPhysicsController>>,
+) {
+    take_server_item_use(&mut runtime, physics.as_deref_mut());
+}
+
 /// Records whether the use button holds an accepted use before any
 /// admission can reject this edge, so a rejected press cannot swallow the
-/// release of a use the button now owns. Server item-use events handled
-/// earlier reach item use first.
+/// release of a use the button now owns.
 pub(crate) fn observe_button(
     In(input): In<crate::ordered_interactions::InteractionInput>,
     player: Res<client_state::PlayerRuntime>,
     mut runtime: ResMut<ItemUseRuntime>,
-    mut physics: Option<ResMut<client_interaction::movement::LocalPhysicsController>>,
 ) {
-    // A game-mode stop handled before this input reaches item use first, as
-    // vanilla stops the use while handling the packet.
-    take_server_item_use(&mut runtime, physics.as_deref_mut());
     let allowed = player
         .facts
         .game_mode_capabilities()

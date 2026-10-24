@@ -149,6 +149,30 @@ pub(crate) fn released_later_in_frame(
         )
 }
 
+/// Whether an unconsumed press can acquire an existing use before a queued release.
+pub(crate) fn pressed_later_in_frame(
+    runtime: Option<&InteractionRuntime>,
+    input: &SemanticInputSnapshot,
+    action: Action,
+) -> bool {
+    !is_blocked(runtime)
+        && runtime
+            .zip(input.snapshot().and_then(|input| input.ordered.as_ref()))
+            .map_or_else(
+                || input.phase(action).pressed,
+                |(runtime, ordered)| {
+                    ordered
+                        .events()
+                        .get(runtime.ingested..)
+                        .is_some_and(|events| {
+                            events
+                                .iter()
+                                .any(|event| event.action == action && event.pressed)
+                        })
+                },
+            )
+}
+
 /// Cancels unadmitted gestures without deleting gameplay-owned accepted carriers.
 fn cancel_pending_owners(world: &mut World) {
     world.resource_mut::<MeleeRuntime>().cancel();
@@ -200,6 +224,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
         world
             .run_system_cached(crate::item_use::ordered::synchronize_scope)
             .expect("item-use scope synchronization");
+        world
+            .run_system_cached(crate::item_use::ordered::synchronize_server_events)
+            .expect("item-use server events");
         if world.remove_resource::<InteractionRuntime>().is_some() {
             cancel_pending_owners(world);
         }
@@ -264,6 +291,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
             world.resource_mut::<ItemUseRuntime>().cancel_for_respawn();
         }
     }
+    world
+        .run_system_cached(crate::item_use::ordered::synchronize_server_events)
+        .expect("ordered item-use server events");
     let start = runtime.ingested;
     let tail = ordered.events().get(start..).unwrap_or_default();
     if ordered.overflowed() {
