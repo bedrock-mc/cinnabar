@@ -95,10 +95,11 @@ struct Session {
 
 #[derive(Debug, Clone, Default)]
 pub(super) struct VehiclePrediction {
+    /// The session as of the last committed tick.
     session: Option<Session>,
-    pending: Option<BoatState>,
-    /// The pending step began a new session, so it does not continue the previous pose.
-    pending_restarted: bool,
+    /// The session as the current tick stepped it, installed only when the tick commits, so a
+    /// failed tick leaves the committed session as it was.
+    pending: Option<Session>,
     /// Xorshift state for the wave's big-wave draws.
     wave_seed: u32,
 }
@@ -115,7 +116,6 @@ impl VehiclePrediction {
         world: &impl CollisionWorld,
     ) -> Result<Option<[f32; 3]>, WorldQueryError> {
         self.pending = None;
-        self.pending_restarted = false;
         let Some(vehicle) = vehicle else {
             self.session = None;
             return Ok(None);
@@ -125,8 +125,9 @@ impl VehiclePrediction {
             unique_id: vehicle.unique_id,
             pose_revision: vehicle.revision.pose,
         };
-        let session = match &mut self.session {
+        let mut session = match &self.session {
             Some(session) if session.owner == owner => {
+                let mut session = session.clone();
                 // New server motion replaces the predicted motion and keeps the pose.
                 if session.motion_revision != vehicle.revision.motion {
                     session.motion_revision = vehicle.revision.motion;
@@ -134,21 +135,18 @@ impl VehiclePrediction {
                 }
                 session
             }
-            slot => {
-                self.pending_restarted = true;
-                slot.insert(Session {
-                    owner,
-                    seat: vehicle.seat,
-                    state: BoatState {
-                        velocity: vehicle.velocity,
-                        ..BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw)
-                    },
-                    motion_revision: vehicle.revision.motion,
-                    previous_yaw: vehicle.yaw,
-                    previous_position: vehicle.position,
-                    stale_through: None,
-                })
-            }
+            _ => Session {
+                owner,
+                seat: vehicle.seat,
+                state: BoatState {
+                    velocity: vehicle.velocity,
+                    ..BoatState::at_rest(vehicle.body, vehicle.position, vehicle.yaw)
+                },
+                motion_revision: vehicle.revision.motion,
+                previous_yaw: vehicle.yaw,
+                previous_position: vehicle.position,
+                stale_through: None,
+            },
         };
         session.seat = vehicle.seat;
         session.state.body = vehicle.body;
@@ -159,19 +157,21 @@ impl VehiclePrediction {
             sim::boat_paddle_power(move_vector),
             BoatBuoyancy::Live { wave_draw },
         )?;
-        self.pending = Some(tick.state);
-        Ok(Some(seat_feet(&tick.state, session.seat)))
-    }
-
-    /// Keeps the stepped boat as the state of the completed input tick.
-    pub(super) fn commit(&mut self, tick: u64) -> Option<PredictedVehicleSample> {
-        let state = self.pending.take()?;
-        let session = self.session.as_mut()?;
         session.previous_yaw = session.state.yaw;
         session.previous_position = session.state.position;
-        session.state = state;
+        session.state = tick.state;
+        let seat = seat_feet(&session.state, session.seat);
+        self.pending = Some(session);
+        Ok(Some(seat))
+    }
+
+    /// Installs the stepped session as the state of the completed input tick.
+    pub(super) fn commit(&mut self, tick: u64) -> Option<PredictedVehicleSample> {
+        let mut session = self.pending.take()?;
         session.stale_through.get_or_insert(tick.saturating_sub(1));
-        Some(predicted_sample(session.owner.unique_id, &state))
+        let sample = predicted_sample(session.owner.unique_id, &session.state);
+        self.session = Some(session);
+        Some(sample)
     }
 
     /// Renders the boat at its committed state until the next tick.
@@ -187,10 +187,13 @@ impl VehiclePrediction {
         self.pending.is_some()
     }
 
-    /// Whether this tick stepped a predicted boat on from its previous pose, rather than
-    /// starting it at a new one.
-    pub(super) const fn continued(&self) -> bool {
-        self.pending.is_some() && !self.pending_restarted
+    /// Whether this tick stepped a predicted boat on from its committed session, rather than
+    /// starting it at a new pose.
+    pub(super) fn continued(&self) -> bool {
+        matches!(
+            (&self.pending, &self.session),
+            (Some(pending), Some(session)) if pending.owner == session.owner
+        )
     }
 
     /// Discards a stepped boat whose player tick failed.

@@ -137,19 +137,14 @@ impl ActorStore {
         }
         let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
         let admission = self.entity_assets.as_ref()?.seat_descriptor(*descriptor)?;
-        let mut riders = 0_u32;
-        let mut index = 0_usize;
-        let mut linked = false;
-        for (&id, &ridden) in &self.rider_to_ridden {
-            if ridden == mount.unique_id {
-                riders += 1;
-                index += usize::from(id < rider_unique_id);
-                linked |= id == rider_unique_id;
-            }
-        }
-        linked
-            .then(|| compiled_seat(admission, riders, index))
-            .flatten()
+        // Seats follow the boarded passenger order, the same order that picks the driver.
+        let passengers = self.passengers.get(&mount.unique_id)?;
+        let index = passengers.iter().position(|&id| id == rider_unique_id)?;
+        compiled_seat(
+            admission,
+            u32::try_from(passengers.len()).unwrap_or(u32::MAX),
+            index,
+        )
     }
 
     /// Feet position and body yaw of `rider_unique_id` on its mount's seat, when linked and known.
@@ -606,6 +601,11 @@ mod compiled_seat_tests {
 
     /// Gives the store an original checked literal seat instead of an installed behavior pack.
     fn store() -> ActorStore {
+        store_with_seats(Box::from([seat(0.5, 0, 2)]))
+    }
+
+    /// [`store`] with the mount's base seats replaced by `seats`.
+    fn store_with_seats(seats: Box<[CompiledRideSeat]>) -> ActorStore {
         let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
         compiled.sources = Box::from([
             assets::EntityAssetSource {
@@ -620,7 +620,7 @@ mod compiled_seat_tests {
             source: 0,
             layouts: Box::from([CompiledSeatLayout {
                 selector: SeatSelector::Base,
-                seats: Box::from([seat(0.5, 0, 2)]),
+                seats,
             }]),
         };
         let bytes = assets::encode_entity_blob(&compiled).unwrap();
@@ -671,6 +671,41 @@ mod compiled_seat_tests {
         store.begin_session(2, 0);
         assert!(store.seat_bindings.is_empty());
         assert!(store.seat_bases.is_empty());
+    }
+
+    /// Default seats follow boarding order, so the first rider aboard, who drives, takes the
+    /// first seat even when a lower id boards after it.
+    #[test]
+    fn default_seats_follow_boarding_order() {
+        let mut store = store_with_seats(Box::from([seat(0.5, 0, 2), seat(-0.5, 2, 2)]));
+        advertise(&mut store, 1, "minecraft:allay");
+        spawn_mount(&mut store, 2);
+        let mut sequence = 2;
+        for rider in [20, 10] {
+            sequence += 1;
+            store.apply(1, sequence, super::super::tests::spawn(rider as u64, rider));
+        }
+        for rider in [20, 10] {
+            sequence += 1;
+            store.apply_link(
+                1,
+                sequence,
+                protocol::ActorLinkEvent {
+                    dimension: 0,
+                    ridden_unique_id: 80,
+                    rider_unique_id: rider,
+                    link_type: protocol::ActorLinkType::Rider,
+                    immediate: false,
+                    rider_initiated: false,
+                },
+            );
+        }
+        assert_eq!(store.controlling_passenger(80), Some(20));
+        let mount_z = store.snapshot_by_unique(80).unwrap().position[2];
+        let (driver, _) = store.rider_seat_pose(20).unwrap();
+        let (second, _) = store.rider_seat_pose(10).unwrap();
+        assert!((driver[2] - (mount_z + 0.5)).abs() < 1.0e-4, "{driver:?}");
+        assert!((second[2] - (mount_z - 0.5)).abs() < 1.0e-4, "{second:?}");
     }
 
     #[test]
