@@ -993,7 +993,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   water, whose final depth can hide those layers; autofocus on cutout pixels, liquids and
   entities; complete Iris type checking and target-dependent return overloads; constant
   folding for half-float packing and bit casts. Java sky and fog time curves and sunrise
-  colours remain provisional.
+  colours remain provisional. Pack rain samples a sheet scattered from the Bedrock rain
+  sprites at `rain.png`'s size and streak density rather than Java's texture, and weather
+  vertices carry open-sky light rather than each column's light.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.

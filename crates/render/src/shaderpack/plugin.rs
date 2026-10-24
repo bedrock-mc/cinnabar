@@ -326,7 +326,8 @@ fn effect_coverage(
         particles_opaque: draws(Effect::Particles),
         particles_translucent: draws(Effect::ParticlesTranslucent),
         particles_additive: draws(Effect::ParticlesAdditive),
-        weather: draws(Effect::Weather) || disabled(Effect::Weather),
+        weather: (draws(Effect::Rain) && draws(Effect::Snow))
+            || (disabled(Effect::Rain) && disabled(Effect::Snow)),
         lightning: draws(Effect::Lightning),
         clouds: draws(Effect::Clouds) || disabled(Effect::Clouds),
         selection: draws(Effect::Outline),

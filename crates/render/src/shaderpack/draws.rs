@@ -108,7 +108,7 @@ pub(crate) const GLINT_BLEND: BlendMode = BlendMode::Factors {
 };
 
 impl DrawKind {
-    pub(crate) const ALL: [DrawKind; 32] = [
+    pub(crate) const ALL: [DrawKind; 33] = [
         DrawKind::Sky,
         DrawKind::Sunset,
         DrawKind::Effect(Effect::Sun),
@@ -124,7 +124,8 @@ impl DrawKind {
         DrawKind::Effect(Effect::ParticlesTranslucent),
         DrawKind::Effect(Effect::ParticlesAdditive),
         DrawKind::Effect(Effect::Clouds),
-        DrawKind::Effect(Effect::Weather),
+        DrawKind::Effect(Effect::Rain),
+        DrawKind::Effect(Effect::Snow),
         DrawKind::Entities,
         DrawKind::EntitiesTranslucent,
         DrawKind::SpiderEyes,
