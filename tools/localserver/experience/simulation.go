@@ -65,8 +65,14 @@ func (h *Host) AdmitSimulationTick() {
 	if paused {
 		return
 	}
+	// Copy bindings before waiting for a commit: world hooks also resolve bindings.
 	h.worlds.mu.RLock()
-	defer h.worlds.mu.RUnlock()
+	instances := make([]worldInstance, 0, len(h.worlds.byWorld))
+	for _, instance := range h.worlds.byWorld {
+		instances = append(instances, instance)
+	}
+	h.worlds.mu.RUnlock()
+	slices.SortFunc(instances, func(a, b worldInstance) int { return strings.Compare(string(a.handle.ID), string(b.handle.ID)) })
 	h.simulation.mu.Lock()
 	defer h.simulation.mu.Unlock()
 	if h.simulation.ticks == nil {
@@ -75,14 +81,12 @@ func (h *Host) AdmitSimulationTick() {
 	if h.simulation.timers == nil {
 		h.simulation.timers = make(map[simulationKey]map[ScheduleHandle]simulationTimer)
 	}
-	ids := make([]cinnabarext.WorldID, 0, len(h.worlds.byID))
-	for id := range h.worlds.byID {
-		ids = append(ids, id)
-	}
-	slices.SortFunc(ids, func(a, b cinnabarext.WorldID) int { return strings.Compare(string(a), string(b)) })
-	for _, id := range ids {
-		w := h.worlds.byID[id]
-		instance := h.worlds.byWorld[w]
+	for _, instance := range instances {
+		w, err := h.worlds.resolve(instance.handle)
+		if err != nil {
+			continue
+		}
+		id := instance.handle.ID
 		tick := h.simulation.ticks[id]
 		if tick == math.MaxUint64 {
 			continue
