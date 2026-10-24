@@ -14,6 +14,10 @@ enum Coverage {
     Empty,
 }
 
+/// Owns one receipt consumer's unread residency changes; dropping it stops change tracking.
+#[derive(Default)]
+pub struct TerrainPublicationCursor(std::sync::Arc<()>);
+
 impl WorldStream {
     /// Identifies the stream and dimension visit independently of rendering feature toggles.
     pub fn terrain_publication_source(&self) -> ((u64, u64), u64, u64) {
@@ -30,6 +34,40 @@ impl WorldStream {
     /// Sections whose latest publication receipts may still be used by this stream.
     pub fn terrain_publication_sections(&self) -> impl Iterator<Item = SubChunkKey> + '_ {
         self.resident.iter().chain(self.known_air.iter()).copied()
+    }
+
+    /// Consumes changed columns, including empty deletions, or bootstraps a new consumer.
+    /// A replaced cursor or bulk retirement returns a full snapshot instead of a partial delta.
+    pub fn take_terrain_publication_columns(
+        &mut self,
+        cursor: &TerrainPublicationCursor,
+    ) -> (
+        bool,
+        impl Iterator<Item = (ChunkKey, Vec<SubChunkKey>)> + '_,
+    ) {
+        let resident = self.resident.take_changed_columns(&cursor.0);
+        let air = self.known_air.take_changed_columns(&cursor.0);
+        let reset = resident.is_none() || air.is_none();
+        let mut columns = resident.unwrap_or_default();
+        if reset {
+            columns.clear();
+            columns.extend(self.resident.columns());
+            columns.extend(self.known_air.columns());
+        } else {
+            columns.extend(air.unwrap_or_default());
+        }
+        (
+            reset,
+            columns.into_iter().map(move |column| {
+                let keys = self
+                    .resident
+                    .column(column)
+                    .chain(self.known_air.column(column))
+                    .copied()
+                    .collect();
+                (column, keys)
+            }),
+        )
     }
 
     /// Changes when section requirements or near membership can change the render target.

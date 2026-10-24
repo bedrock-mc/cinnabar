@@ -1,6 +1,9 @@
-use std::{collections::BTreeMap, sync::OnceLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, OnceLock, Weak},
+};
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use world::{ChunkKey, SubChunkKey};
 
 /// Stores each key once, grouped by column with sections in ascending height, so
@@ -17,6 +20,22 @@ pub(super) struct ColumnSubChunkSet {
     membership_revision: u64,
     len: usize,
     hash: OnceLock<u64>,
+    changes: ColumnChanges,
+}
+
+/// Coalesces unread column changes only while a publication consumer owns the cursor.
+#[derive(Debug, Default)]
+struct ColumnChanges {
+    owner: Weak<()>,
+    columns: HashSet<ChunkKey>,
+    reset: bool,
+}
+
+impl Clone for ColumnChanges {
+    /// A copied index must bootstrap its own consumer rather than copy pending delivery.
+    fn clone(&self) -> Self {
+        Self::default()
+    }
 }
 
 impl PartialEq for ColumnSubChunkSet {
@@ -49,8 +68,7 @@ impl ColumnSubChunkSet {
         };
         column.insert(at, key);
         self.len += 1;
-        self.membership_revision += 1;
-        self.hash.take();
+        self.membership_changed(key.chunk());
         true
     }
 
@@ -69,8 +87,7 @@ impl ColumnSubChunkSet {
             self.ordered_columns.remove(&chunk);
         }
         self.len -= 1;
-        self.membership_revision += 1;
-        self.hash.take();
+        self.membership_changed(chunk);
         true
     }
 
@@ -87,7 +104,6 @@ impl ColumnSubChunkSet {
         if self.columns.get(&column).map_or(&[][..], Vec::as_slice) == replacement {
             return;
         }
-        self.membership_revision += 1;
         let added = replacement.len();
         let removed = if replacement.is_empty() {
             self.ordered_columns.remove(&column);
@@ -102,7 +118,28 @@ impl ColumnSubChunkSet {
                 .map_or(0, |old| old.len())
         };
         self.len = self.len - removed + added;
+        self.membership_changed(column);
+    }
+
+    /// Advances membership witnesses and coalesces delivery for the current live consumer.
+    fn membership_changed(&mut self, column: ChunkKey) {
+        self.membership_revision += 1;
         self.hash.take();
+        if self.changes.owner.strong_count() == 0 {
+            self.changes = ColumnChanges::default();
+        } else if !self.changes.reset {
+            self.changes.columns.insert(column);
+        }
+    }
+
+    /// Drains this consumer's changed columns; a new owner or bulk reset needs a full snapshot.
+    pub(super) fn take_changed_columns(&mut self, owner: &Arc<()>) -> Option<HashSet<ChunkKey>> {
+        let owner = Arc::downgrade(owner);
+        let reset = self.changes.reset || !Weak::ptr_eq(&self.changes.owner, &owner);
+        self.changes.owner = owner;
+        self.changes.reset = false;
+        let columns = std::mem::take(&mut self.changes.columns);
+        (!reset).then_some(columns)
     }
 
     /// Visits all keys in column order; callers needing public key order must sort.
@@ -156,9 +193,14 @@ impl ColumnSubChunkSet {
 
     /// Detaches storage while preserving the clock used by active membership checkpoints.
     pub(super) fn retire(&mut self) -> Self {
-        let retired = std::mem::take(self);
+        let mut retired = std::mem::take(self);
         self.column_generation = retired.column_generation;
         self.membership_revision = retired.membership_revision + u64::from(retired.len != 0);
+        self.changes = std::mem::take(&mut retired.changes);
+        if retired.len != 0 {
+            self.changes.columns.clear();
+            self.changes.reset = true;
+        }
         retired
     }
 
@@ -185,13 +227,7 @@ impl ColumnSubChunkSet {
     /// Resets fixture residency without changing other stream state.
     #[cfg(test)]
     pub(super) fn clear(&mut self) {
-        if self.len != 0 {
-            self.columns.clear();
-            self.ordered_columns.clear();
-            self.len = 0;
-            self.membership_revision += 1;
-            self.hash.take();
-        }
+        self.retire();
     }
 }
 
@@ -221,3 +257,6 @@ fn visited_key(key: &SubChunkKey) -> &SubChunkKey {
 pub(super) fn take_visited_keys() -> usize {
     VISITED_KEYS.replace(0)
 }
+
+#[cfg(test)]
+mod tests;
