@@ -190,8 +190,23 @@ fn every_vanilla_pack_material_has_a_kind() {
         rules().material("spider_invisible"),
         Some(MaterialKind::Provisional)
     );
-    assert_eq!(rules().material_state("spider"), None);
+    assert!(rules().material_state("spider").unwrap().emissive);
     assert_eq!(rules().material("custom"), None);
+}
+
+#[test]
+fn generated_emissive_aliases_are_live_materials_with_preserved_alpha() {
+    for (name, state) in emissive_material_states() {
+        assert!(vocabulary()["material"].contains(name.as_str()), "{name}");
+        assert!(state.emissive, "{name}");
+        assert!(!state.only_emissive || state.alpha_test, "{name}");
+        assert_eq!(rules().material_state(name), Some(*state), "{name}");
+        assert_eq!(
+            EntityRenderMaterialState::from_word(EntityRenderMaterial::Default.word(Some(*state))),
+            Some(*state),
+            "{name}"
+        );
+    }
 }
 
 #[test]
@@ -262,7 +277,7 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
                 state.disable_overlay = true;
                 Some(state)
             }
-            _ => None,
+            _ => emissive_material_states().get(name).copied(),
         };
         assert_eq!(rules().material_state(name), expected, "{name}");
     }

@@ -639,3 +639,65 @@ fn legacy_leather_preserves_alpha_and_uses_mask_alpha_only_for_dye() {
         }
     }
 }
+
+#[test]
+fn invisible_emissive_material_keeps_eye_texels_and_rejects_alpha_endpoints() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
+        "invisible_emissive_material_keeps_eye_texels_and_rejects_alpha_endpoints",
+    ) else {
+        return;
+    };
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let mut material = render_model::ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            alpha_test: true,
+            cull: false,
+            emissive: true,
+            only_emissive: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let clear = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[0; 4]; 2],
+        true,
+        false,
+    );
+    for alpha in [0, 255] {
+        let frame = actor_raster::raster_material_target(
+            &gpu,
+            &plane,
+            material,
+            false,
+            [[200, 120, 40, alpha]; 2],
+            true,
+            false,
+        );
+        assert_eq!(center(&frame), center(&clear), "alpha {alpha}");
+    }
+    let eyes = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[200, 120, 40, 128]; 2],
+        true,
+        false,
+    );
+    assert_ne!(center(&eyes), center(&clear));
+    material.state.as_mut().unwrap().only_emissive = false;
+    let ordinary = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[200, 120, 40, 128]; 2],
+        true,
+        false,
+    );
+    assert_eq!(center(&eyes), center(&ordinary));
+}

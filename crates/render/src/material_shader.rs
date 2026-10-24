@@ -160,6 +160,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_CULL_FLAG", &format!("{}u", assets::EntityRenderMaterialState::CULL))
         .replace("ACTOR_MATERIAL_BLEND_FLAG", &format!("{}u", assets::EntityRenderMaterialState::BLEND))
         .replace("ACTOR_MATERIAL_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::EMISSIVE))
+        .replace("ACTOR_MATERIAL_ONLY_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::ONLY_EMISSIVE))
         .replace("ACTOR_MATERIAL_DISABLE_OVERLAY_FLAG", &format!("{}u", assets::EntityRenderMaterialState::DISABLE_OVERLAY))
         .replace("ACTOR_CHART_COORDINATE_BITS", &format!("{}u", u16::BITS))
         .replace("ACTOR_ALPHA_TEST_THRESHOLD", &format!("{:?}", assets::ENTITY_ALPHA_TEST_THRESHOLD))

@@ -295,6 +295,9 @@ impl PackRules {
     }
     /// Resolves built-in material aliases before reading their policy state.
     pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
+        if let Some(state) = emissive_material_states().get(name) {
+            return Some(*state);
+        }
         let name = match name {
             "harness" => "entity_alphatest",
             _ => name,
@@ -360,6 +363,15 @@ impl PackRules {
             .iter()
             .find(|rule| rule.identifier == identifier)
     }
+}
+
+/// Loads the generated emissive alias states independently of pack-authored overrides.
+fn emissive_material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
+    static STATES: OnceLock<BTreeMap<String, EntityRenderMaterialState>> = OnceLock::new();
+    STATES.get_or_init(|| {
+        serde_json::from_str(include_str!("../../data/entity-emissive-materials.json"))
+            .expect("valid emissive material states")
+    })
 }
 
 /// Derives native leather sprite tinting from the admitted item material.

@@ -1,0 +1,12 @@
+{
+  "blaze_body": {"alpha_test": false,"cull": true,"blend": false,"depth_write": true,"emissive": true},
+  "blaze_head": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true},
+  "enderman": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true},
+  "enderman_invisible": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true,"only_emissive": true},
+  "glow_squid": {"alpha_test": false,"cull": true,"blend": false,"depth_write": true,"emissive": true},
+  "magma_cube": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true},
+  "phantom": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true},
+  "phantom_invisible": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true,"only_emissive": true},
+  "spider": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true},
+  "spider_invisible": {"alpha_test": true,"cull": false,"blend": false,"depth_write": true,"emissive": true,"only_emissive": true}
+}

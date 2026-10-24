@@ -37,6 +37,9 @@ pub struct EntityRenderMaterialState {
     /// Texture alpha weights world lighting; colored alpha-zero texels remain emissive.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub emissive: bool,
+    /// Keeps only texels whose emissive weight lies between the transparent and lit endpoints.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub only_emissive: bool,
     /// Enabled blending adds to the destination instead of weighting it by inverse alpha.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub additive: bool,
@@ -61,6 +64,7 @@ impl Default for EntityRenderMaterialState {
             blend: false,
             depth_write: true,
             emissive: false,
+            only_emissive: false,
             additive: false,
             additive_alpha: false,
             disable_overlay: false,
@@ -81,6 +85,7 @@ impl EntityRenderMaterialState {
     pub const ADDITIVE_ALPHA: u32 = 1 << 15;
     pub const DISABLE_OVERLAY: u32 = 1 << 16;
     pub const DEPTH_ALWAYS: u32 = 1 << 17;
+    pub const ONLY_EMISSIVE: u32 = 1 << 18;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -89,6 +94,7 @@ impl EntityRenderMaterialState {
             blend: word & Self::BLEND != 0,
             depth_write: word & Self::DISABLE_DEPTH_WRITE == 0,
             emissive: word & Self::EMISSIVE != 0,
+            only_emissive: word & Self::ONLY_EMISSIVE != 0,
             additive: word & Self::ADDITIVE != 0,
             additive_alpha: word & Self::ADDITIVE_ALPHA != 0,
             disable_overlay: word & Self::DISABLE_OVERLAY != 0,
@@ -127,6 +133,11 @@ impl EntityRenderMaterial {
                     }
                     | if state.emissive {
                         EntityRenderMaterialState::EMISSIVE
+                    } else {
+                        0
+                    }
+                    | if state.only_emissive {
+                        EntityRenderMaterialState::ONLY_EMISSIVE
                     } else {
                         0
                     }

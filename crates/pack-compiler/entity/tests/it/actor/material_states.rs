@@ -444,3 +444,55 @@ fn always_passing_depth_function_is_inherited_and_restored_by_less_equal() {
         json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true})
     );
 }
+
+#[test]
+fn native_emissive_aliases_preserve_authored_body_and_eye_states() {
+    for (material, alpha_test, cull, only_emissive) in [
+        ("blaze_body", false, true, false),
+        ("blaze_head", true, false, false),
+        ("magma_cube", true, false, false),
+        ("glow_squid", false, true, false),
+        ("spider", true, false, false),
+        ("spider_invisible", true, false, true),
+        ("enderman", true, false, false),
+        ("enderman_invisible", true, false, true),
+        ("phantom", true, false, false),
+        ("phantom_invisible", true, false, true),
+    ] {
+        for name in [material.to_owned(), format!("{material}.skinning")] {
+            let compiled = state(&name, None);
+            assert_eq!(compiled["emissive"], true, "{name}");
+            assert_eq!(compiled["alpha_test"], alpha_test, "{name}");
+            assert_eq!(compiled["cull"], cull, "{name}");
+            assert_eq!(compiled["blend"], false, "{name}");
+            assert_eq!(compiled["depth_write"], true, "{name}");
+            assert_eq!(
+                compiled["only_emissive"].as_bool().unwrap_or(false),
+                only_emissive,
+                "{name}"
+            );
+        }
+    }
+}
+
+#[test]
+fn only_emissive_define_is_inherited_removed_and_replaced() {
+    let definitions = json!({"materials": {
+        "fixture_eyes:spider_invisible": {},
+        "fixture_body:fixture_eyes": {"-defines": ["USE_ONLY_EMISSIVE"]},
+        "fixture_replaced:fixture_eyes": {"defines": ["ALPHA_TEST"]},
+        "spider:entity": {"+defines": ["ALPHA_TEST"]}
+    }});
+    assert_eq!(
+        state("fixture_eyes", Some(&definitions))["only_emissive"],
+        true
+    );
+    for name in ["fixture_body", "fixture_replaced", "spider"] {
+        assert_ne!(
+            state(name, Some(&definitions))["only_emissive"],
+            true,
+            "{name}"
+        );
+    }
+    assert_ne!(state("spider", Some(&definitions))["emissive"], true);
+}

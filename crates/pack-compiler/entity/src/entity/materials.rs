@@ -242,6 +242,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
     if replace_defines {
         state.alpha_test = false;
         state.emissive = false;
+        state.only_emissive = false;
         state.disable_overlay = true;
     }
     for (key, enabled) in [("states", true), ("+states", true), ("-states", false)] {
@@ -271,6 +272,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
             match value.as_str()? {
                 "ALPHA_TEST" => state.alpha_test = enabled,
                 "USE_EMISSIVE" => state.emissive = enabled,
+                "USE_ONLY_EMISSIVE" => state.only_emissive = enabled,
                 "USE_OVERLAY" => state.disable_overlay = !enabled,
                 _ => {}
             }
