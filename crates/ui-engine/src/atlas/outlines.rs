@@ -128,6 +128,8 @@ pub(super) struct Outlines {
     sender: Sender<Completed>,
     receiver: Receiver<Completed>,
     cancelled: Arc<AtomicBool>,
+    /// Changes whenever a ready mask is added or retired.
+    revision: crate::revision::Revision,
 }
 
 impl Default for Outlines {
@@ -141,6 +143,7 @@ impl Default for Outlines {
             sender,
             receiver,
             cancelled: Arc::new(AtomicBool::new(false)),
+            revision: Default::default(),
         }
     }
 }
@@ -183,6 +186,12 @@ impl Outlines {
             source_size,
             mask,
         });
+        self.revision.bump();
+    }
+
+    /// The ready masks' state, as [`super::ServerAtlas::revision`] reports it.
+    pub(super) fn revision(&self) -> crate::revision::Revision {
+        self.revision
     }
 
     /// Schedules one draw-sized source; explicitly inline hosts also prepare it outside paint.

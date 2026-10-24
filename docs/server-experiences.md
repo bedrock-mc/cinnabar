@@ -181,16 +181,20 @@ or disconnected client. A protocol failure or a helper that dies ends the sessio
 runtime with no restart, as before.
 
 A failed client part callback does not. The developer helper (`mod-host server-helper`,
-helper IPC protocol 2, which the client and its helper share) answers a callback that
+a versioned helper IPC protocol, which the client and its helper share) answers a callback that
 traps, runs out of fuel, panics or breaks a host rule with a failure reply naming the
 bundle, the callback (`init`, `dispatch`, `action` or `epoch`), the kind (`fuel`,
-`panic`, `trap`, `refused` or `startup`) and a reason of at most
+`panic`, `trap`, `refused`, `startup` or `overload`) and a reason of at most
 `MAX_FAILURE_REASON_BYTES`: the error chain with the guest backtrace, control characters
 removed, and the fuel it consumed. A committed reply also carries its callback's fuel,
 which the client logs at debug level with the bundle and callback, and
 `mod_host::server::BundleHost::last_fuel_used` reports the same in process. The callback
 publishes nothing and the helper runs on a fresh instance of the
 component, so the guest's memory starts over; the helper says so on its stderr. The
+fresh initializer's messages accompany the failure reply, so registry negotiation can
+resume without input or a world change. Its presentation output is discarded because
+the previous instance's presentation still stands. Recovery messages pass the same
+capability and epoch checks as other sends and are dropped if the strike stops the part. The
 client logs each failure at WARN and counts it as a strike; `MAX_GUEST_STRIKES` within
 `GUEST_STRIKE_WINDOW_MS` (`server_experience::policy`, mirroring the server adapter's
 `strikeLimit` and `strikeWindow`, which a test checks) stop that client part, as does a
@@ -313,6 +317,10 @@ sends carry the epoch it began in. An epoch control that names another session, 
 not move forward, arrives before Ready or inside a fragmented message is a
 violation.
 
+Native epoch updates spend the same encoded carrier bytes and message credit as
+application data. When credit is exhausted, the client retains the update ahead
+of later sends until credit refills.
+
 The Dragonfly helper can request an epoch for a committed world transfer,
 including a transfer between worlds of the same dimension type. The request uses
 the same `epoch` control. Its acknowledgment is
@@ -376,6 +384,18 @@ carrier bytes of its undelivered messages, the open one included, within
 rate of a whole message at once: a message whose fragments would exceed the
 receiver's remaining rate is not sent at all.
 
+The shared extension schema defines traffic classes and charges the complete
+encoded carrier size, including fragment headers and escaped JSON strings. The
+byte burst is derived from the maximum message payload, with room for its encoded
+fragments; the byte refill rate is unchanged. Negotiating smaller fragments also
+lowers the payload ceiling so UTF-8 splits fit the message burst. A batch above
+the maximum burst is a permanent error, never a deferred reply. `SendControl`
+returns an error (previously a Boolean): nil means sent or retained for a temporary credit shortage, and
+`*cinnabarext.BurstExceeded` identifies a batch that cannot fit. Use `errors.As` to
+handle that case. The helper counts and logs these rejected controls.
+Rust hosts calling `Ingress::receive_epoch_request` now supply their caller-owned
+`now_ms`, as they already do for data admission.
+
 Charge bytes/messages before JSON parsing, then check identity, sequence, schema
 and queue bounds. Unknown schema revisions are counted and skipped while consuming
 their sequence. Replays, gaps, invalid known records, malformed, interleaved,
@@ -398,17 +418,31 @@ The component world is `server-bundle` in
 [`client.wit`](../crates/experience-sdk/wit/client/client.wit), whose package keeps the name
 `cinnabar:extension@0.1.0` it had in `mod-api`; `experience-sdk`'s `client` feature generates the
 guest's bindings and `mod-host` the host's from that one file. Its imported interfaces use
-`cinnabar:server-experience@1.3.0`, defined in
+`cinnabar:server-experience@1.4.0`, defined in
 [`capabilities.wit`](../crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit).
 Guests export `init()`, `dispatch(channel, record-json)`, `action(id,
 collection-index)`, `epoch()`, `modal-resized(size)`, `text-changed(control, text)`,
 `secondary-action(id, collection-index)`, `scroll-changed(view, range)` and `shift-changed(held)`.
-A component built against an earlier 1.x still links (its imports resolve to the 1.3.0 host
+A component built against an earlier 1.x still links (its imports resolve to the 1.4.0 host
 by semver) and receives only the callbacks it exports: one built against 1.0.0 exports only
 `init` and `dispatch`, and the host skips everything else for it; 1.1.0 adds `action` and
 `epoch`, so a 1.1 bundle only ever receives primary presses; 1.2.0 adds `modal-resized`,
 `text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`, and later `shift-changed`
-with no import change. 1.1's two callbacks and
+with no import change. 1.4.0 adds `messaging.negotiate`, used by the SDK to defer
+callbacks until registry confirmation successfully initializes the guest. The host
+returns `NotReady` for other callbacks; their caller retains them in one FIFO queue
+per recipient, shared by messages, media, input and state updates. Confirmation can
+pass waiting callbacks. Once confirmation initializes the guest, a single replay
+collapses queued state to its latest values and delivers it first (epoch before UI
+state), followed by ordered callbacks. Later arrivals follow FIFO order, including
+state changes. Only adjacent, unsent updates of the same state coalesce during normal
+operation. Recipients take turns within the aggregate callback budget; busy or
+negotiating helpers do not block other ready recipients. A trap drops only the callback
+that ran; later events remain queued until the fresh guest is confirmed. The scheduler
+discards callbacks from other world epochs at admission and before dispatch.
+Each recipient's queue count and byte bounds stop an overflowing part immediately
+with a trusted status message. Existing components keep their current
+initialization behavior. 1.1's two callbacks and
 1.2's three are each exported all or none. The world also imports `cinnabar:session/items@0.1.0`
 from [`session.wit`](../crates/experience-sdk/wit/session/session.wit), the package player mods
 read, under the `items` permission; a component built without that import still links.
@@ -473,26 +507,28 @@ Data binds through the engine's own `#name` bindings:
   (window content over the GUI scale), and `scale`, the window's logical pixels per GUI
   unit; `none` until it is drawn and while it is closed. `modal-resized(size)` is delivered
   when the modal is first drawn after opening and on each change (a window resize or a
-  GUI scale change), the latest replacing one still waiting, so a guest can lay out its
+  GUI scale change), coalescing adjacent unsent sizes so a guest can lay out its
   rows and columns for the space it has.
 - A `scroll_view` whose `scroll_view_name` is a declared manifest action (a Cinnabar property
   for these modals, which vanilla ignores) delivers `scroll-changed(view, range)` (1.3), if
   the bundle holds `input`: when first drawn, and whenever it scrolls or its viewport or
   content changes length. `range` is what the engine laid out along the view's scrolling
   axis, in GUI units: `offset` (from 0 to `content` - `viewport`), `viewport` and `content`.
-  Changes coalesce to the latest range per view, so dragging a scrollbar queues one callback,
-  not one per frame. A client part can bind only the rows the view shows: give the view's
+  Adjacent unsent changes coalesce to the latest range per view, so dragging a scrollbar
+  does not queue a callback per frame while the helper is busy. A client part can bind only
+  the rows the view shows: give the view's
   content the full list's length (`#size_binding_y`) and lay a fixed grid over the viewport.
 - `shift-changed(held)` tells a bundle holding `input` whether Shift is held, when it changes
-  while its modal has focus and when the modal gains or loses focus with Shift held, the latest
-  replacing one still waiting, so a screen can show what Java screens show on Shift.
+  while its modal has focus and when the modal gains or loses focus with Shift held. Adjacent
+  unsent transitions coalesce; a later release never overtakes a queued action.
 - Edit boxes (vanilla `text_edit_box`, an `edit_box` control) work as on vanilla
   screens, driven by the engine's input components: a press selects one, typing,
   Backspace, Enter and Ctrl+V edit it within its `max_length`, a press elsewhere, Enter or
   Escape deselects it, and Escape closes the modal only when no box was selected. A box
   whose `text_box_name` is a declared manifest action delivers `text-changed(control,
-  text)` (1.2) with its whole text, if the bundle holds `input`; edits coalesce to the
-  latest text per box. `ui.set-text(control, text)` (1.2) sets the boxes named `control`,
+  text)` (1.2) with its whole text, if the bundle holds `input`; adjacent unsent edits
+  coalesce to the latest text per box. `ui.set-text(control, text)` (1.2) sets the boxes
+  named `control`,
   cut to their `max_length`, without delivering `text-changed`, and the user's later
   typing stands. Edit text holds at most `MAX_EDIT_TEXT_BYTES` and no control characters
   but line breaks.
@@ -669,7 +705,7 @@ without a further dependency update.
 [`policy.rs`](../crates/server-experience/src/policy.rs) is the source of truth for
 host budgets. [`media.rs`](../crates/server-experience/src/media.rs) owns media
 ceilings. The current envelope is bounded by the protocol carrier constant; rates
-are aggregate across all bundles, with at most a one-second burst. Queue bounds
+are aggregate across all bundles, with the schema-defined maximum burst. Queue bounds
 apply independently to network publication, typed ingress, helper IPC and media.
 No increase requested by a server bypasses those ceilings.
 

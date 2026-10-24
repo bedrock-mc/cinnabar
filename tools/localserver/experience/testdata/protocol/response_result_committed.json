@@ -87,6 +87,19 @@
         ]
       },
       {
+        "type": "send_client",
+        "control": true,
+        "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+        "channel": "benergistics.registry",
+        "schema": 1,
+        "payload": [
+          {
+            "type": "text",
+            "value": "fingerprint"
+          }
+        ]
+      },
+      {
         "type": "set_block_state",
         "pos": {
           "x": 12,

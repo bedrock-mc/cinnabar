@@ -19,6 +19,7 @@ impl LocalPhysicsController {
                 state.position,
                 self.modes.mode(),
                 false,
+                self.modes.sneak_profile(),
                 Some(
                     self.modes
                         .liquid_contact_height(state.spin_attack_ticks.is_some()),

@@ -234,11 +234,11 @@ func TestFragmentViolationsQuarantine(t *testing.T) {
 // ChargeAll spends credit for every message or for none.
 func TestChargeAllIsAllOrNothing(t *testing.T) {
 	rate := NewRateLimit(0)
-	half := MaxBytesPerSecond / 2
-	if err := rate.ChargeAll([]int{half, half + 1}, 0); err == nil {
+	third := MaxBurstBytes / 3
+	if err := rate.ChargeAll([]int{third, third, third + 1}, 0); err == nil {
 		t.Fatal("charged one byte over a second's credit")
 	}
-	if err := rate.ChargeAll([]int{half, half}, 0); err != nil {
+	if err := rate.ChargeAll([]int{third, third, third}, 0); err != nil {
 		t.Fatalf("a failed charge spent credit: %v", err)
 	}
 	many := make([]int, MaxMessagesPerSecond+1)

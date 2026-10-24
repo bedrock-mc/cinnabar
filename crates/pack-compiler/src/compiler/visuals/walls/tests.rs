@@ -90,3 +90,12 @@ fn wall_face_uvs_follow_the_outside_view() {
         }
     }
 }
+
+#[test]
+fn arm_undersides_keep_their_cropped_texture_strip() {
+    let quads = wall_quads([1; 6], 1);
+    let bottom = &quads[6 + assets::BlockFace::Down as usize];
+    for ([x, _, z], uv) in bottom.positions.into_iter().zip(bottom.uvs) {
+        assert_eq!(uv, [(x * 16) as u16, ((64 - z) * 16) as u16]);
+    }
+}

@@ -60,7 +60,7 @@ func TestWorldNoticesAndAcknowledgmentsBypassExhaustedDataBudgets(t *testing.T) 
 			conn := f.conn.(*Conn)
 			count, size := MaxMessagesPerSecond, 0
 			if budget == "bytes" {
-				count, size = 1, MaxBytesPerSecond
+				count, size = 3, MaxBurstBytes/3
 			}
 			for range count {
 				for _, rate := range []*RateLimit{&conn.egress, &conn.ingress.rate} {
@@ -128,7 +128,7 @@ func TestReplayedWorldAcknowledgmentsConsumeDataBudgets(t *testing.T) {
 				count := MaxMessagesPerSecond
 				if budget == "bytes" {
 					ack = append(ack, bytes.Repeat([]byte(" "), MaxEnvelopeBytes-len(ack))...)
-					count = MaxBytesPerSecond / len(ack)
+					count = MaxBurstBytes / len(ack)
 				}
 				for range count {
 					f.deliver(ack)

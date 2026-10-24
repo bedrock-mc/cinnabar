@@ -86,13 +86,13 @@ mod map_data;
 mod meshing;
 mod model;
 mod near_drawn;
+pub use near_drawn::TerrainPublicationCursor;
 mod particle_events;
 mod polling;
 mod prediction;
 mod publication;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
-mod ray_queries;
 mod request_queue;
 mod requests;
 mod residency;

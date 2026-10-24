@@ -175,7 +175,11 @@ fn shared_geometry_tail_alignment_is_included_in_arena_accounting() {
     assert_eq!(plan.liquid_lighting_start, 8);
     assert_eq!(plan.geometry_stream_capacity, 6);
     assert_eq!(plan.geometry_stream_len, 10);
-    assert_eq!(plan.free_geometry_stream_words, vec![2..4]);
+    assert!(
+        plan.free_geometry_stream_words
+            .iter()
+            .eq(std::iter::once(2..4))
+    );
 }
 
 #[test]

@@ -142,6 +142,7 @@ mod tests {
             [true; 3],
             &[],
             &[],
+            None,
         );
         let texture = |format| {
             device

@@ -21,6 +21,8 @@ type ClientChannels interface {
 	// runs, and reports whether it went out: false when the player has no active client part, or
 	// when the message does not fit the channel or the connection's limits.
 	SendRecord(player uuid.UUID, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool
+	// SendControl retains a negotiation reply until credit refills or its connection or epoch ends.
+	SendControl(player uuid.UUID, message cinnabarext.Message) error
 }
 
 // DeliverClientMessage queues the client-message callback of the Experience exp for payload,
@@ -80,12 +82,34 @@ func (h *Host) sendClient(d *dispatcher, player uuid.UUID, op *SendClientOp) {
 		}
 		return
 	}
-	if h.channels == nil || !h.channels.SendRecord(player, d.id, op.Channel, op.Schema, op.Payload) {
+	sent := false
+	if h.channels != nil {
+		if op.Control {
+			sent = h.channels.SendControl(player, clientControl{d.id, op}) == nil
+		} else {
+			sent = h.channels.SendRecord(player, d.id, op.Channel, op.Schema, op.Payload)
+		}
+	}
+	if !sent {
 		if n, ok := d.unsent.add(); ok {
 			h.log.Debug("client messages not sent", "experience", d.id, "dropped", n)
 		}
 	}
 }
+
+// clientControl adapts a staged reply to the transport's existing typed control queue.
+type clientControl struct {
+	bundle string
+	op     *SendClientOp
+}
+
+// Route binds the reply to the committing Experience's declared channel.
+func (c clientControl) Route() cinnabarext.Route {
+	return cinnabarext.Route{Bundle: c.bundle, Channel: c.op.Channel, Schema: c.op.Schema}
+}
+
+// Encode supplies the committed record; SendControl validates and owns its retained copy.
+func (c clientControl) Encode() (cinnabarext.Record, error) { return c.op.Payload, nil }
 
 // dropCount counts things dropped, and limits how often the count is logged.
 type dropCount struct {

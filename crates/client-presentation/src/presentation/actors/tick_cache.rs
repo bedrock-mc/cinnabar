@@ -34,7 +34,7 @@ pub(super) struct TickKey {
     fallback: EntityRigFallback,
     bounds: assets::SkinGeometryBounds,
     scale: u32,
-    actor: (u64, u64, i64),
+    actor: (u64, u64, std::num::NonZeroU64, i64),
     skin: SkinKey,
     location: Option<ActorArtworkLocation>,
 }
@@ -64,7 +64,12 @@ impl TickKey {
             fallback: selected.fallback,
             bounds: selected.culling_bounds(),
             scale: selected.scale.to_bits(),
-            actor: (actor.runtime_id, actor.spawn_revision, actor.unique_id),
+            actor: (
+                actor.runtime_id,
+                actor.spawn_revision,
+                actor.render_spawn_revision,
+                actor.unique_id,
+            ),
             skin: SkinKey::new(actor, profile),
             location,
         }

@@ -15,6 +15,9 @@ use std::{
     sync::Arc,
 };
 
+mod observation;
+pub use observation::Observation;
+
 /// The manifest file at a package's root.
 pub const MANIFEST: &str = "mod.toml";
 const MAX_MANIFEST_BYTES: usize = 64 * 1024;
@@ -22,6 +25,7 @@ const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 pub const MAX_PACKAGE_BYTES: usize = 16 * 1024 * 1024;
 
 /// A verified package, ready to instantiate.
+#[derive(Clone)]
 pub struct Package {
     pub manifest: ModManifest,
     pub component: Vec<u8>,
@@ -35,7 +39,14 @@ impl Package {
     /// Reads and verifies the package at `dir`.
     pub fn read(dir: &Path) -> Result<Self> {
         let root = Directory::open(dir).context("open mod package directory")?;
-        let text = root.read(Path::new(MANIFEST), MAX_MANIFEST_BYTES)?;
+        Self::read_files(|path, limit| root.read(path, limit))
+    }
+
+    /// Verifies one package from bounded reads anchored to the same selected directory.
+    fn read_files(
+        mut read_file: impl FnMut(&Path, usize) -> std::io::Result<Vec<u8>>,
+    ) -> Result<Self> {
+        let text = read_file(Path::new(MANIFEST), MAX_MANIFEST_BYTES)?;
         let text = String::from_utf8(text).context("mod.toml is not UTF-8")?;
         let manifest =
             ModManifest::parse(&text).map_err(|error| anyhow::anyhow!("{MANIFEST}: {error}"))?;
@@ -48,8 +59,7 @@ impl Package {
         digest.update(text.as_bytes());
         let mut remaining = MAX_PACKAGE_BYTES - text.len();
         let mut read = |path: &str, limit: usize| -> Result<Vec<u8>> {
-            let bytes = root
-                .read(Path::new(path), limit.min(remaining))
+            let bytes = read_file(Path::new(path), limit.min(remaining))
                 .with_context(|| format!("read {path} within package byte limit"))?;
             remaining -= bytes.len();
             let hash = Sha256::digest(&bytes);
