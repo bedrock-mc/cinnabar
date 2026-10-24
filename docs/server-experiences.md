@@ -317,6 +317,10 @@ sends carry the epoch it began in. An epoch control that names another session, 
 not move forward, arrives before Ready or inside a fragmented message is a
 violation.
 
+Native epoch updates spend the same encoded carrier bytes and message credit as
+application data. When credit is exhausted, the client retains the update ahead
+of later sends until credit refills.
+
 The Dragonfly helper can request an epoch for a committed world transfer,
 including a transfer between worlds of the same dimension type. The request uses
 the same `epoch` control. Its acknowledgment is
@@ -379,6 +383,16 @@ carrier bytes of its undelivered messages, the open one included, within
 `MAX_PAYLOAD_BYTES`, `MAX_MESSAGE_BYTES` and `MAX_QUEUE_BYTES`. A sender spends the
 rate of a whole message at once: a message whose fragments would exceed the
 receiver's remaining rate is not sent at all.
+
+The shared extension schema defines traffic classes and charges the complete
+encoded carrier size, including fragment headers and escaped JSON strings. The
+byte burst is derived from the maximum message payload, with room for its encoded
+fragments; the byte refill rate is unchanged. Negotiating smaller fragments also
+lowers the payload ceiling so UTF-8 splits fit the message burst. A batch above
+the maximum burst is a permanent error, never a deferred reply. `SendControl`
+returns an error (previously a Boolean): nil means sent or retained for a temporary credit shortage, and
+`*cinnabarext.BurstExceeded` identifies a batch that cannot fit. Use `errors.As` to
+handle that case. The helper counts and logs these rejected controls.
 
 Charge bytes/messages before JSON parsing, then check identity, sequence, schema
 and queue bounds. Unknown schema revisions are counted and skipped while consuming
@@ -689,7 +703,7 @@ without a further dependency update.
 [`policy.rs`](../crates/server-experience/src/policy.rs) is the source of truth for
 host budgets. [`media.rs`](../crates/server-experience/src/media.rs) owns media
 ceilings. The current envelope is bounded by the protocol carrier constant; rates
-are aggregate across all bundles, with at most a one-second burst. Queue bounds
+are aggregate across all bundles, with the schema-defined maximum burst. Queue bounds
 apply independently to network publication, typed ingress, helper IPC and media.
 No increase requested by a server bypasses those ceilings.
 

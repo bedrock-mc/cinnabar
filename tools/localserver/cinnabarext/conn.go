@@ -99,6 +99,8 @@ type Conn struct {
 	// controls retains the newest reply per route in this connection and epoch.
 	controls         map[Route]Record
 	retryingControls bool
+	// rejectedControls counts controls that cannot fit the maximum encoded burst.
+	rejectedControls uint64
 	// worldID is the latest desired world; requestedWorld is the world of the latest notice.
 	worldID        WorldID
 	requestedWorld WorldID
@@ -196,12 +198,13 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 		envelope, err = c.ingress.Receive(data, nowMs, c.epoch, c.grant)
 	} else {
 		msg, controlErr := control(data)
-		// Only the outstanding notice's acknowledgment bypasses data credits.
-		if ack := msg.WorldAck; controlErr == nil && ack != nil && c.worldNoticePending &&
-			ack.RequestedEpoch == c.requestedEpoch && ack.Session == c.session {
-			return nil, c.changeEpoch(msg)
+		matchingNotice := controlErr == nil && msg.WorldAck != nil && c.worldNoticePending &&
+			msg.WorldAck.RequestedEpoch == c.requestedEpoch && msg.WorldAck.Session == c.session
+		class := RateData
+		if controlErr == nil {
+			class = msg.RateClass(ToServer, matchingNotice)
 		}
-		if err = c.ingress.charge(len(data), nowMs); err == nil {
+		if err = c.ingress.chargeClass(class, len(data), nowMs); err == nil {
 			if controlErr == nil {
 				return nil, c.changeEpoch(msg)
 			}
@@ -363,7 +366,7 @@ func selectWire(h *Hello) (Wire, error) {
 	case WireVersion:
 		return v1Wire, nil
 	}
-	limits := HostLimits.lowest(h.Wire.Limits)
+	limits := HostLimits.lowest(h.Wire.Limits).fitRate()
 	if !limits.ordered() {
 		return Wire{}, fmt.Errorf("unusable wire limits %+v", h.Wire.Limits)
 	}
@@ -428,26 +431,29 @@ func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
 	if len(c.controls) != 0 && !c.retryControlTick() {
 		return false
 	}
-	return c.sendLocked(exp, channel, schema, payload) == controlSent
+	return c.sendLocked(exp, channel, schema, payload) == nil
 }
 
 // sendLocked validates and sends while the caller holds c.mu, distinguishing rate refusal.
-func (c *Conn) sendLocked(exp, channel string, schema uint16, payload []Scalar) controlResult {
+func (c *Conn) sendLocked(exp, channel string, schema uint16, payload []Scalar) error {
 	if c.phase != active || c.worldNoticePending {
-		return controlRejected
+		return errors.New("control recipient unavailable")
 	}
 	now := c.s.now()
 	if uint64(now.Unix()) >= c.expires {
 		c.fallBack(errors.New("the grant expired"))
-		return controlRejected
+		return errors.New("the grant expired")
 	}
 	recipient, ok := c.grant.Recipients[exp]
 	if !ok || !recipient.Permissions.Has(PermissionMessaging) || c.sequence == ^uint64(0) {
-		return controlRejected
+		return errors.New("control route unavailable")
 	}
 	i := slices.IndexFunc(recipient.Channels, func(ch Channel) bool { return ch.ID == channel && ch.Schema == schema })
-	if i < 0 || recipient.Channels[i].Validate(payload, ToClient, int(c.wire.Limits.MaxMessageBytes)) != nil {
-		return controlRejected
+	if i < 0 {
+		return errors.New("undeclared channel")
+	}
+	if err := recipient.Channels[i].Validate(payload, ToClient, int(c.wire.Limits.MaxMessageBytes)); err != nil {
+		return err
 	}
 	messages, err := EncodeEnvelope(Envelope{
 		Version:    c.wire.Version,
@@ -463,23 +469,23 @@ func (c *Conn) sendLocked(exp, channel string, schema uint16, payload []Scalar) 
 		Payload:    payload,
 	}, c.wire)
 	if err != nil {
-		return controlRejected
+		return err
 	}
 	sizes := make([]int, len(messages))
 	for i, data := range messages {
 		sizes[i] = len(data)
 	}
-	if c.egress.ChargeAll(sizes, uint64(now.UnixMilli())) != nil {
-		return controlDeferred
+	if err := c.egress.ChargeAll(sizes, uint64(now.UnixMilli())); err != nil {
+		return err
 	}
 	for _, data := range messages {
 		if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
 			c.fallBack(err)
-			return controlRejected
+			return err
 		}
 	}
 	c.sequence++
-	return controlSent
+	return nil
 }
 
 // end falls back for reason unless no handshake started, which a vanilla connection never does.

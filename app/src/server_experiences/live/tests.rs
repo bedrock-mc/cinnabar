@@ -417,12 +417,9 @@ fn outbound_sends_enforce_the_shared_rate_limit() {
     }
 
     complete(&mut live, "bundle0");
-    assert_eq!(
-        live.poll(1, 0).unwrap_err().to_string(),
-        "channel rate exceeded"
-    );
+    assert!(live.poll(1, 0).unwrap().is_empty());
+    assert_eq!(live.pending_sends.len(), 1);
 
-    complete(&mut live, "bundle0");
     let packets = live.poll(1, 1000).unwrap();
     assert_eq!(packets.len(), 1);
     let send: Envelope = serde_json::from_slice(&packets[0]).unwrap();

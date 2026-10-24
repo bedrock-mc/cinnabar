@@ -1,6 +1,47 @@
 use super::*;
 
 #[test]
+fn native_epoch_spends_the_last_message_credit() {
+    for byte_budget in [false, true] {
+        let mut live = fixture_v2(1);
+        sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
+        live.poll(1, 0).unwrap();
+        live.egress = RateLimit::new(0);
+        let mut peer = RateLimit::new(0);
+        let epoch = serde_json::to_vec(&Control::Epoch {
+            session: live.grant.session.clone(),
+            world_epoch: 2,
+        })
+        .unwrap();
+        let sizes = if byte_budget {
+            let remaining = MAX_BURST_BYTES as usize - epoch.len();
+            let mut sizes = vec![MAX_PAYLOAD_BYTES; remaining / MAX_PAYLOAD_BYTES];
+            sizes.push(remaining % MAX_PAYLOAD_BYTES);
+            sizes
+        } else {
+            vec![1; MAX_MESSAGES_PER_SECOND as usize - 1]
+        };
+        for size in sizes {
+            live.egress.charge(size, 0).unwrap();
+            peer.charge(size, 0).unwrap();
+        }
+        let packets = live.poll(2, 0).unwrap();
+        assert_eq!(packets, [epoch]);
+        peer.charge(packets[0].len(), 0).unwrap();
+        assert_eq!(live.egress, peer);
+        assert!(live.egress.charge(1, 0).is_err());
+        assert!(peer.charge(1, 0).is_err());
+        sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 2);
+        assert!(live.poll(2, 0).unwrap().is_empty());
+        assert_eq!(live.pending_sends.len(), 1);
+        let packets = live.poll(2, 1000).unwrap();
+        assert_eq!(packets.len(), 1);
+        peer.charge(packets[0].len(), 1000).unwrap();
+        assert_eq!(live.egress, peer);
+    }
+}
+
+#[test]
 fn admission_keeps_a_world_acknowledgment_through_a_later_native_epoch() {
     let mut live = fixture_v2(1);
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
@@ -130,7 +171,7 @@ fn world_notices_cross_network_admission_with_exhausted_data_credits() {
         live.poll(1, 0).unwrap();
         live.egress = RateLimit::new(0);
         let count = if byte_budget {
-            1
+            MAX_BURST_BYTES / protocol::MAX_EXPERIENCE_ENVELOPE_BYTES as u64 + 1
         } else {
             MAX_MESSAGES_PER_SECOND
         };
@@ -154,7 +195,12 @@ fn world_notices_cross_network_admission_with_exhausted_data_credits() {
             .unwrap()
             .remove(0);
             if byte_budget {
-                bytes.resize(MAX_BYTES_PER_SECOND as usize, b' ');
+                let size = (MAX_BURST_BYTES as usize)
+                    .saturating_sub(
+                        (sequence as usize - 1) * protocol::MAX_EXPERIENCE_ENVELOPE_BYTES,
+                    )
+                    .min(protocol::MAX_EXPERIENCE_ENVELOPE_BYTES);
+                bytes.resize(size, b' ');
             }
             live.egress.charge(bytes.len(), 0).unwrap();
             let admitted = network.admit(bytes, 0).unwrap();

@@ -884,8 +884,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   compile-checked asset constants and signed bundles through `devtool mod new/build`.
   Each recipient retains messages, media, input and state in one callback queue during
   registry negotiation. Generated confirmations retry after send-budget refusal and
-  expire with their connection or world epoch. Confirmation replays the latest queued
-  state once, then all callback kinds follow FIFO order through a fair recipient scheduler;
+  expire with their connection or world epoch. A shared Rust/Go rate contract charges
+  native epochs and encoded fragment sizes, rejects impossible control batches, and
+  reserves acknowledgment exemptions for outstanding notices. Confirmation replays
+  the latest queued state once, then all callback kinds follow FIFO order through a fair recipient scheduler;
   traps preserve later queued work, stale world callbacks are discarded,
   and queue overflow visibly stops the affected part.
   Complete server-helper delivery and personal-renderer port acceptance remain incomplete;

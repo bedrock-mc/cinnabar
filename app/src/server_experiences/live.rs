@@ -8,12 +8,12 @@ use server_experience::{
     manifest::{Manifest, Permission, developer_permissions},
     negotiation::Grant,
     policy::*,
-    rate_limit::RateLimit,
+    rate_limit::{RateClass, RateExceeded, RateLimit},
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
     screen::{self, GuiSize},
     session::Control,
     session_data::{SessionData, SessionItems},
-    wire::{self, Envelope, Ingress},
+    wire::{self, Direction, Envelope, Ingress},
 };
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -146,7 +146,7 @@ pub(super) struct Live<H = Helper> {
     /// The last dispatched recipient, so the next slice starts with its successor.
     last_recipient: Option<String>,
     executable: PathBuf,
-    pending_sends: VecDeque<Vec<u8>>,
+    pending_sends: VecDeque<Vec<Vec<u8>>>,
     pending_send_bytes: usize,
     budget: Budget,
     ingress: Ingress,
@@ -155,7 +155,7 @@ pub(super) struct Live<H = Helper> {
     slice_ms: u64,
     ready: bool,
     epoch: u64,
-    /// The latest epoch notification, retained until the next poll.
+    /// The latest epoch notification, retained until its encoded cost is admitted.
     pending_control: Option<Control>,
     /// Counts modal openings across bundles.
     modal_order: u64,
@@ -264,8 +264,18 @@ impl<H: Worker> Live<H> {
     pub(super) fn poll(&mut self, epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
         let mut packets = Vec::new();
         self.set_epoch(epoch)?;
-        if let Some(control) = self.pending_control.take() {
-            packets.push(serde_json::to_vec(&control)?);
+        if let Some(control) = &self.pending_control {
+            let bytes = serde_json::to_vec(control)?;
+            // Every locally produced acknowledgment names the admitted outstanding notice.
+            let class = control.rate_class(Direction::ToServer, true);
+            if let Err(error) = self.egress.charge_class(class, bytes.len(), now_ms) {
+                if error.is::<RateExceeded>() {
+                    return Ok(packets);
+                }
+                return Err(error);
+            }
+            self.pending_control = None;
+            packets.push(bytes);
         }
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
@@ -387,15 +397,16 @@ impl<H: Worker> Live<H> {
                         world_epoch: instance.epoch,
                         payload: record,
                     };
-                    for bytes in wire::encode(&send, &self.grant.wire)? {
-                        ensure!(
-                            self.pending_sends.len() < MAX_QUEUE_MESSAGES
-                                && bytes.len() <= MAX_QUEUE_BYTES - self.pending_send_bytes,
-                            "outbound initialization queue overflow"
-                        );
-                        self.pending_send_bytes += bytes.len();
-                        self.pending_sends.push_back(bytes);
-                    }
+                    let messages = wire::encode(&send, &self.grant.wire)?;
+                    let cost = RateClass::Data.cost(messages.iter().map(Vec::len))?;
+                    let queued: usize = self.pending_sends.iter().map(Vec::len).sum();
+                    ensure!(
+                        messages.len() <= MAX_QUEUE_MESSAGES.saturating_sub(queued)
+                            && cost.bytes as usize <= MAX_QUEUE_BYTES - self.pending_send_bytes,
+                        "outbound initialization queue overflow"
+                    );
+                    self.pending_send_bytes += cost.bytes as usize;
+                    self.pending_sends.push_back(messages);
                     self.sequence = self
                         .sequence
                         .checked_add(1)
@@ -428,10 +439,19 @@ impl<H: Worker> Live<H> {
             })?);
         }
         if self.ready {
-            while let Some(bytes) = self.pending_sends.pop_front() {
-                self.pending_send_bytes -= bytes.len();
-                self.egress.charge(bytes.len(), now_ms)?;
-                packets.push(bytes);
+            while let Some(messages) = self.pending_sends.front() {
+                if let Err(error) = self
+                    .egress
+                    .charge_all(messages.iter().map(Vec::len), now_ms)
+                {
+                    if error.is::<RateExceeded>() {
+                        break;
+                    }
+                    return Err(error);
+                }
+                let messages = self.pending_sends.pop_front().expect("front checked");
+                self.pending_send_bytes -= messages.iter().map(Vec::len).sum::<usize>();
+                packets.extend(messages);
             }
             self.schedule()?;
         }

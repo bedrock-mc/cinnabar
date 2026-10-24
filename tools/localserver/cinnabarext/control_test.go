@@ -1,10 +1,49 @@
 package cinnabarext
 
 import (
+	"errors"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
 )
+
+// controlRecord supplies an arbitrary valid record on a fixture's declared route.
+type controlRecord struct {
+	route   Route
+	payload Record
+}
+
+// Route identifies the fixture channel.
+func (m controlRecord) Route() Route { return m.route }
+
+// Encode returns the record to validate and send.
+func (m controlRecord) Encode() (Record, error) { return m.payload, nil }
+
+// TestImpossibleControlDoesNotBlockData rejects batches that cannot ever acquire credit.
+func TestImpossibleControlDoesNotBlockData(t *testing.T) {
+	f, _ := readyFixture(t)
+	c := f.conn.(*Conn)
+	c.wire.Limits.MaxFragmentBytes = 128
+	ch := Channel{ID: f.manifest.ID + ".large", Schema: 1, Direction: ToClient,
+		Fields: []Field{TextField{MaxBytes: uint16(MaxMessageBytes)}}}
+	recipient := c.grant.Recipients[f.manifest.ID]
+	recipient.Channels = append(recipient.Channels, ch)
+	c.grant.Recipients[f.manifest.ID] = recipient
+	message := controlRecord{Route{f.manifest.ID, ch.ID, ch.Schema}, Record{text(strings.Repeat(`"`, 24000))}}
+	// A retained impossible reply would also start the timer worker; suppress it in this test.
+	c.retryingControls = true
+	var burst *BurstExceeded
+	if err := f.s.SendControl(f.player, message); !errors.As(err, &burst) {
+		t.Fatalf("want a permanent burst error, got %v", err)
+	}
+	if c.rejectedControls != 1 {
+		t.Fatal("oversized control was not counted")
+	}
+	if len(c.controls) != 0 || !f.sendToClient(7) {
+		t.Fatal("an impossible control blocked ordinary data")
+	}
+}
 
 // TestControlRetriesReplaceAndExpire covers both rate ceilings and stale reply retirement.
 func TestControlRetriesReplaceAndExpire(t *testing.T) {
@@ -29,16 +68,16 @@ func TestControlRetriesReplaceAndExpire(t *testing.T) {
 						c.egress.messages = 0
 					}
 					c.mu.Unlock()
-					if !f.s.SendControl(f.player, message) {
+					if err := f.s.SendControl(f.player, message); err != nil {
 						t.Fatal("control not retained")
 					}
 					message.number = 8
-					if !f.s.SendControl(f.player, message) {
+					if err := f.s.SendControl(f.player, message); err != nil {
 						t.Fatal("replacement not retained")
 					}
 					invalid := message
 					invalid.number = -1
-					if f.s.SendControl(f.player, invalid) {
+					if err := f.s.SendControl(f.player, invalid); err == nil {
 						t.Fatal("invalid replacement accepted")
 					}
 					synctest.Wait()

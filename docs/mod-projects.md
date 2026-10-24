@@ -88,8 +88,11 @@ sends a generated registry request, which the existing client sends after Ready.
 has exhausted the send budget, the helper retains the confirmation and retries as
 credit refills. A newer reply on the same route replaces the pending one; world
 epoch changes and disconnects discard obsolete replies. Other negotiation or
-acknowledgment messages can use `ext.SendControl` for the same behavior. Ordinary
-application messages sent with `ext.Send` or `ext.Broadcast` remain best effort;
+acknowledgment messages can use `ext.SendControl` for the same behavior.
+`SendControl` now returns an error instead of a Boolean: nil means sent or retained.
+A `*cinnabarext.BurstExceeded` error means the encoded reply cannot fit the maximum
+burst and was rejected without retaining it. Check this with `errors.As`.
+Ordinary application messages sent with `ext.Send` or `ext.Broadcast` remain best effort;
 check their returned admission result. Authored
 initialization and callbacks wait for that exact fingerprint.
 Callbacks stay in the client's existing queues while confirmation is pending,

@@ -2,6 +2,7 @@ package cinnabarext
 
 import (
 	"cmp"
+	"errors"
 	"maps"
 	"slices"
 	"time"
@@ -9,44 +10,45 @@ import (
 	"github.com/google/uuid"
 )
 
-type controlResult uint8
-
-const (
-	controlRejected controlResult = iota
-	controlDeferred
-	controlSent
-)
-
 // SendControl sends a typed negotiation or acknowledgment reply, retaining it when the
 // data budget is exhausted. A newer reply on the same route replaces the pending one.
-// Pending replies expire with their connection or world epoch. False means the reply
-// was invalid or the recipient was unavailable; ordinary data should use Send instead.
-func (s *Server) SendControl(player uuid.UUID, message Message) bool {
+// Pending replies expire with their connection or world epoch. A BurstExceeded error
+// means the encoded reply can never fit; ordinary data should use Send instead.
+func (s *Server) SendControl(player uuid.UUID, message Message) error {
 	payload, err := message.Encode()
 	if err != nil {
-		return false
+		return err
 	}
 	// Own the record: the caller may reuse mutable fields after returning.
 	raw, err := Encode(payload)
-	if err != nil || Decode(raw, &payload) != nil {
-		return false
+	if err != nil {
+		return err
+	}
+	if err := Decode(raw, &payload); err != nil {
+		return err
 	}
 	route := message.Route()
 	s.mu.Lock()
 	c := s.active[player]
 	s.mu.Unlock()
 	if c == nil {
-		return false
+		return errors.New("control recipient unavailable")
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	result := c.sendLocked(route.Bundle, route.Channel, route.Schema, payload)
-	if result == controlRejected {
-		return false
+	err = c.sendLocked(route.Bundle, route.Channel, route.Schema, payload)
+	if err != nil && !errors.Is(err, ErrRateExceeded) {
+		var burst *BurstExceeded
+		if errors.As(err, &burst) {
+			c.rejectedControls++
+			s.log.Warn("client part control rejected", "bundle", route.Bundle, "channel", route.Channel,
+				"reason", err.Error(), "rejected_controls", c.rejectedControls)
+		}
+		return err
 	}
 	delete(c.controls, route)
-	if result != controlDeferred {
-		return result == controlSent
+	if err == nil {
+		return nil
 	}
 	if c.controls == nil {
 		c.controls = make(map[Route]Record)
@@ -56,7 +58,7 @@ func (s *Server) SendControl(player uuid.UUID, message Message) bool {
 		c.retryingControls = true
 		go c.retryControls()
 	}
-	return true
+	return nil
 }
 
 // retryControls checks pending replies as rate credit refills and exits after they drain.
@@ -79,7 +81,7 @@ func (c *Conn) retryControls() {
 // retryControlTick retries retained replies under c.mu and reports whether the worker can exit.
 func (c *Conn) retryControlTick() bool {
 	for _, route := range slices.SortedFunc(maps.Keys(c.controls), compareControlRoutes) {
-		if c.sendLocked(route.Bundle, route.Channel, route.Schema, c.controls[route]) != controlDeferred {
+		if err := c.sendLocked(route.Bundle, route.Channel, route.Schema, c.controls[route]); !errors.Is(err, ErrRateExceeded) {
 			delete(c.controls, route)
 		}
 	}

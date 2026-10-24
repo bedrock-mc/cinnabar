@@ -56,8 +56,12 @@ func (c *Conn) requestWorldEpoch() error {
 	// Establish the fence before writing; acknowledgments take the same connection lock.
 	clear(c.controls)
 	c.requestedEpoch, c.requestedWorld, c.worldNoticePending = next, c.worldID, true
-	data, err := Encode(Control{Epoch: &Epoch{Session: c.session, WorldEpoch: next}})
+	notice := Control{Epoch: &Epoch{Session: c.session, WorldEpoch: next}}
+	data, err := Encode(notice)
 	if err != nil {
+		return err
+	}
+	if err := c.egress.ChargeClass(notice.RateClass(ToClient, false), []int{len(data)}, uint64(c.s.now().UnixMilli())); err != nil {
 		return err
 	}
 	return c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data})

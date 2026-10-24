@@ -556,7 +556,7 @@ fn server_epoch_requests_preserve_the_data_budget_and_envelope_sequence() {
     for (count, padded_bytes) in [
         (policy::MAX_MESSAGES_PER_SECOND, 0),
         (
-            policy::MAX_BYTES_PER_SECOND / fragment_bytes,
+            policy::MAX_BURST_BYTES / fragment_bytes,
             fragment_bytes as usize,
         ),
     ] {
