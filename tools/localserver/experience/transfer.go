@@ -10,6 +10,7 @@ import (
 
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/df-mc/dragonfly/server/block/cube"
+	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
 )
 
@@ -132,7 +133,7 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 			result = world.ErrEntityClosed
 			return
 		}
-		tx.AddEntityAt(ev.actor, pos.vec())
+		actor := tx.AddEntityAt(ev.actor, pos.vec())
 		admitted = true
 
 		h.players.mu.Lock()
@@ -150,7 +151,7 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 		pending := slices.Sorted(maps.Keys(state.pendingEpochs))
 		state.pendingEpochs = nil
 		instance, _ := h.worlds.of(w)
-		h.observeLocked(ev.actor, instance, w, PlayerEvent{Type: "world_change", Before: &before, After: &after})
+		h.observeLocked(actor.(*player.Player), instance, PlayerEvent{Type: "world_change", Before: &before, After: &after})
 		h.players.mu.Unlock()
 		if notified {
 			for _, exp := range pending {

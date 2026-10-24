@@ -2,22 +2,19 @@ package experience
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 
 	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/entity"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/biome"
 	"github.com/df-mc/dragonfly/server/world/generator"
-	"github.com/df-mc/dragonfly/server/world/mcdb"
 )
 
 // worldManager serializes lifecycle changes outside world transactions. Definitions freeze at startup.
@@ -27,8 +24,18 @@ type worldManager struct {
 	synchronous bool
 	definitions map[WorldDefinitionID]WorldDefinition
 	owned       map[WorldHandle]*world.World
+	lifecycle   WorldLifecycle
 	// admit is a test seam for a failure after detach but before destination admission.
 	admit func() error
+}
+
+// WorldLifecycle applies local world settings and tracks simulation ownership.
+// Hooks run outside world transactions, before admission and before close.
+type WorldLifecycle interface {
+	// WorldOpened initializes a world before players or callbacks can use it.
+	WorldOpened(*world.World)
+	// WorldClosed releases the world from local simulation ownership.
+	WorldClosed(*world.World)
 }
 
 // ownedWorldName permits stable mod-scoped IDs without accepting filesystem path components.
@@ -45,8 +52,12 @@ func ownedWorldName(id, owner string) bool {
 	return true
 }
 
-// ConfigureWorlds validates every mod's declarations, then opens startup instances before admission.
-func (h *Host) ConfigureWorlds(ctx context.Context, root string) error {
+// ConfigureWorlds validates declarations and opens startup instances before admission.
+// Callers may supply one lifecycle owner to initialize and track every instance.
+func (h *Host) ConfigureWorlds(ctx context.Context, root string, lifecycle ...WorldLifecycle) error {
+	if len(lifecycle) > 1 {
+		return errors.New("only one world lifecycle owner may be configured")
+	}
 	h.manager.mu.Lock()
 	defer h.manager.mu.Unlock()
 	if h.manager.definitions != nil {
@@ -86,6 +97,9 @@ func (h *Host) ConfigureWorlds(ctx context.Context, root string) error {
 		}
 	}
 	h.manager.root, h.manager.definitions, h.manager.owned = root, definitions, make(map[WorldHandle]*world.World)
+	if len(lifecycle) == 1 {
+		h.manager.lifecycle = lifecycle[0]
+	}
 	slices.SortFunc(startup, func(a, b WorldInstance) int { return strings.Compare(string(a.ID), string(b.ID)) })
 	for _, instance := range startup {
 		owner, _, _ := strings.Cut(string(instance.ID), ":")
@@ -128,46 +142,26 @@ func (h *Host) createWorld(ctx context.Context, owner string, instance WorldInst
 	if err != nil {
 		return WorldHandle{}, err
 	}
-	conf := world.Config{Log: h.log, Dim: dim, Blocks: world.DefaultBlockRegistry, Entities: entity.DefaultRegistry, Synchronous: h.manager.synchronous}
+	conf := world.Config{Log: h.log, Dim: dim, Blocks: world.DefaultBlockRegistry, Entities: entity.DefaultRegistry, Generator: world.NopGenerator{}, Synchronous: h.manager.synchronous}
 	if def.Settings.Generator == GeneratorFlat {
 		conf.Generator = generator.NewFlatWithRegistry(biome.Plains{}, []world.Block{block.Grass{}, block.Dirt{}, block.Bedrock{}}, world.DefaultBlockRegistry)
 	}
-	if def.Settings.Persistent {
-		if h.manager.root == "" {
-			return WorldHandle{}, errors.New("persistent world directory unavailable")
-		}
-		_, name, _ := strings.Cut(string(instance.ID), ":")
-		dir := filepath.Join(h.manager.root, owner, name)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return WorldHandle{}, err
-		}
-		raw, err := json.Marshal(def)
-		if err != nil {
-			return WorldHandle{}, err
-		}
-		path := filepath.Join(dir, "experience-world.json")
-		old, err := os.ReadFile(path)
-		switch {
-		case err == nil:
-			var stored WorldDefinition
-			if json.Unmarshal(old, &stored) != nil || stored != def {
-				return WorldHandle{}, errors.New("saved instance definition changed; explicit migration required")
-			}
-		case errors.Is(err, os.ErrNotExist):
-			if err := os.WriteFile(path, raw, 0o600); err != nil {
-				return WorldHandle{}, err
-			}
-		default:
-			return WorldHandle{}, err
-		}
-		conf.Provider, err = (mcdb.Config{Log: h.log, Blocks: world.DefaultBlockRegistry}).Open(dir)
-		if err != nil {
-			return WorldHandle{}, err
-		}
+	conf.Provider, err = h.instanceProvider(owner, instance, def)
+	if err != nil {
+		return WorldHandle{}, err
+	}
+	if !def.Settings.Persistent {
+		conf.Provider.Settings().Spawn = conf.Generator.DefaultSpawn(dim)
 	}
 	w := conf.New()
+	if h.manager.lifecycle != nil {
+		h.manager.lifecycle.WorldOpened(w)
+	}
 	handle, err := h.BindWorld(instance.ID, w)
 	if err != nil {
+		if h.manager.lifecycle != nil {
+			h.manager.lifecycle.WorldClosed(w)
+		}
 		return WorldHandle{}, errors.Join(err, w.Close())
 	}
 	h.manager.owned[handle] = w
@@ -198,6 +192,9 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 	}
 	h.forgetSimulation(handle)
 	delete(h.manager.owned, handle)
+	if h.manager.lifecycle != nil {
+		h.manager.lifecycle.WorldClosed(w)
+	}
 	return w.Close()
 }
 
@@ -233,6 +230,9 @@ func (h *Host) closeWorlds() error {
 	var errs []error
 	for handle, w := range h.manager.owned {
 		_ = h.worlds.unbind(handle)
+		if h.manager.lifecycle != nil {
+			h.manager.lifecycle.WorldClosed(w)
+		}
 		if err := w.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close instance %s: %w", handle.ID, err))
 		}

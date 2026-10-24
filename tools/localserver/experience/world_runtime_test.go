@@ -26,7 +26,7 @@ type runtimeFixture struct {
 }
 
 // newRuntimeFixture opens one default world and two guest-owned destination definitions.
-func newRuntimeFixture(t *testing.T) *runtimeFixture {
+func newRuntimeFixture(t *testing.T, lifecycle ...WorldLifecycle) *runtimeFixture {
 	t.Helper()
 	registration := &WorldRegistration{Definitions: []WorldDefinition{
 		{ID: "probe:plain", Settings: WorldSettings{Generator: GeneratorEmpty, Dimension: DimensionOverworld}},
@@ -39,7 +39,7 @@ func newRuntimeFixture(t *testing.T) *runtimeFixture {
 	if _, err := h.BindWorld(OverworldInstance, w); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.ConfigureWorlds(t.Context(), t.TempDir()); err != nil {
+	if err := h.ConfigureWorlds(t.Context(), t.TempDir(), lifecycle...); err != nil {
 		t.Fatal(err)
 	}
 	f := &runtimeFixture{t: t, h: h, source: w, d: h.dispatchers["probe"]}

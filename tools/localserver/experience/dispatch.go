@@ -112,6 +112,9 @@ type event struct {
 	// actor is the player who caused the event; nil for a neighbor event.
 	actor *world.EntityHandle
 	call  Call
+	// inventory and slots retain live player observations from their owning transaction.
+	inventory *Inventory
+	slots     []item.Stack
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and
