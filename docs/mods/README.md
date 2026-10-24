@@ -42,6 +42,13 @@ For example, this declaration in `src/shared.rs` registers the cube:
 pub const MOON_ROCK: BlockId = id!("cosmic:moon_rock");
 ```
 
+Declare requests with `#[message(..., to_server)]` and replies with
+`#[message(..., to_client)]` in `src/shared.rs`. Add `#[on_message]` to a method
+inside each entry impl; its last argument is the received message type.
+Send requests with `client::send(&Ping { request: 1 })` and replies with
+`ctx.send(&player, &Pong { request: ping.request })`. Cosmic's Pong declares
+`control` so a reply waits for transport credit. Direction mistakes fail compilation.
+
 ## Build and run
 
 ```sh

@@ -2,13 +2,10 @@
 //! `server.wasm`, generated from `wit/server/server.wit`.
 //!
 //! Implement [`Experience`] on a type and export it with
-//! [`export_experience!`](crate::export_experience). Every callback receives a [`Callback`] that
-//! is valid only for that call. [`Callback::send_client`] stages a typed message for the actor's
-//! client part; [`Callback::send_control`] stages negotiation or acknowledgment replies for
-//! retained delivery after transport budget refusal. Build the payload as [`Value`]s and pass their [`nodes`].
-//! [`Experience::client_message`] receives what that client part sends back, and
-//! [`Experience::epoch`] when it moved to a new world epoch; both may read and write the block
-//! of the player's focus, [`Callback::focus`].
+//! [`export_experience!`](crate::export_experience). Paired projects use `#[entry::server]`
+//! and one `#[on_message]` method per request. [`Callback::send`] checks the reply's
+//! direction and fields and uses its declared delivery mode. Message and epoch callbacks
+//! may read and write the block of the player's focus, [`Callback::focus`].
 //!
 //! Server WIT 0.5 declares blocks with states, placement traits, visuals and network membership,
 //! and items, through [`Experience::registration`]; a guest that only has plain cube blocks
@@ -44,11 +41,15 @@ pub use bindings::cinnabar::experience_server::{
         StoreScope, TextureBinding, ValueNode, Visual, WorldDefinition, WorldDefinitionId,
         WorldError, WorldHandle, WorldInstance, WorldInstanceId, WorldRegistration, WorldSettings,
     },
-    world_access::Callback,
 };
 pub use nodes::{nodes, values};
 
-use crate::Value;
+mod callback;
+pub use callback::Callback;
+
+/// ABI adapters used by generated entry points and low-level protocol fixtures.
+#[doc(hidden)]
+pub mod __private;
 
 mod nodes;
 
@@ -147,24 +148,9 @@ pub trait Experience {
         Ok(())
     }
 
-    /// Handles `client-message`: `player`'s client part sent `payload` on `channel`, revision
-    /// `schema`. [`Callback::focus`] is the block of `player`'s focus, the block of this
-    /// Experience that `player` last used, if it is still valid: `ctx` then has its snapshot and
-    /// reads and writes it as [`Experience::on_interact`] would. Without a focus `ctx` reads and
-    /// writes no blocks. Either way it may `tell` and `send-client` to `player`.
-    fn client_message(
-        _ctx: &Callback,
-        _player: PlayerId,
-        _channel: String,
-        _schema: u16,
-        _payload: Vec<Value>,
-    ) -> Result<(), GuestError> {
-        Ok(())
-    }
-
     /// Handles `epoch`: `player`'s client part moved to a new world epoch, such as another
     /// dimension, and kept running, so it may have missed what was sent before; resend its state.
-    /// `ctx` has the snapshot of `player`'s focus like [`Experience::client_message`]'s.
+    /// `ctx` has the snapshot of `player`'s focus as a message handler does.
     fn epoch(_ctx: &Callback, _player: PlayerId) -> Result<(), GuestError> {
         Ok(())
     }
@@ -183,18 +169,18 @@ pub trait Experience {
 macro_rules! export_experience {
     ($ty:ident) => {
         impl $crate::server::bindings::Guest for $ty {
-            fn on_tick(ctx: &$crate::server::Callback, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_tick(ctx, step)
+            fn on_tick(ctx: &$crate::server::__private::RawCallback, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_tick(&$crate::server::Callback::from_raw(ctx), step)
             }
-            fn on_timer(ctx: &$crate::server::Callback, handle: $crate::server::ScheduleHandle, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_timer(ctx, handle, step)
+            fn on_timer(ctx: &$crate::server::__private::RawCallback, handle: $crate::server::ScheduleHandle, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_timer(&$crate::server::Callback::from_raw(ctx), handle, step)
             }
 
             fn world_definitions() -> ::core::result::Result<$crate::server::WorldRegistration, $crate::server::GuestError> {
                 <$ty as $crate::server::Experience>::world_definitions()
             }
-            fn on_player(ctx: &$crate::server::Callback, player: $crate::server::PlayerId, event: $crate::server::PlayerEvent) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_player(ctx, player, event)
+            fn on_player(ctx: &$crate::server::__private::RawCallback, player: $crate::server::PlayerId, event: $crate::server::PlayerEvent) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_player(&$crate::server::Callback::from_raw(ctx), player, event)
             }
 
             fn register() -> ::core::result::Result<
@@ -205,73 +191,58 @@ macro_rules! export_experience {
             }
 
             fn on_place(
-                ctx: &$crate::server::Callback,
+                ctx: &$crate::server::__private::RawCallback,
                 change: $crate::server::BlockChange,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_place(ctx, change)
+                <$ty as $crate::server::Experience>::on_place(&$crate::server::Callback::from_raw(ctx), change)
             }
 
             fn on_break(
-                ctx: &$crate::server::Callback,
+                ctx: &$crate::server::__private::RawCallback,
                 change: $crate::server::BlockChange,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_break(ctx, change)
+                <$ty as $crate::server::Experience>::on_break(&$crate::server::Callback::from_raw(ctx), change)
             }
 
             fn on_interact(
-                ctx: &$crate::server::Callback,
+                ctx: &$crate::server::__private::RawCallback,
                 player: $crate::server::PlayerId,
                 pos: $crate::server::BlockPos,
                 clicked_face: $crate::server::Face,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_interact(ctx, player, pos, clicked_face)
+                <$ty as $crate::server::Experience>::on_interact(&$crate::server::Callback::from_raw(ctx), player, pos, clicked_face)
             }
 
             fn on_neighbor_changed(
-                ctx: &$crate::server::Callback,
+                ctx: &$crate::server::__private::RawCallback,
                 pos: $crate::server::BlockPos,
                 neighbor: $crate::server::BlockPos,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_neighbor_changed(ctx, pos, neighbor)
+                <$ty as $crate::server::Experience>::on_neighbor_changed(&$crate::server::Callback::from_raw(ctx), pos, neighbor)
             }
 
             fn client_message(
-                ctx: &$crate::server::Callback,
+                ctx: &$crate::server::__private::RawCallback,
                 player: $crate::server::PlayerId,
                 channel: ::std::string::String,
                 schema: u16,
                 payload: ::std::vec::Vec<$crate::server::ValueNode>,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                // The runtime delivers only well-formed payloads.
-                let payload = $crate::server::values(payload).ok_or_else(|| {
-                    $crate::server::GuestError::Failed("malformed client message payload".into())
-                })?;
-                if let Some(registry) = <$ty as $crate::server::Experience>::registry()
-                    && channel == registry.request.id
-                {
-                    // Always reply with our definitions, including when the client is stale.
-                    // The client refuses a different fingerprint before authored callbacks run.
-                    return ctx.send_control(&player, registry.channel.id, registry.channel.schema,
-                        &$crate::server::nodes(::std::vec![$crate::Value::Text(registry.fingerprint.into())]))
-                        .map_err(|_| $crate::server::GuestError::Failed("registry confirmation unavailable".into()));
-                }
-                <$ty as $crate::server::Experience>::client_message(
-                    ctx, player, channel, schema, payload,
-                )
+                $crate::server::__private::receive::<$ty>(ctx, player, channel, schema, payload)
             }
 
             fn epoch(
-                ctx: &$crate::server::Callback,
+                ctx: &$crate::server::__private::RawCallback,
                 player: $crate::server::PlayerId,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::epoch(ctx, player)
+                <$ty as $crate::server::Experience>::epoch(&$crate::server::Callback::from_raw(ctx), player)
             }
 
             fn on_scheduled_update(
-                ctx: &$crate::server::Callback,
+                ctx: &$crate::server::__private::RawCallback,
                 pos: $crate::server::BlockPos,
             ) -> ::core::result::Result<(), $crate::server::GuestError> {
-                <$ty as $crate::server::Experience>::on_scheduled_update(ctx, pos)
+                <$ty as $crate::server::Experience>::on_scheduled_update(&$crate::server::Callback::from_raw(ctx), pos)
             }
         }
 

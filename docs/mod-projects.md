@@ -52,7 +52,9 @@ pub struct Ping {
 }
 ```
 
-Use `to_client` for replies. The generator produces signed channels, Rust `Message`
+Use `to_client` for replies. Add `control` to a to-client negotiation or
+acknowledgment message to retain it when transport credit is exhausted; ordinary
+messages use best-effort delivery. The generator produces signed channels, Rust `Message`
 implementations and Go bindings from the same ordered fields.
 
 | Field | Required bounds |
@@ -61,11 +63,31 @@ implementations and Go bindings from the same ordered fields.
 | `String`, `BlockId`, `ItemId`, `EntityId`, `WorldId` | `#[field(max_bytes = N)]`, counting UTF-8 bytes |
 | `Vec<T>` of a supported scalar | `#[field(max_items = N)]`; strings and IDs also need `max_bytes` |
 
-Unsupported types and conditional definitions fail generation. Import
-`experience_sdk::message::Message` to call `encode`/`decode` and read `CHANNEL`.
-The codecs check field counts, types and bounds. Client code sends with
-`client::send_message`; server code sends encoded values through `server::nodes`
-to `Callback::send_client` or `send_control`. The host also checks the signed channel.
+Unsupported types and conditional definitions fail generation. Inside the entry impls,
+write one `#[on_message]` method per received type:
+
+```rust
+// In #[server] impl Experience for Server:
+#[on_message]
+fn ping(ctx: &Callback, player: PlayerId, ping: Ping) -> Result<(), GuestError> {
+    ctx.send(&player, &Pong { request: ping.request })
+}
+
+// In #[client] impl ClientPart for Client:
+#[on_message]
+fn pong(pong: Pong) {
+    // Update the UI with pong.request.
+}
+```
+
+Client code sends with `client::send(&Ping { request: 1 })`. Wrong-direction sends
+and handlers fail compilation. The generated routers check channel, revision and
+payload before calling handlers. The client host checks the signed revision before
+its unchanged dispatch ABI runs. Unknown or malformed messages are rejected on the
+server; client dispatch silently drops unknown channels and records that fail to decode.
+Handlers receive decoded values;
+manual channel dispatch and raw sends are outside the paired-project API.
+
 Always validate requests against server state; a matching registry is no player authorization.
 
 ## Assets

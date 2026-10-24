@@ -1,6 +1,9 @@
 #![project(id = "cosmic", permissions(messaging, ui))]
 
-use experience_sdk::{id, message::{BlockId, ItemId}};
+use experience_sdk::{
+    id,
+    message::{BlockId, ItemId},
+};
 
 #[block(name = "Moon rock", texture = assets::ASSET_MOON_PNG, hardness = 2.0)]
 pub const MOON_ROCK: BlockId = id!("cosmic:moon_rock");
@@ -13,7 +16,7 @@ pub struct Ping {
     pub request: u32,
 }
 
-#[message(id = "cosmic.pong", schema = 1, to_client)]
+#[message(id = "cosmic.pong", schema = 1, to_client, control)]
 pub struct Pong {
     pub request: u32,
 }

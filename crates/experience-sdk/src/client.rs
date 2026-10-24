@@ -2,10 +2,11 @@
 //! Experience's `.cxb`, generated from `wit/client/client.wit`.
 //!
 //! Implement [`ClientPart`] on a type and export it with
-//! [`export_client_part!`](crate::export_client_part). Records travel as [`Value`]s:
-//! [`ClientPart::dispatch`] receives what the server half sends, and [`send`] sends a record on a
-//! declared channel. The host's imports are [`ui`], [`input`], [`messaging`], [`scene`],
-//! [`media`] and [`items`]; each refuses what the bundle's grants do not allow.
+//! [`export_client_part!`](crate::export_client_part). Paired projects use `#[entry::client]`
+//! and one `#[on_message]` method per reply. [`send`] accepts only to-server messages.
+//! Dispatch silently drops unknown channels and records that fail to decode.
+//! The host's imports are [`ui`], [`input`], [`scene`], [`media`] and [`items`]; each
+//! refuses what the bundle's grants do not allow.
 
 /// Bindings generated from `wit/client/client.wit`.
 pub mod bindings {
@@ -17,10 +18,15 @@ pub mod bindings {
     });
 }
 
-pub use bindings::cinnabar::server_experience::{input, media, messaging, scene, ui};
+pub use bindings::cinnabar::server_experience::{input, media, scene, ui};
 pub use bindings::cinnabar::session::items;
 
-use crate::{Channel, Value};
+use crate::Value;
+use bindings::cinnabar::server_experience::messaging;
+
+/// ABI adapters for generated entry points and low-level protocol fixtures.
+#[doc(hidden)]
+pub mod __private;
 
 /// One client part, mirroring the exports of the `server-bundle` world.
 ///
@@ -34,10 +40,6 @@ pub trait ClientPart {
 
     /// Runs once, when the client part starts.
     fn init();
-
-    /// Handles `dispatch`: the server half sent `record` on the to-client channel `channel`. The
-    /// host has validated it against the channel's declaration.
-    fn dispatch(_channel: String, _record: Vec<Value>) {}
 
     /// Handles `action`: the declared action `id` fired from a modal screen control while the
     /// modal has focus; `collection_index` is the control's row in its nearest collection.
@@ -112,37 +114,13 @@ pub fn active<T: ClientPart>() -> bool {
     T::registry().is_none() || REGISTRY_STATE.get() == crate::message::RegistryState::Active
 }
 
-/// Confirms the complete registry before initialization or dispatching application messages.
-#[doc(hidden)]
-pub fn dispatch<T: ClientPart>(channel: String, record: Vec<Value>) {
-    if let Some(registry) = T::registry()
-        && channel == registry.channel.id
-    {
-        let mut state = REGISTRY_STATE.get();
-        let confirmation = state.confirm(registry, &record);
-        REGISTRY_STATE.set(state);
-        match confirmation {
-            Ok(true) => T::init(),
-            Ok(false) => {}
-            Err(error) => panic!("{error}"),
-        }
-    } else {
-        T::dispatch(channel, record);
-    }
-}
-
-/// Sends a generated message after checking its direction and every declared field bound.
-pub fn send_message<M: crate::message::Message>(message: &M) -> Result<(), String> {
-    if M::CHANNEL.direction != crate::Direction::ToServer {
-        return Err("cannot send a to-client message from the client".into());
-    }
-    send(&M::CHANNEL, &message.encode()?)
-}
-
-/// Sends `record` on the to-server `channel`. The host checks it against the channel's
-/// declaration and the session's message limit, and refuses it with the reason.
-pub fn send(channel: &Channel, record: &[Value]) -> Result<(), String> {
-    messaging::send(channel.id, channel.schema, &record_json(record))
+/// Sends a to-server message after validating every declared field bound.
+pub fn send<M: crate::message::ToServer>(message: &M) -> Result<(), String> {
+    messaging::send(
+        M::CHANNEL.id,
+        M::CHANNEL.schema,
+        &record_json(&message.encode()?),
+    )
 }
 
 /// `record` in the wire's JSON form, as `messaging.send` takes it.
@@ -167,11 +145,7 @@ macro_rules! export_client_part {
             }
 
             fn dispatch(channel: ::std::string::String, record_json: ::std::vec::Vec<u8>) {
-                // The host dispatches only records it validated, so nothing else arrives.
-                if let ::core::option::Option::Some(record) = $crate::client::record(&record_json)
-                {
-                    $crate::client::dispatch::<$ty>(channel, record)
-                }
+                $crate::client::__private::receive::<$ty>(channel, record_json);
             }
 
             fn action(id: ::std::string::String, collection_index: ::core::option::Option<u32>) {
@@ -212,10 +186,12 @@ macro_rules! export_client_part {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientPart, active, dispatch, initialize, initialize_with, record, record_json};
+    use super::{ClientPart, active, initialize, initialize_with, record, record_json};
     use crate::{Channel, Direction, Field, Value, message::Registry};
 
     thread_local! { static INITIALIZATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+    use super::__private;
 
     struct Legacy;
     impl ClientPart for Legacy {
@@ -234,6 +210,13 @@ mod tests {
         /// Counts initialization without invoking any host imports.
         fn init() {
             INITIALIZATIONS.set(INITIALIZATIONS.get() + 1);
+        }
+    }
+
+    impl __private::Dispatch for Guarded {
+        /// No application messages are declared by this initialization fixture.
+        fn dispatch(_: String, _: Vec<Value>) -> Result<(), String> {
+            Err("unknown message".into())
         }
     }
 
@@ -273,7 +256,10 @@ mod tests {
         assert!(!active::<Guarded>());
         assert_eq!(INITIALIZATIONS.get(), 0);
         for _ in 0..2 {
-            dispatch::<Guarded>("test.registry".into(), vec![Value::Text("expected".into())]);
+            __private::receive::<Guarded>(
+                "test.registry".into(),
+                record_json(&[Value::Text("expected".into())]),
+            );
         }
         assert!(active::<Guarded>());
         assert_eq!(INITIALIZATIONS.get(), 1);

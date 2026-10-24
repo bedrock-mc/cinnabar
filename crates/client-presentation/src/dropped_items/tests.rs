@@ -996,3 +996,81 @@ fn dropped_bars_and_candles_use_sprites_and_keep_family_guards_current() {
         Some((NetworkIdMode::Sequential, 1, 1.0))
     );
 }
+
+#[test]
+fn dropped_shaped_plants_and_eggs_use_sprites_and_keep_the_identity_guard_current() {
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let registry = protocol::vanilla_item_registry();
+    let expected: std::collections::BTreeSet<_> = registry
+        .iter()
+        .filter(|item| {
+            records.iter().any(|record| {
+                record.name.as_ref() == item.identifier.as_ref()
+                    && record.model_family == assets::ModelFamily::Unknown
+                    && !record
+                        .traits
+                        .contains(assets::registry::BlockTraits::CANDLE)
+                    && assets::facts::block_render_fact(&record.name).kind
+                        == assets::facts::BlockRenderKind::Ordinary
+                    && assets::facts::block_render_fact(&record.name).flat_icon
+                    && record.name.as_ref() != "minecraft:spore_blossom"
+            })
+        })
+        .map(|item| item.identifier.as_ref())
+        .collect();
+    assert_eq!(
+        assets::facts::SHAPED_SPRITE_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        expected
+    );
+    let stream = stream(false, 1);
+    for identifier in expected {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier}"
+            );
+        }
+    }
+    for identifier in [
+        "minecraft:spore_blossom",
+        "minecraft:sea_lantern",
+        "minecraft:stone",
+    ] {
+        assert!(
+            registry
+                .iter()
+                .any(|item| item.identifier.as_ref() == identifier)
+        );
+        assert_eq!(
+            item_block_id(
+                &stream,
+                ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+                Some(identifier),
+                None
+            ),
+            Some((NetworkIdMode::Sequential, 1)),
+            "{identifier}"
+        );
+    }
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}

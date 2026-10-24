@@ -1,5 +1,5 @@
 //! Test client part shaped like SP3's ME Terminal, for the host's fuel and failure tests.
-//! `dispatch` decodes the record through the SDK, as a real client part does, and by channel:
+//! Its low-level ABI adapter deliberately accepts varied wire records for host tests:
 //!
 //! - `terminal.panic` panics, which traps;
 //! - `terminal.spin` loops until its fuel runs out;
@@ -15,8 +15,8 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use experience_sdk::Value;
 use experience_sdk::client::{ClientPart, ui};
-use experience_sdk::{Value, entry::client};
 use serde_json::{Map, json};
 
 /// Calls of `terminal.count` since this instance started.
@@ -24,26 +24,8 @@ static CALLS: AtomicI64 = AtomicI64::new(0);
 
 struct Terminal;
 
-#[client]
 impl ClientPart for Terminal {
     fn init() {}
-
-    fn dispatch(channel: String, record: Vec<Value>) {
-        match channel.as_str() {
-            "terminal.panic" => panic!("terminal fault"),
-            "terminal.spin" => loop {
-                std::hint::black_box(&channel);
-            },
-            "terminal.size" => read_size(),
-            "terminal.count" => {
-                let calls = CALLS.fetch_add(1, Ordering::Relaxed) + 1;
-                let mut row = Map::new();
-                row.insert("#count".into(), json!({"type": "integer", "value": calls}));
-                bind("count", &[row]);
-            }
-            _ => items(&record),
-        }
-    }
 
     /// Binds the size it was given as `#size` and what `ui.modal-size` reads as `#read`.
     fn modal_resized(size: ui::GuiSize) {
@@ -80,6 +62,29 @@ impl ClientPart for Terminal {
         }
     }
 }
+
+impl experience_sdk::client::__private::Dispatch for Terminal {
+    /// Exercises the host ABI directly, including payloads outside paired mod declarations.
+    fn dispatch(channel: String, record: Vec<Value>) -> Result<(), String> {
+        match channel.as_str() {
+            "terminal.panic" => panic!("terminal fault"),
+            "terminal.spin" => loop {
+                std::hint::black_box(&channel);
+            },
+            "terminal.size" => read_size(),
+            "terminal.count" => {
+                let calls = CALLS.fetch_add(1, Ordering::Relaxed) + 1;
+                let mut row = Map::new();
+                row.insert("#count".into(), json!({"type": "integer", "value": calls}));
+                bind("count", &[row]);
+            }
+            _ => items(&record),
+        }
+        Ok(())
+    }
+}
+
+experience_sdk::export_client_part!(Terminal);
 
 /// Binds the modal size `ui.modal-size` reads as `#read`: its width, height and scale, or
 /// `false` for none.
