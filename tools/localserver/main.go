@@ -44,6 +44,9 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "list-mod-clients" {
+		return listModClients(args[1:], stdout)
+	}
 	if len(args) > 0 && args[0] == "export-mod-pack" {
 		return exportModPack(args[1:])
 	}

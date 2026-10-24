@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -106,5 +108,72 @@ func TestInstalledModSettings(t *testing.T) {
 	}
 	if err := s.loadMods(); err == nil {
 		t.Fatal("incomplete package accepted")
+	}
+}
+
+// TestListedModClients checks that cache discovery uses exactly the server's installed bundles.
+func TestListedModClients(t *testing.T) {
+	dir := t.TempDir()
+	var stdout bytes.Buffer
+	// list decodes the same command output consumed by the development loop.
+	list := func() []string {
+		t.Helper()
+		stdout.Reset()
+		if err := run([]string{"list-mod-clients", dir}, nil, &stdout, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		var paths []string
+		if err := json.Unmarshal(stdout.Bytes(), &paths); err != nil {
+			t.Fatal(err)
+		}
+		return paths
+	}
+	if paths := list(); paths == nil || len(paths) != 0 {
+		t.Fatalf("empty world bundles = %v", paths)
+	}
+	var want []string
+	for _, id := range []string{"first", "second"} {
+		root := filepath.Join(dir, "mods", id)
+		client := filepath.Join(root, "client", id+".cxb")
+		for _, path := range []string{filepath.Join(root, "server", manifestFile), client} {
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(id), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		want = append(want, client)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "mods", ".staging"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mods", "README"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths := list()
+	if !slices.Equal(paths, want) {
+		t.Fatalf("listed bundles = %v, want %v", paths, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mod-server.seed")); !os.IsNotExist(err) {
+		t.Fatalf("listing configured the server signing key: %v", err)
+	}
+	s := settings{dir: dir}
+	if err := s.loadMods(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(paths, s.modClients) {
+		t.Fatalf("listed bundles = %v, server bundles = %v", paths, s.modClients)
+	}
+	if err := os.Remove(want[1]); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	if err := run([]string{"list-mod-clients", dir}, nil, &stdout, io.Discard); err == nil || stdout.Len() != 0 {
+		t.Fatalf("incomplete mod returned bundles: err=%v, stdout=%q", err, stdout.String())
+	}
+	broken := settings{dir: dir}
+	if err := broken.loadMods(); err == nil {
+		t.Fatal("server accepted the incomplete mod")
 	}
 }

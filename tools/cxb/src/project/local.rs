@@ -134,23 +134,18 @@ pub(super) fn run(root: &Path, release: bool) -> Result<()> {
     let root = root.canonicalize()?;
     let package = super::build(&root, release)?;
     let world = root.join(".local/world");
-    let project =
-        experience_sdk::project::Project::parse(&fs::read_to_string(root.join("src/shared.rs"))?)?;
-    let installed = world.join("mods").join(&project.id);
     super::package::replace(&package, &world)?;
     let client = build_client()?;
     let verifier = rust_tool("cinnabar-cxb")?;
     let runtime = rust_tool("experience-runtime")?;
     let user = root.join(".local/client");
-    crate::seed_cache(
-        &installed.join("client").join(format!("{}.cxb", project.id)),
-        &user.join("data"),
-    )?;
+    let server = local_server()?;
+    seed_client_cache(&server, &world, &user.join("data"))?;
     let socket = std::net::UdpSocket::bind("127.0.0.1:0")?;
     let address = socket.local_addr()?.to_string();
     drop(socket);
     let mut server = ServerChild(
-        Command::new(local_server()?)
+        Command::new(server)
             .arg("-addr")
             .arg(&address)
             .args(["-game-mode", "creative", "-dir"])
@@ -181,4 +176,74 @@ pub(super) fn run(root: &Path, release: bool) -> Result<()> {
         .status()?;
     ensure!(status.success(), "development client failed");
     Ok(())
+}
+
+/// Seeds every installed client bundle using the local server's own mod discovery.
+fn seed_client_cache(server: &Path, world: &Path, user_data: &Path) -> Result<()> {
+    let output = Command::new(server)
+        .arg("list-mod-clients")
+        .arg(world)
+        .output()
+        .context("listing installed client bundles")?;
+    std::io::stderr().write_all(&output.stderr)?;
+    ensure!(
+        output.status.success(),
+        "listing installed client bundles failed"
+    );
+    let bundles: Vec<PathBuf> = serde_json::from_slice(&output.stdout)
+        .context("reading the local server's installed client bundles")?;
+    for bundle in bundles {
+        crate::seed_cache(&bundle, user_data)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use server_experience::{cache, crypto};
+
+    #[test]
+    fn seeds_every_installed_mod_into_the_client_cache() {
+        let temporary = tempfile::tempdir().unwrap();
+        let world = temporary.path().join("world with spaces");
+        let user_data = temporary.path().join("client/data");
+        let publisher = crate::keys::pair(&[7; 32]).unwrap();
+        let mut bundles = Vec::new();
+        for id in ["first", "second"] {
+            let bundle = crate::bundle::build(
+                crate::bundle::Source {
+                    id: id.into(),
+                    package_version: "0.1.0".into(),
+                    ..Default::default()
+                },
+                b"\0asm\x0d\0\x01\0",
+                &[],
+                &publisher,
+            )
+            .unwrap()
+            .bytes;
+            let installed = world.join("mods").join(id);
+            fs::create_dir_all(installed.join("server")).unwrap();
+            fs::write(
+                installed
+                    .join("server")
+                    .join(experience_sdk::artifact::MANIFEST_FILE),
+                format!("id = {id:?}\n"),
+            )
+            .unwrap();
+            fs::create_dir_all(installed.join("client")).unwrap();
+            fs::write(installed.join("client").join(format!("{id}.cxb")), &bundle).unwrap();
+            bundles.push(bundle);
+        }
+        fs::create_dir_all(world.join("mods/.staging")).unwrap();
+        fs::write(world.join("mods/README"), "not an installed mod").unwrap();
+
+        seed_client_cache(&local_server().unwrap(), &world, &user_data).unwrap();
+
+        let cache = cache::BundleCache::open(&cache::objects_dir(&user_data)).unwrap();
+        for bytes in bundles {
+            assert_eq!(cache.read(&crypto::digest(&bytes)).unwrap(), Some(bytes));
+        }
+    }
 }

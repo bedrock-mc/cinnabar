@@ -3,15 +3,17 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// loadMods adds installed package artifacts to the existing Experience and client-part hosts.
-func (s *settings) loadMods() error {
+// discoverMods finds and validates the installed artifacts shared by the server and dev client.
+func (s *settings) discoverMods() error {
 	entries, err := os.ReadDir(filepath.Join(s.dir, "mods"))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -33,6 +35,26 @@ func (s *settings) loadMods() error {
 		}
 		s.modArtifacts = append(s.modArtifacts, artifact)
 		s.modClients = append(s.modClients, bundle)
+	}
+	return nil
+}
+
+// listModClients writes the installed client bundle paths without starting or configuring a server.
+func listModClients(args []string, stdout io.Writer) error {
+	if len(args) != 1 {
+		return fmt.Errorf("usage: list-mod-clients <world>")
+	}
+	s := settings{dir: args[0], modClients: []string{}}
+	if err := s.discoverMods(); err != nil {
+		return err
+	}
+	return json.NewEncoder(stdout).Encode(s.modClients)
+}
+
+// loadMods adds installed package artifacts to the existing Experience and client-part hosts.
+func (s *settings) loadMods() error {
+	if err := s.discoverMods(); err != nil {
+		return err
 	}
 	if len(s.modArtifacts) == 0 {
 		return nil
