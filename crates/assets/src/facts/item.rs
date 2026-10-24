@@ -18,6 +18,12 @@ pub fn harness_color(identifier: &str) -> Option<&str> {
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.
 pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
+/// Powered, detector and activator rail items with flat carried artwork.
+pub const POWERED_RAIL_ITEM_IDENTIFIERS: [&str; 3] = [
+    "minecraft:golden_rail",
+    "minecraft:detector_rail",
+    "minecraft:activator_rail",
+];
 /// Torch item identities checked against the pinned registry's torch family in tests.
 pub const TORCH_ITEM_IDENTIFIERS: [&str; 4] = [
     "minecraft:torch",

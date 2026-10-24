@@ -3,7 +3,17 @@ use crate::presentation::actors::{local_diagnostic_presentation, select_actor_pr
 use protocol_ids::{ActorDataKey, ActorFlag};
 
 #[test]
-fn invisibility_retains_only_layers_with_an_emissive_eye_mask() {
+fn invisibility_hides_eye_materials_without_the_actor_override() {
+    assert_body_visibility(false);
+}
+
+#[test]
+fn render_when_invisible_retains_body_and_eye_materials() {
+    assert_body_visibility(true);
+}
+
+/// Applies the actor visibility flags to each body material, including emissive eye masks.
+fn assert_body_visibility(render_when_invisible: bool) {
     let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -35,12 +45,21 @@ fn invisibility_retains_only_layers_with_an_emissive_eye_mask() {
                 protocol::ActorMetadataUpdateEvent {
                     dimension: 0,
                     runtime_id: 1,
-                    metadata: [protocol::ActorMetadata {
-                        key: ActorDataKey::Flags.wire_value(),
-                        value: protocol::ActorMetadataValue::Flags(
-                            1 << ActorFlag::Invisible.wire_value(),
-                        ),
-                    }]
+                    metadata: [
+                        protocol::ActorMetadata {
+                            key: ActorDataKey::Flags.wire_value(),
+                            value: protocol::ActorMetadataValue::Flags(
+                                1 << ActorFlag::Invisible.wire_value(),
+                            ),
+                        },
+                        protocol::ActorMetadata {
+                            key: ActorDataKey::FlagsTwo.wire_value(),
+                            value: protocol::ActorMetadataValue::FlagsExtended(
+                                u64::from(render_when_invisible)
+                                    << (ActorFlag::RenderWhenInvisible.wire_value() - 64),
+                            ),
+                        },
+                    ]
                     .into(),
                     properties: [].into(),
                     tick: 0,
@@ -48,13 +67,16 @@ fn invisibility_retains_only_layers_with_an_emissive_eye_mask() {
             )),
         )
         .unwrap();
-    assert!(stream.authority().actor(1).unwrap().is_invisible());
-    for (alpha_test, emissive, only_emissive, retained) in [
-        (true, false, false, false),
-        (true, true, false, false),
-        (true, false, true, false),
-        (false, true, true, false),
-        (true, true, true, true),
+    assert_eq!(
+        stream.authority().actor(1).unwrap().is_invisible(),
+        !render_when_invisible,
+    );
+    for (alpha_test, emissive, only_emissive) in [
+        (true, false, false),
+        (true, true, false),
+        (true, false, true),
+        (false, true, true),
+        (true, true, true),
     ] {
         let body = local_diagnostic_presentation(
             1,
@@ -77,7 +99,7 @@ fn invisibility_retains_only_layers_with_an_emissive_eye_mask() {
         super::super::layers::apply_style_and_visibility(&mut batch, Some(&stream), None);
         assert_eq!(
             batch.submissions[0].route,
-            if retained {
+            if render_when_invisible {
                 original
             } else {
                 render_model::ActorRigRoute::NoDraw
