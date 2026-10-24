@@ -207,6 +207,14 @@ func (m *lifecycleMatrix) step(name string) {
 		if m.part.server.PlayerSession(f.actor.UUID()) != admitted || f.h.PlayerSession(f.actor) != hostSession {
 			f.t.Fatal("rejecting a duplicate login lost the connected player's session")
 		}
+	case "cancel_callback":
+		for range strikeLimit - 1 {
+			f.d.sup.strike()
+		}
+		m.cancelCallback()
+		if f.d.sup.Quarantined() {
+			f.t.Fatal("host cancellation quarantined the Experience")
+		}
 	case "cancel_run":
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -352,7 +360,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {

@@ -17,10 +17,22 @@ import (
 	"time"
 )
 
-// errHelperFault is returned by Call when the helper missed the result deadline, wrote garbage
-// or an oversized frame, answered another seq, or exited. The helper has been killed, reaped and,
-// unless the fault quarantined the Experience, restarted; the fault counted as a strike.
+// errHelperFault reports a guest or transport failure. An unusable helper is killed and reaped,
+// then restarted unless quarantined. Only guest failures count as strikes.
 var errHelperFault = errors.New("experience helper fault")
+
+// errGuestFault marks a guest budget failure or a violation of the helper protocol.
+var errGuestFault = errors.New("experience guest fault")
+
+// helperOutcome separates host and transport failures from failures charged to the guest.
+type helperOutcome uint8
+
+const (
+	helperComplete helperOutcome = iota
+	helperGuestFault
+	helperHostCancellation
+	helperTransportFailure
+)
 
 // errQuarantined is returned, without IPC, by every Call to a quarantined Experience.
 var errQuarantined = errors.New("experience quarantined")
@@ -50,6 +62,8 @@ type Supervisor struct {
 	strikes  []time.Time
 	restarts []time.Time
 	closed   bool
+	// cancelled marks a helper retired by the host; replacing it is not a fault restart.
+	cancelled bool
 }
 
 // startOptions are test seams; production uses the zero value.
@@ -85,11 +99,9 @@ func startSupervisor(binary, dir string, log *slog.Logger, opts startOptions) (*
 	return s, loaded, nil
 }
 
-// Call runs one callback and returns its outcome; it assigns req.Seq itself. Calls run one at a
-// time, each within resultDeadline. A Failed outcome is a strike. A helper fault is a strike too:
-// the helper is killed, reaped and restarted, and Call returns errHelperFault. An encoding
-// failure is counted without IPC or a restart. A quarantined Experience returns errQuarantined
-// without IPC.
+// Call runs one callback within resultDeadline, assigning req.Seq itself. Guest failures count
+// as strikes. Transport failures recover the helper without a strike; host cancellation leaves
+// recovery to the next call. A quarantined Experience returns errQuarantined without IPC.
 func (s *Supervisor) Call(req CallbackRequest) (Outcome, error) {
 	return s.call(context.Background(), req)
 }
@@ -112,7 +124,6 @@ func (s *Supervisor) call(ctx context.Context, req CallbackRequest) (Outcome, er
 	body, err := encodeFrame(Request{Callback: &req})
 	if err != nil {
 		s.logger().Warn("callback encoding failed", "seq", req.Seq, "error", err)
-		s.strike()
 		return Outcome{}, fmt.Errorf("encoding callback %d: %w", req.Seq, err)
 	}
 	if s.proc == nil {
@@ -123,16 +134,25 @@ func (s *Supervisor) call(ctx context.Context, req CallbackRequest) (Outcome, er
 	}
 	resp, err := s.proc.roundTrip(ctx, body, resultDeadline)
 	if err == nil {
-		err = checkResult(resp, req.Seq)
+		if invalid := checkResult(resp, req.Seq); invalid != nil {
+			err = fmt.Errorf("%w: %w", errGuestFault, invalid)
+		}
+	}
+	outcome := Outcome{}
+	if err == nil {
+		outcome = resp.Result.Outcome
+	}
+	kind := s.account(ctx, outcome, err)
+	if kind == helperHostCancellation {
+		s.fault(ctx, ctx.Err(), kind)
+		return Outcome{}, ctx.Err()
 	}
 	if err != nil {
-		s.fault(ctx, err)
-		return Outcome{}, fmt.Errorf("%w: %v", errHelperFault, err)
+		s.fault(ctx, err, kind)
+		return Outcome{}, fmt.Errorf("%w: %w", errHelperFault, err)
 	}
-	outcome := resp.Result.Outcome
 	if failed := outcome.Failed; failed != nil {
 		s.logger().Warn("callback failed", "seq", req.Seq, "kind", failed.Kind, "reason", failed.Reason)
-		s.strike()
 	}
 	return outcome, nil
 }
@@ -159,6 +179,7 @@ func (s *Supervisor) Reload() error {
 	}
 	s.stopHelper()
 	s.strikes, s.restarts = nil, nil
+	s.cancelled = false
 	proc, loaded, err := s.respawn(context.Background())
 	if err != nil {
 		s.quarantine(fmt.Sprintf("reload failed: %v", err))
@@ -221,40 +242,75 @@ func (s *Supervisor) respawn(ctx context.Context) (*helper, Loaded, error) {
 	}
 	if err := matchRegistration(s.registered, loaded); err != nil {
 		h.kill()
-		return nil, Loaded{}, fmt.Errorf("the artifact in %s no longer matches its registration: %w", s.dir, err)
+		return nil, Loaded{}, fmt.Errorf("%w: the artifact in %s no longer matches its registration: %w", errGuestFault, s.dir, err)
 	}
 	return h, loaded, nil
 }
 
-// fault handles a helper fault: the helper is killed and reaped, the fault counts as a strike,
-// and unless that quarantines the Experience the helper restarts.
-func (s *Supervisor) fault(ctx context.Context, cause error) {
-	s.logger().Warn("helper fault", "err", cause)
-	s.proc.kill()
-	s.proc = nil
-	if !s.strike() && ctx.Err() == nil {
-		// A failed restart is logged and counted inside.
+// account classifies a completed helper operation before charging any guest strike.
+// Host cancellation wins races with responses and transport errors so interrupted work can retry.
+func (s *Supervisor) account(ctx context.Context, out Outcome, err error) helperOutcome {
+	switch {
+	case ctx.Err() != nil:
+		return helperHostCancellation
+	case errors.Is(err, errGuestFault) || err == nil && out.Failed != nil:
+		s.strike()
+		return helperGuestFault
+	case err != nil:
+		return helperTransportFailure
+	default:
+		return helperComplete
+	}
+}
+
+// fault retires an unusable helper and recovers it unless the host cancelled or it is quarantined.
+// The caller has already classified the failure and accounted for any guest strike.
+func (s *Supervisor) fault(ctx context.Context, cause error, kind helperOutcome) {
+	s.logger().Warn("helper stopped", "err", cause)
+	s.cancelled = kind == helperHostCancellation
+	if s.proc != nil {
+		s.proc.kill()
+		s.proc = nil
+	}
+	if kind != helperHostCancellation && !s.Quarantined() {
+		// A failed restart is logged and classified inside.
 		s.restart(ctx)
 	}
 }
 
-// restart starts a fresh helper with the registered artifact (see respawn). The restart that
-// makes more than maxRestarts within restartWindow quarantines the Experience instead. A failed
-// or differing load is a fault: a strike, with no helper running until the next Call retries.
+// restart loads a fresh helper with the registered artifact. Host cancellation changes neither
+// the strike nor restart budget; other attempts count toward the restart window.
 func (s *Supervisor) restart(ctx context.Context) error {
-	now := s.opts.now()
-	s.restarts = append(after(s.restarts, now.Add(-restartWindow)), now)
-	if len(s.restarts) > maxRestarts {
-		s.quarantine(fmt.Sprintf("%d restarts within %v", len(s.restarts), restartWindow))
-		return errQuarantined
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	proc, loaded, err := s.respawn(ctx)
+	kind := s.account(ctx, Outcome{}, err)
+	if kind == helperHostCancellation {
+		s.cancelled = true
+		if proc != nil {
+			proc.kill()
+		}
+		return ctx.Err()
+	}
+	now := s.opts.now()
+	s.restarts = after(s.restarts, now.Add(-restartWindow))
+	if !s.cancelled || kind != helperComplete {
+		s.restarts = append(s.restarts, now)
+	}
+	s.cancelled = false
+	if len(s.restarts) > maxRestarts || s.Quarantined() {
+		if proc != nil {
+			proc.kill()
+		}
+		if !s.Quarantined() {
+			s.quarantine(fmt.Sprintf("%d restarts within %v", len(s.restarts), restartWindow))
+		}
+		return errQuarantined
+	}
 	if err != nil {
 		s.logger().Warn("helper restart failed", "err", err)
-		if s.strike() {
-			return errQuarantined
-		}
-		return fmt.Errorf("%w: restarting the helper: %v", errHelperFault, err)
+		return fmt.Errorf("%w: restarting the helper: %w", errHelperFault, err)
 	}
 	s.proc = proc
 	s.logger().Info("helper restarted", "version", loaded.Version)
@@ -465,11 +521,11 @@ func (h *helper) load(ctx context.Context, dir string) (Loaded, error) {
 	case err != nil:
 		return Loaded{}, fmt.Errorf("load: %w", err)
 	case resp.LoadFailed != nil:
-		return Loaded{}, fmt.Errorf("load failed: %s", resp.LoadFailed.Reason)
+		return Loaded{}, fmt.Errorf("%w: load failed: %s", errGuestFault, resp.LoadFailed.Reason)
 	case resp.Loaded == nil:
-		return Loaded{}, errors.New("load was not answered with loaded")
+		return Loaded{}, fmt.Errorf("%w: load was not answered with loaded", errGuestFault)
 	case resp.Loaded.Protocol != protocolVersion:
-		return Loaded{}, fmt.Errorf("the helper speaks protocol %d, the adapter %d", resp.Loaded.Protocol, protocolVersion)
+		return Loaded{}, fmt.Errorf("%w: the helper speaks protocol %d, the adapter %d", errGuestFault, resp.Loaded.Protocol, protocolVersion)
 	}
 	return *resp.Loaded, nil
 }
@@ -506,7 +562,7 @@ func (h *helper) roundTrip(ctx context.Context, body []byte, deadline time.Durat
 		case <-ctx.Done():
 			return Response{}, ctx.Err()
 		case <-timer.C:
-			return Response{}, fmt.Errorf("no answer within %v", deadline)
+			return Response{}, fmt.Errorf("%w: no answer within %v", errGuestFault, deadline)
 		}
 	}
 	return *resp, nil

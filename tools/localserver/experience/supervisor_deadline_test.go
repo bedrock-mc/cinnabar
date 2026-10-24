@@ -40,7 +40,7 @@ func TestRoundTripHonorsDeadline(t *testing.T) {
 				default:
 				}
 				<-time.After(time.Nanosecond)
-				if err := <-done; err == nil || !strings.Contains(err.Error(), "no answer within") {
+				if err := <-done; !errors.Is(err, errGuestFault) || !strings.Contains(err.Error(), "no answer within") {
 					t.Fatalf("roundTrip: %v, want deadline fault", err)
 				}
 				if elapsed := time.Since(started); elapsed != resultDeadline {

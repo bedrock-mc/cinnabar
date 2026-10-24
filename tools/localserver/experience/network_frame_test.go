@@ -58,8 +58,8 @@ func TestNetworkFrameIncludesScopedRecords(t *testing.T) {
 	}
 }
 
-// TestOversizedFixedCallbackCountsFailure refuses and counts callbacks that cannot be truncated.
-func TestOversizedFixedCallbackCountsFailure(t *testing.T) {
+// TestOversizedFixedCallbackPreservesGuestBudget refuses invalid host frames without a guest strike.
+func TestOversizedFixedCallbackPreservesGuestBudget(t *testing.T) {
 	log, _ := testLog(t)
 	sup, _ := startFake(t, "ok", log, startOptions{})
 	req := probeInteract(0)
@@ -69,7 +69,7 @@ func TestOversizedFixedCallbackCountsFailure(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "encoding callback") || !strings.Contains(err.Error(), "exceeds") {
 			t.Fatalf("oversized fixed callback error = %v", err)
 		}
-		if len(sup.strikes) != i || sup.Quarantined() != (i == strikeLimit) {
+		if len(sup.strikes) != 0 || sup.Quarantined() {
 			t.Fatalf("failure %d: %d strikes, quarantined %v", i, len(sup.strikes), sup.Quarantined())
 		}
 	}

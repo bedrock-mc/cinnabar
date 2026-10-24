@@ -3,6 +3,7 @@ package experience
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -36,30 +37,57 @@ func (r *heldResponse) Close() error {
 
 // TestLifecycleInterruptedLeave replays a dequeued leave before draining later callbacks.
 func TestLifecycleInterruptedLeave(t *testing.T) {
-	for _, point := range []string{"awaiting_response", "before_commit"} {
-		t.Run(point, func(t *testing.T) {
-			m := newLifecycleMatrix(t)
-			f := m.f
-			<-f.d.events // The initial join has no writes.
-			m.step("leave")
-			ctx, cancel := context.WithCancel(t.Context())
-			defer cancel()
-			if point == "awaiting_response" {
-				response := &heldResponse{ReadCloser: f.d.sup.proc.stdout, started: make(chan struct{}), released: make(chan struct{})}
-				f.d.sup.proc.stdout = response
-				done := make(chan struct{})
-				go func() { defer close(done); f.h.Run(ctx) }()
-				<-response.started
-				cancel()
-				<-done
-			} else {
-				f.h.afterCall = func() { f.h.Pause(true); cancel() }
-				f.h.Run(ctx)
-				f.h.afterCall = nil
-			}
-			m.step("shutdown")
-			m.check()
-		})
+	for _, strikes := range []int{0, strikeLimit - 1} {
+		for _, point := range []string{"awaiting_response", "before_commit"} {
+			t.Run(fmt.Sprintf("strikes=%d/%s", strikes, point), func(t *testing.T) {
+				m := newLifecycleMatrix(t)
+				f := m.f
+				<-f.d.events // The initial join has no writes.
+				m.step("leave")
+				for range strikes {
+					f.d.sup.strike()
+				}
+				if point == "awaiting_response" {
+					m.cancelCallback()
+				} else {
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					f.h.afterCall = func() { f.h.Pause(true); cancel() }
+					f.h.Run(ctx)
+					f.h.afterCall = nil
+				}
+				if f.d.sup.Quarantined() {
+					t.Fatal("host cancellation quarantined the Experience")
+				}
+				m.step("shutdown")
+				m.check()
+			})
+		}
+	}
+}
+
+// cancelCallback interrupts the first Run during helper I/O, retaining its event for Drain.
+// A host whose one worker run has already ended has no callback left to interrupt.
+func (m *lifecycleMatrix) cancelCallback() {
+	f := m.f
+	f.h.mu.Lock()
+	used := f.h.running || f.h.closing || f.h.stopping
+	f.h.mu.Unlock()
+	if used {
+		return
+	}
+	ctx, cancel := context.WithCancel(f.t.Context())
+	defer cancel()
+	response := &heldResponse{ReadCloser: f.d.sup.proc.stdout, started: make(chan struct{}), released: make(chan struct{})}
+	f.d.sup.proc.stdout = response
+	done := make(chan struct{})
+	go func() { defer close(done); f.h.Run(ctx) }()
+	select {
+	case <-response.started:
+		cancel()
+		<-done
+	case <-done:
+		f.t.Fatal("Run stopped before callback I/O")
 	}
 }
 

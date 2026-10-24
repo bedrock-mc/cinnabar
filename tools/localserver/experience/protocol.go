@@ -361,7 +361,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	length := binary.LittleEndian.Uint32(prefix[:])
 	if length > maxFrameBytes {
-		return Response{}, fmt.Errorf("frame of %d bytes exceeds %d", length, maxFrameBytes)
+		return Response{}, fmt.Errorf("%w: frame of %d bytes exceeds %d", errGuestFault, length, maxFrameBytes)
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(r, body); err != nil {
@@ -369,7 +369,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	var resp Response
 	if err := decodeStrict(body, &resp); err != nil {
-		return Response{}, fmt.Errorf("decoding a frame: %w", err)
+		return Response{}, fmt.Errorf("%w: decoding a frame: %w", errGuestFault, err)
 	}
 	return resp, nil
 }

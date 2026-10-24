@@ -878,6 +878,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   login’s reservation. Unload also respects connected players and prepared transfers.
   Shutdown drains leave callbacks before store flush and world closure, including after worker cancellation;
   interrupted callbacks stay owned for drain retries, and undelivered final leaves fail the drain.
+  Host cancellation retires the interrupted helper without consuming guest strikes or restart attempts;
+  only guest budget and protocol failures consume strikes, while transport failures recover separately.
   Leave writes need no live world. Player callbacks retain the world tick captured with each observation.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
