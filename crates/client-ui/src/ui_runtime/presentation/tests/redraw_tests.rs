@@ -44,6 +44,38 @@ struct Twin {
 }
 
 #[test]
+fn cosmetic_motion_preserves_unaffected_hud_buffers() {
+    let mut player = player_state::PlayerState::new(1);
+    let runtime = survival(&mut player, 20);
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let before = build(&player, &mut presentation, &runtime, 0);
+    let builds = presentation.tree_builds;
+    let item = render_model::hats::fixture::bunny();
+    presentation.set_cosmetic_motion(&[(item, Default::default())]);
+    for bend in [0.2, 0.8, 0.0] {
+        let (_, allocations) = test_alloc::measure(|| {
+            presentation.set_cosmetic_motion(&[(
+                item,
+                render_model::hats::Motion {
+                    bend,
+                    ..Default::default()
+                },
+            )]);
+        });
+        assert_eq!(allocations.calls, 0, "motion replaced its warmed storage");
+        let after = build(&player, &mut presentation, &runtime, 0);
+        assert_eq!(before, after);
+        assert_eq!(
+            presentation.tree_builds, builds,
+            "cosmetic motion rebuilt an unchanged HUD"
+        );
+        assert!(Arc::ptr_eq(&before.vertices, &after.vertices));
+        assert!(Arc::ptr_eq(&before.indices, &after.indices));
+        assert!(Arc::ptr_eq(&before.batches, &after.batches));
+    }
+}
+
+#[test]
 fn changed_hand_pixels_reuse_layout_and_geometry() {
     let mut player = player_state::PlayerState::new(1);
     let runtime = survival(&mut player, 20);
