@@ -168,7 +168,7 @@ fn recipients_rotate_when_the_callback_budget_runs_out() {
 #[test]
 fn new_world_messages_arriving_before_poll_survive_the_epoch_change() {
     let mut live = fixture_v2(1);
-    complete(&mut live, "bundle0");
+    sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
     live.poll(1, 0).unwrap();
     let message = Envelope {
         version: live.grant.wire.version,
