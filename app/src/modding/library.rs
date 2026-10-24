@@ -409,9 +409,12 @@ fn publish_component(mods: &Path, name: &str, bytes: &[u8]) -> Result<(), String
     let staging = mods.join(format!(".{name}.{}.importing", std::process::id()));
     let mut file = fs::File::create_new(&staging)
         .map_err(|error| format!("Could not stage {name}: {error}"))?;
-    let result = file
-        .write_all(bytes)
-        .and_then(|()| fs::hard_link(&staging, mods.join(name)));
+    let result = file.write_all(bytes).and_then(|()| {
+        // Android forbids app hard links; tempfile uses a no-overwrite rename there.
+        tempfile::TempPath::try_from_path(&staging)?
+            .persist_noclobber(mods.join(name))
+            .map_err(|error| error.error)
+    });
     drop(file);
     let _ = fs::remove_file(&staging);
     result.map_err(|error| {

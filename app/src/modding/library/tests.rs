@@ -710,6 +710,17 @@ fn cancelling_import_publishes_idle_and_allows_more_commands() {
     }
 }
 
+/// Android forbids hard links, but complete bytes must still reach a new mod file.
+#[test]
+fn publishing_installs_complete_bytes_and_removes_staging() {
+    let directory = tempfile::tempdir().unwrap();
+    let mods = directory.path().join("mods");
+    let bytes = b"complete mod bytes";
+    publish_component(&mods, "zoom.wasm", bytes).unwrap();
+    assert_eq!(fs::read(mods.join("zoom.wasm")).unwrap(), bytes);
+    assert_eq!(fs::read_dir(&mods).unwrap().count(), 1);
+}
+
 /// Existing links cannot redirect staging writes or be replaced at publication.
 #[cfg(unix)]
 #[test]
