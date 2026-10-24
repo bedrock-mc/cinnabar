@@ -857,8 +857,15 @@ fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload()
     let changed = component("Other", None);
     assert_eq!(bytes.len(), changed.len());
     std::fs::write(&path, changed).unwrap();
-    let update = prepare(request(&path, previous), &mut state).unwrap();
-    assert_eq!(update.result.unwrap().host.panel().unwrap().title, "Other");
+    let mut changed = None;
+    test_time::eventually("same-size environment edit reloads", || {
+        changed = prepare(request(&path, previous), &mut state);
+        changed.is_some()
+    });
+    assert_eq!(
+        changed.unwrap().result.unwrap().host.panel().unwrap().title,
+        "Other"
+    );
     assert_eq!(first.bytes.as_ref(), bytes);
 }
 
@@ -903,8 +910,12 @@ fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_re
             .replace(&old_hash, &new_hash),
     )
     .unwrap();
-    let update = prepare(candidate(), &mut state).expect("package resource edit reloads");
-    let prepared = update.result.unwrap();
+    let mut changed = None;
+    test_time::eventually("package resource edit reloads", || {
+        changed = prepare(candidate(), &mut state);
+        changed.is_some()
+    });
+    let prepared = changed.unwrap().result.unwrap();
     assert_ne!(prepared.host.source_digest(), previous);
     assert!(prepared.host.package().is_some());
     assert_eq!(first.files.textures[0].1, b"old");

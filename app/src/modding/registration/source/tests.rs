@@ -44,10 +44,9 @@ fn unchanged_registration_polls_share_sources_and_companions_but_observe_changes
         let mut changed = original.clone();
         changed[0] ^= 1;
         std::fs::write(path, changed).unwrap();
-        assert_ne!(
-            first.identity,
-            observer.source_snapshot(entry.clone()).unwrap().identity
-        );
+        test_time::eventually("changed registration source is observed", || {
+            first.identity != observer.source_snapshot(entry.clone()).unwrap().identity
+        });
         std::fs::write(path, original).unwrap();
     }
     let before_denial = observer.source_snapshot(entry.clone()).unwrap();

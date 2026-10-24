@@ -146,6 +146,16 @@ fn package_files_cannot_be_replaced_with_links() {
     assert!(Package::read(dir.path()).is_err());
 }
 
+/// Overwrites an existing fixture with a distinct modification stamp on coarse filesystems.
+fn write_changed(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
+    let path = path.as_ref();
+    let modified = std::fs::metadata(path)?.modified()?;
+    std::fs::write(path, bytes)?;
+    std::fs::File::options().write(true).open(path)?.set_times(
+        std::fs::FileTimes::new().set_modified(modified + std::time::Duration::from_secs(1)),
+    )
+}
+
 #[test]
 fn observations_share_verified_packages_until_any_selected_file_changes() {
     let dir = write_package(
@@ -157,9 +167,17 @@ fn observations_share_verified_packages_until_any_selected_file_changes() {
         |_| {},
     );
     let mut observer = Observation::default();
-    let mut previous = observer.read(dir.path()).unwrap();
+    let mut now = std::time::Instant::now();
+    let mut previous = observer
+        .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+        .unwrap();
     for _ in 0..8 {
-        assert!(Arc::ptr_eq(&previous, &observer.read(dir.path()).unwrap()));
+        assert!(Arc::ptr_eq(
+            &previous,
+            &observer
+                .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+                .unwrap()
+        ));
     }
     let mut component = COMPONENT.to_vec();
     component.extend([0, 2, 1, b'x']);
@@ -172,31 +190,49 @@ fn observations_share_verified_packages_until_any_selected_file_changes() {
         let manifest_path = dir.path().join(MANIFEST);
         let manifest = std::fs::read_to_string(&manifest_path).unwrap();
         let old = std::fs::read(dir.path().join(path)).unwrap();
-        std::fs::write(dir.path().join(path), bytes).unwrap();
+        write_changed(dir.path().join(path), bytes).unwrap();
+        now += crate::local_files::CONFIRMATION_DELAY;
         assert!(
-            observer.read(dir.path()).is_err(),
+            observer
+                .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+                .is_err(),
             "a stale manifest must reject changed {path}"
         );
-        std::fs::write(
+        write_changed(
             &manifest_path,
             manifest.replace(&hex(&Sha256::digest(&old)), &hex(&Sha256::digest(bytes))),
         )
         .unwrap();
-        let changed = observer.read(dir.path()).unwrap();
+        now += crate::local_files::CONFIRMATION_DELAY;
+        let changed = observer
+            .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+            .unwrap();
         assert_ne!(previous.digest, changed.digest);
         assert!(!Arc::ptr_eq(&previous, &changed));
-        assert!(Arc::ptr_eq(&changed, &observer.read(dir.path()).unwrap()));
+        assert!(Arc::ptr_eq(
+            &changed,
+            &observer
+                .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+                .unwrap()
+        ));
         previous = changed;
     }
     let manifest = dir.path().join(MANIFEST);
-    std::fs::write(
+    write_changed(
         &manifest,
         std::fs::read_to_string(&manifest)
             .unwrap()
             .replace("0.1.0", "0.1.1"),
     )
     .unwrap();
-    assert_ne!(previous.digest, observer.read(dir.path()).unwrap().digest);
+    now += crate::local_files::CONFIRMATION_DELAY;
+    assert_ne!(
+        previous.digest,
+        observer
+            .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+            .unwrap()
+            .digest
+    );
 }
 
 #[test]

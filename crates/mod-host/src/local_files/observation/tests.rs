@@ -40,7 +40,10 @@ fn same_size_in_place_edits_with_restored_mtime_are_observed() {
     let path = root.path().join("source");
     std::fs::write(&path, b"original").unwrap();
     let mut cache = ObservationCache::default();
-    let first = cache.read(&path, 8).unwrap();
+    let now = Instant::now();
+    let first = cache
+        .read_at(&path, 8, now, Identity::of, |opened| opened.read(8))
+        .unwrap();
     let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
     let modified = writer.metadata().unwrap().modified().unwrap();
     writer.write_all(b"modified").unwrap();
@@ -48,7 +51,11 @@ fn same_size_in_place_edits_with_restored_mtime_are_observed() {
         .set_times(std::fs::FileTimes::new().set_modified(modified))
         .unwrap();
     drop(writer);
-    let changed = cache.read(&path, 8).unwrap();
+    let changed = cache
+        .read_at(&path, 8, now + CONFIRMATION_DELAY, Identity::of, |opened| {
+            opened.read(8)
+        })
+        .unwrap();
     assert_eq!(changed.bytes.as_ref(), b"modified");
     assert_ne!(first.digest, changed.digest);
     assert_eq!(
@@ -96,7 +103,12 @@ fn an_edit_during_read_is_retried_instead_of_caching_a_mixed_snapshot() {
     let mut cache = ObservationCache::default();
     let result = cache.read_with(&path, 3, |opened| {
         let bytes = opened.read(3)?;
+        let modified = opened.file.metadata()?.modified()?;
         std::fs::write(&path, b"new")?;
+        File::options()
+            .write(true)
+            .open(&path)?
+            .set_times(std::fs::FileTimes::new().set_modified(modified + Duration::from_secs(1)))?;
         Ok(bytes)
     });
     assert!(result.is_err());
