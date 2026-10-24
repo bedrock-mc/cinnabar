@@ -133,33 +133,33 @@ func entityGalleryListener(inner func(server.Config) (server.Listener, error), g
 		if err != nil {
 			return nil, err
 		}
-		return &galleryListener{Listener: listener, gallery: gallery}, nil
+		return &pagedEntityGalleryListener{Listener: listener, gallery: gallery}, nil
 	}
 }
 
-type galleryListener struct {
+type pagedEntityGalleryListener struct {
 	server.Listener
 	gallery []entityAppearance
 }
 
 // Accept gives each viewer an independent page and replacement state.
-func (l *galleryListener) Accept() (session.Conn, error) {
+func (l *pagedEntityGalleryListener) Accept() (session.Conn, error) {
 	conn, err := l.Listener.Accept()
 	if err != nil {
 		return nil, err
 	}
-	return &galleryConn{Conn: conn, gallery: l.gallery}, nil
+	return &pagedEntityGalleryConn{Conn: conn, gallery: l.gallery}, nil
 }
 
 // Disconnect returns the original connection to its owning listener.
-func (l *galleryListener) Disconnect(conn session.Conn, reason string) error {
-	if wrapped, ok := conn.(*galleryConn); ok {
+func (l *pagedEntityGalleryListener) Disconnect(conn session.Conn, reason string) error {
+	if wrapped, ok := conn.(*pagedEntityGalleryConn); ok {
 		conn = wrapped.Conn
 	}
 	return l.Listener.Disconnect(conn, reason)
 }
 
-type galleryConn struct {
+type pagedEntityGalleryConn struct {
 	session.Conn
 	gallery  []entityAppearance
 	position mgl32.Vec3
@@ -168,7 +168,7 @@ type galleryConn struct {
 }
 
 // ReadPacket replaces only this viewer's gallery and leaves other commands untouched.
-func (c *galleryConn) ReadPacket() (packet.Packet, error) {
+func (c *pagedEntityGalleryConn) ReadPacket() (packet.Packet, error) {
 	for {
 		pk, err := c.Conn.ReadPacket()
 		if err != nil {

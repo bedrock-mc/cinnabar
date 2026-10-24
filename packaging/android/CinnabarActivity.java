@@ -19,6 +19,12 @@ public final class CinnabarActivity extends NativeActivity {
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (Build.VERSION.SDK_INT >= 28) {
+            WindowManager.LayoutParams attributes = getWindow().getAttributes();
+            attributes.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            getWindow().setAttributes(attributes);
+        }
         FilePicker.attach(this);
         startup = new StartupScreen(this);
         addContentView(startup, new android.view.ViewGroup.LayoutParams(
