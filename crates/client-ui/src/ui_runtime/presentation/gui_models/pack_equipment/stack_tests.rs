@@ -169,8 +169,8 @@ fn worn_armor_keeps_gui_page_priority_when_hand_and_armor_textures_swap() {
     let side = render_model::UI_MODEL_ATLAS_SIDE;
     let full =
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.pages = vec![full; MODEL_PAGES - 1];
-    presentation.gui_models.required_pages = MODEL_PAGES - 1;
+    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES - 1];
+    presentation.gui_models.sources.required_pages = MODEL_PAGES - 1;
     let pack = RuntimeEquipmentCatalog::from_parts(
         [8; 32],
         Vec::new(),
@@ -219,8 +219,8 @@ fn one_pack_texture_without_room_leaves_the_rest_of_the_pack_usable() {
     let side = render_model::UI_MODEL_ATLAS_SIDE;
     let full =
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.pages = vec![full; MODEL_PAGES - 1];
-    presentation.gui_models.required_pages = MODEL_PAGES - 1;
+    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES - 1];
+    presentation.gui_models.sources.required_pages = MODEL_PAGES - 1;
     let diamond = [40, 220, 210, 255];
     let base = RuntimeEquipmentCatalog::from_parts(
         [4; 32],

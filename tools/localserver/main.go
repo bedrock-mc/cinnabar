@@ -59,6 +59,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.terrainFixtureGenerate {
 		return generateTerrainFixture(cfg, stdout)
 	}
+	var gallery []entityAppearance
+	if cfg.entityGallery != "" {
+		gallery, err = loadEntityGallery(cfg.entityGallery, cfg.entityGalleryAppearances)
+		if err != nil {
+			return fmt.Errorf("prepare entity gallery: %w", err)
+		}
+	}
 	if cfg.luckyBlock {
 		registerLuckyBlock()
 	}
@@ -144,14 +151,26 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = actorBurstListener(listen, cfg.actorBurstArtwork)
 		}
 	}
+	if cfg.entityGallery != "" {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = entityGalleryListener(listen, gallery)
+		}
+	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
+	if err := cfg.configureBlockGallery(&conf); err != nil {
+		if exps != nil {
+			err = errors.Join(err, exps.closeSupervisors())
+		}
+		return fmt.Errorf("prepare block gallery: %w", err)
+	}
 	if cfg.holograms {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = hologramListener(listen)
 		}
 	}
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
+	configureChunkSending(&conf)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	cfg.configureLocalPlayers(&conf)

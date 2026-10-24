@@ -253,6 +253,7 @@ fn different_custom_blocks_recompile_only_blocks_and_icons() {
                 sound: None,
                 name: "reuse:block".into(),
                 tags: Default::default(),
+                tags_complete: true,
                 state_count: 1,
                 collides: true,
                 collision_boxes: None,

@@ -140,9 +140,9 @@ fn full_required_cube_atlas_keeps_cutout_thumbnail_without_failing_installation(
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .unwrap();
-    assert_eq!(presentation.gui_models.required_pages, MODEL_PAGES);
-    assert_eq!(presentation.gui_models.pages.len(), MODEL_PAGES);
-    assert!(presentation.gui_models.optional_models.is_empty());
+    assert_eq!(presentation.gui_models.sources.required_pages, MODEL_PAGES);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
+    assert!(presentation.gui_models.sources.optional_models.is_empty());
     let mut nodes = [node(cutout), node(opaque)];
     let thumbnail = nodes[0].clone();
     presentation.apply_gui_models(&mut nodes);
@@ -170,21 +170,25 @@ fn cutout_cube_pages_are_reclaimed_without_changing_required_cube_texels() {
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .unwrap();
-    assert_eq!(presentation.gui_models.required_pages, 1);
-    assert_eq!(presentation.gui_models.pages.len(), 2);
-    let required = presentation.gui_models.pages[0].pixels().to_vec();
+    assert_eq!(presentation.gui_models.sources.required_pages, 1);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 2);
+    let required = presentation.gui_models.sources.pages[0].pixels().to_vec();
     let mut drawn = [node(cutout)];
     presentation.apply_gui_models(&mut drawn);
     assert!(matches!(drawn[0].visual(), UiVisual::Mesh(_)));
     let first = presentation.textures.dynamic_start() + MODEL_PAGE;
     assert!(presentation.gui_models.discard_optional_models(first));
-    assert_eq!(presentation.gui_models.pages.len(), 1);
-    assert_eq!(presentation.gui_models.pages[0].pixels(), required);
+    assert_eq!(presentation.gui_models.sources.pages.len(), 1);
+    assert_eq!(presentation.gui_models.sources.pages[0].pixels(), required);
     assert!(
-        !presentation.gui_models.textures.contains_key(&atlas::key(
-            assets::BLOCK_ITEM_SHEET_SIZE,
-            &presentation.icon_catalog.as_deref().unwrap().sprites()[0].rgba8,
-        )),
+        !presentation
+            .gui_models
+            .sources
+            .textures
+            .contains_key(&atlas::key(
+                assets::BLOCK_ITEM_SHEET_SIZE,
+                &presentation.icon_catalog.as_deref().unwrap().sprites()[0].rgba8,
+            )),
         "reclaimed optional-page textures are no longer addressable"
     );
     let mut nodes = [node(cutout), node(opaque)];

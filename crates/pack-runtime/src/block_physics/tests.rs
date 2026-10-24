@@ -749,6 +749,7 @@ fn connection_states_select_per_state_collision() {
         player_interact: false,
         name: "test:fence".into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count: 16,
         collides: true,
         collision_boxes: Some(Arc::from([post])),

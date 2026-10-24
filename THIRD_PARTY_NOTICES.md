@@ -129,6 +129,20 @@ Ten, Seven, Five and Five Bold are derived from Cinnangles Sans; their source
 manifests pin the exact Sans input. Sans provenance and licensing review is pending.
 No license is asserted here for these faces.
 
+## DirectX Shader Compiler
+
+- Source: https://github.com/microsoft/DirectXShaderCompiler
+- File: `dxcompiler.dll` (x64), installed beside `cinnabar.exe` by the Windows packages and
+  `make play`; used unmodified. The release archive, its directory and the SHA-256 of both the
+  archive and the library are pinned in `packaging/windows/dxc.json`.
+- License: University of Illinois/NCSA Open Source License (LLVM Release License). The release
+  notes apply it to every packaged file except `d3d12shader.h`, which Cinnabar does not ship.
+- Copyright: Copyright (c) 2003-2015 University of Illinois at Urbana-Champaign; LLVM Team.
+- Full license, with the notices for third-party code the compiler includes:
+  `assets/licenses/DirectXShaderCompiler-LICENSE.txt`, included in packaged resources. It is the
+  repository's `LICENSE.TXT` at the pinned release's tag, without the notices it marks as build
+  and test dependencies only; refresh it whenever the pin changes.
+
 ## FreeType
 
 `assetc` statically links FreeType 2.13.2, bundled by `freetype-sys` 0.22.0, to rasterize

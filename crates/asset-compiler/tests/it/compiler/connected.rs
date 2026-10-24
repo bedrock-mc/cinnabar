@@ -62,6 +62,7 @@ fn write_wall_pack(root: &Path) {
     }
 }
 
+/// Returns the visible post/arm bounds for each valid connection configuration.
 fn expected_wall_boxes(connections: u32) -> Vec<([i16; 3], [i16; 3])> {
     assert_eq!(connections & !0x1ff, 0);
     let north = connections & 3;
@@ -75,28 +76,30 @@ fn expected_wall_boxes(connections: u32) -> Vec<([i16; 3], [i16; 3])> {
             .all(|connection| connection <= 2)
     );
     let height = |connection| match connection {
-        1 => 224,
+        1 => 208,
         2 => 256,
         _ => unreachable!(),
     };
-    // The local vanilla template_wall_{post,side,side_tall}.json files are the
-    // visible render oracle. Dragonfly collision BBoxes are intentionally not
-    // used for these extents.
-    let mut boxes = Vec::with_capacity(5);
-    if post != 0 {
-        boxes.push(([64, 0, 64], [192, 256, 192]));
+    if post == 0 {
+        if north != 0 && south != 0 && east == 0 && west == 0 {
+            return vec![([80, 0, 0], [176, height(north.min(south)), 256])];
+        }
+        if east != 0 && west != 0 && north == 0 && south == 0 {
+            return vec![([0, 0, 80], [256, height(east.min(west)), 176])];
+        }
     }
+    let mut boxes = vec![([64, 0, 64], [192, 256, 192])];
     if north != 0 {
-        boxes.push(([80, 0, 0], [176, height(north), 128]));
+        boxes.push(([80, 0, 0], [176, height(north), 64]));
     }
     if east != 0 {
-        boxes.push(([128, 0, 80], [256, height(east), 176]));
+        boxes.push(([192, 0, 80], [256, height(east), 176]));
     }
     if south != 0 {
-        boxes.push(([80, 0, 128], [176, height(south), 256]));
+        boxes.push(([80, 0, 192], [176, height(south), 256]));
     }
     if west != 0 {
-        boxes.push(([0, 0, 80], [128, height(west), 176]));
+        boxes.push(([0, 0, 80], [64, height(west), 176]));
     }
     boxes
 }

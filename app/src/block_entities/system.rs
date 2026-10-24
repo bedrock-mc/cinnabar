@@ -221,7 +221,8 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
                     .after(crate::runtime::network::prepare_actor_render_frame),
                 request_missing_maps,
             )
-                .chain(),
+                .chain()
+                .run_if(bevy::prelude::resource_exists::<PhysicsCollisionRegistries>),
         );
 }
 

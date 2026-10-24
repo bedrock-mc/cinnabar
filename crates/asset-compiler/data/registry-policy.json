@@ -5658,6 +5658,16 @@
       }
     },
     {
+      "id": "class-Sheep",
+      "status": "provisional",
+      "members": [
+        "minecraft:sheep"
+      ],
+      "facts": {
+        "native_class": "Sheep"
+      }
+    },
+    {
       "id": "class-SplashPotion",
       "status": "provisional",
       "members": [

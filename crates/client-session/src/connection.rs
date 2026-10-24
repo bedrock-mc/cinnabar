@@ -19,6 +19,11 @@ pub struct JoinAttempt<D> {
 pub enum JoinStage<D> {
     /// The launcher core selecting the target on a worker.
     Launcher(crossbeam_channel::Receiver<Result<PathBuf, String>>),
+    /// A ready endpoint retained while client-owned world resources finish preparing.
+    Admission {
+        socket_dir: PathBuf,
+        directory: Option<D>,
+    },
     /// A per-session core that must publish its endpoint by the deadline.
     Core {
         socket_dir: PathBuf,
@@ -45,17 +50,23 @@ pub enum JoinPoll<D> {
 
 impl<D> JoinAttempt<D> {
     /// Advances the existing join in order, before the app inserts a replacement network handle.
+    /// Endpoint provisioning continues while `admitted` is false, but transport waits.
     /// `core_exit` reports the per-session core's exit status once it has exited.
     pub fn poll(
         mut self,
         current_generation: u64,
         connecting: bool,
+        admitted: bool,
         core_exit: impl FnOnce() -> Option<ExitStatus>,
     ) -> JoinPoll<D> {
         if self.generation != current_generation || !connecting {
             return JoinPoll::Retired;
         }
-        match self.stage {
+        let (socket_dir, directory) = match self.stage {
+            JoinStage::Admission {
+                socket_dir,
+                directory,
+            } => (socket_dir, directory),
             JoinStage::Launcher(ref receiver) => {
                 let selected = match receiver.try_recv() {
                     Err(crossbeam_channel::TryRecvError::Empty) => return JoinPoll::Pending(self),
@@ -65,10 +76,7 @@ impl<D> JoinAttempt<D> {
                     Ok(selected) => selected,
                 };
                 match selected {
-                    Ok(socket_dir) => JoinPoll::Ready {
-                        socket_dir,
-                        directory: None,
-                    },
+                    Ok(socket_dir) => (socket_dir, None),
                     Err(error)
                         if self.local_world
                             || self
@@ -76,12 +84,12 @@ impl<D> JoinAttempt<D> {
                                 .trim()
                                 .starts_with(bridge::contract::GATHERING_TARGET_PREFIX) =>
                     {
-                        JoinPoll::Failed {
+                        return JoinPoll::Failed {
                             message: format!("Could not open {}: {error}", self.address),
                             directory: None,
-                        }
+                        };
                     }
-                    Err(_) => JoinPoll::StartCore(self),
+                    Err(_) => return JoinPoll::StartCore(self),
                 }
             }
             JoinStage::Core {
@@ -90,32 +98,42 @@ impl<D> JoinAttempt<D> {
                 deadline,
             } => {
                 if bridge_endpoint_exists(&socket_dir) {
-                    return JoinPoll::Ready {
-                        socket_dir,
+                    (socket_dir, Some(directory))
+                } else {
+                    let error = if let Some(status) = core_exit() {
+                        format!("bedrock-core exited ({status}) before publishing its endpoint")
+                    } else if Instant::now() >= deadline {
+                        "bedrock-core did not publish its endpoint".to_owned()
+                    } else {
+                        self.stage = JoinStage::Core {
+                            socket_dir,
+                            directory,
+                            deadline,
+                        };
+                        return JoinPoll::Pending(self);
+                    };
+                    return JoinPoll::Failed {
+                        message: format!(
+                            "Could not start {}: {error} at {}",
+                            self.address,
+                            socket_dir.display()
+                        ),
                         directory: Some(directory),
                     };
                 }
-                let error = if let Some(status) = core_exit() {
-                    format!("bedrock-core exited ({status}) before publishing its endpoint")
-                } else if Instant::now() >= deadline {
-                    "bedrock-core did not publish its endpoint".to_owned()
-                } else {
-                    self.stage = JoinStage::Core {
-                        socket_dir,
-                        directory,
-                        deadline,
-                    };
-                    return JoinPoll::Pending(self);
-                };
-                JoinPoll::Failed {
-                    message: format!(
-                        "Could not start {}: {error} at {}",
-                        self.address,
-                        socket_dir.display()
-                    ),
-                    directory: Some(directory),
-                }
             }
+        };
+        if admitted {
+            JoinPoll::Ready {
+                socket_dir,
+                directory,
+            }
+        } else {
+            self.stage = JoinStage::Admission {
+                socket_dir,
+                directory,
+            };
+            JoinPoll::Pending(self)
         }
     }
 }
@@ -156,7 +174,7 @@ mod tests {
     fn retired_generation_does_not_poll_the_process_or_start_transport() {
         let attempt = launcher_attempt(false, Ok(PathBuf::from("fixture-endpoint")));
         assert!(matches!(
-            attempt.poll(8, true, || panic!("retired process was polled")),
+            attempt.poll(8, true, true, || panic!("retired process was polled")),
             JoinPoll::Retired
         ));
     }
@@ -171,7 +189,7 @@ mod tests {
             let mut external = launcher_attempt(false, Err("no launcher response".into()));
             external.address = address;
             assert!(matches!(
-                external.poll(7, true, || panic!("launcher has no session core")),
+                external.poll(7, true, true, || panic!("launcher has no session core")),
                 JoinPoll::StartCore(_)
             ));
         }
@@ -179,7 +197,7 @@ mod tests {
         let JoinPoll::Failed {
             message,
             directory: None,
-        } = local.poll(7, true, || panic!("launcher has no session core"))
+        } = local.poll(7, true, true, || panic!("launcher has no session core"))
         else {
             panic!("local joins require their owning launcher core");
         };
@@ -198,7 +216,7 @@ mod tests {
             let mut attempt = launcher_attempt(false, Err(error.into()));
             attempt.address = format!("{}fixture", bridge::contract::GATHERING_TARGET_PREFIX);
             let address = attempt.address.clone();
-            let result = attempt.poll(7, true, || panic!("launcher has no session core"));
+            let result = attempt.poll(7, true, true, || panic!("launcher has no session core"));
             let JoinPoll::Failed {
                 message,
                 directory: None,
@@ -220,7 +238,8 @@ mod tests {
             local_world: false,
             stage: JoinStage::Launcher(receiver),
         };
-        let JoinPoll::Pending(attempt) = attempt.poll(7, true, || panic!("no session core")) else {
+        let JoinPoll::Pending(attempt) = attempt.poll(7, true, true, || panic!("no session core"))
+        else {
             panic!("an unanswered launcher request must remain pending");
         };
         let socket_dir = PathBuf::from("gathering-fixture-endpoint");
@@ -228,7 +247,7 @@ mod tests {
         let JoinPoll::Ready {
             socket_dir: ready,
             directory: None,
-        } = attempt.poll(7, true, || panic!("no session core"))
+        } = attempt.poll(7, true, true, || panic!("no session core"))
         else {
             panic!("a gathering must use the resolved launcher endpoint");
         };
@@ -247,7 +266,7 @@ mod tests {
             stage: JoinStage::Launcher(receiver),
         };
         assert!(matches!(
-            attempt.poll(7, true, || panic!("no session core")),
+            attempt.poll(7, true, true, || panic!("no session core")),
             JoinPoll::Failed {
                 directory: None,
                 ..
@@ -270,7 +289,7 @@ mod tests {
             },
         };
         let status = ExitStatus::default();
-        let result = attempt.poll(7, true, || Some(status));
+        let result = attempt.poll(7, true, true, || Some(status));
         let JoinPoll::Failed {
             directory: Some(_),
             message,
@@ -285,5 +304,46 @@ mod tests {
         assert_eq!(releases.load(Ordering::SeqCst), 0);
         drop(result);
         assert_eq!(releases.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+
+    #[test]
+    fn provisioning_continues_while_ready_endpoints_wait_for_world_resources() {
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        sender.send(Err("use per-session core".into())).unwrap();
+        let attempt = JoinAttempt::<()> {
+            generation: 1,
+            address: "fixture.invalid".into(),
+            auth_cache: None,
+            local_world: false,
+            stage: JoinStage::Launcher(receiver),
+        };
+        assert!(matches!(
+            attempt.poll(1, true, false, || panic!("launcher is not a session core")),
+            JoinPoll::StartCore(_)
+        ));
+        let endpoint = PathBuf::from("ready-before-world");
+        let attempt = JoinAttempt::<()> {
+            generation: 2,
+            address: "fixture.invalid".into(),
+            auth_cache: None,
+            local_world: false,
+            stage: JoinStage::Admission {
+                socket_dir: endpoint.clone(),
+                directory: None,
+            },
+        };
+        let JoinPoll::Pending(attempt) = attempt.poll(2, true, false, || {
+            panic!("ready endpoint does not poll its core")
+        }) else {
+            panic!("transport must wait for world resources");
+        };
+        assert!(
+            matches!(attempt.poll(2, true, true, || panic!("ready endpoint does not poll its core")), JoinPoll::Ready { socket_dir, directory: None } if socket_dir == endpoint)
+        );
     }
 }
