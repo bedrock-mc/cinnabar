@@ -366,9 +366,12 @@ func checkResult(resp Response, seq uint64) error {
 	return nil
 }
 
-// matchRegistration preserves the finalized block and item registration across helper restarts.
+// matchRegistration preserves finalized block, item and entity schemas across helper restarts.
 // The version may differ; an error describes the first incompatible registration category.
 func matchRegistration(registered, loaded Loaded) error {
+	if !reflect.DeepEqual(registered.Entities, loaded.Entities) {
+		return errors.New("its entity definitions changed")
+	}
 	if loaded.ID != registered.ID {
 		return fmt.Errorf("its id changed from %q to %q", registered.ID, loaded.ID)
 	}

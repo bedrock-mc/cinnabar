@@ -161,6 +161,10 @@ impl CallbackRes {
         rotation: wit::EntityRotation,
     ) -> Result<Result<wit::EntityHandle, WorldError>> {
         self.host_call()?;
+        // Final player observations retain private state without live world access.
+        if self.player_store && self.actor.is_none() {
+            return Ok(Err(WorldError::Unavailable));
+        }
         let Some(context) = &mut self.context else {
             return Ok(Err(WorldError::Unavailable));
         };
