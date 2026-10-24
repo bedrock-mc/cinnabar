@@ -23,7 +23,7 @@ tracing.workspace = true
 web-time.workspace = true
 world = { path = "../world" }
 
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "vita")))'.dependencies]
 crash-report = { path = "../crash-report" }
 
 [dev-dependencies]

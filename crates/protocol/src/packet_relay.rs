@@ -17,7 +17,7 @@ use tokio::sync::{Mutex, OwnedMutexGuard, mpsc};
 /// How often a relay's timed work runs: one client tick.
 pub const RELAY_TICK: Duration = Duration::from_millis(50);
 /// Injected client-bound bodies waiting for the session to read them.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 const INJECTED_CAPACITY: usize = 64;
 
 /// A batch body is each packet as a varuint32 byte length followed by the encoded packet,
@@ -132,7 +132,7 @@ impl BatchWriter {
     }
 
     /// The core connection's frame queue.
-    #[cfg(any(test, not(target_arch = "wasm32")))]
+    #[cfg(any(test, not(any(target_arch = "wasm32", target_os = "vita"))))]
     pub(crate) fn queue(&self) -> FrameQueue {
         self.frames.clone()
     }
@@ -193,7 +193,7 @@ impl BatchWriter {
     }
 
     /// Accepts a relay's own server-bound body in write order, without relaying it again.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
     async fn inject(&self, shared: &Shared, body: &[u8]) -> Result<(), BridgeError> {
         let _gate = shared.gate.lock().await;
         let frame = batch_frame_from_body(body);
@@ -212,7 +212,7 @@ pub(crate) struct RelayLink {
 
 impl RelayLink {
     /// Starts the tick task on the current runtime and routes `frames` through the relay.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
     pub(crate) fn start(
         relay: Arc<dyn PacketRelay>,
         frames: FrameQueue,
@@ -262,7 +262,7 @@ impl Drop for RelayLink {
 }
 
 /// Runs the relay's timed work until the session or the core connection ends.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 async fn run_ticks(shared: Arc<Shared>, writer: BatchWriter, inject: mpsc::Sender<Bytes>) {
     let mut interval = tokio::time::interval(RELAY_TICK);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -290,7 +290,7 @@ async fn run_ticks(shared: Arc<Shared>, writer: BatchWriter, inject: mpsc::Sende
 }
 
 /// Starts a relay for a handed-off session off the async runtime and returns its packs.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub(crate) async fn start(
     relay: Arc<dyn PacketRelay>,
     identity: SessionIdentity,
@@ -304,7 +304,7 @@ pub(crate) async fn start(
 }
 
 /// Joins packets, each with its header, into one batch body.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub(crate) fn batch_body(packets: &[Bytes]) -> Bytes {
     let mut body = BytesMut::new();
     for packet in packets {

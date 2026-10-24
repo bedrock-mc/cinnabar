@@ -1,13 +1,13 @@
 use std::collections::VecDeque;
 use std::future::{Future, poll_fn};
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, ready};
 
 use crate::codec::SessionFailure;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 use crate::packet_relay::PacketRelay;
 use crate::packet_relay::{BatchWriter, RelayLink, put_entry};
 use crate::packet_tap::{PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap};
@@ -26,7 +26,7 @@ pub(crate) const MAX_READ_AHEAD_BYTES: usize = 64 * 1024 * 1024;
 
 /// Best-effort: tells the core whether this client applied (or reverted) the
 /// newest attempt's handed-off packs; returns whether the core recorded it.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub async fn report_pack_application(socket_dir: &Path, applied: bool) -> bool {
     let Ok(status) = bridge::read_status(socket_dir).await else {
         return false;
@@ -108,7 +108,7 @@ impl InFlightSend {
 
 impl<R: bridge::FrameRead> SessionTransport<R> {
     /// Continues a handed-off session; the `startup` packets, each with its header, come first.
-    #[cfg(all(test, not(target_arch = "wasm32")))]
+    #[cfg(all(test, not(any(target_arch = "wasm32", target_os = "vita"))))]
     pub(crate) fn new(reader: R, frames: FrameQueue, startup: &[Bytes]) -> Self {
         Self::with_timers(reader, frames, startup, bridge::tasks::Timers::tokio())
     }
@@ -141,7 +141,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
     }
 
     /// Passes later batches through `relay` and starts its timed work on this runtime.
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
     pub(crate) fn set_relay(&mut self, relay: Arc<dyn PacketRelay>) {
         let (link, writer) = RelayLink::start(relay, self.writer.queue(), self.tap.clone());
         self.relay = Some(link);

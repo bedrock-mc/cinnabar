@@ -230,7 +230,7 @@ pub use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,
 };
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub use session_transport::report_pack_application;
 pub use settings::request_chunk_radius_packet;
 pub use transfer::{MAX_TRANSFER_HOST_BYTES, ServerTransferEvent, ServerTransferRejection};
@@ -295,5 +295,5 @@ extern crate self as protocol;
 #[cfg(test)]
 mod tests;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub use login::NativeJoinPreparation;

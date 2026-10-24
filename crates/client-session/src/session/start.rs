@@ -1,9 +1,9 @@
 use super::*;
 use simulation_clock::identity::PositionAuthorityGeneration;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 mod native;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_arch = "wasm32", target_os = "vita")))]
 pub use native::spawn_network;
 #[cfg(test)]
 use native::{run_session_runtime, unless_cancelled};

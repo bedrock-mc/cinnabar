@@ -1,5 +1,5 @@
 //! Connection tasks prepared for the host's executor. Native sockets keep Tokio offloading;
-//! browser hosts can spawn the returned writer locally and supply their own timer future.
+//! browser and Vita hosts can drive the returned writer and supply their own timer future.
 
 use std::future::Future;
 use std::{pin::Pin, time::Duration};
