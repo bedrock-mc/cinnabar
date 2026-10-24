@@ -246,20 +246,16 @@ func (h *Host) closeWorlds() error {
 // A zero generation denotes a world whose binding failed during creation. Callers hold manager.mu.
 func (h *Host) releaseWorld(handle WorldHandle, owned *ownedWorld) error {
 	owned.release.Do(func() {
-		<-owned.w.Exec(func(tx *world.Tx) {
-			if handle.Generation != 0 {
-				_ = h.worlds.unbind(handle)
-				h.forgetSimulation(handle)
-			}
-			h.closeEntities(tx)
-		})
 		if handle.Generation != 0 {
+			_ = h.worlds.unbind(handle)
+			h.forgetSimulation(handle)
 			delete(h.manager.owned, handle)
 		}
+		owned.err = owned.w.Do(h.closeEntities).Wait(context.Background())
 		if h.manager.lifecycle != nil {
 			h.manager.lifecycle.WorldClosed(owned.w)
 		}
-		owned.err = owned.w.Close()
+		owned.err = errors.Join(owned.err, owned.w.Close())
 		if !owned.persistent {
 			h.store.discardPlacements(handle.ID)
 		}
