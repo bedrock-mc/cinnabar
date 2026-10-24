@@ -55,7 +55,6 @@ fn prepare(
     player_runtime: &client_state::PlayerRuntime,
     context: &BlockUseContext,
     runtime: &mut BlockUseRuntime,
-    item_use: &mut client_interaction::item_use::ItemUseRuntime,
     movement: &MovementTicker,
     attempt: &mut BuildInput,
 ) -> Option<sim::CollisionQuery<BuildPlan>> {
@@ -160,7 +159,6 @@ fn prepare(
         .mining_tick(tick, movement.completed_tick())
         .0;
     let block_network_id = stream.block_network_id(observed.target.runtime_id)?;
-    item_use.synchronize(context.ui.session_id());
     let legacy_request_id = protocol::next_legacy_request_id()?;
     let change = (local_use == LocalUse::Place && game_mode != Some(PlayerGameMode::Creative))
         .then(|| {
@@ -190,19 +188,11 @@ pub(crate) fn advance(
     player_runtime: &mut client_state::PlayerRuntime,
     context: &mut BlockUseContext,
     runtime: &mut BlockUseRuntime,
-    item_use: &mut client_interaction::item_use::ItemUseRuntime,
     swings: &mut SwingTracker,
     movement: &MovementTicker,
     attempt: &mut BuildInput,
 ) -> bool {
-    let Some(plan) = prepare(
-        player_runtime,
-        context,
-        runtime,
-        item_use,
-        movement,
-        attempt,
-    ) else {
+    let Some(plan) = prepare(player_runtime, context, runtime, movement, attempt) else {
         return false;
     };
     if !crate::interaction_authority::world_identity_current(

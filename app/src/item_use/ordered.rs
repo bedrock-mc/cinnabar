@@ -4,6 +4,23 @@ use super::*;
 use bevy::prelude::In;
 use client_presentation::local_player::LocalViewPose;
 
+/// Retires the previous session and dimension before any input or server write is consumed.
+pub(crate) fn synchronize_scope(
+    ui: Res<UiRuntimeResource>,
+    client_world: Res<ClientWorld>,
+    movement: Res<MovementTicker>,
+    mut runtime: ResMut<ItemUseRuntime>,
+) {
+    runtime.synchronize(ui.session_id());
+    runtime.observe_world(
+        movement.interaction_authority_identity().0,
+        client_world
+            .stream
+            .as_ref()
+            .map_or(0, |stream| stream.current_dimension()),
+    );
+}
+
 /// Records whether the use button holds an accepted use before any
 /// admission can reject this edge, so a rejected press cannot swallow the
 /// release of a use the button now owns. Server item-use events handled
@@ -34,7 +51,6 @@ pub(crate) fn press(
     mut swings: ResMut<SwingTracker>,
     mut view: ResMut<LocalViewPose>,
 ) {
-    runtime.synchronize(context.ui.session_id());
     if context.client_world.respawn.input_held() {
         runtime.cancel_for_respawn();
         return;

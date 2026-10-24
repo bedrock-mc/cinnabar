@@ -197,6 +197,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
         .snapshot()
         .cloned();
     let Some(snapshot) = snapshot.filter(|input| input.ordered.is_some()) else {
+        world
+            .run_system_cached(crate::item_use::ordered::synchronize_scope)
+            .expect("item-use scope synchronization");
         if world.remove_resource::<InteractionRuntime>().is_some() {
             cancel_pending_owners(world);
         }
@@ -221,6 +224,9 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
     };
     let new_frame = runtime.frames.observe_frame(scope, snapshot.frame_sequence);
     if new_frame {
+        world
+            .run_system_cached(crate::item_use::ordered::synchronize_scope)
+            .expect("item-use scope synchronization");
         runtime.ingested = 0;
     }
     let focused = world

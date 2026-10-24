@@ -88,8 +88,6 @@ pub(crate) fn adopt_server_item_use(
     mut movement: ResMut<MovementTicker>,
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
 ) {
-    // A write for a new session must not be cancelled by the later session check.
-    runtime.synchronize(context.ui.session_id());
     if context.client_world.respawn.input_held() {
         return;
     }
@@ -100,7 +98,6 @@ pub(crate) fn adopt_server_item_use(
         .stream
         .as_ref()
         .map_or(0, |stream| stream.current_dimension());
-    runtime.observe_world(movement.interaction_authority_identity().0, dimension);
     if context.ordered.as_deref().is_some_and(|ordered| {
         ordered.changes_world(movement.interaction_authority_identity().0, dimension)
     }) {
@@ -214,7 +211,6 @@ fn produce_use(
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     before_flush: bool,
 ) {
-    runtime.synchronize(context.ui.session_id());
     if context.client_world.respawn.input_held() {
         runtime.cancel_for_respawn();
         return;
