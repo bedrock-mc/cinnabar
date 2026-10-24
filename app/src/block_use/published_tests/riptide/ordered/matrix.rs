@@ -172,7 +172,13 @@ fn ordered_input_boundary_matrix_keeps_every_later_edge_behind_the_prefix() {
             }
             if matches!(edge, Edge::Press | Edge::Attack) {
                 actor_use_tests::spawn(&mut world, 7.5);
-                // A charging trident ignores the attack button, so attack edges follow an ended use.
+            }
+            if matches!(
+                edge,
+                Edge::Press | Edge::Attack | Edge::Release | Edge::ConsumedRelease | Edge::Mining
+            ) {
+                // A charging trident ignores pressed and held Attack, so attack and mining edges
+                // follow an ended use.
                 world.resource_mut::<ItemUseRuntime>().cancel_for_respawn();
             }
             if matches!(edge, Edge::Use) {

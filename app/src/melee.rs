@@ -280,7 +280,10 @@ fn maintain_attacks(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let input = context.input.snapshot();
     let active = gameplay::survival_mining::mining_active(caps, focused, input.is_some());
+    // An item in use ignores a held Attack as it ignores a press, so no held mining starts or
+    // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
+        && !item_use.is_using()
         && crate::ordered_interactions::held(
             context.ordered.as_deref(),
             &context.input,
