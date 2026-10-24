@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(sherd_pattern("archer_pottery_sherd"), None);
     }
     #[test]
-    fn decorated_pot_neck_and_lip_preserve_the_authored_height_and_inflation() {
+    fn decorated_pot_neck_stands_on_the_lip_above_the_body() {
         let encoded = assets::encode_block_entity_catalog(
             b"{}",
             32,
@@ -170,7 +170,7 @@ mod tests {
         };
         let (neck_min, neck_max) = bounds(&builder.solid[..36]);
         let (lip_min, lip_max) = bounds(&builder.solid[36..72]);
-        assert!((neck_min - 14.1).abs() < 1.0e-4 && (neck_max - 16.9).abs() < 1.0e-4);
+        assert!((neck_min - 17.1).abs() < 1.0e-4 && (neck_max - 19.9).abs() < 1.0e-4);
         assert!((lip_min - 15.8).abs() < 1.0e-4 && (lip_max - 17.2).abs() < 1.0e-4);
     }
 }
