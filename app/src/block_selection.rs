@@ -6,7 +6,6 @@ use sim::PaletteWorld;
 use simulation_clock::identity::SessionGeneration;
 
 use client_shell::ui_resources::UiRuntimeResource;
-use launcher::menu::settings_options::SettingId;
 use {
     crate::{
         interaction_authority::ray_is_current,
@@ -33,24 +32,16 @@ pub(crate) struct SelectionContext<'w> {
     origin: Res<'w, InteractionOriginSnapshot>,
     input: Res<'w, SemanticInputSnapshot>,
     settings: Res<'w, RuntimeSettings>,
-    #[cfg(not(target_arch = "wasm32"))]
-    menu: Option<Res<'w, client_shell::menu::MenuRuntime>>,
-    #[cfg(target_arch = "wasm32")]
-    options: Res<'w, crate::browser_input::BrowserOptions>,
+    controls: Res<'w, client_state::GameplayScreenControls>,
 }
 
 impl SelectionContext<'_> {
     /// Whether the selected block's outline or highlight may be drawn; Hide HUD (F1) hides it.
     fn selection_visible(&self) -> bool {
-        #[cfg(not(target_arch = "wasm32"))]
-        let hide_hud = self
-            .menu
-            .as_deref()
-            .is_some_and(|menu| menu.settings_snapshot().0.value(SettingId::HideHud) != 0);
-        #[cfg(target_arch = "wasm32")]
-        let hide_hud = self.options.0.value(SettingId::HideHud) != 0;
         client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
-            hide_hud, false, false,
+            self.controls.hide_hud,
+            false,
+            false,
         )
         .selection
     }

@@ -78,12 +78,9 @@ fn hidden_hud_draws_no_block_selection_but_keeps_the_actor_pick() {
         world.init_resource::<client_state::RuntimeSettings>();
         world.init_resource::<render_scene::BlockSelectionFrameResource>();
         world.init_resource::<crate::block_selection::CrosshairActor>();
-        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "test".into());
-        menu.set_session_option(
-            launcher::menu::settings_options::SettingId::HideHud,
-            hide_hud.then_some(1),
-        );
-        world.insert_resource(menu);
+        world
+            .resource_mut::<client_state::GameplayScreenControls>()
+            .hide_hud = hide_hud;
         world
             .run_system_cached(crate::block_selection::publish)
             .unwrap();
