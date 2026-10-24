@@ -182,7 +182,7 @@ impl ItemUseRuntime {
         self.reported_using_item
     }
 
-    /// Reports a supplied server flag and retains it for the next movement tick.
+    /// Reports a server flag accepted by physics and retains it for the next movement tick.
     pub fn adopt_server_using_item(&mut self, value: Option<bool>) {
         if value.is_some() {
             self.reported_using_item = value;
