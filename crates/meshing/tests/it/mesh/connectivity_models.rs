@@ -10,6 +10,8 @@ struct CompiledConnectedFixture {
     wall: u32,
     cube: u32,
     glass: u32,
+    /// Registry-unclassified see-through cubes: ice, tinted glass and honey.
+    see_through: [u32; 3],
 }
 
 fn write_connected_render_pack(root: &Path, cube_name: &str) {
@@ -83,8 +85,12 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
 fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
     static FIXTURE: OnceLock<CompiledConnectedFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode connected registry");
+        // The active registry, so pinned connection facts read the same sequential IDs.
+        let records = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .expect("decode connected registry");
         let named = |name: &str| {
             records
                 .iter()
@@ -121,6 +127,9 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             .expect("full cube")
             .clone();
         let glass = named("minecraft:glass");
+        let see_through = ["minecraft:ice", "minecraft:tinted_glass", "minecraft:honey_block"]
+            .map(|name| named(name));
+        let see_through_ids = see_through.each_ref().map(|record| record.sequential_id);
         let cube_name = cube.name.strip_prefix("minecraft:").unwrap();
         let directory = tempfile::tempdir().expect("connected fixture directory");
         write_connected_render_pack(directory.path(), cube_name);
@@ -136,21 +145,20 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             cube.sequential_id,
             glass.sequential_id,
         ];
-        let compiled = compile_pack(
-            directory.path(),
-            &[
-                air,
-                pane,
-                other_pane,
-                wood_fence,
-                nether_fence,
-                gate_facing_z,
-                gate_facing_x,
-                wall,
-                cube,
-                glass,
-            ],
-        )
+        let mut records = vec![
+            air,
+            pane,
+            other_pane,
+            wood_fence,
+            nether_fence,
+            gate_facing_z,
+            gate_facing_x,
+            wall,
+            cube,
+            glass,
+        ];
+        records.extend(see_through);
+        let compiled = compile_pack(directory.path(), &records)
         .expect("compile connected fixture");
         let blob = encode_blob(&compiled).expect("encode connected fixture");
         let assets = RuntimeAssets::decode(&blob).expect("decode connected fixture");
@@ -195,6 +203,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             wall: ids[7],
             cube: ids[8],
             glass: ids[9],
+            see_through: see_through_ids,
         }
     })
 }
@@ -269,11 +278,11 @@ fn panes_select_all_sixteen_palette_native_connection_masks() {
 }
 
 /// Vanilla connects thin and wooden fences to every neighbour without a connection rule,
-/// so non-occluding full cubes such as glass connect like opaque ones.
+/// so non-occluding full cubes such as glass, ice, tinted glass and honey connect like
+/// opaque ones.
 #[test]
 fn panes_and_fences_connect_to_non_occluding_full_cubes() {
     let fixture = compiled_connected_fixture();
-    let glass_north_and_east = [(0, fixture.glass), (1, fixture.glass)];
     let template = |id| {
         fixture
             .assets
@@ -281,22 +290,27 @@ fn panes_and_fences_connect_to_non_occluding_full_cubes() {
             .model_template()
             .unwrap()
     };
-    let pane = mesh_connected(fixture.pane, &glass_north_and_east);
-    assert_eq!(
-        center_stair_ref(&pane, [8, 8, 8]).words()[1],
-        template(fixture.pane) + 3
-    );
-    let fence = mesh_connected(fixture.wood_fence, &glass_north_and_east);
-    let arms = fence
-        .model_refs()
-        .iter()
-        .filter(|reference| reference.words()[0] & 0xfff == 8 | (8 << 4) | (8 << 8))
-        .map(|reference| reference.words()[1])
-        .collect::<Vec<_>>();
-    assert_eq!(
-        arms,
-        [template(fixture.wood_fence), template(fixture.wood_fence) + 1 + 3]
-    );
+    for cube in std::iter::once(fixture.glass).chain(fixture.see_through) {
+        let north_and_east = [(0, cube), (1, cube)];
+        let pane = mesh_connected(fixture.pane, &north_and_east);
+        assert_eq!(
+            center_stair_ref(&pane, [8, 8, 8]).words()[1],
+            template(fixture.pane) + 3,
+            "pane beside {cube}"
+        );
+        let fence = mesh_connected(fixture.wood_fence, &north_and_east);
+        let arms = fence
+            .model_refs()
+            .iter()
+            .filter(|reference| reference.words()[0] & 0xfff == 8 | (8 << 4) | (8 << 8))
+            .map(|reference| reference.words()[1])
+            .collect::<Vec<_>>();
+        assert_eq!(
+            arms,
+            [template(fixture.wood_fence), template(fixture.wood_fence) + 1 + 3],
+            "fence beside {cube}"
+        );
+    }
 }
 
 #[test]

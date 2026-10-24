@@ -43,6 +43,7 @@ struct ConnectionFacts {
     family: ModelFamily,
     role: ContributorRole,
     occludes_full_face: bool,
+    links_as_unit_cube: bool,
     orientation: Option<u32>,
     nether_fence: bool,
 }
@@ -53,13 +54,13 @@ fn connection_facts(
     mode: NetworkIdMode,
     block: u32,
 ) -> Option<ConnectionFacts> {
-    let (family, role, occludes_full_face, orientation) =
-        collisions.block_connection_facts(mode, block)?;
+    let facts = collisions.block_connection_facts(mode, block)?;
     Some(ConnectionFacts {
-        family,
-        role,
-        occludes_full_face,
-        orientation,
+        family: facts.family,
+        role: facts.role,
+        occludes_full_face: facts.occludes_full_face,
+        links_as_unit_cube: facts.links_as_unit_cube,
+        orientation: facts.orientation,
         nether_fence: collisions
             .block_facts(mode, block)
             .traits
@@ -94,8 +95,7 @@ fn connects_to(center: ConnectionFacts, neighbor: ConnectionFacts, face: u8) -> 
     if neighbor.role != ContributorRole::Primary {
         return Some(false);
     }
-    // Unit cubes carry no native connection rule, so see-through ones link like opaque ones.
-    if matches!(neighbor.family, ModelFamily::Cube | ModelFamily::Leaves) {
+    if neighbor.links_as_unit_cube {
         return Some(true);
     }
     match center.family {
@@ -147,6 +147,7 @@ mod tests {
             family,
             role: ContributorRole::Primary,
             occludes_full_face: false,
+            links_as_unit_cube: false,
             orientation: None,
             nether_fence: false,
         }
@@ -182,9 +183,50 @@ mod tests {
     #[test]
     fn panes_and_fences_connect_to_see_through_unit_cubes() {
         for center in [facts(ModelFamily::Pane), facts(ModelFamily::Fence)] {
-            for family in [ModelFamily::Cube, ModelFamily::Leaves] {
-                assert_eq!(connects_to(center, facts(family), 4), Some(true));
+            for family in [ModelFamily::Cube, ModelFamily::Leaves, ModelFamily::Unknown] {
+                let mut cube = facts(family);
+                cube.links_as_unit_cube = true;
+                assert_eq!(connects_to(center, cube, 4), Some(true));
             }
+        }
+    }
+
+    /// Panes link to every shipped unit cube, including the see-through ones the registry
+    /// leaves without a cube model family.
+    #[test]
+    fn panes_link_to_shipped_see_through_cubes() {
+        let protocol = assets::active_content_registry_protocol();
+        let breg = assets::pinned_block_registry_bytes();
+        let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
+        let collisions = PhysicsCollisionRegistries::from_assets(
+            breg,
+            &records,
+            include_bytes!("../../assets/data/block-physics-v2193.bin"),
+            protocol,
+        )
+        .unwrap();
+        let facts_of = |name: &str| {
+            let record = records
+                .iter()
+                .find(|record| record.name.as_ref() == name)
+                .unwrap_or_else(|| panic!("pinned registry has {name}"));
+            connection_facts(&collisions, NetworkIdMode::Sequential, record.sequential_id)
+                .unwrap_or_else(|| panic!("{name} has connection facts"))
+        };
+        let pane = facts_of("minecraft:glass_pane");
+        for name in [
+            "minecraft:glass",
+            "minecraft:tinted_glass",
+            "minecraft:ice",
+            "minecraft:frosted_ice",
+            "minecraft:honey_block",
+            "minecraft:slime",
+            "minecraft:oak_leaves",
+        ] {
+            assert_eq!(connects_to(pane, facts_of(name), 4), Some(true), "{name}");
+        }
+        for name in ["minecraft:poppy", "minecraft:torch"] {
+            assert_eq!(connects_to(pane, facts_of(name), 4), Some(false), "{name}");
         }
     }
 

@@ -31,16 +31,23 @@ struct InteractionBlock {
     build_intention: bool,
     shape_flags: assets::block_shapes::ShapeFlags,
     tags: Arc<[Arc<str>]>,
-    connections: Option<(
-        assets::ModelFamily,
-        assets::ContributorRole,
-        bool,
-        Option<u32>,
-    )>,
+    connections: Option<ConnectionFacts>,
     /// Offset to the other block of a two-block structure such as a door or bed.
     second_part: Option<[i32; 3]>,
     /// Sleep heading compiled from the admitted direction state, when present.
     bed_rotation: Option<f32>,
+}
+
+/// Registry facts that pane, fence and gate connection predicates read from a neighbour.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConnectionFacts {
+    pub(crate) family: assets::ModelFamily,
+    pub(crate) role: assets::ContributorRole,
+    pub(crate) occludes_full_face: bool,
+    /// Panes and fences link to it on every side; see [`assets::facts::connection`].
+    pub(crate) links_as_unit_cube: bool,
+    /// The gate axis selector, when the state has one.
+    pub(crate) orientation: Option<u32>,
 }
 
 type InteractionBlocks = BTreeMap<u32, InteractionBlock>;
@@ -219,14 +226,15 @@ impl PhysicsCollisionRegistries {
                     .iter()
                     .map(|tag| Arc::from(tag.as_ref()))
                     .collect(),
-                connections: Some((
-                    record.model_family,
-                    record.contributor_role,
-                    record
+                connections: Some(ConnectionFacts {
+                    family: record.model_family,
+                    role: record.contributor_role,
+                    occludes_full_face: record
                         .flags
                         .contains(assets::BlockFlags::OCCLUDES_FULL_FACE),
-                    record.model_state.get(assets::ModelStateField::Orientation),
-                )),
+                    links_as_unit_cube: assets::facts::connection::links_as_unit_cube(record),
+                    orientation: record.model_state.get(assets::ModelStateField::Orientation),
+                }),
                 bed_rotation: states.as_ref().and_then(sleeping::rotation),
                 second_part: states.as_ref().and_then(|states| {
                     multipart::second_part_offset(block_facts.get(record.sequential_id), states)
@@ -566,16 +574,11 @@ impl PhysicsCollisionRegistries {
     }
 
     /// Borrows the registry facts used by the renderer's neighbor connection predicates.
-    pub fn block_connection_facts(
+    pub(crate) fn block_connection_facts(
         &self,
         mode: assets::NetworkIdMode,
         runtime_id: u32,
-    ) -> Option<(
-        assets::ModelFamily,
-        assets::ContributorRole,
-        bool,
-        Option<u32>,
-    )> {
+    ) -> Option<ConnectionFacts> {
         let map = match mode {
             assets::NetworkIdMode::Sequential => &self.interaction_blocks,
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
