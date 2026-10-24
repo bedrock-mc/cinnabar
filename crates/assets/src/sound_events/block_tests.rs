@@ -49,7 +49,7 @@ fn inherited_events_keep_their_dynamics_and_explicit_overrides_win() {
     );
     let broken = tables.block("child", "break").unwrap();
     assert_eq!(&*broken.sound, "parent.break");
-    assert!((broken.volume.min - 0.4).abs() < 1e-6);
+    assert_eq!(broken.volume, FloatRange { min: 0.8, max: 0.8 });
     assert_eq!(broken.pitch, FloatRange { min: 0.8, max: 1.0 });
     let ambient = tables.block("child", "ambient").unwrap();
     assert_eq!(

@@ -104,7 +104,7 @@ fn integer_1d_samplers_and_returns_that_convert_translate() {
         ),
     ]);
     let r = reflection(program(&t, "composite"));
-    let blocks = r.textures.iter().find(|t| t.name == "texBlockData");
+    let blocks = r.textures.iter().find(|t| t.name == "image.blocks");
     assert_eq!(
         blocks.map(|t| (t.dimension, t.sample_type)),
         Some((TextureDimension::D1, SampleType::Uint))

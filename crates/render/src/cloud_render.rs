@@ -75,6 +75,7 @@ pub(crate) fn install_cloud_render(app: &mut App) {
         )
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<CloudPipeline>()
         .add_render_command::<Transparent3d, DrawCloudCommands>()
@@ -86,13 +87,13 @@ pub(crate) fn install_cloud_render(app: &mut App) {
                 // Queue, not later in PrepareResources while a queued item can
                 // still refer to the previous window's bounds.
                 prepare_cloud_records
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .after(RenderSystems::PrepareViews)
                     .before(RenderSystems::Queue),
                 prepare_cloud_colour.in_set(RenderSystems::PrepareResources),
                 prepare_cloud_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_clouds
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );

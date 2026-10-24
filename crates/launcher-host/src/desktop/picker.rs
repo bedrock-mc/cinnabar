@@ -1,5 +1,8 @@
 //! Import buttons open the platform file picker on their worker thread.
+#[cfg(any(not(any(windows, target_os = "android")), test))]
 use std::path::PathBuf;
+mod picked;
+pub use picked::PickedFile;
 #[cfg(any(not(any(windows, target_os = "android")), test))]
 use std::process::Command;
 
@@ -16,19 +19,19 @@ pub struct Filter {
 }
 
 /// Returns one selected filename, cancellation, or a visible picker error.
-pub fn pick(filter: &Filter) -> Result<Option<PathBuf>, String> {
+pub fn pick(filter: &Filter) -> Result<Option<PickedFile>, String> {
     choose(filter, false).map(|paths| paths.into_iter().next())
 }
 
 /// Returns all selected files, an empty list on cancellation, or a visible picker error.
-pub fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
+pub fn pick_files(filter: &Filter) -> Result<Vec<PickedFile>, String> {
     choose(filter, true)
 }
 
 /// Shares filters and fallback tools while preserving each caller's selection mode.
 // Windows and Android compile only their own branch, so its early return is the tail.
 #[cfg_attr(any(windows, target_os = "android"), allow(clippy::needless_return))]
-fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
+fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PickedFile>, String> {
     #[cfg(windows)]
     {
         let result = if multiple {
@@ -37,12 +40,14 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
             super::windows::pick_file(filter.title, &windows_filter(filter))
                 .map(|path| path.into_iter().collect())
         };
-        result.map_err(|code| {
-            format!(
-                "File picker failed (error {code:#x}). {}",
-                filter.unavailable_hint
-            )
-        })
+        result
+            .map(|paths| paths.into_iter().map(PickedFile::from).collect())
+            .map_err(|code| {
+                format!(
+                    "File picker failed (error {code:#x}). {}",
+                    filter.unavailable_hint
+                )
+            })
     }
     #[cfg(target_os = "linux")]
     {
@@ -53,7 +58,7 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
                 .map(|path| path.into_iter().collect())
         };
         match result {
-            Ok(paths) => return Ok(paths),
+            Ok(paths) => return Ok(paths.into_iter().map(PickedFile::from).collect()),
             Err(error) => {
                 tracing::debug!("portal file chooser unavailable ({error}); trying dialog tools")
             }
@@ -64,7 +69,7 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     return super::android::pick_documents(multiple, filter.max_bytes, android_mime_type(filter))
         .map_err(|error| format!("{error}."))?
         .ok_or_else(|| unavailable("no document picker is available", filter))
-        .and_then(|paths| selected(filter, paths));
+        .and_then(|paths| selected(filter, paths.into_iter().map(PickedFile::copied).collect()));
     #[cfg(not(any(windows, target_os = "android")))]
     selected(
         filter,
@@ -73,6 +78,7 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
             filter,
         )?,
     )
+    .map(|paths| paths.into_iter().map(PickedFile::from).collect())
 }
 
 /// Restricts ZIP-only requests in Android's picker. Custom extensions keep every document
@@ -93,12 +99,13 @@ fn android_mime_type(filter: &Filter) -> &'static str {
 
 /// Keeps picked files with an accepted extension; picking only other files is a visible error.
 #[cfg(any(not(windows), test))]
-fn selected(filter: &Filter, paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+fn selected<T: AsRef<std::path::Path>>(filter: &Filter, paths: Vec<T>) -> Result<Vec<T>, String> {
     let picked = !paths.is_empty();
-    let accepted: Vec<PathBuf> = paths
+    let accepted: Vec<T> = paths
         .into_iter()
         .filter(|path| {
-            path.extension()
+            path.as_ref()
+                .extension()
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| {
                     filter
@@ -264,11 +271,22 @@ mod tests {
             ]
         );
         assert!(
-            selected(&PACKS, Vec::new()).unwrap().is_empty(),
+            selected(&PACKS, Vec::<PathBuf>::new()).unwrap().is_empty(),
             "cancelling is not an error"
         );
         let error = selected(&PACKS, vec![PathBuf::from("/mods/mod.wasm")]).unwrap_err();
         assert!(error.contains(".mcpack"), "{error}");
+    }
+
+    #[test]
+    fn rejecting_an_android_copy_removes_it_before_returning_the_error() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("selection/0/wrong.wasm");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"copied document").unwrap();
+        assert!(selected(&PACKS, vec![PickedFile::copied(path.clone())]).is_err());
+        assert!(!path.exists());
+        assert!(!root.path().join("selection").exists());
     }
 
     #[test]

@@ -96,7 +96,9 @@ fence opens.
 
 The fence takes effect before the notice is written. Notices and their correlated
 acknowledgments bypass the data rate budget, so exhausted data credits cannot delay
-a transfer. Each connection has at most one outstanding notice. Further transfers
+a transfer. Native epoch updates consume ordinary credit on both sides. The shared
+extension schema defines the traffic classes and encoded carrier costs. Each
+connection has at most one outstanding notice. Further transfers
 record only the latest desired world. After the outstanding acknowledgment arrives,
 the server sends one notice for that world if it differs from the noticed world.
 The fence stays closed until the latest desired world is acknowledged. Retired and

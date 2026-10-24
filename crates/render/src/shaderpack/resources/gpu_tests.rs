@@ -433,6 +433,226 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
 }
 
 #[test]
+fn geometry_unit_zero_aliases_bind_the_custom_texture() {
+    let Some(gpu) = gpu() else { return };
+    for property in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let properties = format!("texture.gbuffers.{property} = sample.png\n");
+        let (directory, _pack) = png_pack(&properties);
+        let shaders = directory.path().join("shaders");
+        std::fs::write(
+            shaders.join("gbuffers_basic.vsh"),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        for uniform in ["albedo", "tex", "texture", "gtexture", "u_MainSampler"] {
+            std::fs::write(
+                shaders.join("gbuffers_basic.fsh"),
+                format!(
+                    "#version 120\nuniform sampler2D {uniform}; void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)); }}"
+                ),
+            )
+            .unwrap();
+            let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+            let translation = pack.translate(&Default::default());
+            let program = translation
+                .programs
+                .iter()
+                .find(|program| program.program.name == "gbuffers_basic")
+                .unwrap();
+            assert!(program.is_ok(), "{property} overrides {uniform}");
+            let vanilla = VanillaTextures::default();
+            let mut builder =
+                ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+            let bindings = bindings::resolve_bindings(
+                &mut builder,
+                program.program.group,
+                program.released_overrides,
+                program.reflection.as_ref().unwrap(),
+                &[None; MAX_COLOR_BUFFERS as usize],
+                0,
+                TextureFormat::R32Float,
+                &[],
+                &[],
+            )
+            .unwrap();
+            let [TextureSource::Constant { index, .. }] = bindings.textures.as_slice() else {
+                panic!(
+                    "{property} must override {uniform}: {:?}",
+                    bindings.textures
+                );
+            };
+            assert_eq!(
+                read_rows(&gpu, &builder.constant(*index).view),
+                [[255, 0, 0, 255], [0, 0, 255, 255]],
+                "{property} overrides {uniform}"
+            );
+        }
+    }
+}
+
+#[test]
+fn raw_tex_keeps_gtexture_and_unbound_samplers_on_the_atlas() {
+    let Some(gpu) = gpu() else { return };
+    for uniform in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let property = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
+        let properties = format!(
+            "texture.gbuffers.{property} = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n"
+        );
+        let (directory, _pack) = png_pack(&properties);
+        let shaders = directory.path().join("shaders");
+        std::fs::write(shaders.join("lut.dat"), [0, 255, 0, 255, 255, 255, 0, 255]).unwrap();
+        std::fs::write(
+            shaders.join("gbuffers_basic.vsh"),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        let atlas = if property == "gtexture" {
+            "albedo"
+        } else {
+            "gtexture"
+        };
+        std::fs::write(
+            shaders.join("gbuffers_basic.fsh"),
+            format!(
+                "#version 120\nuniform sampler2D {uniform}; uniform sampler2D {atlas};\n\
+                 void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D({atlas}, vec2(0.5)); }}"
+            ),
+        ).unwrap();
+        let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+        let translation = pack.translate(&Default::default());
+        let program = translation
+            .programs
+            .iter()
+            .find(|program| program.program.name == "gbuffers_basic")
+            .unwrap();
+        assert!(program.is_ok());
+        let vanilla = VanillaTextures::default();
+        let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            program.released_overrides,
+            program.reflection.as_ref().unwrap(),
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            bindings
+                .textures
+                .iter()
+                .filter(|source| matches!(source, TextureSource::Atlas(AtlasLayer::Color)))
+                .count(),
+            1,
+            "raw {uniform} must leave {atlas} on the atlas: {:?}",
+            bindings.textures
+        );
+        let constants: Vec<_> = bindings
+            .textures
+            .iter()
+            .filter_map(|source| match source {
+                TextureSource::Constant { index, .. } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(constants.len(), 1);
+        assert_eq!(
+            read_rows(&gpu, &builder.constant(constants[0]).view),
+            [[0, 255, 0, 255], [255, 255, 0, 255]]
+        );
+    }
+}
+
+#[test]
+fn flips_release_cached_unit_zero_overrides_but_keep_exact_raw_bindings() {
+    let Some(gpu) = gpu() else { return };
+    let properties = "texture.composite.colortex0 = sample.png\n\
+        texture.composite.tex = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n";
+    let (directory, _) = png_pack(properties);
+    let shaders = directory.path().join("shaders");
+    std::fs::write(shaders.join("lut.dat"), [0, 255, 0, 255, 255, 255, 0, 255]).unwrap();
+    for name in ["composite", "composite1"] {
+        std::fs::write(
+            shaders.join(format!("{name}.vsh")),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        std::fs::write(
+            shaders.join(format!("{name}.fsh")),
+            "#version 120\nuniform sampler2D albedo; uniform sampler2D tex;\n\
+             void main() { gl_FragData[0] = texture2D(albedo, vec2(0.5)) + texture2D(tex, vec2(0.5)); }",
+        )
+        .unwrap();
+    }
+    let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default();
+    let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let mut formats = [None; MAX_COLOR_BUFFERS as usize];
+    formats[0] = Some(TextureFormat::Rgba8Unorm);
+    let mut raw_index = None;
+    for (name, released) in [("composite", 0), ("composite1", 1)] {
+        let program = translation
+            .programs
+            .iter()
+            .find(|p| p.program.name == name)
+            .unwrap();
+        assert!(program.is_ok(), "{name}");
+        assert_eq!(program.released_overrides, released);
+        let reflection = program.reflection.as_ref().unwrap();
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            released,
+            reflection,
+            &formats,
+            0,
+            TextureFormat::R32Float,
+            &[],
+            &[],
+        )
+        .unwrap();
+        for (texture, source) in reflection.textures.iter().zip(&bindings.textures) {
+            match texture.name.as_str() {
+                "colortex0" if released != 0 => assert_eq!(
+                    *source,
+                    TextureSource::Buffer {
+                        index: 0,
+                        format: TextureFormat::Rgba8Unorm
+                    }
+                ),
+                binding => {
+                    let TextureSource::Constant { index, .. } = *source else {
+                        panic!("{name}: {binding} must bind a custom texture: {source:?}");
+                    };
+                    let raw = binding == "texture.composite.tex";
+                    assert_eq!(
+                        read_rows(&gpu, &builder.constant(index).view),
+                        if raw {
+                            [[0, 255, 0, 255], [255, 255, 0, 255]]
+                        } else {
+                            [[255, 0, 0, 255], [0, 0, 255, 255]]
+                        }
+                    );
+                    if raw {
+                        assert_eq!(*raw_index.get_or_insert(index), index);
+                    }
+                }
+            }
+        }
+    }
+    assert!(raw_index.is_some());
+    assert_eq!(builder.out.textures.len(), 2);
+}
+
+#[test]
 fn depth_placeholders_bind_with_the_requested_array_or_cube_shape() {
     let Some(gpu) = gpu() else { return };
     let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
@@ -505,4 +725,60 @@ fn resource_texture_rows_keep_their_decoded_order() {
         read_rows(&gpu, &texture.view),
         [[255, 0, 0, 255], [0, 0, 255, 255]]
     );
+}
+
+#[test]
+fn explicit_image_samplers_do_not_replace_the_unit_zero_fallback() {
+    let Some(gpu) = gpu() else { return };
+    for uniform in ["texture", "gtexture", "tex", "u_MainSampler"] {
+        let normalized = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
+        let fragment = format!(
+            "#version 120\nuniform sampler2D {uniform}; uniform sampler2D albedo;\n\
+             void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D(albedo, vec2(0.5)); }}"
+        );
+        let properties = format!(
+            "image.scratch = {normalized} rgba rgba8 unsigned_byte false false 4 4\n\
+             texture.gbuffers.{normalized} = lut.dat TEXTURE_2D RGBA8 1 1 RGBA UNSIGNED_BYTE\n"
+        );
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+            ("shaders.properties", properties.as_str()),
+            (
+                "gbuffers_basic.vsh",
+                "#version 120\nvoid main() { gl_Position = ftransform(); }",
+            ),
+            ("gbuffers_basic.fsh", fragment.as_str()),
+        ]));
+        let translation = pack.translate(&Default::default());
+        let program = &translation.programs[0];
+        assert!(program.is_ok(), "{uniform}");
+        let vanilla = VanillaTextures::default();
+        let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            program.released_overrides,
+            program.reflection.as_ref().unwrap(),
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &translation.properties.images,
+            &[TextureFormat::Rgba8Unorm],
+        )
+        .unwrap();
+        assert_eq!(
+            bindings.textures,
+            [
+                TextureSource::Image {
+                    index: 0,
+                    format: TextureFormat::Rgba8Unorm
+                },
+                TextureSource::Atlas(AtlasLayer::Color),
+            ],
+            "{uniform}"
+        );
+    }
 }

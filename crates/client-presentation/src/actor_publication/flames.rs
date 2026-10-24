@@ -139,7 +139,7 @@ impl WorldActorFlames {
                     && dimension == world.current_dimension()
                     && world
                         .actor(runtime)
-                        .is_some_and(|actor| actor.spawn_revision == spawn)
+                        .is_some_and(|actor| actor.render_spawn_revision.get() == spawn)
             });
         if self.frames.is_empty() || !camera_yaw.is_finite() {
             return;
@@ -174,7 +174,7 @@ impl WorldActorFlames {
                 identity.session_id,
                 identity.dimension,
                 identity.runtime_id,
-                identity.spawn_revision,
+                identity.spawn_revision.get(),
             );
             let playback = self.playback.entry(key).or_default();
             playback.advance(true, self.frames.len());

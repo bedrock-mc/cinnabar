@@ -58,6 +58,9 @@ windows-sys = { version = "0.61", features = ["Win32_System_Threading", "Win32_S
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "=1.1.4", features = ["fs"] }
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rustix = { version = "=1.1.4", features = ["mm"] }
+
 [dev-dependencies]
 criterion.workspace = true
 test-alloc = { path = "../test-alloc" }

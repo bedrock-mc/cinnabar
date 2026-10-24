@@ -186,7 +186,7 @@ func TestBlockGalleryConnectionOrdersActorDataAfterTerrain(t *testing.T) {
 		t.Fatal(err)
 	}
 	inner := &cameraFixtureConn{}
-	conn := &galleryConn{Conn: inner, gallery: g}
+	conn := &blockGalleryConn{Conn: inner, gallery: g}
 	pk := &packet.SubChunk{Position: protocol.SubChunkPos{0, (galleryGround + 1) >> 4, 0}, SubChunkEntries: []protocol.SubChunkEntry{{Result: protocol.SubChunkResultSuccess}}}
 	if err := conn.WritePacket(pk); err != nil {
 		t.Fatal(err)

@@ -1,4 +1,5 @@
 use crate::common;
+use experience_sdk::artifact::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 
 use std::fs;
 use std::path::Path;
@@ -11,9 +12,7 @@ use common::{
 use experience_runtime::callback::run;
 use experience_runtime::limits::{MAX_COMPONENT_BYTES, MAX_MANIFEST_BYTES, MAX_VERSION_BYTES};
 use experience_runtime::load::{engine, load};
-use experience_runtime::manifest::{
-    ASSETS_DIR, CLIENT_TABLE, MANIFEST_FILE, SERVER_WASM, read_manifest,
-};
+use experience_runtime::manifest::{CLIENT_TABLE, read_manifest};
 use experience_runtime::protocol::{
     BlockDef, ItemDef, Mining, Outcome, PlacementState, Scalar, StateDef, StateValues, Texture,
 };

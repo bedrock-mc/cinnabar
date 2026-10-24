@@ -2,6 +2,7 @@
 //! the probe's callback requests. The probe selects a behavior by the interacted block's x; `p(x)`
 //! is that block and `up(x)` the one above.
 
+use experience_sdk::artifact::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,7 +10,6 @@ use std::sync::LazyLock;
 
 use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
-use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 use experience_runtime::protocol::{
     BlockPos, Call, Cell, Crafted, Face, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op, Outcome,
     Recipe, Request, Scalar, ServerItem,
@@ -757,6 +757,7 @@ pub fn tell(text: &str) -> Op {
 /// A client message to the actor.
 pub fn send(channel: &str, schema: u16, payload: Vec<Scalar>) -> Op {
     Op::SendClient {
+        control: false,
         player: ACTOR.to_owned(),
         channel: channel.to_owned(),
         schema,

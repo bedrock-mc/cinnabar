@@ -10,6 +10,8 @@ pub struct StartGamePhysics {
     pub session_generation: u64,
     pub position: [f32; 3],
     pub rewind_history_size: i32,
+    /// StartGame's level base game version, which selects the sneaking dimensions.
+    pub base_game_version: protocol::BaseGameVersion,
     pub auto_fly: bool,
     pub collision_registry_complete: bool,
 }
@@ -24,6 +26,7 @@ impl StartGamePhysics {
     ) -> Result<MovementSource, PhysicsAuthorityFault> {
         movement.set_source(MovementSource::FreeCamera);
         local_physics.set_rewind_history_size(self.rewind_history_size);
+        local_physics.set_base_game_version(self.base_game_version);
         reset_start_game_prediction(
             movement,
             local_physics,
@@ -87,6 +90,7 @@ mod tests {
                 session_generation: 5,
                 position: [8.0, 70.62, -4.0],
                 rewind_history_size: 42,
+                base_game_version: protocol::BaseGameVersion::Any,
                 auto_fly,
                 collision_registry_complete: complete,
             }

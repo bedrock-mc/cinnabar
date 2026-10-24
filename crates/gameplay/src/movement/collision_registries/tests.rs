@@ -23,6 +23,9 @@ mod multipart;
 #[path = "tests/sleeping.rs"]
 mod sleeping;
 
+#[path = "tests/mining.rs"]
+mod mining;
+
 /// Reads the checkout's shared target manifest for registry fixtures.
 fn active_content_registry_protocol() -> u32 {
     serde_json::from_str::<serde_json::Value>(include_str!(
@@ -143,6 +146,7 @@ fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
         player_interact: false,
         name: name.into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count,
         collides: true,
         collision_boxes: None,

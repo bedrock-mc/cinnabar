@@ -12,9 +12,13 @@ impl PhysicsSampleContext {
 }
 
 /// Input edges and controller state retained alongside one completed simulation tick.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    pub sync_state: posture::SyncState,
+    pub sync_server: Vec<posture::ServerWrite>,
+    /// Feet position before travel, retained independently of live position updates.
+    pub position_before_tick: Vec3,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
@@ -48,6 +52,7 @@ impl ControllerFrame {
         eye.tick(
             self.input.mode,
             self.input.sneaking,
+            self.input.sneak_profile,
             state.spin_attack_ticks.is_some(),
         );
         self.eye_offset = *eye;
@@ -63,6 +68,7 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
             anchor_state.note_hard_anchor();
@@ -174,6 +180,7 @@ impl ControllerFrame {
             state.velocity.y as f32,
             state.velocity.z as f32,
         ];
+        self.position_before_tick = state.position;
         self.modes = *modes;
         self.anchor_state = *anchor_state;
         self.input = *input;

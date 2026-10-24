@@ -125,11 +125,15 @@ struct Voice {
     gain: f32,
 }
 
+/// Uniform rolls per start: one picks the alternative, and volume and pitch take two each
+/// for their triangular spread.
+const START_ROLLS: usize = 5;
+
 /// A start waiting for its PCM; replayed with the same rolls so it resolves identically.
 struct PendingStart {
     request: SoundRequest,
     managed: Option<(&'static str, f32)>,
-    roll: [f32; 3],
+    roll: [f32; START_ROLLS],
     path: Box<str>,
     category: AudioCategory,
     /// Loops and streamed tracks wait for their decode however long it takes.
@@ -502,7 +506,7 @@ impl AudioEngine {
             self.stats.no_bank += 1;
             return None;
         }
-        let roll = [self.unit(), self.unit(), self.unit()];
+        let roll = std::array::from_fn(|_| self.unit());
         self.start_rolled(request, listener, settings, managed, roll)
     }
 
@@ -512,7 +516,7 @@ impl AudioEngine {
         listener: Option<Listener>,
         settings: &AudioSettings,
         managed: Option<(&'static str, f32)>,
-        roll: [f32; 3],
+        roll: [f32; START_ROLLS],
     ) -> Option<VoiceSource> {
         let bank = self.bank.as_mut()?;
         let Some(definition) = bank.definition(&request.name) else {
@@ -545,7 +549,7 @@ impl AudioEngine {
             .copied()
             .unwrap_or(alternatives[0]);
         let category = AudioCategory::from_definition(definition.category.as_deref());
-        let request_volume = request.volume.sample(roll[1]);
+        let request_volume = request.volume.sample(roll[1], roll[2]);
         // Vanilla widens the audible range by the raw volume but clamps the playback gain to unity.
         let request_gain = if request_volume.is_finite() {
             request_volume.clamp(0.0, 1.0)
@@ -555,7 +559,7 @@ impl AudioEngine {
         let volume = definition.volume.unwrap_or(1.0) * chosen.volume.unwrap_or(1.0) * request_gain;
         let pitch = (definition.pitch.unwrap_or(1.0)
             * chosen.pitch.unwrap_or(1.0)
-            * request.pitch.sample(roll[2]))
+            * request.pitch.sample(roll[3], roll[4]))
         .clamp(0.05, 8.0);
         let flat = matches!(category, AudioCategory::Music | AudioCategory::Ui);
         let positional = request.position.is_some() && chosen.is_3d != Some(false) && !flat;

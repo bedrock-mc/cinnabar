@@ -592,6 +592,29 @@ fn sodium_rule_additions_match_a_full_rebuild_and_rule_changes_rebuild() {
     assert_eq!(visible, rebuilt);
 }
 
+/// Checks the retained result against a full traversal of the current graph: never missing a
+/// visible section, and equal whenever the scratch reports an exact result.
+pub(super) fn assert_superset_of_oracle(
+    camera: SubChunkKey,
+    map: &HashMap<SubChunkKey, FaceConnectivity>,
+    scratch: &CaveVisibilityScratch,
+    visible: &CaveVisibleSet,
+    context: &str,
+) {
+    let expected = oracle(camera, map);
+    let actual = visible.iter().collect::<HashSet<_>>();
+    assert_eq!(
+        actual.len(),
+        visible.len(),
+        "duplicate members at {context}"
+    );
+    let missing = expected.difference(&actual).collect::<Vec<_>>();
+    assert!(missing.is_empty(), "hid visible {missing:?} at {context}");
+    if scratch.is_exact() {
+        assert_eq!(actual, expected, "exact result diverged at {context}");
+    }
+}
+
 #[test]
 fn incremental_updates_match_full_traversal_through_mutations() {
     let mut rng = Rng(0x51ea_cafe);
@@ -601,6 +624,7 @@ fn incremental_updates_match_full_traversal_through_mutations() {
     let mut scratch = CaveVisibilityScratch::default();
     let mut visible = CaveVisibleSet::default();
     let mut replacement = CaveVisibleSet::default();
+    let mut superset_updates = 0;
     for step in 0..300 {
         for _ in 0..8 {
             let key = SubChunkKey::new(
@@ -635,12 +659,118 @@ fn incremental_updates_match_full_traversal_through_mutations() {
             camera = SubChunkKey::new(0, rng.below(6) - 3, rng.below(20), 0);
         }
         update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
-        assert_eq!(
-            visible.iter().collect::<HashSet<_>>(),
-            oracle(camera, &map),
-            "step {step}"
+        assert_superset_of_oracle(camera, &map, &scratch, &visible, &format!("step {step}"));
+        superset_updates = if scratch.is_exact() {
+            0
+        } else {
+            superset_updates + 1
+        };
+        assert!(superset_updates < incremental::SUPERSET_UPDATE_LIMIT);
+    }
+}
+
+/// Random edits including removals, narrowed and widened matrices, bulk retention, toroidal
+/// promotions and camera moves never hide a visible section, and an idle graph becomes exact
+/// within the bounded number of updates.
+#[test]
+fn superset_updates_never_hide_visible_sections_and_converge() {
+    let mut rng = Rng(0x0bad_5eed_cafe);
+    for round in 0..12 {
+        // Spans past the initial 32-cell axes collide, so removals promote overflow keys.
+        let span = [10, 40, 70][round % 3];
+        let mut map = HashMap::new();
+        let random_key = |rng: &mut Rng| {
+            SubChunkKey::new(
+                0,
+                rng.below(span) - span as i32 / 2,
+                rng.below(8),
+                rng.below(span) - span as i32 / 2,
+            )
+        };
+        for _ in 0..1_500 {
+            let key = random_key(&mut rng);
+            map.insert(key, rng.connectivity());
+        }
+        let mut grid = grid(map.iter().map(|(key, value)| (*key, *value)));
+        let mut camera = SubChunkKey::new(0, 0, 4, 0);
+        map.insert(camera, FaceConnectivity::all());
+        grid.insert(camera, FaceConnectivity::all());
+        let mut scratch = CaveVisibilityScratch::default();
+        let mut visible = CaveVisibleSet::default();
+        let mut replacement = CaveVisibleSet::default();
+        update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
+        for step in 0..200 {
+            for _ in 0..rng.below(12) {
+                let key = random_key(&mut rng);
+                match rng.below(5) {
+                    0 | 1 => {
+                        let value = rng.connectivity();
+                        map.insert(key, value);
+                        grid.insert(key, value);
+                    }
+                    2 => {
+                        // Widen or narrow an existing matrix by a few connections.
+                        let current = map.get(&key).copied().unwrap_or(FaceConnectivity::none());
+                        let flip = rng.next() & rng.next() & ((1 << 36) - 1);
+                        let value = FaceConnectivity::from_bits(current.bits() ^ flip);
+                        map.insert(key, value);
+                        grid.insert(key, value);
+                    }
+                    3 => {
+                        map.remove(&key);
+                        grid.remove(&key);
+                    }
+                    _ => {
+                        if rng.below(8) == 0 {
+                            let x = rng.below(span) - span as i32 / 2;
+                            map.retain(|key, _| key.x != x);
+                            grid.retain(|key| key.x != x);
+                        }
+                    }
+                }
+            }
+            if rng.below(10) == 0 {
+                camera = random_key(&mut rng);
+            }
+            update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
+            let context = format!("round {round} step {step}");
+            assert_superset_of_oracle(camera, &map, &scratch, &visible, &context);
+        }
+        for _ in 0..incremental::SUPERSET_UPDATE_LIMIT {
+            update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
+        }
+        assert!(scratch.is_exact(), "round {round} stayed a superset");
+        assert_superset_of_oracle(camera, &map, &scratch, &visible, "converged");
+    }
+}
+
+/// Joins and widened matrices extend the retained traversal exactly, without rebuilding.
+#[test]
+fn additions_and_widened_connections_stay_exact_without_rebuilds() {
+    let mut rng = Rng(0x7e57_ab1e);
+    let mut map = fixture_world(6, 0xfeed);
+    let mut grid = grid(map.iter().map(|(key, value)| (*key, *value)));
+    let camera = SubChunkKey::new(0, 0, 10, 0);
+    let mut scratch = CaveVisibilityScratch::default();
+    let mut visible = CaveVisibleSet::default();
+    let mut replacement = CaveVisibleSet::default();
+    update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement);
+    for step in 0..200 {
+        for _ in 0..8 {
+            let key = SubChunkKey::new(0, rng.below(16) - 8, rng.below(24) - 4, rng.below(16) - 8);
+            let extra = rng.connectivity().bits();
+            let widened = FaceConnectivity::from_bits(
+                map.get(&key).map_or(0, |current| current.bits()) | extra,
+            );
+            map.insert(key, widened);
+            grid.insert(key, widened);
+        }
+        assert!(
+            !update_incrementally(camera, &grid, &mut scratch, &mut visible, &mut replacement),
+            "step {step} rebuilt"
         );
-        assert_eq!(visible.len(), visible.iter().collect::<HashSet<_>>().len());
+        assert!(scratch.is_exact());
+        assert_superset_of_oracle(camera, &map, &scratch, &visible, &format!("step {step}"));
     }
 }
 

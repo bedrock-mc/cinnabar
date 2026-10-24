@@ -514,6 +514,7 @@ fn go_server_half_passes_the_client_verifiers() {
             .receive_epoch_request(
                 &protocol::ExperienceMessage::new(read("go/world_change_request.json")),
                 &grant,
+                0,
             )
             .unwrap(),
         Some(world_epoch + 1)

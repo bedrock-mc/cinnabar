@@ -116,7 +116,7 @@ impl PaintingRoutes {
                             session_id: world.actor_session_id(),
                             dimension: world.current_dimension(),
                             runtime_id: actor.runtime_id,
-                            spawn_revision: actor.spawn_revision,
+                            spawn_revision: actor.render_spawn_revision,
                             ingress_sequence: actor.spawn_revision.max(actor.movement_revision),
                             source_tick: actor.source_tick,
                             movement_revision: actor.movement_revision,

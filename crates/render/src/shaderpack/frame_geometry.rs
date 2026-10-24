@@ -414,9 +414,10 @@ pub(crate) fn record_shadow(
 
 /// The sky (no depth) with the sun, moon and stars, then opaque terrain, actors and block
 /// entities against a cleared depth attachment and the effects Iris draws before the
-/// deferred passes, the copy into `depthtex2` when sampled, the solid hand, then the copy
-/// into `depthtex1`, which also stands in for `depthtex0` until translucents draw. Solid
-/// and cutout terrain are timed as the terrain stages during aggregate profiling.
+/// deferred passes, the `centerDepthSmooth` sample and the copy into `depthtex2` when
+/// sampled, the solid hand, then the copy into `depthtex1`, which also stands in for
+/// `depthtex0` until translucents draw. Solid and cutout terrain are timed as the terrain
+/// stages during aggregate profiling.
 pub(crate) fn record_opaque(
     device: &Device,
     queue: &Queue,
@@ -492,6 +493,10 @@ pub(crate) fn record_opaque(
         scene_alt,
         Some((&view, size)),
     );
+    // Iris samples `centerDepthSmooth` as the hand begins, after everything opaque.
+    if let Some(center_depth) = &state.center_depth {
+        center_depth.sample_geometry(encoder, &pack.center_depth.after, &state.bindings.uniforms);
+    }
     // Iris's `depthtex2` holds the depth before the hand, `depthtex1` before translucents.
     let before_hand: &[usize] = if pack.depth_sampled[2] { &[2] } else { &[] };
     copy_view_depth(device, encoder, state, before_hand, &[2]);

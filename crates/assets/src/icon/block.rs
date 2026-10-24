@@ -9,7 +9,7 @@ pub const BLOCK_ITEM_SHEET_SIZE: [u16; 2] = [
     BLOCK_ITEM_FACE_SIDE * BLOCK_ITEM_SHEET_GRID[0],
     BLOCK_ITEM_FACE_SIDE * BLOCK_ITEM_SHEET_GRID[1],
 ];
-pub const MAX_ICON_BLOCK_SHEETS: usize = 1024;
+pub const MAX_ICON_BLOCK_SHEETS: usize = 2048;
 
 /// A six-face carried sheet in the ordinary sprite pool, indexed by compiled block visual.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
