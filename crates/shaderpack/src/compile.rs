@@ -6,8 +6,8 @@ use crate::programs::StageKind;
 use crate::transform::SHADOW_SAMPLERS;
 use naga::front::glsl::{Configuration, OpaqueType};
 use naga::valid::ModuleInfo;
-use std::collections::HashSet;
 use naga::{ImageClass, ImageDimension, ScalarKind, TypeInner};
+use std::collections::HashSet;
 
 mod inputs;
 mod order;

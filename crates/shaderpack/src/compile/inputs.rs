@@ -1,4 +1,4 @@
-//! Removes unused fragment inputs from validated compiled modules.
+//! Removes unused module data and fragment inputs from validated compiled modules.
 
 use naga::valid::{
     Capabilities, GlobalUse, ModuleInfo, ValidationError, ValidationFlags, Validator,
@@ -6,18 +6,27 @@ use naga::valid::{
 use naga::{AddressSpace, Arena, Block, Expression, GlobalVariable, Handle, Module, Statement};
 use std::collections::HashSet;
 
-/// Validates the module, removes dead private copies and remaps surviving entry arguments.
+/// Validates and compacts every stage, pruning dead fragment inputs before compaction.
 pub(super) fn validate(
     module: &mut Module,
 ) -> Result<ModuleInfo, Box<naga::WithSpan<ValidationError>>> {
-    let mut info = module_info(module)?;
-    if !module
+    let info = module_info(module)?;
+    if module
         .entry_points
         .iter()
         .any(|entry| entry.stage == naga::ShaderStage::Fragment)
     {
-        return Ok(info);
+        prune_fragment_inputs(module, info)?;
     }
+    naga::compact::compact(module, naga::compact::KeepUnused::No);
+    module_info(module)
+}
+
+/// Removes unread private copies and remaps the surviving fragment entry arguments.
+fn prune_fragment_inputs(
+    module: &mut Module,
+    mut info: ModuleInfo,
+) -> Result<(), Box<naga::WithSpan<ValidationError>>> {
     loop {
         let dead: HashSet<_> = module
             .global_variables
@@ -75,8 +84,7 @@ pub(super) fn validate(
             }
         }
     }
-    naga::compact::compact(module, naga::compact::KeepUnused::No);
-    module_info(module)
+    Ok(())
 }
 
 /// Regenerates validation and transitive usage information for the current module.
