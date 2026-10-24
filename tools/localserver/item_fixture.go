@@ -43,7 +43,7 @@ func (f itemFixture) Run(src cmd.Source, out *cmd.Output, _ *world.Tx) {
 	offhand.SlotValidatorFunc(func(item.Stack, int) bool { return true })
 	p.SetHeldItems(stack, stack)
 	offhand.SlotValidatorFunc(fixtureOffhandAllowed)
-	name, data := stack.Item().EncodeItem()
+	name, data := items[index].EncodeItem()
 	out.Printf("Item %d/%d: %s data=%d; next index=%d", index, len(items), name, data, (index+1)%len(items))
 }
 

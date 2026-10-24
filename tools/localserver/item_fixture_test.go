@@ -55,6 +55,17 @@ func TestItemFixturePopulatesHandsAndHotbarAndWraps(t *testing.T) {
 	})
 }
 
+// Air is registered but its stacks are empty, so selecting it must not dereference the stack's item.
+func TestItemFixtureSelectsAir(t *testing.T) {
+	withPlayer(t, world.GameModeCreative, func(tx *world.Tx, p *player.Player) {
+		runCommand(t, tx, p, "fixture_items", "minecraft:air")
+		main, off := p.HeldItems()
+		if !main.Empty() || !off.Empty() {
+			t.Fatalf("held items = %v, %v; want empty air stacks", main, off)
+		}
+	})
+}
+
 func TestInvalidItemFixtureDoesNotChangeInventory(t *testing.T) {
 	withPlayer(t, world.GameModeCreative, func(tx *world.Tx, p *player.Player) {
 		shield, _ := world.ItemByName("minecraft:shield", 0)
