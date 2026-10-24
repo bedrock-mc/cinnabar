@@ -23,7 +23,7 @@ use std::{
 
 mod modal;
 mod scheduling;
-use scheduling::Pending;
+use scheduling::CallbackQueue;
 
 struct Instance<H> {
     helper: Option<H>,
@@ -33,15 +33,15 @@ struct Instance<H> {
     contributions: Contributions,
     busy: bool,
     /// The caller-owned event awaiting an acknowledgement from this helper.
-    pending: Option<Pending>,
+    pending: Option<u64>,
     /// While set, only registry confirmation may run guest code.
     waiting_for: Option<String>,
     /// The bundle's verified templates and textures, shared with the modal presenter.
     files: Arc<screen::Files>,
     /// When its modal last opened, so the most recent one draws on top.
     opened: u64,
-    /// Host callbacks (modal actions) waiting for the helper, oldest first.
-    events: VecDeque<Event>,
+    /// All callbacks retained for this recipient until acknowledged.
+    queue: CallbackQueue,
     /// The world epoch of its pending callback, which that callback's transaction carries.
     epoch: u64,
     /// When its recent callbacks failed, in milliseconds, oldest first.
@@ -65,7 +65,7 @@ impl<H: Worker> Instance<H> {
         event: Event,
         epoch: u64,
         gui: Option<GuiSize>,
-        pending: Pending,
+        pending: u64,
     ) -> Result<()> {
         let Some(helper) = &mut self.helper else {
             return Ok(());
@@ -118,7 +118,7 @@ impl<H> Instance<H> {
         self.busy = false;
         self.pending = None;
         self.waiting_for = None;
-        self.events.clear();
+        self.queue.clear();
         self.contributions = Contributions::default();
         *scene_revision += 1;
         budget.quarantine(&self.owner);
@@ -143,6 +143,8 @@ pub(super) struct Live<H = Helper> {
     screens_built: Option<(u64, u64)>,
     scene_revision: u64,
     instances: BTreeMap<String, Instance<H>>,
+    /// The last dispatched recipient, so the next slice starts with its successor.
+    last_recipient: Option<String>,
     executable: PathBuf,
     pending_sends: VecDeque<Vec<u8>>,
     pending_send_bytes: usize,
@@ -153,6 +155,8 @@ pub(super) struct Live<H = Helper> {
     slice_ms: u64,
     ready: bool,
     epoch: u64,
+    /// The world epoch last named by an outbound Ready or Epoch control.
+    announced_epoch: u64,
     /// Counts modal openings across bundles.
     modal_order: u64,
     /// The drawn open modal's size and its bundle, which dispatches to that bundle carry.
@@ -213,7 +217,7 @@ impl<H: Worker> Live<H> {
                     waiting_for: None,
                     files: Arc::new(files),
                     opened: 0,
-                    events: VecDeque::new(),
+                    queue: CallbackQueue::default(),
                     epoch,
                     strikes: VecDeque::new(),
                     stopped: None,
@@ -230,6 +234,7 @@ impl<H: Worker> Live<H> {
             screens_built: None,
             scene_revision: 0,
             instances,
+            last_recipient: None,
             executable: executable.to_owned(),
             pending_sends: VecDeque::new(),
             pending_send_bytes: 0,
@@ -240,6 +245,7 @@ impl<H: Worker> Live<H> {
             slice_ms: now_ms,
             ready: false,
             epoch,
+            announced_epoch: epoch,
             modal_order: 0,
             gui: None,
             session: None,
@@ -251,8 +257,15 @@ impl<H: Worker> Live<H> {
     /// Publishes complete transactions only; failure revokes every contribution in this preview.
     pub(super) fn poll(&mut self, epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
         let mut packets = Vec::new();
-        if epoch != self.epoch {
-            self.change_epoch(epoch, now_ms, &mut packets)?;
+        self.set_epoch(epoch)?;
+        if self.ready && self.announced_epoch != self.epoch {
+            let control = serde_json::to_vec(&Control::Epoch {
+                session: self.grant.session.clone(),
+                world_epoch: self.epoch,
+            })?;
+            self.egress.charge(control.len(), now_ms)?;
+            packets.push(control);
+            self.announced_epoch = self.epoch;
         }
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
@@ -273,13 +286,17 @@ impl<H: Worker> Live<H> {
             };
             instance.busy = false;
             if !matches!(&result, Ok(Reply::NotReady { .. })) {
-                instance.acknowledge(&mut self.ingress, &mut self.media, epoch);
+                if let Some(id) = instance.pending.take() {
+                    instance.queue.acknowledge(id);
+                }
             } else {
                 instance.pending = None;
             }
             let transaction = match result {
                 Ok(Reply::Committed { transaction, fuel }) => {
-                    instance.waiting_for = None;
+                    if instance.waiting_for.take().is_some() {
+                        instance.queue.replay();
+                    }
                     bevy::log::debug!(
                         bundle = %instance.owner.bundle,
                         callback = instance.callback,
@@ -388,6 +405,7 @@ impl<H: Worker> Live<H> {
         }
         if !self.ready && self.instances.values().all(|instance| !instance.busy) {
             self.ready = true;
+            self.announced_epoch = self.epoch;
             packets.push(serde_json::to_vec(&Control::Ready {
                 session: self.grant.session.clone(),
                 packages: self
@@ -415,9 +433,7 @@ impl<H: Worker> Live<H> {
                 self.egress.charge(bytes.len(), now_ms)?;
                 packets.push(bytes);
             }
-            self.deliver_events(epoch)?;
-            self.deliver_media(epoch)?;
-            self.deliver_messages(epoch)?;
+            self.schedule()?;
         }
         Ok(packets)
     }
@@ -425,30 +441,30 @@ impl<H: Worker> Live<H> {
     /// Keeps a wire v2 runtime through a world epoch change: once Ready has named the old epoch,
     /// an `epoch` control names the new one ahead of every later send, and each guest is called
     /// back to resend its state. A v1 session cannot continue.
-    fn change_epoch(&mut self, epoch: u64, now_ms: u64, packets: &mut Vec<Vec<u8>>) -> Result<()> {
+    pub(super) fn set_epoch(&mut self, epoch: u64) -> Result<()> {
+        if epoch == self.epoch {
+            return Ok(());
+        }
         ensure!(
             self.grant.wire.version != WIRE_VERSION,
             "world epoch changed; extension snapshot required"
         );
         self.epoch = epoch;
-        if self.ready {
-            let control = serde_json::to_vec(&Control::Epoch {
-                session: self.grant.session.clone(),
-                world_epoch: epoch,
-            })?;
-            self.egress.charge(control.len(), now_ms)?;
-            packets.push(control);
-        }
-        for instance in self.instances.values_mut() {
-            let guest = instance.helper.is_some() || instance.component.is_some();
-            if guest
-                && !instance
-                    .events
-                    .iter()
-                    .any(|event| matches!(event, Event::Epoch))
-            {
-                instance.events.push_back(Event::Epoch);
-            }
+        self.gui = None;
+        let recipients: Vec<_> = self
+            .instances
+            .iter()
+            .filter(|(_, instance)| instance.helper.is_some() || instance.component.is_some())
+            .map(|(bundle, _)| bundle.clone())
+            .collect();
+        for bundle in recipients {
+            let instance = self.instances.get_mut(&bundle).unwrap();
+            instance.shift = None;
+            self.ingress.stale = self
+                .ingress
+                .stale
+                .saturating_add(instance.queue.filter_epoch(epoch, instance.pending));
+            self.enqueue(&bundle, Event::Epoch, epoch);
         }
         Ok(())
     }
@@ -475,8 +491,9 @@ impl<H: Worker> Live<H> {
     }
 
     /// Applies aggregate limits and signed schemas before guest dispatch.
-    pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<()> {
+    pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64, epoch: u64) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
+        self.set_epoch(epoch)?;
         let instances = &self.instances;
         let result = self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
             instances.get(id).map(|instance| &instance.capabilities)
@@ -493,7 +510,15 @@ impl<H: Worker> Live<H> {
             }
             return Ok(());
         }
-        result
+        result?;
+        while let Some(message) = self.ingress.take_committed(u64::MAX) {
+            let event = Event::Message {
+                channel: message.channel,
+                record: serde_json::to_vec(&message.payload)?,
+            };
+            self.enqueue(&message.bundle, event, message.world_epoch);
+        }
+        Ok(())
     }
 
     /// Whether a guest may read the session's items, which [`Live::set_session`] then supplies.
@@ -610,10 +635,15 @@ fn failed<H>(
         STOPPED_AFTER_ERRORS
     } else {
         // A restarted guest must refresh retained UI even when Shift is released.
-        instance.shift = instance.events.iter().find_map(|event| match event {
-            Event::Shift { held } => Some(*held),
-            _ => None,
-        });
+        instance.shift = instance
+            .queue
+            .entries
+            .iter()
+            .rev()
+            .find_map(|entry| match &entry.event {
+                Event::Shift { held } => Some(*held),
+                _ => None,
+            });
         return;
     };
     bevy::log::warn!(bundle = %instance.owner.bundle, "client part stopped {why}");

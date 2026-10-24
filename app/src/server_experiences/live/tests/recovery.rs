@@ -7,7 +7,7 @@ fn recovery_messages_publish_without_input_and_stop_at_the_strike_limit() {
     let instance = live.instances.get_mut("bundle0").unwrap();
     instance.capabilities.scope.permissions = BTreeSet::from([Permission::Messaging]);
     instance.capabilities.actions.clear();
-    instance.events.clear();
+    instance.queue.clear();
     instance.shift = None;
 
     for strike in 1..=MAX_GUEST_STRIKES {
@@ -28,7 +28,7 @@ fn recovery_messages_publish_without_input_and_stop_at_the_strike_limit() {
             assert_eq!(send.payload, vec![Scalar::Bool(true)]);
             assert_eq!(send.world_epoch, 1);
             assert!(!instance.busy);
-            assert!(instance.events.is_empty());
+            assert!(instance.queue.entries.is_empty());
             let dispatched = &instance.helper.as_ref().unwrap().dispatched;
             assert_eq!(dispatched.len(), strike);
             assert!(

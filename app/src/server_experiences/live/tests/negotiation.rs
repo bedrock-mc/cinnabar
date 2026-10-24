@@ -44,7 +44,7 @@ fn enqueue(live: &mut Live<FakeWorker>, sequence: u64, epoch: u64, channel: &str
         )],
     };
     for bytes in wire::encode(&message, &live.grant.wire).unwrap() {
-        live.receive(&bytes, sequence * 1000).unwrap();
+        live.receive(&bytes, sequence * 1000, live.epoch).unwrap();
     }
 }
 
@@ -67,9 +67,9 @@ fn early_replay_trap_preserves_later_events_for_fresh_confirmation() {
     assert!(live.press("bundle0.pick", Some(7)));
     assert!(live.press_secondary("bundle0.pick", Some(8)));
     live.poll(1, 3 * CALLBACK_INTERVAL_MS).unwrap();
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 2);
+    assert_eq!(pending_messages(&live, "bundle0"), 1);
     let instance = live.instances.get_mut("bundle0").unwrap();
-    assert_eq!(instance.events.len(), 2);
+    assert_eq!(instance.queue.entries.len(), 3);
     assert_eq!(instance.waiting_for.as_deref(), Some("bundle0.registry"));
     instance.helper.as_mut().unwrap().fail = false;
     enqueue(&mut live, 4, 1, "bundle0.registry", "fresh");
@@ -83,11 +83,15 @@ fn early_replay_trap_preserves_later_events_for_fresh_confirmation() {
         .dispatched;
     assert!(matches!(dispatched.as_slice(), [
         Event::Message { channel: first, .. }, Event::Message { channel: failed, .. },
-        Event::Message { channel: fresh, .. }, Event::Action { index: Some(7), .. },
-        Event::SecondaryAction { index: Some(8), .. }, Event::Message { channel: later, .. },
+        Event::Message { channel: fresh, .. }, Event::Message { channel: later, .. },
+        Event::Action { index: Some(7), .. }, Event::SecondaryAction { index: Some(8), .. },
     ] if first == "bundle0.registry" && failed == "bundle0.events0" && fresh == first && later == failed));
-    assert!(live.ingress.peek(u64::MAX, 1).is_none());
-    assert!(live.instances["bundle0"].events.is_empty());
+    assert!(
+        live.instances
+            .values()
+            .all(|instance| instance.queue.entries.is_empty())
+    );
+    assert!(live.instances["bundle0"].queue.entries.is_empty());
 }
 
 #[test]
@@ -152,18 +156,18 @@ fn pending_messages_stay_in_their_world_epoch() {
         Event::Message { channel, .. }, Event::Epoch,
         Event::Message { record: first, .. }, Event::Message { record: second, .. },
     ] if channel == "bundle0.registry" && first != second));
-    assert!(live.ingress.peek(u64::MAX, 3).is_none());
+    assert!(live.instances["bundle0"].queue.entries.is_empty());
 }
 
 #[test]
-fn not_ready_keeps_the_dispatched_message_in_ingress() {
+fn not_ready_keeps_the_dispatched_message_in_its_recipient_queue() {
     let mut live = negotiating(1);
     // The helper is authoritative even if the caller has not learned its readiness yet.
     live.instances.get_mut("bundle0").unwrap().waiting_for = None;
     enqueue(&mut live, 1, 1, "bundle0.events0", "waiting");
     live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
     live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 1);
+    assert_eq!(pending_messages(&live, "bundle0"), 1);
     assert!(
         live.instances["bundle0"]
             .helper
@@ -176,7 +180,31 @@ fn not_ready_keeps_the_dispatched_message_in_ingress() {
     for slice in 3..=5 {
         live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
     }
-    assert!(live.ingress.peek(u64::MAX, 1).is_none());
+    assert!(
+        live.instances
+            .values()
+            .all(|instance| instance.queue.entries.is_empty())
+    );
+}
+
+#[test]
+fn an_old_world_not_ready_reply_counts_the_undelivered_message_as_stale() {
+    let mut live = negotiating(1);
+    live.instances.get_mut("bundle0").unwrap().waiting_for = None;
+    enqueue(&mut live, 1, 1, "bundle0.events0", "old");
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    // The epoch changes while the helper's NotReady reply is still pending.
+    live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert_eq!(live.ingress.stale, 1);
+    enqueue(&mut live, 2, 2, "bundle0.registry", "confirmed");
+    for slice in 3..=6 {
+        live.poll(2, slice * CALLBACK_INTERVAL_MS).unwrap();
+    }
+    assert!(
+        matches!(live.instances["bundle0"].helper.as_ref().unwrap().dispatched.as_slice(),
+        [Event::Message { channel, .. }, Event::Epoch] if channel == "bundle0.registry")
+    );
+    assert!(live.instances["bundle0"].queue.entries.is_empty());
 }
 
 /// Both reliable queue bounds stop the overflowing part without stopping another recipient.
@@ -194,12 +222,17 @@ fn count_and_byte_overflow_stop_only_the_affected_part() {
         assert_eq!(live.instances["bundle0"].stopped, Some(STOPPED_AT_OVERFLOW));
         assert!(live.instances["bundle1"].helper.is_some());
         assert!(live.text().contains(STOPPED_AT_OVERFLOW));
-        assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().bundle, "bundle1");
+        assert_eq!(pending_messages(&live, "bundle1"), 1);
+        assert!(live.instances["bundle0"].queue.entries.is_empty());
         enqueue(&mut live, sequence + 1, 1, "bundle1.registry", "confirmed");
         for slice in 1..=3 {
             live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
         }
-        assert!(live.ingress.peek(u64::MAX, 1).is_none());
+        assert!(
+            live.instances
+                .values()
+                .all(|instance| instance.queue.entries.is_empty())
+        );
     }
 }
 
@@ -259,9 +292,13 @@ fn idle_recipients_dispatch_in_one_poll() {
         ));
     }
     // Dispatch alone must not acknowledge either message.
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 1);
+    assert_eq!(pending_messages(&live, "bundle0"), 1);
     live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
-    assert!(live.ingress.peek(u64::MAX, 1).is_none());
+    assert!(
+        live.instances
+            .values()
+            .all(|instance| instance.queue.entries.is_empty())
+    );
 }
 
 #[test]
@@ -304,7 +341,7 @@ fn busy_recipient_retains_order_without_blocking_another_helper() {
             .len(),
         1
     );
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 1);
+    assert_eq!(pending_messages(&live, "bundle0"), 3);
     live.instances
         .get_mut("bundle0")
         .unwrap()
@@ -336,7 +373,11 @@ fn busy_recipient_retains_order_without_blocking_another_helper() {
             vec![Scalar::Bool(false)]
         ]
     );
-    assert!(live.ingress.peek(u64::MAX, 1).is_none());
+    assert!(
+        live.instances
+            .values()
+            .all(|instance| instance.queue.entries.is_empty())
+    );
 }
 
 /// A newer coalesced state must survive acknowledgement of the in-flight older value.
@@ -353,5 +394,47 @@ fn in_flight_state_acknowledgement_keeps_a_newer_value() {
         matches!(helper.dispatched.as_slice(), [Event::Text { text: first, .. }, Event::Text { text: latest, .. }]
         if first == "first" && latest == "latest")
     );
-    assert!(live.instances["bundle0"].events.is_empty());
+    assert!(live.instances["bundle0"].queue.entries.is_empty());
+}
+
+#[test]
+fn initialization_state_replay_happens_only_once() {
+    let mut live = negotiating(1);
+    assert!(live.press("bundle0.pick", Some(1)));
+    assert!(live.text_changed("bundle0.pick", "old"));
+    assert!(live.press_secondary("bundle0.pick", Some(2)));
+    assert!(live.text_changed("bundle0.pick", "latest"));
+    enqueue(&mut live, 1, 1, "bundle0.registry", "confirmed");
+    for slice in 1..=5 {
+        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+    }
+    assert!(matches!(
+        live.instances["bundle0"].helper.as_ref().unwrap().dispatched.as_slice(),
+        [Event::Message { .. }, Event::Text { text, .. }, Event::Action { .. }, Event::SecondaryAction { .. }]
+        if text == "latest"
+    ));
+    assert!(live.press("bundle0.pick", Some(3)));
+    assert!(live.text_changed("bundle0.pick", "after initialization"));
+    for slice in 6..=8 {
+        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+    }
+    let dispatched = &live.instances["bundle0"]
+        .helper
+        .as_ref()
+        .unwrap()
+        .dispatched;
+    assert!(matches!(
+        &dispatched[4..],
+        [Event::Action { index: Some(3), .. }, Event::Text { .. }]
+    ));
+}
+
+/// Counts retained wire and media messages for one recipient, including in-flight work.
+fn pending_messages(live: &Live<FakeWorker>, bundle: &str) -> usize {
+    live.instances[bundle]
+        .queue
+        .entries
+        .iter()
+        .filter(|entry| matches!(entry.event, Event::Message { .. }))
+        .count()
 }

@@ -394,13 +394,17 @@ by semver) and receives only the callbacks it exports: one built against 1.0.0 e
 `text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`, and later `shift-changed`
 with no import change. 1.4.0 adds `messaging.negotiate`, used by the SDK to defer
 callbacks until registry confirmation successfully initializes the guest. The host
-returns `NotReady` for other callbacks; their caller retains them in its existing
-queues. Confirmation can pass waiting application messages. Latest state is then
-dispatched first (epoch before UI/input state), followed by messages and actions in
-their respective arrival order, with the normal per-callback fuel, output and aggregate
-budgets. A trap drops only the callback that ran; later events remain queued until
-the fresh guest is confirmed. Ingress discards messages from other world epochs.
-The reliable queue's count and byte bounds stop an overflowing part immediately
+returns `NotReady` for other callbacks; their caller retains them in one FIFO queue
+per recipient, shared by messages, media, input and state updates. Confirmation can
+pass waiting callbacks. Once confirmation initializes the guest, a single replay
+collapses queued state to its latest values and delivers it first (epoch before UI
+state), followed by ordered callbacks. Later arrivals follow FIFO order, including
+state changes. Only adjacent, unsent updates of the same state coalesce during normal
+operation. Recipients take turns within the aggregate callback budget; busy or
+negotiating helpers do not block other ready recipients. A trap drops only the callback
+that ran; later events remain queued until the fresh guest is confirmed. The scheduler
+discards callbacks from other world epochs at admission and before dispatch.
+Each recipient's queue count and byte bounds stop an overflowing part immediately
 with a trusted status message. Existing components keep their current
 initialization behavior. 1.1's two callbacks and
 1.2's three are each exported all or none. The world also imports `cinnabar:session/items@0.1.0`
@@ -467,26 +471,28 @@ Data binds through the engine's own `#name` bindings:
   (window content over the GUI scale), and `scale`, the window's logical pixels per GUI
   unit; `none` until it is drawn and while it is closed. `modal-resized(size)` is delivered
   when the modal is first drawn after opening and on each change (a window resize or a
-  GUI scale change), the latest replacing one still waiting, so a guest can lay out its
+  GUI scale change), coalescing adjacent unsent sizes so a guest can lay out its
   rows and columns for the space it has.
 - A `scroll_view` whose `scroll_view_name` is a declared manifest action (a Cinnabar property
   for these modals, which vanilla ignores) delivers `scroll-changed(view, range)` (1.3), if
   the bundle holds `input`: when first drawn, and whenever it scrolls or its viewport or
   content changes length. `range` is what the engine laid out along the view's scrolling
   axis, in GUI units: `offset` (from 0 to `content` - `viewport`), `viewport` and `content`.
-  Changes coalesce to the latest range per view, so dragging a scrollbar queues one callback,
-  not one per frame. A client part can bind only the rows the view shows: give the view's
+  Adjacent unsent changes coalesce to the latest range per view, so dragging a scrollbar
+  does not queue a callback per frame while the helper is busy. A client part can bind only
+  the rows the view shows: give the view's
   content the full list's length (`#size_binding_y`) and lay a fixed grid over the viewport.
 - `shift-changed(held)` tells a bundle holding `input` whether Shift is held, when it changes
-  while its modal has focus and when the modal gains or loses focus with Shift held, the latest
-  replacing one still waiting, so a screen can show what Java screens show on Shift.
+  while its modal has focus and when the modal gains or loses focus with Shift held. Adjacent
+  unsent transitions coalesce; a later release never overtakes a queued action.
 - Edit boxes (vanilla `text_edit_box`, an `edit_box` control) work as on vanilla
   screens, driven by the engine's input components: a press selects one, typing,
   Backspace, Enter and Ctrl+V edit it within its `max_length`, a press elsewhere, Enter or
   Escape deselects it, and Escape closes the modal only when no box was selected. A box
   whose `text_box_name` is a declared manifest action delivers `text-changed(control,
-  text)` (1.2) with its whole text, if the bundle holds `input`; edits coalesce to the
-  latest text per box. `ui.set-text(control, text)` (1.2) sets the boxes named `control`,
+  text)` (1.2) with its whole text, if the bundle holds `input`; adjacent unsent edits
+  coalesce to the latest text per box. `ui.set-text(control, text)` (1.2) sets the boxes
+  named `control`,
   cut to their `max_length`, without delivering `text-changed`, and the user's later
   typing stands. Edit text holds at most `MAX_EDIT_TEXT_BYTES` and no control characters
   but line breaks.

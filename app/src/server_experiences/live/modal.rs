@@ -1,7 +1,6 @@
 //! The modal screen the client parts draw, and the actions its controls deliver.
 
-use super::{Instance, Live, STOPPED_AT_OVERFLOW, Worker, scheduling::Pending};
-use anyhow::Result;
+use super::{Live, Worker};
 use mod_host::helper::Event;
 use mod_ui::experience_modal::ExperienceModal;
 use server_experience::{
@@ -9,12 +8,9 @@ use server_experience::{
     screen::{self, GuiSize},
 };
 
-/// Presses waiting for one bundle's helper; more before it answers are dropped.
-const MAX_PENDING_EVENTS: usize = 16;
-
 /// Raises a bundle's modal above the others when its transaction opened a screen.
 pub(super) fn note_opened<H>(
-    instance: &mut Instance<H>,
+    instance: &mut super::Instance<H>,
     transaction: &Transaction,
     order: &mut u64,
 ) {
@@ -52,33 +48,23 @@ impl<H: Worker> Live<H> {
     /// Escape closes the open modal on the host side; its bound data stays for the next open.
     pub(in crate::server_experiences) fn close_modal(&mut self) {
         self.shift_changed(false);
-        if let Some(instance) = self.open_instance() {
-            instance.contributions.modal.open(None);
+        if let Some(bundle) = self.open_bundle() {
+            self.instances
+                .get_mut(&bundle)
+                .unwrap()
+                .contributions
+                .modal
+                .open(None);
         }
     }
 
-    /// Queues a press of the open modal's control `id` (the control's `$pressed_button_name`)
-    /// for its bundle, only when the manifest declares it as an action and `input` is granted.
+    /// Queues a declared action for the focused recipient in callback arrival order.
     pub(in crate::server_experiences) fn press(&mut self, id: &str, index: Option<usize>) -> bool {
-        let ready = self.ready;
-        let Some(instance) = self.open_instance() else {
-            return false;
-        };
-        if !ready
-            || !instance.capabilities.may_deliver(id)
-            || instance.events.len() >= MAX_PENDING_EVENTS
-        {
-            return false;
-        }
-        instance.events.push_back(Event::Action {
-            id: id.to_owned(),
-            index: index.and_then(|index| u32::try_from(index).ok()),
-        });
-        true
+        self.press_button(id, index, false)
     }
 
     /// Follows the open modal's drawn size: each change queues one `modal-resized` for its
-    /// bundle, replacing one still waiting, and later dispatches to it carry the size. A closed
+    /// bundle, coalescing adjacent unsent sizes. Later dispatches carry the size. A closed
     /// or undrawn modal (`None`) has no size and reports nothing.
     pub(in crate::server_experiences) fn set_modal_size(&mut self, size: Option<GuiSize>) {
         let bundle = self
@@ -93,61 +79,38 @@ impl<H: Worker> Live<H> {
         let Some((size, bundle)) = current else {
             return;
         };
-        let Some(instance) = self.instances.get_mut(&bundle) else {
-            return;
-        };
-        instance
-            .events
-            .retain(|event| !matches!(event, Event::Resized { .. }));
-        if instance.events.len() >= MAX_PENDING_EVENTS {
-            instance.stop(
-                &mut self.budget,
-                &mut self.scene_revision,
-                STOPPED_AT_OVERFLOW,
-            );
-        } else {
-            instance.events.push_back(Event::Resized { size });
-        }
+        self.enqueue(&bundle, Event::Resized { size }, self.epoch);
     }
 
     /// Queues an edit of the open modal's edit box `control` for its bundle, only when the
-    /// manifest declares `control` as an action and `input` is granted; a later edit of the same
-    /// box replaces one still waiting.
+    /// manifest declares `control` as an action and `input` is granted. Adjacent unsent edits
+    /// of the same box coalesce without crossing other callbacks.
     pub(in crate::server_experiences) fn text_changed(
         &mut self,
         control: &str,
         text: &str,
     ) -> bool {
-        let ready = self.ready;
-        let Some(instance) = self.open_instance() else {
+        let Some(bundle) = self.open_bundle() else {
             return false;
         };
-        if !ready || !instance.capabilities.may_deliver(control) || !screen::edit_text(text) {
+        if !self.ready
+            || !self.instances[&bundle].capabilities.may_deliver(control)
+            || !screen::edit_text(text)
+        {
             return false;
         }
-        let waiting = instance.events.iter_mut().find_map(|event| match event {
+        self.enqueue(
+            &bundle,
             Event::Text {
-                control: pending,
-                text,
-            } if pending == control => Some(text),
-            _ => None,
-        });
-        if let Some(waiting) = waiting {
-            text.clone_into(waiting);
-            return true;
-        }
-        if instance.events.len() >= MAX_PENDING_EVENTS {
-            return false;
-        }
-        instance.events.push_back(Event::Text {
-            control: control.to_owned(),
-            text: text.to_owned(),
-        });
-        true
+                control: control.to_owned(),
+                text: text.to_owned(),
+            },
+            self.epoch,
+        )
     }
 
     /// Updates the focused bundle and releases bundles that lost focus, subject to `input`.
-    /// A waiting transition is replaced; a full queue retains its state for retry.
+    /// Adjacent unsent transitions coalesce; a full queue retains its state for retry.
     pub(in crate::server_experiences) fn shift_changed(&mut self, held: bool) -> bool {
         if !self.ready {
             return false;
@@ -157,47 +120,44 @@ impl<H: Worker> Live<H> {
             .filter(|modal| modal.modal.template.is_some())
             .map(|modal| modal.bundle.to_owned());
         let mut queued = false;
-        for (bundle, instance) in &mut self.instances {
+        let bundles: Vec<_> = self.instances.keys().cloned().collect();
+        for bundle in bundles {
             let held = held && focused.as_deref() == Some(bundle.as_str());
-            queued |= queue_shift(instance, held);
+            let instance = &self.instances[&bundle];
+            if instance.capabilities.may_read_input()
+                && instance.shift != Some(held)
+                && self.enqueue(&bundle, Event::Shift { held }, self.epoch)
+            {
+                self.instances.get_mut(&bundle).unwrap().shift = Some(held);
+                queued = true;
+            }
         }
         queued
     }
 
     /// Queues the open modal's scroll view `view` showing `range` for its bundle, only when the
-    /// manifest declares `view` as an action and `input` is granted; a later range of the same
-    /// view replaces one still waiting, so a fast scroll queues one callback, not one per frame.
+    /// manifest declares `view` as an action and `input` is granted. Adjacent unsent ranges
+    /// for the same view coalesce without crossing actions or other callbacks.
     pub(in crate::server_experiences) fn scroll_changed(
         &mut self,
         view: &str,
         range: screen::ScrollRange,
     ) -> bool {
-        let ready = self.ready;
-        let Some(instance) = self.open_instance() else {
+        let Some(bundle) = self.open_bundle() else {
             return false;
         };
-        if !ready || !instance.capabilities.may_deliver(view) || !range.valid() {
+        if !self.ready || !self.instances[&bundle].capabilities.may_deliver(view) || !range.valid()
+        {
             return false;
         }
-        let waiting = instance.events.iter_mut().find_map(|event| match event {
+        self.enqueue(
+            &bundle,
             Event::Scrolled {
-                view: pending,
+                view: view.to_owned(),
                 range,
-            } if pending == view => Some(range),
-            _ => None,
-        });
-        if let Some(waiting) = waiting {
-            *waiting = range;
-            return true;
-        }
-        if instance.events.len() >= MAX_PENDING_EVENTS {
-            return false;
-        }
-        instance.events.push_back(Event::Scrolled {
-            view: view.to_owned(),
-            range,
-        });
-        true
+            },
+            self.epoch,
+        )
     }
 
     /// Queues a secondary press (a right click) of the open modal's control `id`, under the same
@@ -207,100 +167,36 @@ impl<H: Worker> Live<H> {
         id: &str,
         index: Option<usize>,
     ) -> bool {
-        let ready = self.ready;
-        let Some(instance) = self.open_instance() else {
+        self.press_button(id, index, true)
+    }
+
+    /// Admits primary and secondary buttons using the focused bundle's input grant.
+    fn press_button(&mut self, id: &str, index: Option<usize>, secondary: bool) -> bool {
+        let Some(bundle) = self.open_bundle() else {
             return false;
         };
-        if !ready
-            || !instance.capabilities.may_deliver(id)
-            || instance.events.len() >= MAX_PENDING_EVENTS
-        {
+        if !self.ready || !self.instances[&bundle].capabilities.may_deliver(id) {
             return false;
         }
-        instance.events.push_back(Event::SecondaryAction {
-            id: id.to_owned(),
-            index: index.and_then(|index| u32::try_from(index).ok()),
-        });
-        true
+        let id = id.to_owned();
+        let index = index.and_then(|index| u32::try_from(index).ok());
+        let event = if secondary {
+            Event::SecondaryAction { id, index }
+        } else {
+            Event::Action { id, index }
+        };
+        self.enqueue(&bundle, event, self.epoch)
     }
 
-    fn open_instance(&mut self) -> Option<&mut Instance<H>> {
-        let bundle = self
-            .modal()
-            .filter(|modal| modal.modal.template.is_some())?
-            .bundle
-            .to_owned();
-        self.instances.get_mut(&bundle)
+    /// Identifies the recipient whose modal currently owns input focus.
+    fn open_bundle(&self) -> Option<String> {
+        Some(
+            self.modal()
+                .filter(|modal| modal.modal.template.is_some())?
+                .bundle
+                .to_owned(),
+        )
     }
-
-    /// Hands each idle helper its oldest waiting event within the aggregate callback budget.
-    pub(super) fn deliver_events(&mut self, epoch: u64) -> Result<()> {
-        for instance in self.instances.values_mut() {
-            if instance.busy
-                || instance.events.is_empty()
-                || !self.budget.can_dispatch(&instance.owner)
-            {
-                continue;
-            }
-            if instance.helper.is_none() {
-                continue;
-            }
-            let index = instance
-                .events
-                .iter()
-                .enumerate()
-                .min_by_key(|(_, event)| delivery_order(event))
-                .map(|(index, _)| index)
-                .expect("events checked");
-            let event = instance.events[index].clone();
-            if instance.waiting_for.is_some()
-                && (!matches!(event, Event::Epoch) || instance.epoch == epoch)
-            {
-                continue;
-            }
-            self.budget.dispatch(&instance.owner)?;
-            let gui = size_for(&self.gui, &instance.owner.bundle);
-            instance.dispatch(
-                self.session.as_deref(),
-                event.clone(),
-                epoch,
-                gui,
-                Pending::Event(event),
-            )?;
-        }
-        Ok(())
-    }
-}
-
-/// Delivers current world and UI state before ordered input events.
-fn delivery_order(event: &Event) -> u8 {
-    match event {
-        Event::Epoch => 0,
-        Event::Resized { .. }
-        | Event::Shift { .. }
-        | Event::Text { .. }
-        | Event::Scrolled { .. } => 1,
-        Event::Message { .. } | Event::Action { .. } | Event::SecondaryAction { .. } => 2,
-    }
-}
-
-/// Coalesces one bundle's transition, retaining its old state when a full queue needs retry.
-fn queue_shift<H>(instance: &mut Instance<H>, held: bool) -> bool {
-    if !instance.capabilities.may_read_input() || instance.shift == Some(held) {
-        return false;
-    }
-    let waiting = instance
-        .events
-        .iter()
-        .position(|event| matches!(event, Event::Shift { .. }));
-    if let Some(at) = waiting {
-        instance.events.remove(at);
-    } else if instance.events.len() >= MAX_PENDING_EVENTS {
-        return false;
-    }
-    instance.shift = Some(held);
-    instance.events.push_back(Event::Shift { held });
-    true
 }
 
 /// The modal size a dispatch to `bundle` carries: the drawn open modal's, if it is `bundle`'s.

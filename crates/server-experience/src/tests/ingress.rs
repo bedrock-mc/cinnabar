@@ -58,7 +58,7 @@ fn queue_fixture() -> (negotiation::Grant, runtime::Capabilities, wire::Envelope
 }
 
 #[test]
-fn confirmation_can_pass_waiting_messages_without_consuming_them() {
+fn committed_messages_transfer_without_reordering() {
     let (grant, capabilities, mut message) = queue_fixture();
     let mut ingress = wire::Ingress::new(0);
     for (sequence, channel) in [(1, "demo.events"), (2, "demo.events"), (3, "demo.registry")] {
@@ -70,22 +70,14 @@ fn confirmation_can_pass_waiting_messages_without_consuming_them() {
             })
             .unwrap();
     }
-    assert_eq!(
-        ingress
-            .peek_matching(0, 1, |message| message.channel == "demo.registry")
-            .unwrap()
-            .sequence,
-        3
-    );
-    assert_eq!(ingress.peek(0, 1).unwrap().sequence, 1);
-    ingress.acknowledge(3).unwrap();
-    assert_eq!(ingress.pop(0, 1).unwrap().sequence, 1);
-    assert_eq!(ingress.pop(0, 1).unwrap().sequence, 2);
-    assert!(ingress.peek(0, 1).is_none());
+    for sequence in 1..=3 {
+        assert_eq!(ingress.take_committed(0).unwrap().sequence, sequence);
+    }
+    assert!(ingress.take_committed(0).is_none());
 }
 
 #[test]
-fn world_change_discards_waiting_messages_before_selecting_confirmation() {
+fn transferring_messages_preserves_world_epoch_and_publication() {
     let (grant, capabilities, mut message) = queue_fixture();
     let mut ingress = wire::Ingress::new(0);
     for (sequence, epoch, publication, channel) in [
@@ -107,22 +99,18 @@ fn world_change_discards_waiting_messages_before_selecting_confirmation() {
             )
             .unwrap();
     }
-    assert!(
-        ingress
-            .peek_matching(0, 2, |message| message.channel == "demo.registry")
-            .is_none()
-    );
-    assert_eq!(ingress.stale, 2);
+    for (sequence, epoch) in [(1, 1), (2, 1), (3, 2)] {
+        let message = ingress.take_committed(0).unwrap();
+        assert_eq!((message.sequence, message.world_epoch), (sequence, epoch));
+    }
+    assert!(ingress.take_committed(0).is_none());
+    let confirmation = ingress.take_committed(1).unwrap();
+    assert_eq!((confirmation.sequence, confirmation.world_epoch), (4, 2));
     assert_eq!(
-        ingress
-            .peek_matching(1, 2, |message| message.channel == "demo.registry")
-            .unwrap()
-            .sequence,
-        4
+        ingress.stale, 0,
+        "epoch filtering belongs to the recipient queue"
     );
-    ingress.acknowledge(4).unwrap();
-    assert_eq!(ingress.pop(1, 2).unwrap().sequence, 3);
-    assert!(ingress.pop(1, 2).is_none());
+    assert!(ingress.take_committed(1).is_none());
 }
 
 #[test]

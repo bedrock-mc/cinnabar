@@ -565,34 +565,16 @@ impl Ingress {
     /// Publishes only after preceding world events; old dimension work is discarded.
     pub fn pop(&mut self, committed: u64, world_epoch: u64) -> Option<Envelope> {
         self.peek(committed, world_epoch)?;
+        self.take_committed(committed)
+    }
+
+    /// Transfers the next committed message to a caller-owned queue. The caller must check
+    /// its world epoch before admission and again before dispatch.
+    pub fn take_committed(&mut self, committed: u64) -> Option<Envelope> {
+        if self.queue.front()?.0 > committed {
+            return None;
+        }
         let (_, bytes, message) = self.queue.pop_front()?;
-        self.bytes -= bytes;
-        Some(message)
-    }
-
-    /// Finds an eligible message, allowing registry confirmation to pass a waiting recipient's
-    /// application messages. The ordinary peek rule retires stale work at the queue's front.
-    pub fn peek_matching(
-        &mut self,
-        committed: u64,
-        world_epoch: u64,
-        eligible: impl Fn(&Envelope) -> bool,
-    ) -> Option<&Envelope> {
-        self.peek(committed, world_epoch)?;
-        self.queue
-            .iter()
-            .take_while(|(publication, _, _)| *publication <= committed)
-            .map(|(_, _, message)| message)
-            .find(|message| is_current_epoch(message.world_epoch, world_epoch) && eligible(message))
-    }
-
-    /// Removes only the message whose helper acknowledged it, even if the world changed.
-    pub fn acknowledge(&mut self, sequence: u64) -> Option<Envelope> {
-        let index = self
-            .queue
-            .iter()
-            .position(|(_, _, message)| message.sequence == sequence)?;
-        let (_, bytes, message) = self.queue.remove(index)?;
         self.bytes -= bytes;
         Some(message)
     }
