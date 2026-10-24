@@ -118,7 +118,11 @@ fn item_block_id(
     if identifier.is_some_and(|identifier| {
         matches!(
             assets::facts::block_render_fact(identifier).kind,
-            assets::facts::BlockRenderKind::Lantern | assets::facts::BlockRenderKind::Chain
+            assets::facts::BlockRenderKind::Lantern
+                | assets::facts::BlockRenderKind::Chain
+                | assets::facts::BlockRenderKind::Ladder
+                | assets::facts::BlockRenderKind::LilyPad
+                | assets::facts::BlockRenderKind::SeaPickle
         )
     }) {
         return None;
