@@ -22,6 +22,10 @@ pub(super) enum ModelKey {
         hashed: bool,
         id: u32,
     },
+    HeldBlock {
+        artwork: [u8; 32],
+        rig: render_model::EntityRigId,
+    },
     SessionBlock {
         page: u16,
         uv: [u16; 4],

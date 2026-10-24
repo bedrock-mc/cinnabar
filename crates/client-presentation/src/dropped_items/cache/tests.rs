@@ -801,3 +801,66 @@ fn late_current_models_can_reclaim_speculative_frames_without_double_charging() 
         DroppedItemModel::Vacant
     ));
 }
+
+#[test]
+fn dedicated_model_budget_refusal_keeps_icon_fallback_and_recovers_after_demand_changes() {
+    let mut cache = ModelCache::default();
+    frame(&mut cache, []);
+    let occupied = cache
+        .model(
+            key(0),
+            || Some(MAX_ITEM_LAYERS - 2),
+            || {
+                Some(DroppedItemModel::Block(render_model::DroppedItemBlock {
+                    materials: vec![
+                        (
+                            DroppedItemSprite {
+                                width: 1,
+                                height: 1,
+                                rgba8: Arc::from([255; 4])
+                            },
+                            render_model::OPAQUE_WHITE
+                        );
+                        MAX_ITEM_LAYERS - 2
+                    ]
+                    .into(),
+                    quads: Arc::from([]),
+                    rotation: 0,
+                }))
+            },
+        )
+        .unwrap();
+    let dedicated = ModelKey::HeldBlock {
+        artwork: [30; 32],
+        rig: render_model::EntityRigId(1),
+    };
+    let build = || {
+        Some(DroppedItemModel::Block(render_model::DroppedItemBlock {
+            materials: vec![
+                (
+                    DroppedItemSprite {
+                        width: 1,
+                        height: 1,
+                        rgba8: Arc::from([30; 4])
+                    },
+                    render_model::OPAQUE_WHITE
+                );
+                2
+            ]
+            .into(),
+            quads: Arc::from([]),
+            rotation: 0,
+        }))
+    };
+    assert_eq!(cache.model(dedicated.clone(), || Some(2), build), None);
+    let fallback = admit(&mut cache, 1).expect("the remaining layer keeps a sprite fallback");
+    cache.begin_frame();
+    cache.request(&dedicated);
+    cache.request(&key(1));
+    cache.finish_demand();
+    let model = cache.model(dedicated.clone(), || Some(2), build).unwrap();
+    assert_eq!(cache.resident(&dedicated), Some(model));
+    assert_eq!(cache.resident(&key(1)), Some(fallback));
+    assert_eq!(model, occupied);
+    assert_eq!(cache.models[model as usize].texture_layers(), 2);
+}

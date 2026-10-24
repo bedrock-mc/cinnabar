@@ -10,6 +10,11 @@ const ITEM: &str = "minecraft:stone";
 
 /// Creates original one-pixel base artwork and an ordinary dropped stack.
 fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
+    fixture_item(ITEM, metadata)
+}
+
+/// Creates one named dropped stack with original base artwork.
+fn fixture_item(identifier: &str, metadata: u32) -> (UiPresentationRuntime, WorldStream) {
     let catalog = assets::RuntimeIconCatalog::decode(
         &assets::encode_icon_catalog(
             [5; 32],
@@ -19,7 +24,7 @@ fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
                 rgba8: Arc::from([20, 30, 40, 255]),
             }],
             &[assets::IconEntry {
-                identifier: ITEM.into(),
+                identifier: identifier.into(),
                 metadata: 0,
                 sprite: 0,
             }],
@@ -36,7 +41,7 @@ fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
     let mut stream = stream(false, 1);
     let id = protocol::vanilla_item_registry()
         .iter()
-        .find(|entry| entry.identifier.as_ref() == ITEM)
+        .find(|entry| entry.identifier.as_ref() == identifier)
         .unwrap()
         .network_id;
     stream
@@ -73,11 +78,22 @@ fn fixture(metadata: u32) -> (UiPresentationRuntime, WorldStream) {
 
 /// Installs pack artwork through the same UI build boundary used by the client.
 fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool, metadata: u32) {
+    install_item(icons, ITEM, color, cube, metadata);
+}
+
+/// Installs one named item override through normal UI admission.
+fn install_item(
+    icons: &mut UiPresentationRuntime,
+    identifier: &str,
+    color: Option<u8>,
+    cube: bool,
+    metadata: u32,
+) {
     let mut runtime = UiRuntime::new(1);
     runtime.set_session_icons(color.map(|color| {
         let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
         let sheet = SessionIcon {
-            identifier: ITEM.into(),
+            identifier: identifier.into(),
             metadata,
             width,
             height,
@@ -93,7 +109,7 @@ fn install(icons: &mut UiPresentationRuntime, color: Option<u8>, cube: bool, met
         };
         Arc::new(SessionIcons {
             icons: vec![SessionIcon {
-                identifier: ITEM.into(),
+                identifier: identifier.into(),
                 metadata,
                 width: 1,
                 height: 1,
@@ -221,6 +237,90 @@ fn dropped_cube_uses_exact_metadata_without_borrowing_another_variant() {
                 panic!("an unrelated variant must retain base artwork");
             };
             assert_eq!(sprite.rgba8.as_ref(), [20, 30, 40, 255]);
+        }
+    }
+}
+
+/// Installs an original chest texture through the block-entity scene's artwork boundary.
+fn chest_artwork(world: &mut World, color: Option<u8>) {
+    let mut scene = render_model::BlockEntityScene::default();
+    if let Some(color) = color {
+        let bytes = assets::encode_block_entity_catalog(
+            b"{}",
+            render_model::MIN_DYNAMIC_ATLAS_WIDTH,
+            64,
+            &[color, 40, 60, 255].repeat(render_model::MIN_DYNAMIC_ATLAS_WIDTH as usize * 64),
+            &[assets::BlockEntityPlacement {
+                name: "textures/entity/chest/normal".into(),
+                x: 0,
+                y: 0,
+                width: 64,
+                height: 64,
+            }],
+        )
+        .unwrap();
+        scene.install_assets(&assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap());
+    }
+    world.insert_resource(render_scene::BlockEntitySceneResource(scene));
+}
+
+#[test]
+fn dedicated_drops_use_current_models_and_preserve_session_artwork_and_fallbacks() {
+    let identifier = "minecraft:chest";
+    let (mut icons, stream) = fixture_item(identifier, 0);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    chest_artwork(&mut world, Some(30));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    for (art, session, cube) in [
+        (Some(30), None, false),
+        (Some(80), None, false),
+        (Some(80), Some(90), false),
+        (Some(80), Some(100), true),
+        (None, None, false),
+        (Some(30), None, false),
+    ] {
+        chest_artwork(&mut world, art);
+        install_item(&mut icons, identifier, session, cube, 0);
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            Default::default(),
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        assert_eq!(scene.instances.len(), 1);
+        let model = &scene.models[scene.instances[0].model as usize];
+        match (session, art, cube) {
+            (Some(color), _, true) => {
+                let DroppedItemModel::Cube(model) = model else {
+                    panic!("pack sheets retain priority")
+                };
+                assert_eq!(model.faces[0][0], color);
+            }
+            (Some(_), _, false) | (None, None, _) => {
+                let DroppedItemModel::NativeSprite(model) = model else {
+                    panic!("icons remain a recoverable fallback")
+                };
+                assert_eq!(model.rgba8[0], session.unwrap_or(20));
+            }
+            (None, Some(color), _) => {
+                let DroppedItemModel::Block(model) = model else {
+                    panic!("dedicated items require geometry")
+                };
+                assert_eq!(model.materials.len(), 1);
+                assert_eq!(model.materials[0].0.rgba8[0], color);
+                let vertices = render_model::dropped_item::block_mesh(model, 1, 64).unwrap();
+                let origin = glam::Vec3::from(vertices[0].position);
+                let normal = glam::Vec3::from(vertices[0].normal);
+                assert!(
+                    vertices
+                        .iter()
+                        .any(|v| normal.dot(glam::Vec3::from(v.position) - origin).abs() > 0.01)
+                );
+            }
         }
     }
 }

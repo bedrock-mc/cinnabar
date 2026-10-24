@@ -140,6 +140,17 @@ fn every_held_kind_requires_all_of_its_geometry_textures() {
                 .any(|(candidate, _)| *candidate == kind),
             "{kind:?}"
         );
+        let model = prepared
+            .models()
+            .iter()
+            .find(|(candidate, _)| *candidate == kind)
+            .unwrap()
+            .1
+            .dropped
+            .as_ref()
+            .expect("complete held geometry needs a world item model");
+        assert!(!model.quads.is_empty());
+        assert!(!render_model_vertices(model).is_empty());
         for missing in texture_names(kind) {
             let partial = atlas_with_textures(
                 textures
@@ -252,4 +263,92 @@ fn held_lectern_reuses_the_stand_with_volume_and_a_sloped_board() {
             .iter()
             .any(|vertex| { vertex.normal[1].abs() > 0.1 && vertex.normal[2].abs() > 0.1 })
     );
+}
+
+/// Expands the prepared model with a layer side large enough for its original tiles.
+fn render_model_vertices(model: &crate::DroppedItemBlock) -> Vec<crate::ItemMeshVertex> {
+    let side = model
+        .materials
+        .iter()
+        .map(|(sprite, _)| sprite.width.max(sprite.height))
+        .max()
+        .unwrap();
+    crate::dropped_item::block_mesh(model, 1, side).unwrap()
+}
+
+#[test]
+fn prepared_special_drop_meshes_preserve_held_positions_and_texture_tiles() {
+    let kinds = HeldBlockEntity::all();
+    let mut atlas = atlas_with_textures(kinds.iter().copied().flat_map(texture_names));
+    // Each texture is an original tile with independent color and coordinate channels.
+    let mut pixels = atlas.static_rgba8().to_vec();
+    let width = atlas.size()[0] as usize;
+    for (index, pixel) in pixels.chunks_exact_mut(4).enumerate() {
+        let x = index % width;
+        let y = index / width;
+        pixel.copy_from_slice(&[(20 + y / 64) as u8, x as u8, (y % 64) as u8, 255]);
+    }
+    // Re-encode the original placements with the colored raster through the normal carrier.
+    let placements = kinds
+        .iter()
+        .copied()
+        .flat_map(texture_names)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| assets::BlockEntityPlacement {
+            name: name.into(),
+            x: 0,
+            y: index as u32 * 64,
+            width: 64,
+            height: 64,
+        })
+        .collect::<Vec<_>>();
+    let bytes = assets::encode_block_entity_catalog(
+        b"{}",
+        width as u32,
+        atlas.static_height(),
+        &pixels,
+        &placements,
+    )
+    .unwrap();
+    atlas =
+        BlockEntityAtlas::from_assets(&assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap());
+    let source = PreparedHeldBlockModels::with_heads(&atlas, &head_models());
+    for (kind, held) in source.models() {
+        let model = held.dropped.as_ref().unwrap();
+        let vertices = render_model_vertices(model);
+        for held in held.geometry.vertices.iter() {
+            assert!(
+                vertices.iter().any(|drop| drop
+                    .position
+                    .iter()
+                    .zip(held.position)
+                    .all(|(a, b)| (a - b).abs() <= 1.0 / 512.0 + 1.0e-5)),
+                "{kind:?}"
+            );
+        }
+        for (quad, face) in model
+            .quads
+            .iter()
+            .zip(held.geometry.vertices.as_chunks::<6>().0)
+        {
+            let (sprite, _) = &model.materials[quad.material as usize];
+            assert_eq!([sprite.width, sprite.height], [64, 64]);
+            let texture = sprite.rgba8[0];
+            for (uv, vertex) in quad.uvs.iter().zip([2, 5, 1, 0].map(|index| face[index])) {
+                let expected = [
+                    vertex.uv[0] * width as f32,
+                    vertex.uv[1] * atlas.static_height() as f32 - f32::from(texture - 20) * 64.0,
+                ];
+                for axis in 0..2 {
+                    let actual = f32::from(uv[axis]) / f32::from(assets::MODEL_UV_SCALE) * 64.0;
+                    assert!(
+                        (actual - expected[axis]).abs() < 0.02,
+                        "{kind:?} UV axis {axis}"
+                    );
+                }
+            }
+        }
+    }
 }

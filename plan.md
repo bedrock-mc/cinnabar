@@ -399,20 +399,10 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
-  Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
-  resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
-  sprites; falling blocks retain their world models.
-  Implemented dropped sprite families, including flower beds, use their carried artwork.
-  Other drop classes and native poses remain incomplete. Falling blocks retain their world models.
-  Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
-  Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
-  hooks, ladders, lily pads, sea pickles, levers, vines, glow lichen and sculk veins use their
-  carried sprites; falling blocks retain
-  their world models.
-  Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
-  resin clumps, hooks, ladders, lily pads and sea pickles use their carried sprites; falling
-  blocks retain their world models.
-  Dropped crossed plants, lanterns, chains, ladders, lily pads and sea pickles use their carried sprites; falling blocks retain their world models.
+  Implemented dropped sprite families use their carried artwork; falling blocks retain
+  their world models. Dedicated dropped block items share prepared held geometry and
+  texture tiles, with session artwork taking priority. Other drop classes, native poses,
+  lighting, tint, animation and per-stack model state remain incomplete.
   Held lecterns reuse the placed stand; their hand pose comparisons remain incomplete.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.

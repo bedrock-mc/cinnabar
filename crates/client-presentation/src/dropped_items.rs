@@ -35,6 +35,7 @@ pub(crate) struct DroppedItemFrame<'a> {
 mod dials;
 mod lighting;
 mod preparation;
+mod special;
 use preparation::DropPreparation;
 
 // Provisional world sizes and colours; each needs independent measurement.
@@ -58,6 +59,7 @@ use cache::{ModelCache, ModelKey};
 pub(super) struct DroppedItemPublisher<'w, 's> {
     scene: Option<ResMut<'w, DroppedItemScene>>,
     textures: Option<Res<'w, ChunkTextureAssets>>,
+    block_entities: Option<Res<'w, render_scene::BlockEntitySceneResource>>,
     placements: Option<Res<'w, render_scene::StaticItemPlacementsResource>>,
     cache: Local<'s, ModelCache>,
     scratch: Local<'s, PublishScratch>,
@@ -462,6 +464,10 @@ impl DroppedItemPublisher<'_, '_> {
             .textures
             .as_ref()
             .map(|textures| textures.assets().as_ref());
+        let held_models = self
+            .block_entities
+            .as_ref()
+            .and_then(|scene| scene.0.held_models());
         instances.clear();
         terrain_instances.clear();
         placement_icons.clear();
@@ -490,6 +496,11 @@ impl DroppedItemPublisher<'_, '_> {
                 cache.request(&ModelKey::Block { hashed, id });
             }
             if let Some(identifier) = view.item.identifier.as_ref() {
+                if let Some((key, _, _)) =
+                    special::model(icons, held_models, identifier, view.item.identity.metadata)
+                {
+                    cache.request(&key);
+                }
                 dial_models.observe(icons, identifier, view.item.identity.metadata);
                 let (identifier, metadata) = dropped_icon_key(icons, identifier, &view.item);
                 if let Some(icon) = icons.item_icon(identifier, metadata) {
@@ -569,25 +580,43 @@ impl DroppedItemPublisher<'_, '_> {
                         },
                     )
                 });
-            let cube = session_block.or_else(|| {
-                block_id.zip(assets).and_then(|((mode, id), assets)| {
-                    let hashed = mode == NetworkIdMode::Hashed;
-                    preparation
-                        .model(
-                            cache,
-                            &ModelKey::CarriedBlock { hashed, id },
-                            DroppedItemShape::Cube,
-                            |cache| Self::carried_block_model(cache, icons, assets, mode, id),
-                        )
-                        .or_else(|| {
-                            preparation.model(
-                                cache,
-                                &ModelKey::Block { hashed, id },
-                                DroppedItemShape::Cube,
-                                |cache| Self::block_model(cache, assets, mode, id),
-                            )
-                        })
+            let held = session_block.or_else(|| {
+                let (key, shape, model) =
+                    special::model(icons, held_models, identifier, view.item.identity.metadata)?;
+                preparation.model(cache, &key, shape, |cache| {
+                    cache.model(
+                        key.clone(),
+                        || Some(model.materials.len()),
+                        || Some(DroppedItemModel::Block(model.clone())),
+                    )
                 })
+            });
+            let cube = held.or_else(|| {
+                block_id
+                    .filter(|_| {
+                        icons
+                            .session_item_icon(identifier, view.item.identity.metadata)
+                            .is_none()
+                    })
+                    .zip(assets)
+                    .and_then(|((mode, id), assets)| {
+                        let hashed = mode == NetworkIdMode::Hashed;
+                        preparation
+                            .model(
+                                cache,
+                                &ModelKey::CarriedBlock { hashed, id },
+                                DroppedItemShape::Cube,
+                                |cache| Self::carried_block_model(cache, icons, assets, mode, id),
+                            )
+                            .or_else(|| {
+                                preparation.model(
+                                    cache,
+                                    &ModelKey::Block { hashed, id },
+                                    DroppedItemShape::Cube,
+                                    |cache| Self::block_model(cache, assets, mode, id),
+                                )
+                            })
+                    })
             });
             let prepared = cube.or_else(|| {
                 let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
