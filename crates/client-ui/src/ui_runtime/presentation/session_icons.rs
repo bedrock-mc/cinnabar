@@ -23,6 +23,7 @@ type IconRefs = HashMap<Arc<str>, BTreeMap<u32, IconRef>>;
 const GUTTER: u32 = 1;
 const MAX_LOGGED_MISSES: usize = 512;
 
+mod fit;
 mod held;
 
 /// Resolves session overrides before vanilla artwork, retaining the variant-zero fallback.
@@ -388,8 +389,11 @@ fn inline_pack_fits(icons: &SessionIcons) -> bool {
     }
     let policy = device_policy();
     let ordered = ordered_icons(icons, policy);
-    page_side(ordered.iter().map(|(icon, _)| *icon), policy)
-        .is_none_or(|side| u64::from(side) * u64::from(side) <= MAX_INLINE_PACK_TEXELS)
+    page_side(
+        ordered.iter().map(|(icon, _)| [icon.width, icon.height]),
+        policy,
+    )
+    .is_none_or(|side| u64::from(side) * u64::from(side) <= MAX_INLINE_PACK_TEXELS)
 }
 
 /// The session page's pixels and where each icon and block sheet landed on it.
@@ -473,20 +477,37 @@ fn ordered_icons(icons: &SessionIcons, policy: TexturePolicy) -> Vec<(&SessionIc
     ordered
 }
 
-/// Shelf-packs icons and block sheets with a replicated gutter; those that do not fit, and
-/// sheets not shaped as `assets::BLOCK_ITEM_SHEET_SIZE`, are left out.
+/// Shelf-packs icons and block sheets with a replicated gutter. When the set outgrows the largest
+/// page, the largest icons are halved first (see [`fit`]); block sheets keep their exact size.
+/// Whatever still does not fit, and sheets not shaped as `assets::BLOCK_ITEM_SHEET_SIZE`, are
+/// left out.
 fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
     #[cfg(test)]
     PACKS.with(|packs| packs.set(packs.get() + 1));
     let policy = device_policy();
     let ordered = ordered_icons(icons, policy);
-    let side = page_side(ordered.iter().map(|(icon, _)| *icon), policy)?;
+    let sizes = ordered
+        .iter()
+        .map(|(icon, _)| [icon.width, icon.height])
+        .collect::<Vec<_>>();
+    let fixed = ordered.iter().map(|(_, sheet)| *sheet).collect::<Vec<_>>();
+    let shifts = fit::halvings(&sizes, &fixed, max_page_side(policy)?);
+    let scaled = fit::scaled_sizes(&sizes, &shifts);
+    let mut plan = ordered
+        .into_iter()
+        .zip(shifts)
+        .zip(scaled)
+        .map(|(((icon, sheet), shift), size)| (icon, sheet, shift, size))
+        .collect::<Vec<_>>();
+    // Tallest first after shrinking, matching the layout `fit` measured.
+    plan.sort_by_key(|(_, _, _, size)| std::cmp::Reverse(size[1]));
+    let side = page_side(plan.iter().map(|(_, _, _, size)| *size), policy)?;
     let mut rgba8 = vec![0u8; (side * side * 4) as usize];
     let mut refs: IconRefs = HashMap::new();
     let mut sheets: IconRefs = HashMap::new();
     let (mut cursor, mut row_height) = ([0u32; 2], 0u32);
-    for (icon, sheet) in ordered {
-        let padded = [icon.width + GUTTER * 2, icon.height + GUTTER * 2];
+    for (icon, sheet, shift, [width, height]) in plan {
+        let padded = [width + GUTTER * 2, height + GUTTER * 2];
         let placements = if sheet { &mut sheets } else { &mut refs };
         if placements
             .get(&icon.identifier)
@@ -501,13 +522,17 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
         if cursor[1] + padded[1] > side {
             continue;
         }
+        let shrunk = (shift > 0).then(|| fit::shrink(icon, shift));
+        let pixels = shrunk
+            .as_ref()
+            .map_or(&*icon.rgba8, |(_, pixels)| pixels.as_slice());
         for y in 0..padded[1] {
-            let source_y = y.saturating_sub(GUTTER).min(icon.height - 1);
+            let source_y = y.saturating_sub(GUTTER).min(height - 1);
             for x in 0..padded[0] {
-                let source_x = x.saturating_sub(GUTTER).min(icon.width - 1);
-                let source = ((source_y * icon.width + source_x) * 4) as usize;
+                let source_x = x.saturating_sub(GUTTER).min(width - 1);
+                let source = ((source_y * width + source_x) * 4) as usize;
                 let target = (((cursor[1] + y) * side + cursor[0] + x) * 4) as usize;
-                rgba8[target..target + 4].copy_from_slice(&icon.rgba8[source..source + 4]);
+                rgba8[target..target + 4].copy_from_slice(&pixels[source..source + 4]);
             }
         }
         let [left, top] = [cursor[0] + GUTTER, cursor[1] + GUTTER];
@@ -517,8 +542,8 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
             uv: [
                 left as u16,
                 top as u16,
-                (left + icon.width) as u16,
-                (top + icon.height) as u16,
+                (left + width) as u16,
+                (top + height) as u16,
             ],
             glint: false,
         };
@@ -533,21 +558,20 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
     Some(PackedIcons { page, refs, sheets })
 }
 
-/// Grows the reserved page to the smallest bounded shelf layout containing the icons.
-fn page_side<'a>(
-    icons: impl Iterator<Item = &'a SessionIcon> + Clone,
-    policy: TexturePolicy,
-) -> Option<u32> {
+/// The largest square session page the device and UI atlas allow, a power of two.
+fn max_page_side(policy: TexturePolicy) -> Option<u32> {
     let max_side = policy.max_side().min(render_model::MAX_UI_TEXTURE_SIDE);
-    if max_side < MIN_PAGE_SIDE {
-        return None;
-    }
-    let max_side = 1 << max_side.ilog2();
+    (max_side >= MIN_PAGE_SIDE).then(|| 1 << max_side.ilog2())
+}
+
+/// Grows the reserved page to the smallest bounded shelf layout containing the icon sizes.
+fn page_side(sizes: impl Iterator<Item = [u32; 2]> + Clone, policy: TexturePolicy) -> Option<u32> {
+    let max_side = max_page_side(policy)?;
     let mut side = MIN_PAGE_SIDE;
     loop {
         let (mut x, mut y, mut row) = (0, 0, 0);
-        for icon in icons.clone() {
-            let (width, height) = (icon.width + GUTTER * 2, icon.height + GUTTER * 2);
+        for [width, height] in sizes.clone() {
+            let (width, height) = (width + GUTTER * 2, height + GUTTER * 2);
             if x + width > side {
                 x = 0;
                 y += row;
@@ -556,7 +580,7 @@ fn page_side<'a>(
             x += width;
             row = row.max(height);
         }
-        let widths_fit = icons.clone().all(|icon| icon.width + GUTTER * 2 <= side);
+        let widths_fit = sizes.clone().all(|[width, _]| width + GUTTER * 2 <= side);
         if (widths_fit && y + row <= side) || side == max_side {
             policy.page_bytes(side, side)?;
             return Some(side);
