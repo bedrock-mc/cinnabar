@@ -79,12 +79,14 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
             "Plain caption",
             "§dServer-colored caption",
             "Hello @Alex tail",
+            "Hello @Steve tail",
             "§d§l§oHello @Alex tail",
         ] {
             let mut screens = HudScreens::default();
             let context = screens.context(&Context::desktop(), false);
             let mut model = HudModel {
                 chat_visible: true,
+                chat_local_player: Arc::from("Alex"),
                 chat: vec![Timed {
                     text: if server_content {
                         crate::test_support::hover_chat::message_with_caption(caption)
@@ -96,7 +98,18 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                 ..Default::default()
             };
             let mut layouts = TextLayoutCache::new(32, 1024 * 1024);
-            for (index, color) in [0, 1, 0].into_iter().enumerate() {
+            for (index, (color, local_player)) in [
+                (0, "Alex"),
+                (1, "Alex"),
+                (0, "Alex"),
+                (0, "Steve"),
+                (0, "Alex"),
+                (0, ""),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                model.chat_local_player = Arc::from(local_player);
                 let mut options = SettingsOptions::default();
                 options.set(SettingId::ChatColor.index(), color);
                 options.set(
@@ -143,7 +156,7 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                         &engine,
                         HudInput {
                             capture_keep_out: false,
-                            renderers_unchanged: false,
+                            renderers_unchanged: index != 0,
                             crosshair: false,
                             catalog: engine.catalog(),
                             context: &context,
@@ -176,7 +189,14 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                     let mention = glyphs.iter().find(|glyph| glyph.codepoint == '@').unwrap();
                     assert_eq!(
                         mention.style.color,
-                        if index == 1 {
+                        if local_player.is_empty() || !caption.contains(&format!("@{local_player}"))
+                        {
+                            if color == 0 {
+                                BedrockColor::Base
+                            } else {
+                                BedrockColor::Green
+                            }
+                        } else if index == 1 {
                             BedrockColor::White
                         } else {
                             BedrockColor::Yellow

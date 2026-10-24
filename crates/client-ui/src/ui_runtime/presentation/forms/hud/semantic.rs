@@ -350,6 +350,10 @@ impl SemanticHud {
             ui_screens::settings_chat::default_color(settings),
         );
         changed |= replace(&mut self.model.chat_mention_color, Some(mention_code));
+        changed |= replace(
+            &mut self.model.chat_local_player,
+            Arc::clone(&runtime.local_player_display_name),
+        );
         if reset
             || self.chat_options != Some(options)
             || !rows().map(|(id, _)| id).eq(self.chat_rows.iter().copied())
