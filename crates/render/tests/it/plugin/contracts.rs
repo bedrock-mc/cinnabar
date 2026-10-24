@@ -5,18 +5,24 @@ use super::*;
 fn model_shader_storage_and_fragment_inputs_fit_the_shared_pipeline_contract() {
     let source = standalone_world_shader(include_str!("../../../src/model.wesl"));
     let module = naga::front::wgsl::parse_str(&source).unwrap();
-    naga::valid::Validator::new(
+    let info = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::all(),
     )
     .validate(&module)
     .unwrap();
-    let storage = module
-        .global_variables
-        .iter()
-        .filter(|(_, variable)| matches!(variable.space, naga::AddressSpace::Storage { .. }))
-        .count();
-    assert!(storage <= render::required_vertex_storage_buffers() as usize);
+    for (index, _) in module.entry_points.iter().enumerate() {
+        let usage = info.get_entry_point(index);
+        let storage = module
+            .global_variables
+            .iter()
+            .filter(|(handle, variable)| {
+                matches!(variable.space, naga::AddressSpace::Storage { .. })
+                    && !usage[*handle].is_empty()
+            })
+            .count();
+        assert!(storage <= render::required_vertex_storage_buffers() as usize);
+    }
     let fragment = module
         .entry_points
         .iter()
