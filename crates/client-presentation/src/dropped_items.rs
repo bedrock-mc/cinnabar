@@ -576,10 +576,6 @@ impl DroppedItemPublisher<'_, '_> {
             .textures
             .as_ref()
             .map(|textures| textures.assets().as_ref());
-        instances.clear();
-        terrain_instances.clear();
-        placement_icons.clear();
-
         stream.authority().dropped_items_into(partial_tick, dropped);
         let mut dial_models = dials::DialModels::default();
         let budget = self.device.as_ref().map_or_else(
@@ -596,186 +592,140 @@ impl DroppedItemPublisher<'_, '_> {
             },
         );
         cache.budget = budget;
-        cache.begin_frame();
-        // Protect all current consumers before admitting new models, regardless of iteration order.
+        placement_icons.clear();
+        if let Some(placements) = self.placements.as_ref() {
+            placement_icons.extend(placements.0.0.iter().map(|placement| {
+                placement
+                    .potted_block
+                    .is_none()
+                    .then(|| icons.startup_item_icon(&placement.identifier, placement.metadata))
+                    .flatten()
+            }));
+        }
         for view in dropped.iter() {
-            if let Some(sheet) = view
-                .item
-                .identifier
-                .as_deref()
-                .and_then(|id| icons.session_block_sheet(id, view.item.identity.metadata))
-            {
-                cache.request(&ModelKey::session_block(sheet));
-            }
-            if let Some((mode, id)) = item_block_id(
-                stream,
-                view.item.visual,
-                view.item.identifier.as_deref(),
-                assets,
-            ) {
-                let hashed = mode == NetworkIdMode::Hashed;
-                cache.request(&ModelKey::CarriedBlock { hashed, id });
-                cache.request(&ModelKey::Block { hashed, id });
-            }
             if let Some(identifier) = view.item.identifier.as_ref() {
                 dial_models.observe(icons, identifier, view.item.identity.metadata);
-                let (identifier, metadata) = dropped_icon_key(icons, identifier, &view.item);
-                for icon in [
-                    icons.session_item_icon(identifier, metadata),
-                    icons.startup_item_icon(identifier, metadata),
-                ]
-                .into_iter()
-                .flatten()
-                {
-                    cache.request(&ModelKey::icon(icon, true));
-                }
-            }
-        }
-        if let Some(placements) = self.placements.as_ref() {
-            for placement in &placements.0.0 {
-                if let Some(id) = placement.potted_block {
-                    cache.request(&ModelKey::PottedBlock { id });
-                    placement_icons.push(None);
-                    continue;
-                }
-                if let Some(visual) = placement.carried_block {
-                    if let Some(sheet) =
-                        icons.session_block_sheet(&placement.identifier, placement.metadata)
-                    {
-                        cache.request(&ModelKey::session_block(sheet));
-                    }
-                    cache.request(&ModelKey::CarriedBlock {
-                        hashed: false,
-                        id: visual.0,
-                    });
-                }
-                if let Some(icon) =
-                    icons.session_item_icon(&placement.identifier, placement.metadata)
-                {
-                    cache.request(&ModelKey::icon(icon, false));
-                }
-                let icon = icons.startup_item_icon(&placement.identifier, placement.metadata);
-                if let Some(icon) = icon {
-                    cache.request(&ModelKey::icon(icon, false));
-                }
-                placement_icons.push(icon);
             }
         }
         stream
             .authority()
             .block_entity_candidates_into(partial_tick, candidates);
-        for candidate in candidates.iter() {
-            if let Some((mode, id, _)) = entity_block_id(stream, &candidate.view.kind) {
-                cache.request(&ModelKey::Block {
-                    hashed: mode == NetworkIdMode::Hashed,
-                    id,
-                });
-            }
-        }
-        cache.finish_demand();
         preparation::retain_lifetimes(cache, dropped);
-        for view in dropped.iter() {
-            let Some(identifier) = view.item.identifier.as_ref() else {
-                continue;
-            };
-            let block_id = item_block_id(stream, view.item.visual, Some(identifier), assets);
-            let preparation = DropPreparation {
-                view,
-                native_origin: stream.authority().actor(view.runtime_id).map_or(
-                    view.position,
-                    |actor| {
-                        let mut origin = actor.position;
-                        origin[1] += protocol::ITEM_ACTOR_NETWORK_OFFSET;
-                        origin
-                    },
-                ),
-                camera,
-                frustum: frustum.as_ref(),
-            };
-            let prepared = Self::dropped_model(cache, icons, assets, block_id, &preparation);
-            if let Some(prepared) = prepared {
-                prepared.append(view, instances, |position| stream.light_level_at(position));
-            }
-        }
-
-        // Static items share carried models and icon fallbacks with dropped items.
-        if let Some(placements) = self.placements.as_ref() {
-            for (placement, &icon) in placements.0.0.iter().zip(placement_icons.iter()) {
-                let model = Self::placement_model(cache, icons, assets, placement, icon);
-                let Some(model) = model else {
+        cache.prepare(|cache| {
+            instances.clear();
+            terrain_instances.clear();
+            for view in dropped.iter() {
+                let Some(identifier) = view.item.identifier.as_ref() else {
                     continue;
                 };
-                let rows = placement.world_from_item;
-                let (block_level, sky_level) = placement
-                    .light
-                    .unwrap_or_else(|| stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]]));
-                instances.push(DroppedItemInstance {
-                    model,
-                    world_from_item: rows,
-                    block_level: u32::from(block_level),
-                    sky_level: u32::from(sky_level),
-                    overlay_rgba8: 0,
-                    glint: false,
-                });
-            }
-        }
-
-        if let Some(assets) = assets {
-            transitions.clear();
-            for fence in stream.actor_block_sync_fences() {
-                transitions
-                    .entry(fence.sync.actor_unique_id)
-                    .or_default()
-                    .push(TerrainItemTransition {
-                        key: fence.key,
-                        generation: fence.generation,
-                        visible: fence.sync.message == 1,
-                    });
-            }
-            for candidate in candidates.iter() {
-                let view = &candidate.view;
-                let Some((id_mode, id, base_scale)) = entity_block_id(stream, &view.kind) else {
-                    continue;
-                };
-                let Some(model) = Self::block_model(cache, assets, id_mode, id) else {
-                    continue;
-                };
-                let light_position = lighting::block_entity_light_position(
-                    stream,
-                    collisions,
-                    &view.kind,
-                    view.center,
-                );
-                let (block_level, sky_level) = stream.light_level_at(light_position);
-                let instance = DroppedItemInstance {
-                    model,
-                    world_from_item: dropped_item_transform(
-                        view.center,
-                        0.0,
-                        base_scale * view.scale,
+                let block_id = item_block_id(stream, view.item.visual, Some(identifier), assets);
+                let preparation = DropPreparation {
+                    view,
+                    native_origin: stream.authority().actor(view.runtime_id).map_or(
+                        view.position,
+                        |actor| {
+                            let mut origin = actor.position;
+                            origin[1] += protocol::ITEM_ACTOR_NETWORK_OFFSET;
+                            origin
+                        },
                     ),
-                    block_level: u32::from(block_level),
-                    sky_level: u32::from(sky_level),
-                    overlay_rgba8: if view.flash {
-                        pack_overlay_rgba8(TNT_FLASH_OVERLAY)
-                    } else {
-                        0
-                    },
-                    glint: false,
+                    camera,
+                    frustum: frustum.as_ref(),
                 };
-                if matches!(view.kind, BlockEntityKind::Falling { .. }) {
-                    terrain_instances.push(TerrainItemInstance {
-                        instance,
-                        visible: candidate.visible,
-                        transitions: Arc::from(
-                            transitions.remove(&candidate.unique_id).unwrap_or_default(),
-                        ),
-                    });
-                } else if candidate.visible {
-                    instances.push(instance);
+                let prepared = Self::dropped_model(cache, icons, assets, block_id, &preparation);
+                if let Some(prepared) = prepared {
+                    prepared.append(view, instances, |position| stream.light_level_at(position));
                 }
             }
-        }
+
+            // Static items share carried models and icon fallbacks with dropped items.
+            if let Some(placements) = self.placements.as_ref() {
+                for (placement, &icon) in placements.0.0.iter().zip(placement_icons.iter()) {
+                    let model = Self::placement_model(cache, icons, assets, placement, icon);
+                    let Some(model) = model else {
+                        continue;
+                    };
+                    if cache.is_planning() {
+                        continue;
+                    }
+                    let rows = placement.world_from_item;
+                    let (block_level, sky_level) = placement.light.unwrap_or_else(|| {
+                        stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]])
+                    });
+                    instances.push(DroppedItemInstance {
+                        model,
+                        world_from_item: rows,
+                        block_level: u32::from(block_level),
+                        sky_level: u32::from(sky_level),
+                        overlay_rgba8: 0,
+                        glint: false,
+                    });
+                }
+            }
+
+            if let Some(assets) = assets {
+                if !cache.is_planning() {
+                    transitions.clear();
+                    for fence in stream.actor_block_sync_fences() {
+                        transitions
+                            .entry(fence.sync.actor_unique_id)
+                            .or_default()
+                            .push(TerrainItemTransition {
+                                key: fence.key,
+                                generation: fence.generation,
+                                visible: fence.sync.message == 1,
+                            });
+                    }
+                }
+                for candidate in candidates.iter() {
+                    let view = &candidate.view;
+                    let Some((id_mode, id, base_scale)) = entity_block_id(stream, &view.kind)
+                    else {
+                        continue;
+                    };
+                    let Some(model) = Self::block_model(cache, assets, id_mode, id) else {
+                        continue;
+                    };
+                    if cache.is_planning() {
+                        continue;
+                    }
+                    let light_position = lighting::block_entity_light_position(
+                        stream,
+                        collisions,
+                        &view.kind,
+                        view.center,
+                    );
+                    let (block_level, sky_level) = stream.light_level_at(light_position);
+                    let instance = DroppedItemInstance {
+                        model,
+                        world_from_item: dropped_item_transform(
+                            view.center,
+                            0.0,
+                            base_scale * view.scale,
+                        ),
+                        block_level: u32::from(block_level),
+                        sky_level: u32::from(sky_level),
+                        overlay_rgba8: if view.flash {
+                            pack_overlay_rgba8(TNT_FLASH_OVERLAY)
+                        } else {
+                            0
+                        },
+                        glint: false,
+                    };
+                    if matches!(view.kind, BlockEntityKind::Falling { .. }) {
+                        terrain_instances.push(TerrainItemInstance {
+                            instance,
+                            visible: candidate.visible,
+                            transitions: Arc::from(
+                                transitions.remove(&candidate.unique_id).unwrap_or_default(),
+                            ),
+                        });
+                    } else if candidate.visible {
+                        instances.push(instance);
+                    }
+                }
+            }
+        });
 
         lines.clear();
         if let Some((camera, _)) = camera {

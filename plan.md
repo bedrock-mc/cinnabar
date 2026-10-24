@@ -394,6 +394,9 @@ and rendered qualification remain incomplete.
   Framed, dropped and held items try session block sheets, session icons, startup carried
   geometry and startup sprites in order, continuing when construction, extrusion or device
   atlas and mesh admission fails. Selection and upload share the same physical budgets.
+  Framed and dropped items plan the complete preparation before upload; an over-budget
+  cube plan sends all of those items through the sprite route. Invalid meshes stay rejected
+  until their artwork generation changes.
   Cache-pressure captures, frame pose comparisons, shaped models and special models remain incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.

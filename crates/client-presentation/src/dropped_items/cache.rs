@@ -1,12 +1,13 @@
 //! Bounded CPU models and atlas slots for current item consumers.
 use std::sync::Arc;
 
-use bevy::platform::collections::HashMap;
+use bevy::platform::collections::{HashMap, HashSet};
 
 use render_model::{
     DroppedItemModel, DroppedItemSpawnPose, MAX_ITEM_LAYERS, dropped_item::DroppedItemBounds,
 };
 
+mod planning;
 mod publication;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -67,6 +68,15 @@ pub(crate) struct ModelCache {
     budget_refusals: u64,
     /// Successful artwork resolutions that recovered from a budget refusal this frame.
     pub(super) budget_fallbacks: u64,
+    /// Whole preparations downgraded to sprites in this frame.
+    pub(super) cube_plan_downgrades: u64,
+    sprite_only: bool,
+    planning: bool,
+    costs: HashMap<ModelKey, planning::ModelCost>,
+    planned: HashSet<ModelKey>,
+    planned_pixels: usize,
+    /// Invalid geometry stays rejected until the session or artwork generation changes.
+    invalid_meshes: HashSet<ModelKey>,
     pub(super) shared: Arc<[DroppedItemModel]>,
     index: HashMap<ModelKey, usize>,
     /// Bounded layer estimates and permanent block failures still demanded.
@@ -84,6 +94,10 @@ pub(crate) struct ModelCache {
     pub(super) spawn_poses: HashMap<(u64, u64), DroppedItemSpawnPose>,
     #[cfg(test)]
     inspections: usize,
+    #[cfg(test)]
+    pub(super) mesh_validations: HashMap<ModelKey, usize>,
+    #[cfg(test)]
+    pub(super) model_builds: usize,
 }
 
 struct Resident {
@@ -123,11 +137,41 @@ fn pixel_cost(model: &DroppedItemModel) -> usize {
 }
 
 impl ModelCache {
+    /// Plans without changing residency, then prepares the complete chosen artwork mode.
+    /// The callback replaces its frame-local output and skips draws during cost planning.
+    pub(super) fn prepare<T>(&mut self, mut prepare: impl FnMut(&mut Self) -> T) -> T {
+        self.sprite_only = false;
+        self.planning = true;
+        self.begin_frame();
+        prepare(self);
+        let downgrade = self.budget_refusals > 0;
+        self.planning = false;
+        self.sprite_only = downgrade;
+        self.begin_frame();
+        self.collect_reclaimable();
+        let plan = prepare(self);
+        self.prune_rejections();
+        self.cube_plan_downgrades = u64::from(downgrade);
+        plan
+    }
+
+    /// Whether this pass only measures artwork costs, without preparing draws.
+    pub(super) fn is_planning(&self) -> bool {
+        self.planning
+    }
+
     /// Reuses a successfully admitted model while preserving current-consumer protection.
     pub(super) fn resident(&mut self, key: &ModelKey) -> Option<u32> {
-        self.request(key);
         let slot = *self.index.get(key)?;
-        self.admit_resident(slot).then_some(slot as u32)
+        if self.planning {
+            let cost = *self.costs.get(key).expect("resident has validated costs");
+            return self.plan_cost(key, cost);
+        }
+        if !self.admit_resident(slot) {
+            return None;
+        }
+        self.request(key);
+        Some(slot as u32)
     }
 
     /// Charges a cached model once per frame before returning it to an artwork chain.
@@ -181,6 +225,8 @@ impl ModelCache {
             .checked_add(1)
             .expect("model demand frame overflow");
         self.budget.reset();
+        self.planned.clear();
+        self.planned_pixels = 0;
         self.budget_refusals = 0;
         self.budget_fallbacks = 0;
         self.reclaimable.clear();
@@ -205,8 +251,8 @@ impl ModelCache {
         }
     }
 
-    /// Counts reclaimable capacity once, scanning only the bounded resident table.
-    pub(super) fn finish_demand(&mut self) {
+    /// Drops stale estimates after this frame's attempted sources have been identified.
+    fn prune_rejections(&mut self) {
         self.rejected.retain(|_, entry| {
             #[cfg(test)]
             {
@@ -214,6 +260,17 @@ impl ModelCache {
             }
             entry.requested == self.frame
         });
+    }
+
+    /// Counts reclaimable capacity after protecting explicitly collected test consumers.
+    #[cfg(test)]
+    pub(super) fn finish_demand(&mut self) {
+        self.prune_rejections();
+        self.collect_reclaimable();
+    }
+
+    /// Makes unselected residents reclaimable while a complete plan chooses its models.
+    fn collect_reclaimable(&mut self) {
         self.reclaimable.clear();
         self.available = MAX_ITEM_LAYERS - 1 - self.layers;
         self.available_pixels = assets::texture::policy::MAX_SUBSCRIBER_BYTES - self.pixel_bytes;
@@ -250,13 +307,33 @@ impl ModelCache {
         }
     }
 
+    /// Remembers unavailable block sources whose assets cannot become ready later this generation.
+    fn reject_unavailable(&mut self, key: &ModelKey) {
+        if matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. }) {
+            self.remember_rejection(key.clone(), None, None);
+        }
+    }
+
     /// Counts successful fallback chains that encountered at least one capacity refusal.
     pub(super) fn artwork<T>(
         &mut self,
         attempt: impl FnMut(&mut Self, crate::session_artwork::ItemArtwork) -> Option<T>,
     ) -> Option<T> {
         let refusals = self.budget_refusals;
-        let result = crate::session_artwork::item_artwork(self, attempt);
+        let mut attempt = attempt;
+        let result = crate::session_artwork::item_artwork(self, |cache, source| {
+            if cache.sprite_only
+                && matches!(
+                    source,
+                    crate::session_artwork::ItemArtwork::SessionCube
+                        | crate::session_artwork::ItemArtwork::StartupCube
+                )
+            {
+                None
+            } else {
+                attempt(cache, source)
+            }
+        });
         if result.is_some() && self.budget_refusals != refusals {
             self.budget_fallbacks = self.budget_fallbacks.saturating_add(1);
         }
@@ -270,6 +347,9 @@ impl ModelCache {
         cost: impl FnOnce() -> Option<usize>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
+        if self.planning {
+            return self.plan_model(key, cost, build);
+        }
         self.admit(key, cost, build, true)
     }
 
@@ -290,17 +370,21 @@ impl ModelCache {
         build: impl FnOnce() -> Option<DroppedItemModel>,
         reclaim: bool,
     ) -> Option<u32> {
-        if reclaim {
-            self.request(&key);
+        if self.invalid_meshes.contains(&key) {
+            return None;
         }
         if let Some(&slot) = self.index.get(&key) {
-            if !reclaim {
-                self.residents[slot]
-                    .as_mut()
-                    .expect("indexed resident")
-                    .warmed = self.frame;
+            if reclaim {
+                return self.resident(&key);
             }
-            return (!reclaim || self.admit_resident(slot)).then_some(slot as u32);
+            self.residents[slot]
+                .as_mut()
+                .expect("indexed resident")
+                .warmed = self.frame;
+            return Some(slot as u32);
+        }
+        if reclaim {
+            self.request(&key);
         }
         let available = if reclaim {
             self.available
@@ -330,10 +414,8 @@ impl ModelCache {
             }
             None => {
                 let estimate = cost();
-                if estimate.is_none()
-                    && matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. })
-                {
-                    self.remember_rejection(key.clone(), None, None);
+                if estimate.is_none() {
+                    self.reject_unavailable(&key);
                 }
                 estimate
             }
@@ -348,10 +430,12 @@ impl ModelCache {
             self.remember_rejection(key, Some(cost), pixel_bytes);
             return None;
         }
+        #[cfg(test)]
+        {
+            self.model_builds += 1;
+        }
         let Some(model) = build() else {
-            if matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. }) {
-                self.remember_rejection(key, None, None);
-            }
+            self.reject_unavailable(&key);
             return None;
         };
         assert_eq!(
@@ -365,11 +449,7 @@ impl ModelCache {
             self.remember_rejection(key, Some(cost), Some(pixel_bytes));
             return None;
         }
-        let vertices = model
-            .atlas_side(self.budget.policy())
-            .and_then(|side| model.mesh(side, 1))
-            .map(|mesh| mesh.len())
-            .filter(|&vertices| vertices > 0)?;
+        let vertices = self.validate_model(&key, &model)?.vertices;
         if reclaim && self.budget.admit(&model, vertices).is_none() {
             self.budget_refusals = self.budget_refusals.saturating_add(1);
             return None;
@@ -437,6 +517,12 @@ impl ModelCache {
 
     /// Publishes current demand and fitting speculative frames at stable slots.
     pub(super) fn finish_frame(&mut self) {
+        if self.cube_plan_downgrades > 0 {
+            tracing::debug!(
+                cube_plan_downgrades = self.cube_plan_downgrades,
+                "item cube plan exceeded capacity; preparing all items as sprites"
+            );
+        }
         if self.budget_fallbacks > 0 {
             tracing::debug!(
                 budget_fallbacks = self.budget_fallbacks,

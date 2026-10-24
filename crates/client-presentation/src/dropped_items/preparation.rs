@@ -55,6 +55,14 @@ impl DropPreparation<'_> {
         resolve: impl FnOnce(&mut ModelCache) -> Option<u32>,
     ) -> Option<PreparedDrop> {
         let model = cache.resident(key).or_else(|| resolve(cache))?;
+        if cache.is_planning() {
+            return Some(PreparedDrop {
+                model,
+                position: self.view.position,
+                transforms: [[[0.0; 4]; 3]; MAX_DROPPED_ITEM_COPIES],
+                visible: false,
+            });
+        }
         let pose = *cache
             .spawn_poses
             .entry((self.view.runtime_id, self.view.spawn_revision))

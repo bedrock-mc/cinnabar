@@ -61,8 +61,17 @@ impl ItemModelBudget {
 
     /// Charges one validated mesh atomically, returning its current atlas extent.
     pub fn admit(&mut self, model: &DroppedItemModel, vertices: usize) -> Option<u32> {
-        let side = self.side.max(model.atlas_side(self.policy)?);
-        let layers = self.layers.checked_add(model.texture_layers())?;
+        self.admit_dimensions(
+            model.atlas_side(self.policy)?,
+            model.texture_layers(),
+            vertices,
+        )
+    }
+
+    /// Charges validated cached dimensions with the same limits used for model uploads.
+    pub fn admit_dimensions(&mut self, side: u32, layers: usize, vertices: usize) -> Option<u32> {
+        let side = self.side.max(side);
+        let layers = self.layers.checked_add(layers)?;
         let total = self.vertices.checked_add(vertices)?;
         if vertices == 0
             || total > self.max_vertices

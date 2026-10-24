@@ -765,3 +765,43 @@ fn late_current_models_can_reclaim_speculative_frames_without_double_charging() 
         DroppedItemModel::Vacant
     ));
 }
+
+#[test]
+fn invalid_geometry_is_retried_only_after_artwork_generation_changes() {
+    let mut cache = ModelCache::default();
+    let builds = std::cell::Cell::new(0);
+    let key = ModelKey::icon(
+        ui::IconRef {
+            color_mask: None,
+            page: 0,
+            uv: [0, 0, 1, 1],
+            glint: false,
+        },
+        true,
+    );
+    for generation in [0, 1] {
+        cache.sync(0, None, generation);
+        for demanded in [true, false, true, true] {
+            cache.begin_frame();
+            cache.finish_demand();
+            if demanded {
+                assert_eq!(
+                    cache.model(
+                        key.clone(),
+                        || Some(1),
+                        || {
+                            builds.set(builds.get() + 1);
+                            Some(DroppedItemModel::NativeSprite(DroppedItemSprite {
+                                width: 1,
+                                height: 1,
+                                rgba8: Arc::from([]),
+                            }))
+                        }
+                    ),
+                    None
+                );
+            }
+        }
+        assert_eq!(builds.get(), generation + 1);
+    }
+}

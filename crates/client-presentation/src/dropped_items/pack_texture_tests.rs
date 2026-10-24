@@ -522,7 +522,7 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
 }
 
 #[test]
-fn checkerboard_session_icon_falls_back_to_startup_cube() {
+fn regression_checkerboard_session_icon_is_validated_once() {
     let (mut icons, stream, assets, _) = carried_fixture();
     let mut runtime = UiRuntime::new(1);
     runtime.set_session_icons(Some(Arc::new(SessionIcons {
@@ -575,37 +575,46 @@ fn checkerboard_session_icon_falls_back_to_startup_cube() {
         camera: None,
         frustum: None,
     };
-    let prepared = DroppedItemPublisher::dropped_model(
-        &mut cache,
-        &icons,
-        Some(&assets),
-        item_block_id(
-            &stream,
-            view.item.visual,
-            view.item.identifier.as_deref(),
+    for _ in 0..8 {
+        cache.begin_frame();
+        cache.request(&ModelKey::icon(icon, true));
+        cache.finish_demand();
+        let prepared = DroppedItemPublisher::dropped_model(
+            &mut cache,
+            &icons,
             Some(&assets),
-        ),
-        &preparation,
-    );
-    let prepared = prepared.expect("valid startup artwork remains available");
-    let mut instances = Vec::new();
-    prepared.append(view, &mut instances, |_| (0, 15));
-    assert!(
-        matches!(
-            cache.models[instances[0].model as usize],
-            DroppedItemModel::Cube(_)
-        ),
-        "an undrawable session extrusion must try the startup cube"
+            item_block_id(
+                &stream,
+                view.item.visual,
+                view.item.identifier.as_deref(),
+                Some(&assets),
+            ),
+            &preparation,
+        );
+        let prepared = prepared.expect("valid startup artwork remains available");
+        let mut instances = Vec::new();
+        prepared.append(view, &mut instances, |_| (0, 15));
+        assert!(
+            matches!(
+                cache.models[instances[0].model as usize],
+                DroppedItemModel::Cube(_)
+            ),
+            "an undrawable session extrusion must try the startup cube"
+        );
+    }
+    assert_eq!(
+        cache.mesh_validations.get(&ModelKey::icon(icon, true)),
+        Some(&1)
     );
 }
 
-#[test]
-fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
+/// Installs distinct original cube sheets and matching one-layer session sprites.
+fn framed_icons(count: u32) -> UiPresentationRuntime {
     let (mut icons, _) = fixture(0);
     let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
     let mut runtime = UiRuntime::new(1);
     runtime.set_session_icons(Some(Arc::new(SessionIcons {
-        icons: (0..43)
+        icons: (0..count)
             .map(|metadata| SessionIcon {
                 identifier: ITEM.into(),
                 metadata,
@@ -614,7 +623,7 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
                 rgba8: Box::new([metadata as u8, 0, 80, 255]),
             })
             .collect(),
-        block_sheets: (0..43)
+        block_sheets: (0..count)
             .map(|metadata| SessionIcon {
                 identifier: ITEM.into(),
                 metadata,
@@ -637,8 +646,15 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
                 ui::DpiScale::new(1.0).unwrap(),
             )
             .unwrap();
-        icons.session_block_sheet(ITEM, 42).is_some() && icons.session_item_icon(ITEM, 42).is_some()
+        icons.session_block_sheet(ITEM, count - 1).is_some()
+            && icons.session_item_icon(ITEM, count - 1).is_some()
     });
+    icons
+}
+
+#[test]
+fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
+    let icons = framed_icons(43);
     let mut cache = ModelCache::default();
     cache.budget = render_model::dropped_item::ItemModelBudget::new(
         assets::texture::policy::device_policy(),
@@ -694,4 +710,95 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
             );
         }
     }
+}
+
+/// Checks complete downgrade and recovery using the same cache across scene changes.
+fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
+    let icons = framed_icons(counts[0]);
+    let mut cache = ModelCache::default();
+    cache.budget = render_model::dropped_item::ItemModelBudget::new(
+        assets::texture::policy::device_policy(),
+        layers,
+        u64::MAX,
+    );
+    let mut previous = None;
+    for count in counts {
+        let downgraded = count as usize * BlockFace::ALL.len() + 1 > layers;
+        let models: Vec<_> = cache.prepare(|cache| {
+            (0..count)
+                .map(|metadata| {
+                    let placement = render_model::StaticItemPlacement {
+                        identifier: ITEM.into(),
+                        metadata,
+                        potted_block: None,
+                        carried_block: Some(assets::BlockVisualId(1)),
+                        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+                        light: None,
+                    };
+                    DroppedItemPublisher::placement_model(
+                        cache,
+                        &icons,
+                        None,
+                        &placement,
+                        icons.startup_item_icon(ITEM, metadata),
+                    )
+                })
+                .collect()
+        });
+        let models: Vec<_> = models
+            .into_iter()
+            .map(|model| model.expect("every item in the completed plan has drawable artwork"))
+            .collect();
+        assert_eq!(models.len(), count as usize);
+        assert_eq!(cache.cube_plan_downgrades, u64::from(downgraded));
+        for &slot in &models {
+            if downgraded {
+                let DroppedItemModel::Sprite(sprite) = &cache.models[slot as usize] else {
+                    panic!("the entire over-budget plan must use sprites");
+                };
+                assert_eq!(sprite.rgba8[2], 80, "session artwork keeps precedence");
+            } else {
+                assert!(matches!(
+                    cache.models[slot as usize],
+                    DroppedItemModel::Cube(_)
+                ));
+            }
+        }
+        cache.finish_frame();
+        if let Some((previous_count, revision, builds)) = previous {
+            if previous_count == count {
+                assert_eq!(
+                    cache.revision, revision,
+                    "unchanged artwork keeps its upload revision"
+                );
+                assert_eq!(
+                    cache.model_builds, builds,
+                    "unchanged plans reuse validated source costs and resident sprites"
+                );
+            }
+        }
+        previous = Some((count, cache.revision, cache.model_builds));
+        let mut budget = cache.budget;
+        budget.reset();
+        for slot in models {
+            let model = &cache.shared[slot as usize];
+            let mesh = model
+                .mesh(model.atlas_side(budget.policy()).unwrap(), 1)
+                .unwrap();
+            assert!(
+                budget.admit(model, mesh.len()).is_some(),
+                "every selected model must fit the renderer budget"
+            );
+        }
+    }
+}
+
+#[test]
+fn regression_all_46_framed_cubes_render_as_sprites() {
+    assert_framed_plan_recovers(256, [46, 46, 42]);
+}
+
+#[test]
+fn fitting_cube_plan_reclaims_unused_fallback_sprites() {
+    assert_framed_plan_recovers(render_model::MAX_ITEM_LAYERS, [86, 86, 80]);
 }
