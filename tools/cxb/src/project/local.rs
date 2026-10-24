@@ -131,6 +131,7 @@ impl Drop for ServerChild {
 
 /// Builds, installs, seeds the verified client cache and joins an isolated development world.
 pub(super) fn run(root: &Path, release: bool) -> Result<()> {
+    crate::client_build::refuse_output_overrides("mod run", |name| std::env::var_os(name))?;
     let root = root.canonicalize()?;
     let package = super::build(&root, release)?;
     let world = root.join(".local/world");

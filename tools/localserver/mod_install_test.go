@@ -78,7 +78,7 @@ func checkInstalledRegistry(t *testing.T, dir string) {
 		t.Fatalf("registry request failed: %+v", outcome)
 	}
 	send := outcome.Committed.Ops[0].SendClient
-	if send.Channel != "space.registry" || send.Schema != 1 || send.Player != player || len(send.Payload) != 1 || send.Payload[0].Text == nil || *send.Payload[0].Text != fingerprint {
+	if !send.Control || send.Channel != "space.registry" || send.Schema != 1 || send.Player != player || len(send.Payload) != 1 || send.Payload[0].Text == nil || *send.Payload[0].Text != fingerprint {
 		t.Fatalf("registry confirmation = %+v", send)
 	}
 	mismatch := "mismatched-definitions"

@@ -757,6 +757,7 @@ pub fn tell(text: &str) -> Op {
 /// A client message to the actor.
 pub fn send(channel: &str, schema: u16, payload: Vec<Scalar>) -> Op {
     Op::SendClient {
+        control: false,
         player: ACTOR.to_owned(),
         channel: channel.to_owned(),
         schema,

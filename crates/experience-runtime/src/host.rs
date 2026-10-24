@@ -466,6 +466,20 @@ impl world_access::HostCallback for HostState {
             .send_client(player, channel, schema, payload)
     }
 
+    /// Stages a negotiation reply for retained delivery after the callback commits.
+    fn send_control(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .send_control(player, channel, schema, payload)
+    }
+
     fn focus(&mut self, ctx: Resource<CallbackRes>) -> Result<Option<BlockPos>> {
         Ok(self.table.get_mut(&ctx)?.focus()?.map(Into::into))
     }

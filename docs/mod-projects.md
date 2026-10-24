@@ -41,7 +41,9 @@ installation, starts an offline loopback server, seeds the isolated client's bun
 cache and joins it. It uses `.local/world` and `.local/client` under the project;
 the repository's normal runtime asset preparation supplies the game carriers.
 Closing the client stops the server and its Experience helpers. The ordinary
-client consent and developer execution policy still apply.
+client consent and developer execution policy still apply. Unset `CARGO_TARGET_DIR`,
+`CARGO_BUILD_TARGET_DIR` and `CARGO_BUILD_TARGET` before `mod run`; the client and
+its development helpers must share the repository's `target/<profile>` layout.
 
 ## Entry points and isolation
 
@@ -218,5 +220,9 @@ Replace the explicit client export macro with `#[experience_sdk::entry::client]`
 implementation. Add a server implementation marked `#[experience_sdk::entry::server]`;
 that attribute owns `register`, `registration` and `registry`. Move shared content
 IDs to annotated block/item declarations and use generated asset constants.
-The canonical server WIT is unchanged, so existing Experience artifacts keep their
-supported runtime APIs.
+The server WIT adds `Callback::send_control` for negotiation and acknowledgment replies.
+Pending replies retry after transport credit refills, and expire with their connection
+or world epoch; a newer reply on the same route replaces the pending one. Use
+`send_client` for ordinary data. Existing Experience artifacts keep their supported
+runtime APIs. Rebuild the runtime helper and local server together: adapter protocol
+7 carries the retained-delivery flag used by generated registry confirmations.

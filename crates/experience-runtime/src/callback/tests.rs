@@ -560,10 +560,43 @@ fn send_stages_the_value_tree_of_its_nodes() {
     assert_eq!(
         res.ops,
         [Op::SendClient {
+            control: false,
             player: ACTOR.to_owned(),
             channel: "c".to_owned(),
             schema: 3,
             payload: tree,
+        }]
+    );
+}
+
+/// Control replies keep the actor and payload checks while selecting retained delivery.
+#[test]
+fn control_send_stages_retained_delivery() {
+    let mut res = Fixture::new().res();
+    assert_eq!(
+        res.send_control("other".into(), "c".into(), 1, vec![])
+            .unwrap(),
+        Err(WorldError::Denied)
+    );
+    assert!(res.ops.is_empty());
+    assert_eq!(
+        res.send_control(
+            ACTOR.into(),
+            "c".into(),
+            1,
+            vec![Node::Leaf(Leaf::Bool(true))]
+        )
+        .unwrap(),
+        Ok(())
+    );
+    assert_eq!(
+        res.ops,
+        [Op::SendClient {
+            control: true,
+            player: ACTOR.into(),
+            channel: "c".into(),
+            schema: 1,
+            payload: vec![Scalar::Bool(true)]
         }]
     );
 }

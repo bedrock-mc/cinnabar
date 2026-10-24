@@ -4,7 +4,8 @@
 //! Implement [`Experience`] on a type and export it with
 //! [`export_experience!`](crate::export_experience). Every callback receives a [`Callback`] that
 //! is valid only for that call. [`Callback::send_client`] stages a typed message for the actor's
-//! client part; build its payload as [`Value`]s and pass their [`nodes`].
+//! client part; [`Callback::send_control`] stages negotiation or acknowledgment replies for
+//! retained delivery after transport budget refusal. Build the payload as [`Value`]s and pass their [`nodes`].
 //! [`Experience::client_message`] receives what that client part sends back, and
 //! [`Experience::epoch`] when it moved to a new world epoch; both may read and write the block
 //! of the player's focus, [`Callback::focus`].
@@ -205,7 +206,7 @@ macro_rules! export_experience {
                     if schema != registry.request.schema || payload != [$crate::Value::Text(registry.fingerprint.into())] {
                         return Err($crate::server::GuestError::Rejected("shared registry mismatch".into()));
                     }
-                    return ctx.send_client(&player, registry.channel.id, registry.channel.schema,
+                    return ctx.send_control(&player, registry.channel.id, registry.channel.schema,
                         &$crate::server::nodes(::std::vec![$crate::Value::Text(registry.fingerprint.into())]))
                         .map_err(|_| $crate::server::GuestError::Failed("registry confirmation unavailable".into()));
                 }
