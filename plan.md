@@ -900,7 +900,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   which keep the native scene copy; actor colour masks, multitexture materials, dissolve
   pairs, beacon beams and additive rays, which keep native composition; packs without
   geometry programs, whose `depthtex*` and `centerDepthSmooth` read the Vanilla scene depth
-  with its translucent layers; complete Iris type checking and target-dependent return
+  with its translucent layers; computed custom uniform expressions using `centerDepthSmooth`
+  beyond float aliases; complete Iris type checking and target-dependent return
   overloads; constant folding for half-float packing and bit casts. Java sky and fog time
   curves and sunrise colours remain provisional. Shared loose uniforms still need
   stage-local type and constant resolution, equivalent array declaration matching and

@@ -65,6 +65,62 @@ fn scene_depth_at_the_centre_reaches_center_depth_smooth() {
     }
 }
 
+/// Geometry packs can use the native scene while terrain resources are arriving.
+#[test]
+fn geometry_pack_fallback_samples_the_copied_depth_with_compatible_bindings() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (pack, bytes) = render_frame_options(
+        &gpu,
+        &[
+            ("gbuffers_basic.vsh", PASS_VERTEX),
+            ("gbuffers_basic.fsh", FILL),
+            ("gbuffers_terrain.vsh", PASS_VERTEX),
+            ("gbuffers_terrain.fsh", FILL),
+            ("final.vsh", PASS_VERTEX),
+            (
+                "final.fsh",
+                "#version 120\nuniform float centerDepthSmooth; void main() { gl_FragColor = vec4(vec3(centerDepthSmooth), 1.0); }",
+            ),
+        ],
+        1,
+        [0, 0, 4, 4],
+        false,
+        false,
+    );
+    assert!(!pack.draws.is_empty(), "fixture must load geometry draws");
+    assert_pixels(&bytes, |_| [255; 3]);
+}
+
+#[test]
+fn custom_uniform_alias_receives_the_smoothed_scene_depth() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    let (_, bytes) = render_frame_options(
+        &gpu,
+        &[
+            (
+                "shaders.properties",
+                "uniform.float.focus = centerDepthSmooth\n",
+            ),
+            ("final.vsh", PASS_VERTEX),
+            (
+                "final.fsh",
+                "#version 120\nuniform float focus; void main() { gl_FragColor = vec4(vec3(focus), 1.0); }",
+            ),
+        ],
+        1,
+        [0, 0, 4, 4],
+        false,
+        false,
+    );
+    assert_pixels(&bytes, |_| [255; 3]);
+}
+
 #[test]
 fn geometry_draws_refresh_custom_image_feedback_before_opening_the_pass() {
     use crate::shaderpack::frame_geometry::open_kind;

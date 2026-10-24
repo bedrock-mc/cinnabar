@@ -30,18 +30,22 @@ fn readers_split_at_the_sample_and_skip_geometry_and_non_float_declarations() {
     let as_int = block(&[(UNIFORM, 4, ValueType::Scalar(ScalarType::Int), None)]);
     let as_array = block(&[(UNIFORM, 0, float, Some((2, 16)))]);
     let unrelated = block(&[("viewWidth", 0, float, None)]);
-    let readers = CenterDepthReaders::plan([
-        (ProgramGroup::ShadowComposite, Some(&reads)),
-        (ProgramGroup::Prepare, Some(&reads)),
-        // A geometry program has no full-screen block; Iris gives gbuffers no value.
-        (ProgramGroup::Gbuffers, None),
-        (ProgramGroup::Deferred, Some(&reads)),
-        (ProgramGroup::Composite, Some(&as_int)),
-        (ProgramGroup::Composite, Some(&as_array)),
-        (ProgramGroup::Composite, Some(&unrelated)),
-        (ProgramGroup::Composite, Some(&reads)),
-        (ProgramGroup::Final, Some(&reads)),
-    ]);
+    let custom = CustomUniforms::new(&[]).0;
+    let readers = CenterDepthReaders::plan(
+        [
+            (ProgramGroup::ShadowComposite, Some(&reads)),
+            (ProgramGroup::Prepare, Some(&reads)),
+            // A geometry program has no full-screen block; Iris gives gbuffers no value.
+            (ProgramGroup::Gbuffers, None),
+            (ProgramGroup::Deferred, Some(&reads)),
+            (ProgramGroup::Composite, Some(&as_int)),
+            (ProgramGroup::Composite, Some(&as_array)),
+            (ProgramGroup::Composite, Some(&unrelated)),
+            (ProgramGroup::Composite, Some(&reads)),
+            (ProgramGroup::Final, Some(&reads)),
+        ],
+        &custom,
+    );
     let at = |program| Reader {
         program,
         offset: 12,
@@ -49,7 +53,55 @@ fn readers_split_at_the_sample_and_skip_geometry_and_non_float_declarations() {
     assert_eq!(readers.before, [at(0), at(1)]);
     assert_eq!(readers.after, [at(3), at(7), at(8)]);
     assert!(!readers.is_empty());
-    assert!(CenterDepthReaders::plan([(ProgramGroup::Final, Some(&unrelated))]).is_empty());
+    assert!(
+        CenterDepthReaders::plan([(ProgramGroup::Final, Some(&unrelated))], &custom).is_empty()
+    );
+}
+
+#[test]
+fn custom_depth_aliases_allocate_a_sampler_and_publish_every_declared_member() {
+    let properties = shaderpack::ShaderProperties::parse(
+        "variable.float.depth = centerDepthSmooth\nuniform.float.focus = depth\n",
+        &Default::default(),
+    );
+    let (custom, errors) = CustomUniforms::new(&properties.custom_uniforms);
+    assert!(errors.is_empty(), "{errors:?}");
+    let float = ValueType::Scalar(ScalarType::Float);
+    let aliases = block(&[("focus", 4, float, None)]);
+    let both = block(&[(UNIFORM, 0, float, None), ("focus", 4, float, None)]);
+    let readers = CenterDepthReaders::plan(
+        [
+            (ProgramGroup::Prepare, Some(&aliases)),
+            (ProgramGroup::Deferred, Some(&both)),
+            (ProgramGroup::Final, Some(&aliases)),
+        ],
+        &custom,
+    );
+    assert_eq!(
+        readers.before,
+        [Reader {
+            program: 0,
+            offset: 4
+        }]
+    );
+    assert_eq!(
+        readers.after,
+        [
+            Reader {
+                program: 1,
+                offset: 0
+            },
+            Reader {
+                program: 1,
+                offset: 4
+            },
+            Reader {
+                program: 2,
+                offset: 4
+            },
+        ]
+    );
+    assert!(!readers.is_empty());
 }
 
 /// Side of the fixture depth buffer; its centre texel is (2, 2) as Iris's nearest
@@ -159,10 +211,18 @@ fn gpu_entity_depth_at_the_centre_drives_the_smoothed_value() {
             | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     }))];
-    let readers = [Reader {
-        program: 0,
-        offset: OFFSET,
-    }];
+    let properties = shaderpack::ShaderProperties::parse(
+        "uniform.float.focus = centerDepthSmooth\n",
+        &Default::default(),
+    );
+    let (custom, errors) = CustomUniforms::new(&properties.custom_uniforms);
+    assert!(errors.is_empty(), "{errors:?}");
+    let float = ValueType::Scalar(ScalarType::Float);
+    let reads = block(&[
+        (UNIFORM, OFFSET as u32, float, None),
+        ("focus", 12, float, None),
+    ]);
+    let readers = CenterDepthReaders::plan([(ProgramGroup::Final, Some(&reads))], &custom);
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("centerDepthSmooth readback"),
         size: 16,
@@ -196,7 +256,7 @@ fn gpu_entity_depth_at_the_centre_drives_the_smoothed_value() {
             pass.set_bind_group(0, &fill_group, &[]);
             pass.draw(0..3, 0..1);
         }
-        sampler.sample_geometry(&mut encoder, &readers, &uniforms);
+        sampler.sample_geometry(&mut encoder, &readers.after, &uniforms);
         encoder.copy_buffer_to_buffer(uniform, 0, &readback, 0, 16);
         gpu.queue.submit([encoder.finish()]);
         readback
@@ -207,6 +267,11 @@ fn gpu_entity_depth_at_the_centre_drives_the_smoothed_value() {
             let mapped = readback.slice(..).get_mapped_range().unwrap();
             let words: &[f32] = bytemuck::cast_slice(&mapped);
             assert_eq!(words[0], 0.0, "other members keep their packed values");
+            assert_eq!(
+                words[3],
+                words[OFFSET as usize / 4],
+                "custom alias receives smoothed depth"
+            );
             words[OFFSET as usize / 4]
         };
         readback.unmap();

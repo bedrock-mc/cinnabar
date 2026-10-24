@@ -3,11 +3,12 @@
 //! `deferred`) has drawn, before the hand and translucents, moved each frame towards the new
 //! sample by the share `centerDepthHalflife` gives the frame time. Sampling and smoothing
 //! run on the GPU into a one-float buffer that is copied into the uniform blocks of the
-//! full-screen programs declaring `uniform float centerDepthSmooth`, so nothing is read back.
+//! full-screen programs declaring `uniform float centerDepthSmooth` or a float custom
+//! uniform that aliases it, so nothing is read back.
 //! Iris binds the value only for full-screen passes: `deferred`, `composite` and `final` read
 //! this frame's sample, earlier passes the previous one, and geometry programs read 0.
 
-use shaderpack::{ProgramGroup, ScalarType, UniformBlock, ValueType};
+use shaderpack::{CustomUniforms, ProgramGroup, ScalarType, UniformBlock, ValueType};
 use wgpu::util::DeviceExt;
 use wgpu::{BindGroup, Buffer, CommandEncoder, ComputePipeline, Device, Queue, TextureView};
 
@@ -39,6 +40,12 @@ impl DepthSource {
     }
 }
 
+/// A sampling pipeline together with the source its inferred layout accepts.
+pub(crate) struct DepthPipeline {
+    pub(super) source: DepthSource,
+    pub(super) pipeline: ComputePipeline,
+}
+
 /// One full-screen program's `centerDepthSmooth` member.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Reader {
@@ -60,31 +67,33 @@ pub(crate) struct CenterDepthReaders {
 
 impl CenterDepthReaders {
     /// Plans the readers from each program's group and, for full-screen programs, its loose
-    /// uniform block (`None` for geometry programs). Only `float` declarations count, as
-    /// Iris rewrites only `uniform float centerDepthSmooth`.
+    /// uniform block (`None` for geometry programs). Float custom aliases share the
+    /// source value; arrays and declarations of other types do not.
     pub(crate) fn plan<'a>(
         programs: impl IntoIterator<Item = (ProgramGroup, Option<&'a UniformBlock>)>,
+        custom: &CustomUniforms,
     ) -> Self {
         let mut readers = Self::default();
+        let aliases = custom.float_aliases(UNIFORM);
         for (program, (group, block)) in programs.into_iter().enumerate() {
-            let Some(member) = block.and_then(|block| {
-                block.members.iter().find(|member| {
-                    member.name == UNIFORM
-                        && member.array.is_none()
-                        && member.ty == ValueType::Scalar(ScalarType::Float)
-                })
-            }) else {
+            let Some(block) = block else {
                 continue;
             };
-            let reader = Reader {
-                program,
-                offset: u64::from(member.offset),
-            };
-            match group {
-                ProgramGroup::Deferred | ProgramGroup::Composite | ProgramGroup::Final => {
-                    readers.after.push(reader);
+            for member in block.members.iter().filter(|member| {
+                (member.name == UNIFORM || aliases.contains(&member.name.as_str()))
+                    && member.array.is_none()
+                    && member.ty == ValueType::Scalar(ScalarType::Float)
+            }) {
+                let reader = Reader {
+                    program,
+                    offset: u64::from(member.offset),
+                };
+                match group {
+                    ProgramGroup::Deferred | ProgramGroup::Composite | ProgramGroup::Final => {
+                        readers.after.push(reader);
+                    }
+                    _ => readers.before.push(reader),
                 }
-                _ => readers.before.push(reader),
             }
         }
         readers
@@ -116,9 +125,14 @@ impl CenterDepth {
     /// view's geometry depth when the pack draws geometry.
     pub(crate) fn new(
         device: &Device,
-        pipeline: &ComputePipeline,
+        pipeline: &DepthPipeline,
         geometry_depth: Option<&TextureView>,
     ) -> Self {
+        let geometry_depth = match pipeline.source {
+            DepthSource::Geometry => Some(geometry_depth.expect("geometry sampler needs depth")),
+            DepthSource::Scene => None,
+        };
+        let pipeline = &pipeline.pipeline;
         let value = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("shader pack centerDepthSmooth"),
             contents: bytemuck::bytes_of(&INITIAL),
@@ -198,8 +212,8 @@ impl CenterDepth {
         }
     }
 
-    /// Samples the native scene depth's centre (`parameters` locate the view and convert
-    /// the depth) and publishes the result to `readers`.
+    /// Samples the copied geometry depth for a geometry pack, or the native scene depth
+    /// otherwise (`parameters` locate and convert it), and publishes to `readers`.
     pub(crate) fn sample_scene(
         &mut self,
         device: &Device,
@@ -209,6 +223,12 @@ impl CenterDepth {
         depth: &TextureView,
         parameters: &Buffer,
     ) {
+        // Scene copying also fills the geometry attachment for geometry packs. Keep
+        // using the source selected with the pipeline, even before terrain is ready.
+        if self.geometry.is_some() {
+            self.sample_geometry(encoder, readers, uniforms);
+            return;
+        }
         if self.scene.as_ref().is_none_or(|(view, _)| view != depth) {
             let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("shader pack centerDepthSmooth scene"),

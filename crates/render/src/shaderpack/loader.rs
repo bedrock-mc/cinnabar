@@ -801,6 +801,7 @@ fn build_translation(
             programs
                 .iter()
                 .map(|program| (program.group, program.fullscreen_uniforms())),
+            &custom_uniforms,
         );
         let host = host_pipelines(
             &gpu.device,

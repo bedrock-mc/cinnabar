@@ -34,7 +34,7 @@ pub(crate) struct HostPipelines {
     /// `downsample` per mipmapped buffer format.
     pub downsample: Vec<(TextureFormat, wgpu::RenderPipeline)>,
     /// Samples and smooths the centre depth when some program reads `centerDepthSmooth`.
-    pub center_depth: Option<wgpu::ComputePipeline>,
+    pub center_depth: Option<super::center_depth::DepthPipeline>,
     pub linear: wgpu::Sampler,
     /// The geometry adapter's zero-stride constant stream, for host-built sky vertices.
     pub constant_stream: wgpu::Buffer,
@@ -152,15 +152,16 @@ pub(super) fn host_pipelines(
                 (f, pipeline(entry, &[target(f)], false))
             })
             .collect(),
-        center_depth: center_depth.map(|source| {
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        center_depth: center_depth.map(|source| super::center_depth::DepthPipeline {
+            source,
+            pipeline: device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(source.entry()),
                 layout: None,
                 module: &module,
                 entry_point: Some(source.entry()),
                 compilation_options: Default::default(),
                 cache: None,
-            })
+            }),
         }),
         linear: device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shader pack host linear"),
