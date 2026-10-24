@@ -548,14 +548,24 @@ session dimension handling. Failed admission restores the source with the newer 
 if the caller cancels after detach. A player disconnected while detached loses authority rather
 than being restored. Cancellation after admission leaves the destination authoritative.
 
-The existing extension helper prepares a pinned connection before departure, drains previously
-admitted application callbacks and fences both message directions. Failed admission aborts that
+The existing extension helper reserves a player fence before departure, drains previously
+admitted application callbacks and fences both message directions. A client part that activates
+during preparation joins that fence; one that activates after commit receives a destination notice. Failed admission aborts that
 preparation and restores the earlier fence. Admission publishes through the helper's correlated
 world-change notice; its acknowledgment opens client traffic and requests fresh state. Ordinary
 players without client parts need no notice. An active wire-v1 client part cannot follow this
 fence, so its transfer fails before departure. Notification failure leaves one authoritative
 destination with its callbacks fenced. Destination preparation and acknowledgment do not certify
 that the client has rendered terrain; live client-part transfer qualification remains open.
+
+Player saves keep stable instance identity and position together in `<world>/player-worlds/`,
+alongside Dragonfly's ordinary player data. Reconnect uses the current opening of that instance.
+If it is closed, or an older save has no instance metadata, the player starts at the default
+Overworld spawn. Saved coordinates from another instance never carry over to that fallback.
+
+Shutdown stops event admission, queues leave for each admitted session and drains callbacks with
+a ten-second deadline before flushing stores and closing the server and worlds. A missed deadline
+is reported as a shutdown error. Leave commits retain scoped revision checks and need no live world.
 
 Go integrations now use `cinnabarext.WorldID` as the shared stable instance-ID type. JSON storage
 keeps the same string identities.

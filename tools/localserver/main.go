@@ -21,6 +21,7 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
@@ -155,6 +156,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	cfg.configureLocalPlayers(&conf)
+	var host *experience.Host
+	if exps != nil {
+		var channels experience.ClientChannels
+		if ext != nil {
+			channels = ext
+		}
+		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		provider, err := host.PlayerProvider(conf.PlayerProvider, filepath.Join(cfg.dir, "player-worlds"))
+		if err != nil {
+			return errors.Join(err, conf.PlayerProvider.Close(), host.Close())
+		}
+		conf.PlayerProvider = provider
+	}
 	var srv *server.Server
 	for i, listen := range conf.Listeners {
 		conf.Listeners[i] = flySpeedListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
@@ -169,17 +183,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		pauses.WorldOpened(w)
 	}
 	cmds := commands{pause: pauses.request}
-	var host *experience.Host
 	var running sync.WaitGroup
 	runCtx, stopRunning := context.WithCancel(context.Background())
 	defer stopRunning()
 	if exps != nil {
-		// Without client parts every staged client message is dropped and counted.
-		var channels experience.ClientChannels
-		if ext != nil {
-			channels = ext
-		}
-		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
 		if err := host.BindDefaultWorlds(worlds...); err != nil {
 			return errors.Join(err, closeUnstarted(), host.Close())
 		}
@@ -225,10 +232,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	fmt.Fprintln(stdout, "ready")
 
 	serveCommands(ctx, stdin, cmds)
-	closeErr := srv.Close()
+	var closeErr error
+	if host != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		closeErr = host.Drain(drainCtx)
+		cancel()
+		stopRunning()
+	}
+	closeErr = errors.Join(closeErr, srv.Close())
 	<-accepting
 	if host != nil {
-		// The worlds have stopped, so no hook changes the store once the Host flushes it.
+		// Callbacks have drained and player saves completed before guest worlds close.
 		if err := host.Close(); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("close experiences: %w", err))
 		}

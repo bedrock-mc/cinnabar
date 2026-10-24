@@ -84,6 +84,10 @@ type Server struct {
 	// epoch learns of each v2 client part that moved to a new world epoch; nil drops them.
 	epoch func(player uuid.UUID, exp string)
 
+	// transferMu serializes activation, preparation and publication, before connection locks.
+	transferMu sync.Mutex
+	worlds     map[uuid.UUID]*worldTransferState
+
 	mu sync.Mutex
 	// active holds each player's connection whose client part is active.
 	active   map[uuid.UUID]*Conn
@@ -295,11 +299,28 @@ func (s *Server) SendRecord(player uuid.UUID, exp, channel string, schema uint16
 	return c != nil && c.send(exp, channel, schema, payload)
 }
 
-// activate makes c its player's active connection.
-func (s *Server) activate(c *Conn) {
+// activate joins any prepared transfer or initializes a late handshake at its committed world.
+// The caller holds transferMu and c.mu.
+func (s *Server) activate(c *Conn) error {
+	state := s.worldState(c.player)
+	if state.pending != nil || state.id != "" {
+		if c.wire.Version == WireVersion {
+			return errors.New("world transfers require client-part wire v2")
+		}
+		if state.pending != nil {
+			c.prepared = state.pending
+			state.pending.conns = append(state.pending.conns, c)
+		} else {
+			c.worldID = state.id
+			if err := c.requestWorldEpoch(); err != nil {
+				return err
+			}
+		}
+	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.active[c.player] = c
+	s.mu.Unlock()
+	return nil
 }
 
 // deactivate forgets c if it is its player's active connection.

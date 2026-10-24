@@ -138,6 +138,8 @@ func (c *Conn) Close() error {
 // receive handles one carrier message and passes a valid client part message, or a v2 client's
 // new world epoch, on.
 func (c *Conn) receive(data []byte) {
+	c.s.transferMu.Lock()
+	defer c.s.transferMu.Unlock()
 	c.deliveryMu.Lock()
 	defer c.deliveryMu.Unlock()
 	c.mu.Lock()
@@ -403,7 +405,9 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 	c.egress = NewRateLimit(nowMs)
 	c.sequence = 1
 	c.phase = active
-	c.s.activate(c)
+	if err := c.s.activate(c); err != nil {
+		return err
+	}
 	c.s.log.Info("client part active", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch, "wire", c.wire.Version)
 	return nil
 }

@@ -45,6 +45,9 @@ func (h *Host) PlayerJoined(p *player.Player) {
 	}
 	h.players.mu.Lock()
 	defer h.players.mu.Unlock()
+	if h.closed.Load() {
+		return
+	}
 	if h.players.items == nil {
 		h.players.items = make(map[*world.EntityHandle]*playerState)
 	}
@@ -94,6 +97,9 @@ func (h *Host) playerCurrent(ev event) bool {
 	if ev.actor == nil {
 		return true
 	}
+	if h.closed.Load() {
+		return false
+	}
 	h.players.mu.Lock()
 	defer h.players.mu.Unlock()
 	state := h.players.items[ev.actor]
@@ -112,7 +118,7 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 		loc = observation.After
 	}
 	for _, d := range h.dispatchers {
-		if d.sup.registered.Worlds == nil || h.closed.Load() {
+		if d.sup.registered.Worlds == nil || h.closed.Load() && observation.Type != "leave" {
 			continue
 		}
 		ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}

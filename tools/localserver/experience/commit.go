@@ -45,6 +45,12 @@ func (messageTeller) tell(p world.Entity, text string) {
 // event's world, unless the snapshot went stale or an op is invalid; then it applies nothing.
 // Once the result has applied, its client messages go out to the actor's client part.
 func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) {
+	if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
+		if err := h.commitLeave(d.id, ev, snap, ops); err != nil {
+			h.log.Warn("leave commit refused", "experience", d.id, "error", err)
+		}
+		return
+	}
 	for _, op := range ops {
 		if op.World != nil {
 			if err := h.commitLifecycle(ctx, d, ev, snap, ops); err != nil {

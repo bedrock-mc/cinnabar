@@ -31,6 +31,8 @@ type ClientChannels interface {
 // other. It reports false when the message was dropped: the Host does not run exp, has closed,
 // or the Experience's queue is full.
 func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool {
+	h.admission.RLock()
+	defer h.admission.RUnlock()
 	d, ok := h.dispatchers[exp]
 	if !ok || h.closed.Load() {
 		return false
@@ -61,6 +63,8 @@ func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel str
 // its turn comes, with no snapshot, and commits like any other. It reports false when the epoch
 // was dropped: the Host does not run exp, has closed, or the Experience's queue is full.
 func (h *Host) DeliverEpoch(player *world.EntityHandle, exp string) bool {
+	h.admission.RLock()
+	defer h.admission.RUnlock()
 	d, ok := h.dispatchers[exp]
 	if !ok || h.closed.Load() {
 		return false

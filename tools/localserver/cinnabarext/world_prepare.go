@@ -8,56 +8,96 @@ import (
 	"github.com/google/uuid"
 )
 
-// WorldChange pins a connection and fences its application traffic through a server transfer.
-// A nil or zero value represents a player without an active client part.
-type WorldChange struct{ conn *Conn }
+// worldTransferState keeps a player's preparation and latest committed instance under transferMu.
+type worldTransferState struct {
+	pending *WorldChange
+	id      WorldID
+}
 
-// PrepareWorldChange drains earlier application callbacks and fences both message directions.
-// Call outside world transactions and packet callbacks. Commit after destination admission;
-// Abort restores the previous fence when admission fails. Active v1 parts cannot travel.
+// WorldChange fences every connection that activates before this transfer commits.
+// A nil value remains a no-op for hosts without client parts.
+type WorldChange struct {
+	server *Server
+	player uuid.UUID
+	conns  []*Conn
+}
+
+// worldState returns the player's coordinator state. The caller holds transferMu.
+func (s *Server) worldState(player uuid.UUID) *worldTransferState {
+	if s.worlds == nil {
+		s.worlds = make(map[uuid.UUID]*worldTransferState)
+	}
+	state := s.worlds[player]
+	if state == nil {
+		state = &worldTransferState{}
+		s.worlds[player] = state
+	}
+	return state
+}
+
+// PrepareWorldChange drains earlier application callbacks and reserves a fence even before Ready.
+// Call outside world transactions and packet callbacks. Abort restores the source on failure.
 func (s *Server) PrepareWorldChange(player uuid.UUID) (*WorldChange, error) {
+	s.transferMu.Lock()
+	defer s.transferMu.Unlock()
+	state := s.worldState(player)
+	if state.pending != nil {
+		return nil, errors.New("a world transfer is already prepared")
+	}
+	change := &WorldChange{server: s, player: player}
 	s.mu.Lock()
 	c := s.active[player]
 	s.mu.Unlock()
-	if c == nil {
-		return nil, nil
+	if c != nil {
+		c.deliveryMu.Lock()
+		defer c.deliveryMu.Unlock()
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.phase == active && uint64(s.now().Unix()) >= c.expires {
+			c.fallBack(errors.New("the grant expired"))
+		}
+		if c.phase == active {
+			if c.wire.Version == WireVersion {
+				return nil, errors.New("world transfers require client-part wire v2")
+			}
+			c.prepared = change
+			change.conns = append(change.conns, c)
+		}
 	}
-	c.deliveryMu.Lock()
-	defer c.deliveryMu.Unlock()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.phase != active {
-		return nil, nil
-	}
-	if uint64(s.now().Unix()) >= c.expires {
-		c.fallBack(errors.New("the grant expired"))
-		return nil, nil
-	}
-	if c.wire.Version == WireVersion {
-		return nil, errors.New("world transfers require client-part wire v2")
-	}
-	if c.prepared != nil {
-		return nil, errors.New("a world transfer is already prepared")
-	}
-	change := &WorldChange{conn: c}
-	c.prepared = change
+	state.pending = change
 	return change, nil
 }
 
-// Commit publishes a world notice through the existing acknowledgment contract exactly once.
-// No application data passes until its acknowledgment; a failed publication stays unavailable.
+// Commit publishes the destination exactly once and initializes subsequent handshakes there.
+// No application data passes until its correlated acknowledgment.
 func (w *WorldChange) Commit(id WorldID) bool {
-	if w == nil || w.conn == nil {
+	if w == nil || w.server == nil {
 		return true
 	}
-	c := w.conn
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	s := w.server
+	s.transferMu.Lock()
+	defer s.transferMu.Unlock()
+	state := s.worldState(w.player)
+	if state.pending != w {
+		return false
+	}
+	state.pending, state.id = nil, id
+	notified := id != ""
+	for _, c := range w.conns {
+		c.mu.Lock()
+		ok := c.commitWorld(w, id)
+		c.mu.Unlock()
+		notified = ok && notified
+	}
+	return notified
+}
+
+// commitWorld publishes a prepared connection's desired instance while holding c.mu.
+func (c *Conn) commitWorld(w *WorldChange, id WorldID) bool {
 	if c.prepared != w {
 		return false
 	}
-	c.prepared = nil
-	c.epochChanged = false
+	c.prepared, c.epochChanged = nil, false
 	if c.phase != active {
 		return false
 	}
@@ -80,23 +120,30 @@ func (w *WorldChange) Commit(id WorldID) bool {
 	return true
 }
 
-// Abort releases only this preparation and keeps any earlier world-notice fence intact.
+// Abort releases only this preparation and preserves any earlier world-notice fence.
 func (w *WorldChange) Abort() {
-	if w == nil || w.conn == nil {
+	if w == nil || w.server == nil {
 		return
 	}
-	c := w.conn
-	c.deliveryMu.Lock()
-	defer c.deliveryMu.Unlock()
-	c.mu.Lock()
-	if c.prepared != w {
+	s := w.server
+	s.transferMu.Lock()
+	defer s.transferMu.Unlock()
+	state := s.worldState(w.player)
+	if state.pending != w {
+		return
+	}
+	state.pending = nil
+	for _, c := range w.conns {
+		c.deliveryMu.Lock()
+		c.mu.Lock()
+		if c.prepared == w {
+			c.prepared = nil
+		}
+		changed := c.takeEpochCallbacks()
 		c.mu.Unlock()
-		return
+		c.deliverEpochCallbacks(changed)
+		c.deliveryMu.Unlock()
 	}
-	c.prepared = nil
-	changed := c.takeEpochCallbacks()
-	c.mu.Unlock()
-	c.deliverEpochCallbacks(changed)
 }
 
 // takeEpochCallbacks consumes a completed acknowledgment only after every world fence opens.
