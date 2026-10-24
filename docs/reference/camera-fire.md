@@ -9,7 +9,7 @@ Vanilla Bedrock 1.26.50.26.
 | Property | Behavior |
 | --- | --- |
 | Geometry | Cube coordinates ±1, with its top omitted. |
-| Transform | Cancel player yaw/pitch; rotate Y by 45 degrees, translate Y by -0.5, scale uniformly by 0.7. |
+| Transform | Cancel player yaw/pitch, leaving the cube a half turn about Y, so it stays fixed to the view; translate Y by -0.2, then scale uniformly by 0.7. The face ahead fills the view and shows its sprite mirrored. |
 | Color | White RGB, alpha 0.9, multiplied by the sampled texel. |
 | Texture | Fire's destruction/Down binding, `fire_1`, including pack overrides. |
 | Sampling | Original point-sampled texels with perspective-correct face UVs. |
