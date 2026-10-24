@@ -3,6 +3,7 @@ use {super::*, ui::IconRef};
 fn fire(size: [f32; 2]) -> PreviewFire {
     PreviewFire {
         texture: IconRef {
+            color_mask: None,
             page: 7,
             uv: [16, 32, 32, 48],
             glint: false,
@@ -80,6 +81,7 @@ fn swimming_translates_the_flames_with_the_outer_hud_frame() {
 fn hud_fire_tints_sampled_player_geometry_and_keeps_flame_vertices_white() {
     let overlay = [0.8, 0.15, 0.0, 0.7];
     let skin = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 64, 64],
         glint: false,

@@ -185,6 +185,7 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
     let first = (presentation.textures.dynamic_start() + MODEL_PAGE) as u16;
     let optional = IconRef {
+        color_mask: None,
         page: first + 1,
         uv: [0, 0, 16, 16],
         glint: false,

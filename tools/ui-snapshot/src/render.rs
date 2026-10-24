@@ -352,6 +352,7 @@ fn png_fixture(
                     (
                         key.clone(),
                         ui::IconRef {
+                            color_mask: None,
                             page: first + sprite.page,
                             uv: sprite.bounds,
                             glint: false,
@@ -369,6 +370,7 @@ fn png_fixture(
                 .map_err(|error| Error::Invalid(format!("embedded title artwork: {error}")))?
                 .into_rgba8();
             let title_artwork = ui::IconRef {
+                color_mask: None,
                 page: carriers.pages.len() as u16,
                 uv: [0, 0, logo.width() as u16, logo.height() as u16],
                 glint: false,
@@ -744,6 +746,7 @@ fn mod_icons(
         artwork.insert(
             key,
             ui::IconRef {
+                color_mask: None,
                 page,
                 uv: [0, 0, width as u16, height as u16],
                 glint: false,
@@ -781,6 +784,7 @@ fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Pa
         artwork.insert(
             item.thumbnail_key(),
             ui::IconRef {
+                color_mask: None,
                 page: pages.len() as u16,
                 uv: [0, 0, image.width as u16, image.height as u16],
                 glint: false,

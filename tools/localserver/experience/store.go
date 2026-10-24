@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-// storeSchema identifies instance-keyed block data. Schema 1 is migrated when it is opened.
+// storeSchema identifies instance-keyed blocks and scoped records. Older files migrate on open.
 const storeSchema = 3
 
 // installedSchema identifies the installation manifest, whose format has not changed.

@@ -4,7 +4,10 @@ use std::path::Path;
 
 use assets::{AssetError, EntityGeometry, IconSprite, block_entity_geometry as geometry};
 
-use super::{blocks::IconBlocks, model::Model};
+use super::{
+    blocks::IconBlocks,
+    model::{Model, TexturedQuad},
+};
 
 struct Part {
     texture: String,
@@ -119,6 +122,13 @@ pub(super) fn raster(
                     },
                 ]
             }
+            Some(assets::facts::BlockEntityRenderer::Statue) => {
+                projection = assets::gui_item::project_statue;
+                let Some(parts) = statue(name, geometries) else {
+                    return Ok(None);
+                };
+                parts
+            }
             Some(assets::facts::BlockEntityRenderer::Lectern) => lectern(),
             Some(assets::facts::BlockEntityRenderer::Banner) => {
                 projection = assets::gui_item::project_banner;
@@ -171,18 +181,55 @@ pub(super) fn raster(
             }
             let uvs = [[u, v], [u + w, v], [u + w, v + h], [u, v + h]]
                 .map(|[u, v]| [u / width, v / height]);
-            quads.push((corners, uvs, texture));
+            quads.push(TexturedQuad {
+                corners,
+                uvs,
+                texture,
+                face_dimming: true,
+            });
         }
     }
     let model = Model::textured(quads, projection, 1.0);
     Ok(Some(
-        if is_banner(name) {
+        if is_banner(name)
+            || assets::vanilla_skull_type(name).is_some()
+            || renderer(name) == Some(assets::facts::BlockEntityRenderer::Statue)
+        {
             model.unshaded()
         } else {
             model
         }
         .raster(),
     ))
+}
+
+/// Builds the default standing statue with its eye layer above the body artwork.
+fn statue(name: &str, geometries: &[EntityGeometry]) -> Option<Vec<Part>> {
+    use assets::facts::BlockModelVariant;
+    let BlockModelVariant::Statue(age) = assets::facts::block_render_fact(name).variant? else {
+        return None;
+    };
+    let geometry = geometries
+        .iter()
+        .find(|geometry| geometry.identifier.as_ref() == geometry::heads::STATUE_GEOMETRIES[0])?;
+    let model = geometry::heads::HeadModel::build_tree(geometry, None, 1.0, false)?;
+    let faces: Vec<_> = model
+        .boxes
+        .iter()
+        .flat_map(geometry::heads::HeadBox::faces)
+        .collect();
+    let [body, eyes] = geometry::heads::statue_textures(age);
+    // Equal-depth opaque samples keep the first layer in the offline rasterizer.
+    Some(
+        [eyes, body]
+            .map(|texture| Part {
+                texture,
+                logical: model.texture,
+                faces: faces.clone(),
+                color: [255; 3],
+            })
+            .into(),
+    )
 }
 
 #[cfg(test)]

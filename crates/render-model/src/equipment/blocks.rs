@@ -129,8 +129,14 @@ fn collect_shapes(
             if cube.is_some() {
                 return None;
             }
-            let HeldDisplay::Block(shown) = display_state? else {
-                return None;
+            let shown = match display_state {
+                Some(HeldDisplay::Block(shown)) => shown,
+                None if display.is_some()
+                    && assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier) =>
+                {
+                    visual
+                }
+                _ => return None,
             };
             if shown as usize >= world.visual_count() {
                 return None;

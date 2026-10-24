@@ -3,6 +3,7 @@ use {super::*, ui::IconRef};
 #[test]
 fn held_block_is_the_shared_six_face_cube_not_a_gui_thumbnail() {
     let source = IconRef {
+        color_mask: None,
         page: 7,
         uv: [
             10,
@@ -157,6 +158,7 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
     .unwrap();
     assert_eq!(models.len(), icons.entries().len());
     let skin = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 64, 64],
         glint: false,

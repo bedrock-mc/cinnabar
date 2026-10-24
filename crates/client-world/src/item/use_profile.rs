@@ -96,6 +96,14 @@ pub fn resolve_item_use(
 }
 
 impl ItemStateStore {
+    /// Returns a compiled native throwable identity admitted without a component payload override.
+    pub(crate) fn native_throwable_identifier(&self, network_id: i32) -> Option<&str> {
+        let record = self.registry.get(&network_id)?;
+        (record.unmodified_throwable
+            && self.item_use_profile(network_id).kind == Some(assets::item_use::ItemUseKind::Throw))
+        .then_some(record.identifier.as_ref())
+    }
+
     /// Rebuilds numerical profiles and owned category admissions only when source facts change.
     pub(super) fn rebuild_use_profiles(&mut self) {
         self.presentation_generation = Arc::new(());
@@ -186,6 +194,24 @@ impl ItemStateStore {
             .copied()
             .unwrap_or_default()
     }
+}
+
+/// Admits a checked native use profile only when the negotiated payload is canonically empty.
+pub(super) fn unmodified_throwable(
+    entry: &protocol::ItemRegistryEntry,
+    assets: Option<&assets::RuntimeEntityAssets>,
+) -> bool {
+    !matches!(entry.version, protocol::ItemRegistryVersion::Unknown(_))
+        && entry.canonical_empty_component_data
+        && assets.is_some_and(|assets| {
+            matches!(
+                assets.item_use_profile(&entry.identifier),
+                ItemUseProfile::Provisional {
+                    kind: ItemUseKind::Throw,
+                    ..
+                }
+            )
+        })
 }
 
 /// Admits a drawing shooter as a held use that its release ends, as a bow does. It runs before

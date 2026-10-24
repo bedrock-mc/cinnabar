@@ -164,11 +164,13 @@ fn cpu_hand_quad_is_retained_alongside_unchanged_held_items() {
     let right = presentation.hud_frame().right_hand;
     assert!(right.is_some());
     let main_item = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 16, 16],
         glint: false,
     };
     let offhand = IconRef {
+        color_mask: None,
         page: 2,
         uv: [0, 0, 16, 16],
         glint: false,

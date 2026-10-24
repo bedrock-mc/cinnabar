@@ -13,8 +13,9 @@ import (
 type focus struct {
 	// player is the player's handle in the session that used the block; a later session of the
 	// same player has another.
+	player *world.EntityHandle
+	// epoch revokes a focus after departure even when the same instance stays open.
 	epoch    uint64
-	player   *world.EntityHandle
 	instance WorldHandle
 	pos      cube.Pos
 	// generation is the placement generation of the block that was used. Another placement at

@@ -201,3 +201,20 @@ pub use play_flow::fixture_view;
 pub use crate::ui_runtime::presentation::forms::test_support::{menu_hit_targets, screen_settings};
 
 pub use crate::ui_runtime::presentation::forms::test_support::{text_metrics, text_scale};
+
+/// Constructs a named UI fixture item with unrelated registry traits explicitly unresolved.
+pub fn fixture_item(identifier: &str) -> client_world::CanonicalItemStack {
+    client_world::CanonicalItemStack {
+        identifier: Some(identifier.into()),
+        use_animation: assets::item_use::ItemUseAnimation::None,
+        grip: assets::item::grip::ItemGrip::Unresolved,
+        glint: assets::item::glint::ItemGlint::Unresolved,
+        identity: assets::ItemStackIdentity::empty(),
+        visual: assets::ItemVisualRoute::Missing,
+        charged_projectile: None,
+        charged_projectile_role: assets::item_use::ItemProjectileRole::None,
+        damage: None,
+        durability: assets::item::durability::ItemDurability::NotDamageable,
+        enchanted: false,
+    }
+}

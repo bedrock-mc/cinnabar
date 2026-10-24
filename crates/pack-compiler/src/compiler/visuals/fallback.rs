@@ -356,6 +356,8 @@ pub(in crate::compiler) fn compile_rule(
             .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
         {
             assets::MODEL_TEMPLATE_FLAG_CHORUS
+        } else if block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea {
+            assets::MODEL_TEMPLATE_FLAG_AZALEA
         } else {
             0
         },
@@ -373,7 +375,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chorus_inventory_selection_preserves_the_placed_envelope() {
+    fn inventory_selection_preserves_the_placed_envelope() {
         let protocol = assets::active_content_registry_protocol();
         let records =
             assets::read_registry_for_protocol(assets::pinned_block_registry_bytes(), protocol)
@@ -403,6 +405,7 @@ mod tests {
             record
                 .traits
                 .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
+                || block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
         }) {
             let (min, max, _) = inputs.fallback.entry(record).unwrap();
             let CompileRuleResult::Compiled(visual) = compile_rule(
@@ -415,10 +418,16 @@ mod tests {
                 },
             )
             .unwrap() else {
-                panic!("missing chorus visual")
+                panic!("missing inventory visual")
             };
             let template = &templates[visual.model_template as usize];
-            assert_eq!(template.flags, assets::MODEL_TEMPLATE_FLAG_CHORUS);
+            let expected =
+                if block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea {
+                    assets::MODEL_TEMPLATE_FLAG_AZALEA
+                } else {
+                    assets::MODEL_TEMPLATE_FLAG_CHORUS
+                };
+            assert_eq!(template.flags, expected);
             let placed = &quads[template.quad_start as usize..][..template.quad_count as usize];
             let mut bounds = [[i16::MAX; 3], [i16::MIN; 3]];
             for point in placed.iter().flat_map(|quad| quad.positions) {
@@ -428,30 +437,27 @@ mod tests {
                 }
             }
             assert_eq!(bounds, [min, max]);
-            let mut ordinary = record.clone();
-            ordinary
-                .traits
-                .remove(assets::registry::BlockTraits::CHORUS_CONNECT);
-            let CompileRuleResult::Compiled(ordinary) = compile_rule(
-                &ordinary,
-                &inputs,
+            let ordinary = intern_cuboid_template(
+                visual.faces,
+                min,
+                max,
+                0,
                 &mut interned,
-                &mut ModelStorage {
-                    templates: &mut templates,
-                    quads: &mut quads,
-                },
+                &mut templates,
+                &mut quads,
             )
-            .unwrap() else {
-                panic!("missing ordinary envelope")
-            };
+            .unwrap();
             assert_ne!(
-                ordinary.model_template, visual.model_template,
+                ordinary, visual.model_template,
                 "GUI shape participates in interning"
             );
-            assert_eq!(templates[ordinary.model_template as usize].flags, 0);
+            assert_eq!(templates[ordinary as usize].flags, 0);
             seen += 1;
         }
-        assert!(seen >= 2, "both chorus block types are registered");
+        assert!(
+            seen >= 4,
+            "both chorus and azalea block types are registered"
+        );
     }
 
     #[test]

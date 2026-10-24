@@ -5,11 +5,37 @@ use crate::{BlockFace, EntityGeometryCube, EntityGeometryUv};
 
 mod block_model;
 mod cube_model;
+mod dried_ghast;
+mod dripleaf;
+pub use dripleaf::dripleaf_quads;
+mod sculk_sensor;
+mod sculk_shrieker;
 pub use block_model::{
     GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_gui_quads,
     block_item_quads, cube_face, face_brightness, material_tile,
 };
 pub use cube_model::full_cube_model_quads;
+pub use dried_ghast::{DRIED_GHAST_TENTACLES, dried_ghast_quads};
+pub use sculk_sensor::{
+    SENSOR_CRYSTAL_MATERIAL, SENSOR_TENDRIL_BRIGHTNESS, SENSOR_TENDRIL_MATERIAL, sculk_sensor_quads,
+};
+pub use sculk_shrieker::sculk_shrieker_quads;
+
+/// Block items with an inventory bitmap whose held presentation retains the world model.
+#[must_use]
+pub fn has_carried_bitmap_shape(name: &str) -> bool {
+    use crate::facts::pack::PackBlock as B;
+    [
+        B::DriedGhast,
+        B::SculkSensor,
+        B::CalibratedSculkSensor,
+        B::SculkShrieker,
+        B::BigDripleaf,
+        B::SmallDripleaf,
+    ]
+    .iter()
+    .any(|kind| name == kind.identifier())
+}
 
 /// Native item-frame design pixels, not source-texture or framebuffer pixels.
 pub const GUI_ITEM_SIDE: f32 = 16.0;
@@ -78,6 +104,17 @@ pub fn project_cube([x, y, z]: [f32; 3]) -> [f32; 3] {
     ]
 }
 
+/// Carried dried-ghast block coordinates through the enlarged inventory camera.
+#[must_use]
+pub fn project_dried_ghast(point: [f32; 3]) -> [f32; 3] {
+    let projected = project_cube(point);
+    [
+        CUBE_OFFSET[0] + (projected[0] - CUBE_OFFSET[0]) * 1.2 - 1.0,
+        CUBE_OFFSET[1] + (projected[1] - CUBE_OFFSET[1]) * 1.2 - 1.0,
+        projected[2] * 1.2,
+    ]
+}
+
 /// Closed conduit model-part coordinates through its inventory matrix, in design pixels.
 #[must_use]
 pub fn project_conduit(point: [f32; 3]) -> [f32; 3] {
@@ -99,6 +136,19 @@ pub fn project_decorated_pot([x, y, z]: [f32; 3]) -> [f32; 3] {
         CUBE_SCALE,
         f32::from_bits(0xc027_8d36),
         f32::from_bits(0xbf49_0fdb),
+    )
+}
+
+/// Standing statue rig coordinates through the serialized-actor inventory camera.
+#[must_use]
+pub fn project_statue([x, y, z]: [f32; 3]) -> [f32; 3] {
+    let origin_y = SHIELD_MODEL_PART_HEIGHT - 0.9 / SHIELD_MODEL_UNIT;
+    project_entity(
+        [x, y - origin_y, z],
+        [8.0, 9.0, -10.0],
+        9.0,
+        f32::from_bits(0xc027_8d36),
+        f32::from_bits(0xc01c_61aa),
     )
 }
 

@@ -142,6 +142,7 @@ fn presentation(catalog: &assets::RuntimeEntityAssets) -> UiPresentationRuntime 
     presentation.menu_artwork.refs.insert(
         "test-cape".into(),
         ui::IconRef {
+            color_mask: None,
             page: 100,
             uv: [0, 0, 64, 32],
             glint: false,

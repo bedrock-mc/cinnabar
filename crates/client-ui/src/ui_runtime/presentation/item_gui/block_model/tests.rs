@@ -6,6 +6,7 @@ use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 /// Places a small test tile on the requested atlas page.
 fn tile(page: u16) -> IconRef {
     IconRef {
+        color_mask: None,
         page,
         uv: [16, 32, 32, 48],
         glint: false,

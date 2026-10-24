@@ -414,6 +414,7 @@ fn declared_metadata_names_the_card_and_its_icon_replaces_the_placeholder() {
     let artwork = HashMap::from([(
         item.icon_key().unwrap(),
         IconRef {
+            color_mask: None,
             page: 9,
             uv: [0, 0, 32, 32],
             glint: false,

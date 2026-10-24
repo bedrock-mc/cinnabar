@@ -26,55 +26,6 @@ fn state(record: &RegistryRecord) -> Option<(usize, usize)> {
     ))
 }
 
-/// Maps a world face to the pack's north-facing default barrel.
-fn source_face(face: BlockFace, direction: usize) -> BlockFace {
-    // Retain all six authored faces, including individual side-face overrides.
-    const FACES: [[BlockFace; 6]; 6] = [
-        [
-            BlockFace::West,
-            BlockFace::East,
-            BlockFace::North,
-            BlockFace::South,
-            BlockFace::Up,
-            BlockFace::Down,
-        ],
-        [
-            BlockFace::West,
-            BlockFace::East,
-            BlockFace::South,
-            BlockFace::North,
-            BlockFace::Down,
-            BlockFace::Up,
-        ],
-        BlockFace::ALL,
-        [
-            BlockFace::East,
-            BlockFace::West,
-            BlockFace::Down,
-            BlockFace::Up,
-            BlockFace::South,
-            BlockFace::North,
-        ],
-        [
-            BlockFace::North,
-            BlockFace::South,
-            BlockFace::Down,
-            BlockFace::Up,
-            BlockFace::East,
-            BlockFace::West,
-        ],
-        [
-            BlockFace::South,
-            BlockFace::North,
-            BlockFace::Down,
-            BlockFace::Up,
-            BlockFace::West,
-            BlockFace::East,
-        ],
-    ];
-    FACES[direction][face as usize]
-}
-
 /// Resolves the state's authored face and open variant, including scalar pack overrides.
 pub(in crate::compiler) fn descriptor(
     pack: &PackSources,
@@ -82,7 +33,7 @@ pub(in crate::compiler) fn descriptor(
     face: BlockFace,
 ) -> Option<(Descriptor, Box<str>)> {
     let (direction, open) = state(record)?;
-    let source_face = source_face(face, direction);
+    let (source_face, _) = pack_compile_input::barrel::face_transform(face, direction)?;
     let key = resolve_texture_key(&pack.blocks, record, source_face).key?;
     let (path, state_variant) = pack.terrain.get_clamped_untinted_variant(&key, open)?;
     Some((
@@ -118,16 +69,12 @@ pub(in crate::compiler) fn compile_rule(
     let template = if let Some(&template) = templates.get(&key) {
         template
     } else {
-        // Face order is west, east, down, up, north, south.
-        const TURNS: [[u8; 6]; 6] = [
-            [3, 3, 0, 0, 3, 3],
-            [0; 6],
-            [2, 2, 3, 0, 0, 0],
-            [1, 1, 0, 3, 0, 0],
-            [0, 0, 2, 2, 2, 2],
-            [0, 0, 1, 1, 1, 1],
-        ];
-        let quads = super::geometry::flipped_cube_quads(materials, TURNS[direction]);
+        let flips = BlockFace::ALL.map(|face| {
+            pack_compile_input::barrel::face_transform(face, direction)
+                .expect("validated barrel direction")
+                .1
+        });
+        let quads = super::geometry::flipped_cube_quads(materials, flips);
         let template = push_model_template(quads.to_vec(), 0, storage.templates, storage.quads)?;
         templates.insert(key, template);
         template
