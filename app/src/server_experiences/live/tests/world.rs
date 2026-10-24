@@ -270,7 +270,7 @@ fn world_notices_require_the_live_session_and_wire_v2() {
 #[test]
 fn a_server_world_notice_rebinds_drawing_before_the_epoch_callback() {
     let mut live = fixture_v2(1);
-    complete(&mut live, "bundle0");
+    sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
     live.poll_ready(1, 0).unwrap();
     let instance = live.instances.get_mut("bundle0").unwrap();
     instance
