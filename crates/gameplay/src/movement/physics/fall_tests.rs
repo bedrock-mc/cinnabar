@@ -100,7 +100,7 @@ fn flight_actions_clear_fall_distance_before_movement() {
     let physics = falling_controller();
     let original = physics.state().unwrap().clone();
     let mut state = original.clone();
-    let mut frame = *physics.controller_history.back().unwrap();
+    let mut frame = physics.controller_history.back().unwrap().clone();
     let mut modes = ModeTracker::default();
     let mut anchor = AnchorProbeState::new();
     let mut input = frame.input;

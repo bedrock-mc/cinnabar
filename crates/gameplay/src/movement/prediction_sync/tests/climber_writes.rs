@@ -409,18 +409,25 @@ fn replacement_climber_flags_supersede_pending_old_lifetime_writes() {
             let flags = physics.prediction_sync_flags().extended_flags.unwrap();
             assert_eq!(flags & bit != 0, contact);
             if completed {
-                physics.advance(
+                let frame = physics.advance(
                     simulation_clock::TICK_DURATION,
                     sim::MovementInput {
-                        immobile: true,
+                        sneaking: true,
                         ..Default::default()
                     },
                     &OpenWorld,
                 );
+                assert_eq!(frame.samples[0].movement[1] == -0.15, contact);
             }
-            physics
+            let replay = physics
                 .replay_retained_from(anchor.tick, &OpenWorld)
                 .unwrap();
+            if completed {
+                assert_eq!(
+                    replay.replayed_samples.last().unwrap().movement[1] == -0.15,
+                    contact
+                );
+            }
             if !completed {
                 let flags = physics.prediction_sync_flags().extended_flags.unwrap();
                 assert_eq!(flags & bit != 0, contact);
