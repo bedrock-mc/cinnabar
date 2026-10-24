@@ -32,13 +32,20 @@ pub const TORCH_ITEM_IDENTIFIERS: [&str; 4] = [
     "minecraft:copper_torch",
 ];
 
+/// Flower-bed items whose dropped form uses their carried sprite.
+pub const FLOWER_BED_ITEM_IDENTIFIERS: [&str; 2] =
+    ["minecraft:pink_petals", "minecraft:wildflowers"];
 /// Native filled-map identity used for session admission outside the retail census.
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
 pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
-/// Flower-bed items whose dropped form uses their carried sprite.
-pub const FLOWER_BED_ITEM_IDENTIFIERS: [&str; 2] =
-    ["minecraft:pink_petals", "minecraft:wildflowers"];
+/// Attachable block items whose dropped form uses their carried sprite.
+pub const CARRIED_ATTACHMENT_ITEM_IDENTIFIERS: [&str; 4] = [
+    "minecraft:lever",
+    "minecraft:vine",
+    "minecraft:glow_lichen",
+    "minecraft:sculk_vein",
+];
 
 /// Matches bucket-shaped names for conservative callers; this does not establish item behavior.
 pub fn has_bucket_name(identifier: &str) -> bool {

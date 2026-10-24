@@ -131,6 +131,7 @@ fn item_block_id(
                 | assets::facts::BlockRenderKind::SeaPickle
         ) || assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS.contains(&identifier)
             || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS.contains(&identifier)
             || assets::facts::FLOWER_BED_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
