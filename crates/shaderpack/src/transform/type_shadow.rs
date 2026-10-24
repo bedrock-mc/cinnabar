@@ -44,7 +44,12 @@ pub(super) fn rename_struct_shadowing_locals(items: &mut [Item], source: &[Tok])
             continue;
         };
         let local_types = local_structs(toks);
-        let bindings = binding_uses(toks, structs.iter().map(String::as_str));
+        let mut bindings = binding_uses(toks, structs.iter().map(String::as_str));
+        // Parameter declarators sit in the header, outside the scopes that map their uses.
+        let declarators: Vec<usize> = bindings.values().copied().collect();
+        for declarator in declarators {
+            bindings.entry(declarator).or_insert(declarator);
+        }
         for (index, declarator) in bindings {
             let token = &toks[index];
             let names_a_type = local_types.iter().any(|local| {
@@ -165,6 +170,14 @@ mod tests {
                 "struct S { float x; }; float f() { float S = 0.0; { struct S { float x; }; S value = S(1.0); { S S = S(2.0); S.x += value.x; } } return S; }"
             ),
             "float f ( ) { float __shaderpack_S_local_0 = 0.0 ; { struct S { float x ; } ; S value = S ( 1.0 ) ; { S __shaderpack_S_local_0 = S ( 2.0 ) ; __shaderpack_S_local_0 . x += value . x ; } } return __shaderpack_S_local_0 ; }"
+        );
+    }
+
+    #[test]
+    fn a_parameter_named_after_a_struct_is_renamed_with_its_uses() {
+        assert_eq!(
+            renamed("struct S { float x; }; float f(float S) { return S * 2.0; }"),
+            "float f ( float __shaderpack_S_local_0 ) { return __shaderpack_S_local_0 * 2.0 ; }"
         );
     }
 

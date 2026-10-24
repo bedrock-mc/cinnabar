@@ -418,6 +418,17 @@ fn compatibility_local_structs_keep_their_names_beside_a_hiding_local() {
 }
 
 #[test]
+fn compatibility_parameters_named_after_a_struct_type_hide_it_in_their_function() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        float scale(float Face) { return Face * 2.0; }
+        vec4 shade(Face face) { return vec4(face.tint, scale(face.size)); }
+        out vec4 color; void main() { color = shade(Face(vec3(0.5), 1.0)); }",
+    );
+}
+
+#[test]
 fn compatibility_unsized_array_declarations_take_sized_initializer_lengths() {
     success(
         VERTEX,
