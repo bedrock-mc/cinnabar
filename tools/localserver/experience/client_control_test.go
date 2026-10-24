@@ -101,6 +101,9 @@ func TestRegistryConfirmationRetriesAfterBudgetRefills(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if err := conn.WritePacket(&packet.ItemRegistry{}); err != nil {
+			t.Fatal(err)
+		}
 		deliver := func(message ext.Control) {
 			t.Helper()
 			raw, err := ext.Encode(message)
