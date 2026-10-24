@@ -126,6 +126,7 @@ pub(super) struct SyncState {
     last_pose: (bool, bool),
     previous_mode: sim::MovementMode,
     pending: client_world::MovementFlagUpdate,
+    pub(super) pending_climber: climber_authority::ClimberWrite,
     local_spinning: bool,
 }
 
@@ -196,12 +197,14 @@ impl SyncState {
 
     /// Associates server writes with the next retained tick for correction replay.
     pub(super) fn take_pending(&mut self) -> client_world::MovementFlagUpdate {
+        self.pending_climber = Default::default();
         std::mem::take(&mut self.pending)
     }
 
     /// Reapplies server writes received after the last completed tick to a replay result.
     pub(super) fn restore_pending(&mut self, live: Self) {
         self.server_flags(live.pending);
+        self.pending_climber.merge(live.pending_climber);
         self.server_dimensions(live.dimensions);
     }
 

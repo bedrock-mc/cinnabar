@@ -288,3 +288,79 @@ fn climber_replayed_correction_preserves_its_comparison_capture() {
     let plan = physics.replay_retained_from(stamp, &OpenWorld).unwrap();
     assert_eq!(plan.replayed_samples[0].movement[1], -0.15_f32);
 }
+
+#[test]
+fn pending_climber_writes_survive_older_correction_replay_until_the_next_input() {
+    for stamp in [0, 103] {
+        let mut physics = due_physics();
+        let mut actor = local_actor();
+        let tick = simulation_clock::TICK_DURATION;
+        let frame = physics.advance(tick * 3, sim::MovementInput::default(), &OpenWorld);
+        let anchor = &frame.samples[0];
+        let mut words = [0; 3];
+        set_flag(&mut words, ActorFlag::OverDescendingBlock, true);
+        assert_eq!(accept(&mut physics, &mut actor, stamp, words[1]), None);
+        // Independent accepted writes must compose before any local tick consumes them.
+        set_flag(&mut words, ActorFlag::InAscendingBlock, true);
+        assert_eq!(accept(&mut physics, &mut actor, stamp, words[1]), None);
+        for _ in 0..2 {
+            let plan = physics
+                .replay_retained_from(anchor.tick, &OpenWorld)
+                .unwrap();
+            assert_eq!(plan.replayed_samples.len(), 2);
+            assert_eq!(reported(&physics, &actor)[1], words[1], "stamp={stamp}");
+        }
+        let next = physics.advance(
+            tick,
+            sim::MovementInput {
+                sneaking: true,
+                ..Default::default()
+            },
+            &OpenWorld,
+        );
+        assert_eq!(next.completed_ticks, 1);
+        assert_eq!(next.samples[0].movement[1], -0.15_f32, "stamp={stamp}");
+        let mut expected = [0; 3];
+        set_flag(&mut expected, ActorFlag::DescendThroughBlock, true);
+        assert_eq!(reported(&physics, &actor)[1], expected[1]);
+        physics.advance(
+            tick,
+            sim::MovementInput {
+                sneaking: true,
+                ..Default::default()
+            },
+            &OpenWorld,
+        );
+        assert_eq!(reported(&physics, &actor)[1], 0);
+    }
+}
+
+#[test]
+fn pending_climber_clear_replaces_a_set_without_clearing_other_pending_bits() {
+    for stamp in [0, 103] {
+        let mut physics = due_physics();
+        let mut actor = local_actor();
+        let tick = simulation_clock::TICK_DURATION;
+        let frame = physics.advance(tick * 3, sim::MovementInput::default(), &OpenWorld);
+        let mut words = [0; 3];
+        set_flag(&mut words, ActorFlag::OverDescendingBlock, true);
+        set_flag(&mut words, ActorFlag::InAscendingBlock, true);
+        accept(&mut physics, &mut actor, stamp, words[1]);
+        set_flag(&mut words, ActorFlag::OverDescendingBlock, false);
+        accept(&mut physics, &mut actor, stamp, words[1]);
+        physics
+            .replay_retained_from(frame.samples[0].tick, &OpenWorld)
+            .unwrap();
+        assert_eq!(reported(&physics, &actor)[1], words[1], "stamp={stamp}");
+        let next = physics.advance(
+            tick,
+            sim::MovementInput {
+                sneaking: true,
+                ..Default::default()
+            },
+            &OpenWorld,
+        );
+        assert_ne!(next.samples[0].movement[1], -0.15_f32, "stamp={stamp}");
+        assert_eq!(reported(&physics, &actor)[1], 0);
+    }
+}

@@ -285,8 +285,8 @@ impl LocalPhysicsController {
                         .iter()
                         .filter(|correction| correction.tick == next_tick)
                     {
-                        correction.apply(state);
-                        effective_climber = correction.apply_flags(effective_climber);
+                        correction.write.apply(state);
+                        effective_climber = correction.write.apply_flags(effective_climber);
                     }
                     boosts.apply(state.tick + 1, &mut input.effects);
                     let environment = previous.map_or(anchor_controller.environment, |output| {
@@ -446,6 +446,10 @@ impl LocalPhysicsController {
         self.controller_history = controller_frames;
         sync_state.restore_pending(self.sync_state);
         self.sync_state = sync_state;
+        self.live_climber = sync_state.pending_climber.apply_flags(self.live_climber);
+        if let Some(state) = self.state.as_mut() {
+            sync_state.pending_climber.apply(state);
+        }
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self
                 .sample_history
