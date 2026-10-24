@@ -117,13 +117,33 @@ impl PreparedBlockItems {
 
     /// Predicts the texture layers used by an available carried model without copying pixels.
     pub(crate) fn dropped_model_layers(&self, visual: u32) -> Option<usize> {
-        self.models.get(&visual)?;
         self.sheet_placement(visual)?;
-        Some(assets::BlockFace::ALL.len())
+        let grid = assets::BLOCK_ITEM_SHEET_GRID.map(f32::from);
+        let layers = self
+            .models
+            .get(&visual)?
+            .iter()
+            .try_fold(0_usize, |layers, vertex| {
+                let tile = std::array::from_fn::<_, 2, _>(|axis| {
+                    (vertex.glint_origin[axis] * grid[axis]).round()
+                });
+                if tile
+                    .iter()
+                    .zip(grid)
+                    .any(|(&tile, size)| !tile.is_finite() || tile < 0.0 || tile >= size)
+                {
+                    return None;
+                }
+                let slot = tile[1] as usize * usize::from(assets::BLOCK_ITEM_SHEET_GRID[0])
+                    + tile[0] as usize;
+                Some(layers.max(slot + 1))
+            })?;
+        (layers > 0).then_some(layers)
     }
 
     /// Converts the carried geometry and its matching prepared pixels for world item draws.
     pub(crate) fn dropped_model(&self, visual: u32) -> Option<render_model::DroppedItemBlock> {
+        let layers = self.dropped_model_layers(visual)?;
         let vertices = self.models.get(&visual)?;
         let (raster, placement) = self.sheet_placement(visual)?;
         let [width, height] = [placement.width, placement.height].map(usize::from);
@@ -134,14 +154,16 @@ impl PreparedBlockItems {
                 * 4;
             pixels.extend_from_slice(raster.rgba8.get(start..start + width * 4)?);
         }
-        render_model::equipment::blocks::dropped_model(
+        let mut model = render_model::equipment::blocks::dropped_model(
             render_model::DroppedItemSprite {
                 width: u32::from(placement.width),
                 height: u32::from(placement.height),
                 rgba8: pixels.into(),
             },
             vertices,
-        )
+        )?;
+        model.materials = model.materials.get(..layers)?.into();
+        Some(model)
     }
 
     /// Locates one carried sheet entirely within the same prepared raster generation.

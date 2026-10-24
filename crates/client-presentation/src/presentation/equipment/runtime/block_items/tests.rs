@@ -3,8 +3,8 @@
 use super::*;
 
 impl PreparedBlockItems {
-    /// Builds a narrow box with six original face tiles for carried model tests.
-    pub(crate) fn test_model(seed: u8) -> Arc<Self> {
+    /// Returns a narrow box with original face tiles and its matching terrain allocation.
+    pub(crate) fn test_model(seed: u8) -> (Arc<Self>, Arc<RuntimeAssets>) {
         let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
         let side = usize::from(assets::BLOCK_ITEM_FACE_SIDE);
         let columns = usize::from(assets::BLOCK_ITEM_SHEET_GRID[0]);
@@ -33,20 +33,22 @@ impl PreparedBlockItems {
             vertex.position[0] *= 0.25;
             vertex.position[2] *= 0.25;
         }
-        Arc::new(Self {
-            world: None,
+        let world = super::super::tests::block_reload_tests::terrain(128, [5, 6, 7, 255], 0);
+        let source = Arc::new(Self {
+            world: Some(Arc::clone(&world)),
             sheets: [(1, 0)].into(),
             models: [(1, vertices)].into(),
             alpha: BTreeMap::new(),
             placements: atlas.placements,
             rasters: atlas.layers,
-        })
+        });
+        (source, world)
     }
 }
 
 #[test]
 fn carried_drop_geometry_keeps_shape_and_distinct_face_pixels() {
-    let source = PreparedBlockItems::test_model(20);
+    let (source, _) = PreparedBlockItems::test_model(20);
     let model = source.dropped_model(1).unwrap();
     assert_eq!(source.dropped_model_layers(1), Some(model.materials.len()));
     for (face, (sprite, _)) in model.materials.iter().enumerate() {
@@ -71,8 +73,27 @@ fn carried_drop_geometry_keeps_shape_and_distinct_face_pixels() {
 }
 
 #[test]
+fn unused_carried_sheet_tiles_do_not_consume_model_layers() {
+    let (mut source, _) = PreparedBlockItems::test_model(20);
+    let vertices = Arc::get_mut(&mut source)
+        .unwrap()
+        .models
+        .get_mut(&1)
+        .unwrap();
+    for vertex in vertices {
+        vertex.uv = std::array::from_fn(|axis| vertex.uv[axis] - vertex.glint_origin[axis]);
+        vertex.back_uv = vertex.uv;
+        vertex.glint_origin = [0.0; 2];
+    }
+    let model = source.dropped_model(1).unwrap();
+    assert_eq!(source.dropped_model_layers(1), Some(1));
+    assert_eq!(model.materials.len(), 1);
+    assert!(model.quads.iter().all(|quad| quad.material == 0));
+}
+
+#[test]
 fn unavailable_prepared_sheets_keep_the_model_fallback_available() {
-    let mut source = PreparedBlockItems::test_model(20);
+    let (mut source, _) = PreparedBlockItems::test_model(20);
     let source = Arc::get_mut(&mut source).unwrap();
     source.placements[0] = None;
     assert!(source.dropped_model_layers(1).is_none());
