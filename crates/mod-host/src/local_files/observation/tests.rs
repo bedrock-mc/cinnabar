@@ -2,7 +2,6 @@ use super::*;
 use std::io::Write;
 
 #[test]
-#[cfg(unix)]
 fn unchanged_observations_do_not_read_or_copy_source_bytes() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
@@ -30,7 +29,7 @@ fn unchanged_observations_do_not_read_or_copy_source_bytes() {
     }
     assert_eq!(reads, 1, "unchanged polls must not invoke the byte reader");
     assert!(
-        cache.read(&path, 7).is_err(),
+        cache.read(&path, 7, Instant::now()).is_err(),
         "a cached read cannot bypass a smaller bound"
     );
 }
@@ -53,9 +52,13 @@ fn same_size_in_place_edits_with_restored_mtime_are_observed() {
         .unwrap();
     drop(writer);
     let changed = cache
-        .read_at(&path, 8, now + CONFIRMATION_DELAY, Identity::of, |opened| {
-            opened.read(8)
-        })
+        .read_at(
+            &path,
+            8,
+            now + CONTENT_REVALIDATION_INTERVAL,
+            Identity::of,
+            |opened| opened.read(8),
+        )
         .unwrap();
     assert_eq!(changed.bytes.as_ref(), b"modified");
     assert_ne!(first.digest, changed.digest);
@@ -73,7 +76,7 @@ fn same_size_replacements_and_missing_sources_do_not_reuse_old_bytes() {
     let replacement = root.path().join("replacement");
     std::fs::write(&path, b"old").unwrap();
     let mut cache = ObservationCache::default();
-    let first = cache.read(&path, 3).unwrap();
+    let first = cache.read(&path, 3, Instant::now()).unwrap();
     let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
     std::fs::write(&replacement, b"new").unwrap();
     File::options()
@@ -83,16 +86,19 @@ fn same_size_replacements_and_missing_sources_do_not_reuse_old_bytes() {
         .set_times(std::fs::FileTimes::new().set_modified(modified))
         .unwrap();
     std::fs::rename(&replacement, &path).unwrap();
-    assert_eq!(cache.read(&path, 3).unwrap().bytes.as_ref(), b"new");
+    assert_eq!(
+        cache.read(&path, 3, Instant::now()).unwrap().bytes.as_ref(),
+        b"new"
+    );
     std::fs::remove_file(&path).unwrap();
     assert_eq!(
-        cache.read(&path, 3).err().unwrap().kind(),
+        cache.read(&path, 3, Instant::now()).err().unwrap().kind(),
         io::ErrorKind::NotFound
     );
     std::fs::write(&path, b"old").unwrap();
     assert!(!Arc::ptr_eq(
         &first.bytes,
-        &cache.read(&path, 3).unwrap().bytes
+        &cache.read(&path, 3, Instant::now()).unwrap().bytes
     ));
 }
 
@@ -103,7 +109,7 @@ fn an_edit_during_read_is_retried_instead_of_caching_a_mixed_snapshot() {
     let path = root.path().join("source");
     std::fs::write(&path, b"old").unwrap();
     let mut cache = ObservationCache::default();
-    let result = cache.read_with(&path, 3, |opened| {
+    let result = cache.read_at(&path, 3, Instant::now(), Identity::of, |opened| {
         let bytes = opened.read(3)?;
         let modified = opened.file.metadata()?.modified()?;
         std::fs::write(&path, b"new")?;
@@ -114,7 +120,10 @@ fn an_edit_during_read_is_retried_instead_of_caching_a_mixed_snapshot() {
         Ok(bytes)
     });
     assert!(result.is_err());
-    assert_eq!(cache.read(&path, 3).unwrap().bytes.as_ref(), b"new");
+    assert_eq!(
+        cache.read(&path, 3, Instant::now()).unwrap().bytes.as_ref(),
+        b"new"
+    );
 }
 
 #[test]
@@ -123,13 +132,13 @@ fn unused_observations_release_their_retained_buffers() {
     let path = root.path().join("source");
     std::fs::write(&path, b"old").unwrap();
     let mut cache = ObservationCache::default();
-    let first = cache.read(&path, 3).unwrap();
+    let first = cache.read(&path, 3, Instant::now()).unwrap();
     cache.retain_observed();
     cache.retain_observed();
     assert_eq!(Arc::strong_count(&first.bytes), 1);
     assert!(!Arc::ptr_eq(
         &first.bytes,
-        &cache.read(&path, 3).unwrap().bytes
+        &cache.read(&path, 3, Instant::now()).unwrap().bytes
     ));
 }
 
@@ -146,13 +155,19 @@ fn directory_aliases_can_change_but_cached_leaf_links_are_refused() {
     symlink(root.path().join("first"), &alias).unwrap();
     let mut cache = ObservationCache::default();
     let path = alias.join("source");
-    assert_eq!(cache.read(&path, 3).unwrap().bytes.as_ref(), b"old");
+    assert_eq!(
+        cache.read(&path, 3, Instant::now()).unwrap().bytes.as_ref(),
+        b"old"
+    );
     std::fs::remove_file(&alias).unwrap();
     symlink(root.path().join("second"), &alias).unwrap();
-    assert_eq!(cache.read(&path, 3).unwrap().bytes.as_ref(), b"new");
+    assert_eq!(
+        cache.read(&path, 3, Instant::now()).unwrap().bytes.as_ref(),
+        b"new"
+    );
     std::fs::remove_file(&path).unwrap();
     symlink(root.path().join("first/source"), &path).unwrap();
-    assert!(cache.read(&path, 3).is_err());
+    assert!(cache.read(&path, 3, Instant::now()).is_err());
 }
 
 #[test]
@@ -165,7 +180,7 @@ fn unchanged_bounded_read_failures_do_not_reread_bytes_and_repairs_retry() {
     for _ in 0..8 {
         assert!(
             cache
-                .read_with(&path, 3, |opened| {
+                .read_at(&path, 3, Instant::now(), Identity::of, |opened| {
                     reads += 1;
                     opened.read(3)
                 })
@@ -179,7 +194,7 @@ fn unchanged_bounded_read_failures_do_not_reread_bytes_and_repairs_retry() {
     std::fs::write(&path, b"new").unwrap();
     assert_eq!(
         cache
-            .read_with(&path, 3, |opened| {
+            .read_at(&path, 3, Instant::now(), Identity::of, |opened| {
                 reads += 1;
                 opened.read(3)
             })
@@ -199,22 +214,24 @@ fn transient_read_errors_retry_without_a_source_edit() {
     let mut cache = ObservationCache::default();
     assert!(
         cache
-            .read_with(&path, 3, |_| Err(io::Error::other(
-                "temporary read failure"
-            )))
+            .read_at(&path, 3, Instant::now(), Identity::of, |_| Err(
+                io::Error::other("temporary read failure")
+            ))
             .is_err()
     );
-    assert_eq!(cache.read(&path, 3).unwrap().bytes.as_ref(), b"old");
+    assert_eq!(
+        cache.read(&path, 3, Instant::now()).unwrap().bytes.as_ref(),
+        b"old"
+    );
 }
 
 #[test]
-#[cfg(unix)]
-fn same_stamp_edits_are_confirmed_once_without_periodic_source_reads() {
+fn same_stamp_edits_after_each_deadline_are_revalidated() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
     std::fs::write(&path, b"old").unwrap();
-    let identity = Identity::of(&File::open(&path).unwrap()).unwrap().unwrap();
-    let now = Instant::now();
+    let identity = Identity::of(&File::open(&path).unwrap()).unwrap();
+    let mut now = Instant::now();
     let mut cache = ObservationCache::default();
     let reads = std::cell::Cell::new(0);
     let observe = |cache: &mut ObservationCache, now| {
@@ -223,7 +240,7 @@ fn same_stamp_edits_are_confirmed_once_without_periodic_source_reads() {
                 &path,
                 3,
                 now,
-                |_| Ok(Some(identity.clone())),
+                |_| Ok(identity.clone()),
                 |opened| {
                     reads.set(reads.get() + 1);
                     opened.read(3)
@@ -232,44 +249,56 @@ fn same_stamp_edits_are_confirmed_once_without_periodic_source_reads() {
             .unwrap()
     };
     let first = observe(&mut cache, now);
-    std::fs::write(&path, b"new").unwrap();
-    let confirmed = observe(&mut cache, now + CONFIRMATION_DELAY);
-    assert_eq!(
-        confirmed.bytes.as_ref(),
-        b"new",
-        "a repeated timestamp cannot retain old bytes forever"
-    );
-    assert_eq!(first.bytes.as_ref(), b"old");
-    for seconds in [2, 10, 100, 1000] {
-        assert!(Arc::ptr_eq(
-            &confirmed.bytes,
-            &observe(&mut cache, now + Duration::from_secs(seconds)).bytes
-        ));
+    now += CONTENT_REVALIDATION_INTERVAL;
+    assert!(Arc::ptr_eq(&first.bytes, &observe(&mut cache, now).bytes));
+    assert_eq!(reads.get(), 2);
+    for (index, bytes) in [b"new", b"end"].into_iter().enumerate() {
+        std::fs::write(&path, bytes).unwrap();
+        for poll in 0..4 {
+            let snapshot = observe(&mut cache, now + CONTENT_REVALIDATION_INTERVAL * poll / 4);
+            assert_ne!(snapshot.bytes.as_ref(), bytes);
+        }
+        assert_eq!(reads.get(), index + 2, "polls must not extend the deadline");
+        now += CONTENT_REVALIDATION_INTERVAL;
+        assert_eq!(observe(&mut cache, now).bytes.as_ref(), bytes);
+        assert_eq!(reads.get(), index + 3);
     }
-    assert_eq!(
-        reads.get(),
-        2,
-        "the confirmation is not a periodic reread loop"
-    );
+    assert_eq!(first.bytes.as_ref(), b"old", "old snapshots stay immutable");
 }
 
 #[test]
-fn unavailable_change_identities_keep_source_edits_visible_after_every_poll() {
+#[cfg(target_os = "linux")]
+fn mapped_writes_after_revalidation_are_observed() {
+    use rustix::mm::{MapFlags, ProtFlags, mmap, munmap};
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
+    std::fs::write(&path, b"old").unwrap();
+    let file = File::options().read(true).write(true).open(&path).unwrap();
+    // SAFETY: The mapping covers this private three-byte fixture. Only raw pointers access it,
+    // the file remains open and untruncated, and the mapping is unmapped after its last use.
+    let mapping = unsafe {
+        mmap(
+            std::ptr::null_mut(),
+            3,
+            ProtFlags::READ | ProtFlags::WRITE,
+            MapFlags::SHARED,
+            &file,
+            0,
+        )
+    }
+    .unwrap();
+    // Dirty the page before taking the first metadata snapshot.
+    unsafe { std::ptr::copy_nonoverlapping(b"old".as_ptr(), mapping.cast(), 3) };
     let mut cache = ObservationCache::default();
     let now = Instant::now();
-    for bytes in [b"old", b"new", b"end"] {
-        std::fs::write(&path, bytes).unwrap();
-        let snapshot = cache
-            .read_at(
-                &path,
-                3,
-                now + Duration::from_secs(100),
-                |_| Ok(None),
-                |opened| opened.read(3),
-            )
-            .unwrap();
-        assert_eq!(snapshot.bytes.as_ref(), bytes);
-    }
+    let first = cache.read(&path, 3, now).unwrap();
+    let confirmed = cache
+        .read(&path, 3, now + CONTENT_REVALIDATION_INTERVAL)
+        .unwrap();
+    assert!(Arc::ptr_eq(&first.bytes, &confirmed.bytes));
+    unsafe { std::ptr::copy_nonoverlapping(b"new".as_ptr(), mapping.cast(), 3) };
+    let changed = cache.read(&path, 3, now + CONTENT_REVALIDATION_INTERVAL * 2);
+    unsafe { munmap(mapping, 3) }.unwrap();
+    assert_eq!(changed.unwrap().bytes.as_ref(), b"new");
+    assert_eq!(first.bytes.as_ref(), b"old");
 }

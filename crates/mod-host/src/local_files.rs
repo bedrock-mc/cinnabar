@@ -7,8 +7,8 @@ use std::{
 };
 
 mod observation;
-pub(crate) use observation::{CONFIRMATION_DELAY, Identity};
-pub use observation::{ObservationCache, Snapshot};
+pub use observation::{CONTENT_REVALIDATION_INTERVAL, ObservationCache, Snapshot};
+pub(crate) use observation::{ContentDeadline, Identity};
 
 /// Reads a selected regular file with a byte ceiling and refuses a linked final entry.
 pub fn read(path: &Path, limit: usize) -> io::Result<Vec<u8>> {

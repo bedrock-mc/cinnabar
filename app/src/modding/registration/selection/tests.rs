@@ -3,7 +3,10 @@ use super::*;
 /// Reads the exact canonical list consumed by the watcher.
 fn read(directory: &Path) -> Registration {
     Observer::default()
-        .observe(&directory.join(REGISTRATION_FILE))
+        .observe(
+            &directory.join(REGISTRATION_FILE),
+            std::time::Instant::now(),
+        )
         .result
         .unwrap()
         .unwrap()

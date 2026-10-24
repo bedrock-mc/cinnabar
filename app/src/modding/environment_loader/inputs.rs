@@ -1,6 +1,6 @@
 //! Read outcomes that distinguish failed candidates without initializing their guests again.
 
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 use sha2::{Digest, Sha256};
 
@@ -19,6 +19,7 @@ impl Inputs {
     pub(super) fn read(
         request: &Request,
         files: &mut mod_host::local_files::ObservationCache,
+        now: Instant,
     ) -> Self {
         let controls = request.source.grants.controls;
         Self {
@@ -31,11 +32,13 @@ impl Inputs {
                 files,
                 request.source.font.as_deref().filter(|_| controls),
                 font::MAX_SOURCE_BYTES,
+                now,
             ),
             ui: read(
                 files,
                 request.source.ui.as_deref().filter(|_| controls),
                 ui::mod_panel::MAX_PANEL_BUNDLE_BYTES,
+                now,
             ),
         }
     }
@@ -73,9 +76,14 @@ fn read(
     files: &mut mod_host::local_files::ObservationCache,
     path: Option<&Path>,
     max: usize,
+    now: Instant,
 ) -> Read {
-    path.map(|path| files.read(path, max).map_err(|error| error.to_string()))
-        .transpose()
+    path.map(|path| {
+        files
+            .read(path, max, now)
+            .map_err(|error| error.to_string())
+    })
+    .transpose()
 }
 
 /// Separates absent, readable and failed reads before hashing their variable-length contents.

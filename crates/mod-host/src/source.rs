@@ -2,7 +2,7 @@
 
 use crate::{MAX_COMPONENT_SOURCE_BYTES, ModGrants, ModHost, local_files, packet_mod};
 use anyhow::{Result, ensure};
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 /// The binary forms accepted by the library; core reactors run on the packet host.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,8 +39,8 @@ pub fn read_source(path: &Path) -> Result<Vec<u8>> {
 
 impl local_files::ObservationCache {
     /// Observes a mod source with the same classification and byte ceilings as imports.
-    pub fn source(&mut self, path: &Path) -> Result<local_files::Snapshot> {
-        let snapshot = self.read(path, packet_mod::MAX_PACKET_MOD_BYTES)?;
+    pub fn source(&mut self, path: &Path, now: Instant) -> Result<local_files::Snapshot> {
+        let snapshot = self.read(path, packet_mod::MAX_PACKET_MOD_BYTES, now)?;
         check_size(&snapshot.bytes)?;
         Ok(snapshot)
     }
@@ -94,11 +94,19 @@ mod tests {
         std::fs::write(&path, &bytes).unwrap();
         assert_eq!(read_source(&path).unwrap(), bytes);
         let mut observations = local_files::ObservationCache::default();
-        assert_eq!(observations.source(&path).unwrap().bytes.as_ref(), bytes);
+        let now = Instant::now();
+        assert_eq!(
+            observations.source(&path, now).unwrap().bytes.as_ref(),
+            bytes
+        );
         bytes[..8].copy_from_slice(b"\0asm\x0d\0\x01\0");
         std::fs::write(&path, &bytes).unwrap();
         assert!(read_source(&path).is_err());
-        assert!(observations.source(&path).is_err());
+        assert!(
+            observations
+                .source(&path, now + local_files::CONTENT_REVALIDATION_INTERVAL)
+                .is_err()
+        );
         bytes[..8].copy_from_slice(b"\0asm\x01\0\0\0");
         assert!(
             validate_source(&bytes).is_err(),

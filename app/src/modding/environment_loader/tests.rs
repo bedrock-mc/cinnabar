@@ -169,7 +169,7 @@ fn changed_source_atomically_replaces_host_and_prepared_resources_without_duplic
     let mut world = world(previous);
     std::fs::write(&path, component("Second", None)).unwrap();
     let mut attempted = WorkerState::default();
-    let update = prepare(request(&path, digest), &mut attempted).unwrap();
+    let update = prepare(request(&path, digest), &mut attempted, Instant::now()).unwrap();
     assert!(update.result.as_ref().unwrap().panel_ui.is_some());
     let retired = apply(&mut world, update).unwrap();
     let runtime = world.resource::<ModRuntime>();
@@ -181,7 +181,8 @@ fn changed_source_atomically_replaces_host_and_prepared_resources_without_duplic
     assert!(
         prepare(
             request(&path, runtime.hosts.host(0).source_digest()),
-            &mut attempted
+            &mut attempted,
+            Instant::now()
         )
         .is_none()
     );
@@ -207,7 +208,7 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
     let mut world = world(previous);
     std::fs::write(&path, component("Invalid", Some(b"invalid outline font"))).unwrap();
     let mut attempted = WorkerState::default();
-    let update = prepare(request(&path, digest), &mut attempted).unwrap();
+    let update = prepare(request(&path, digest), &mut attempted, Instant::now()).unwrap();
     assert!(update.result.is_err());
     assert!(apply(&mut world, update).is_none());
     assert_eq!(
@@ -220,7 +221,7 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
             .title,
         "First"
     );
-    assert!(prepare(request(&path, digest), &mut attempted).is_none());
+    assert!(prepare(request(&path, digest), &mut attempted, Instant::now()).is_none());
 }
 
 #[test]
@@ -252,7 +253,7 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
             next
         };
         let mut attempted = WorkerState::default();
-        let rejected = prepare(candidate(digest), &mut attempted).unwrap();
+        let rejected = prepare(candidate(digest), &mut attempted, Instant::now()).unwrap();
         assert!(rejected.result.is_err());
         assert!(apply(&mut world, rejected).is_none());
         assert_eq!(
@@ -265,14 +266,15 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
                 .title,
             "First"
         );
-        assert!(prepare(candidate(digest), &mut attempted).is_none());
+        assert!(prepare(candidate(digest), &mut attempted, Instant::now()).is_none());
 
         let repaired = serde_json::json!({
             "panel":{"title":"Repaired","toggle_key":"ShiftRight","dark":true,"controls":[]},
             "surfaces":{}
         });
         std::fs::write(&ui, repaired.to_string()).unwrap();
-        let update = prepare(candidate(digest), &mut attempted).expect("repaired override retries");
+        let update = prepare(candidate(digest), &mut attempted, Instant::now())
+            .expect("repaired override retries");
         assert!(update.result.as_ref().unwrap().panel_ui.is_some());
         drop(apply(&mut world, update).unwrap());
         let current = world.resource::<ModRuntime>().hosts.host(0);
@@ -280,7 +282,7 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
         let accepted = current.source_digest();
         std::fs::remove_file(&ui).unwrap();
         assert!(
-            prepare(candidate(accepted), &mut attempted).is_none(),
+            prepare(candidate(accepted), &mut attempted, Instant::now()).is_none(),
             "accepted components retain their no-change fast path"
         );
     }
@@ -318,11 +320,12 @@ fn changed_committed_settings_retry_a_rejected_component() {
     };
     let invalid = "x".repeat(mod_api::MAX_SETTINGS_BYTES + 1);
     let mut attempted = WorkerState::default();
-    let rejected = prepare(candidate(invalid.clone()), &mut attempted).unwrap();
+    let rejected = prepare(candidate(invalid.clone()), &mut attempted, Instant::now()).unwrap();
     assert!(rejected.result.is_err());
     assert!(apply(&mut world, rejected).is_none());
-    assert!(prepare(candidate(invalid), &mut attempted).is_none());
-    let update = prepare(candidate(committed), &mut attempted).expect("new settings seed retries");
+    assert!(prepare(candidate(invalid), &mut attempted, Instant::now()).is_none());
+    let update = prepare(candidate(committed), &mut attempted, Instant::now())
+        .expect("new settings seed retries");
     drop(apply(&mut world, update).unwrap());
     assert_eq!(
         world
@@ -363,12 +366,13 @@ fn repairing_settings_without_a_committed_seed_retries_the_changed_component() {
         next
     };
     let mut attempted = WorkerState::default();
-    let rejected = prepare(candidate(), &mut attempted).unwrap();
+    let rejected = prepare(candidate(), &mut attempted, Instant::now()).unwrap();
     assert!(rejected.result.is_err());
     assert!(apply(&mut world, rejected).is_none());
-    assert!(prepare(candidate(), &mut attempted).is_none());
+    assert!(prepare(candidate(), &mut attempted, Instant::now()).is_none());
     std::fs::write(&companion, b"").unwrap();
-    let update = prepare(candidate(), &mut attempted).expect("repaired settings source retries");
+    let update = prepare(candidate(), &mut attempted, Instant::now())
+        .expect("repaired settings source retries");
     drop(apply(&mut world, update).unwrap());
     assert_eq!(
         world
@@ -392,13 +396,21 @@ fn two_owners_of_one_source_prepare_independently_including_failure_suppression(
     let mut second = request(&path, [0; 32]);
     second.source.owner = mod_ui::PanelUiOwner::Environment(1);
     second.source.grants.controls = false;
-    assert!(prepare(first, &mut attempted).unwrap().result.is_ok());
-    let second = prepare(second, &mut attempted).unwrap().result.unwrap();
+    assert!(
+        prepare(first, &mut attempted, Instant::now())
+            .unwrap()
+            .result
+            .is_ok()
+    );
+    let second = prepare(second, &mut attempted, Instant::now())
+        .unwrap()
+        .result
+        .unwrap();
     assert!(second.panel_ui.is_none());
     assert_eq!(second.host.menu_title(), Some("Changed"));
     std::fs::write(&path, component("Invalid", Some(b"invalid font"))).unwrap();
     assert!(
-        prepare(request(&path, [0; 32]), &mut attempted)
+        prepare(request(&path, [0; 32]), &mut attempted, Instant::now())
             .unwrap()
             .result
             .is_err()
@@ -406,8 +418,13 @@ fn two_owners_of_one_source_prepare_independently_including_failure_suppression(
     let mut denied = request(&path, [0; 32]);
     denied.source.owner = mod_ui::PanelUiOwner::Environment(1);
     denied.source.grants.controls = false;
-    assert!(prepare(denied, &mut attempted).unwrap().result.is_ok());
-    assert!(prepare(request(&path, [0; 32]), &mut attempted).is_none());
+    assert!(
+        prepare(denied, &mut attempted, Instant::now())
+            .unwrap()
+            .result
+            .is_ok()
+    );
+    assert!(prepare(request(&path, [0; 32]), &mut attempted, Instant::now()).is_none());
 }
 
 #[test]
@@ -449,7 +466,7 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
         path: settings_path.clone(),
         json: "{\"value\":0}".into(),
     });
-    let update = prepare(current, &mut attempted).unwrap();
+    let update = prepare(current, &mut attempted, Instant::now()).unwrap();
     let rejected = apply(&mut world, update).unwrap();
     assert_eq!(rejected.panel().unwrap().title, "Second");
     let old = world.resource::<ModRuntime>().hosts.host(0);
@@ -461,7 +478,8 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
         path: settings_path,
         json: old.settings_snapshot().unwrap().into(),
     });
-    let update = prepare(retry, &mut attempted).expect("valid source retries after stale settings");
+    let update = prepare(retry, &mut attempted, Instant::now())
+        .expect("valid source retries after stale settings");
     drop(apply(&mut world, update).unwrap());
     drop(rejected);
     let current = world.resource::<ModRuntime>().hosts.host(0);
@@ -499,7 +517,12 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Second", Some(&bytes))).unwrap();
-    let update = prepare(request(&path, digest), &mut WorkerState::default()).unwrap();
+    let update = prepare(
+        request(&path, digest),
+        &mut WorkerState::default(),
+        Instant::now(),
+    )
+    .unwrap();
     let accepted = update.result.as_ref().unwrap();
     assert!(accepted.font.as_ref().unwrap().glyph('A').is_some());
     assert!(accepted.panel_ui.is_some());
@@ -549,7 +572,7 @@ fn drawing_restart_prepares_changed_guest_and_presentation_as_one_snapshot() {
     let mut restart = request(&path, old.source_digest());
     restart.drawing = admission::DrawingContext::capture(old);
     std::fs::write(&path, component("Second", None)).unwrap();
-    let update = prepare(restart, &mut WorkerState::default()).unwrap();
+    let update = prepare(restart, &mut WorkerState::default(), Instant::now()).unwrap();
     let prepared = update.result.as_ref().unwrap();
     assert!(prepared.panel_ui.is_some() && prepared.branding.is_some());
     assert!(prepared.host.is_active());
@@ -590,16 +613,21 @@ fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
         let mut restart = request(&path, host.source_digest());
         restart.drawing = admission::DrawingContext::capture(host);
         restart.source.font = Some(directory.path().join("missing-font"));
-        assert!(prepare(restart, &mut attempted).unwrap().result.is_err());
+        assert!(
+            prepare(restart, &mut attempted, Instant::now())
+                .unwrap()
+                .result
+                .is_err()
+        );
         let mut retry = request(&path, host.source_digest());
         retry.drawing = admission::DrawingContext::capture(host);
         retry.source.font = Some(directory.path().join("missing-font"));
-        assert!(prepare(retry, &mut attempted).is_none());
+        assert!(prepare(retry, &mut attempted, Instant::now()).is_none());
     }
     let old = world.resource::<ModRuntime>().hosts.host(0);
     let mut restart = request(&path, old.source_digest());
     restart.drawing = admission::DrawingContext::capture(old);
-    let update = prepare(restart, &mut attempted).unwrap();
+    let update = prepare(restart, &mut attempted, Instant::now()).unwrap();
     assert!(update.result.is_ok());
     {
         let mut runtime = world.resource_mut::<ModRuntime>();
@@ -651,6 +679,7 @@ fn worker_sources_retain_loader_consent_before_a_component_requests_drawing() {
             drawing: None,
         },
         &mut WorkerState::default(),
+        Instant::now(),
     )
     .unwrap();
     assert!(update.result.unwrap().host.grants().world_draw);
@@ -794,6 +823,7 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         let update = prepare(
             queued_request(&mut world, source),
             &mut WorkerState::default(),
+            Instant::now(),
         )
         .unwrap();
         if scope == "user_denied" {
@@ -833,7 +863,6 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
 }
 
 #[test]
-#[cfg(unix)]
 fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("local.wasm");
@@ -841,16 +870,17 @@ fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload()
     std::fs::write(&path, &bytes).unwrap();
     let previous = Sha256::digest(&bytes).into();
     let mut state = WorkerState::default();
-    assert!(prepare(request(&path, previous), &mut state).is_none());
+    let now = Instant::now();
+    assert!(prepare(request(&path, previous), &mut state, now).is_none());
     let first = state
         .files
-        .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+        .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES, now)
         .unwrap();
     for _ in 0..8 {
-        assert!(prepare(request(&path, previous), &mut state).is_none());
+        assert!(prepare(request(&path, previous), &mut state, now).is_none());
         let again = state
             .files
-            .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+            .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES, now)
             .unwrap();
         assert!(std::sync::Arc::ptr_eq(&first.bytes, &again.bytes));
         state.files.retain_observed();
@@ -858,11 +888,11 @@ fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload()
     let changed = component("Other", None);
     assert_eq!(bytes.len(), changed.len());
     std::fs::write(&path, changed).unwrap();
-    let mut changed = None;
-    test_time::eventually("same-size environment edit reloads", || {
-        changed = prepare(request(&path, previous), &mut state);
-        changed.is_some()
-    });
+    let changed = prepare(
+        request(&path, previous),
+        &mut state,
+        now + mod_host::local_files::CONTENT_REVALIDATION_INTERVAL,
+    );
     assert_eq!(
         changed.unwrap().result.unwrap().host.panel().unwrap().title,
         "Other"
@@ -871,7 +901,6 @@ fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload()
 }
 
 #[test]
-#[cfg(unix)]
 fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_reload() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path();
@@ -890,17 +919,28 @@ fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_re
     )
     .unwrap();
     let mut state = WorkerState::default();
+    let now = Instant::now();
     let previous = mod_host::package::Package::read(path).unwrap().digest;
     let candidate = || {
         let mut candidate = request(path, previous);
         candidate.source.location = mod_host::Source::Package(path.to_owned());
         candidate
     };
-    assert!(prepare(candidate(), &mut state).is_none());
-    let first = state.packages.get_mut(path).unwrap().read(path).unwrap();
+    assert!(prepare(candidate(), &mut state, now).is_none());
+    let first = state
+        .packages
+        .get_mut(path)
+        .unwrap()
+        .read(path, now)
+        .unwrap();
     for _ in 0..8 {
-        assert!(prepare(candidate(), &mut state).is_none());
-        let again = state.packages.get_mut(path).unwrap().read(path).unwrap();
+        assert!(prepare(candidate(), &mut state, now).is_none());
+        let again = state
+            .packages
+            .get_mut(path)
+            .unwrap()
+            .read(path, now)
+            .unwrap();
         assert!(std::sync::Arc::ptr_eq(&first, &again));
     }
     std::fs::write(path.join(texture), b"new").unwrap();
@@ -912,11 +952,11 @@ fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_re
             .replace(&old_hash, &new_hash),
     )
     .unwrap();
-    let mut changed = None;
-    test_time::eventually("package resource edit reloads", || {
-        changed = prepare(candidate(), &mut state);
-        changed.is_some()
-    });
+    let changed = prepare(
+        candidate(),
+        &mut state,
+        now + mod_host::local_files::CONTENT_REVALIDATION_INTERVAL,
+    );
     let prepared = changed.unwrap().result.unwrap();
     assert_ne!(prepared.host.source_digest(), previous);
     assert!(prepared.host.package().is_some());
@@ -938,15 +978,24 @@ fn removed_environment_sources_release_cached_components_and_packages() {
     let requests = vec![request(&component_path, component_digest), package_request];
     state.retain_sources(&requests);
     for request in requests {
-        assert!(prepare(request, &mut state).is_none());
+        assert!(prepare(request, &mut state, Instant::now()).is_none());
     }
     let component = state
         .files
-        .read(&component_path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+        .read(
+            &component_path,
+            mod_host::MAX_COMPONENT_SOURCE_BYTES,
+            Instant::now(),
+        )
         .unwrap();
     let component_bytes = std::sync::Arc::downgrade(&component.bytes);
     drop(component);
-    let package = state.packages.get_mut(path).unwrap().read(path).unwrap();
+    let package = state
+        .packages
+        .get_mut(path)
+        .unwrap()
+        .read(path, Instant::now())
+        .unwrap();
     let package_bytes = std::sync::Arc::downgrade(&package);
     drop(package);
     state.files.retain_observed();

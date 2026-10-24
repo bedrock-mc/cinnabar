@@ -2,7 +2,6 @@ use super::*;
 use std::sync::Arc;
 
 #[test]
-#[cfg(unix)]
 fn unchanged_registration_polls_share_sources_and_companions_but_observe_changes() {
     let root = tempfile::tempdir().unwrap();
     let entry = Entry {
@@ -20,10 +19,11 @@ fn unchanged_registration_polls_share_sources_and_companions_but_observe_changes
     std::fs::write(entry.font.as_ref().unwrap(), b"font").unwrap();
     std::fs::write(entry.ui.as_ref().unwrap(), b"panel").unwrap();
     let mut observer = Observer::default();
-    let first = observer.source_snapshot(entry.clone()).unwrap();
+    let mut now = std::time::Instant::now();
+    let first = observer.source_snapshot(entry.clone(), now).unwrap();
     observer.files.retain_observed();
     for _ in 0..8 {
-        let again = observer.source_snapshot(entry.clone()).unwrap();
+        let again = observer.source_snapshot(entry.clone(), now).unwrap();
         assert_eq!(first.identity, again.identity);
         assert!(Arc::ptr_eq(&first.component, &again.component));
         assert!(Arc::ptr_eq(
@@ -45,15 +45,21 @@ fn unchanged_registration_polls_share_sources_and_companions_but_observe_changes
         let mut changed = original.clone();
         changed[0] ^= 1;
         std::fs::write(path, changed).unwrap();
-        test_time::eventually("changed registration source is observed", || {
-            first.identity != observer.source_snapshot(entry.clone()).unwrap().identity
-        });
+        now += mod_host::local_files::CONTENT_REVALIDATION_INTERVAL;
+        assert_ne!(
+            first.identity,
+            observer
+                .source_snapshot(entry.clone(), now)
+                .unwrap()
+                .identity
+        );
         std::fs::write(path, original).unwrap();
+        now += mod_host::local_files::CONTENT_REVALIDATION_INTERVAL;
     }
-    let before_denial = observer.source_snapshot(entry.clone()).unwrap();
+    let before_denial = observer.source_snapshot(entry.clone(), now).unwrap();
     let mut denied = entry.clone();
     denied.grants.controls = false;
-    let denied = observer.source_snapshot(denied).unwrap();
+    let denied = observer.source_snapshot(denied, now).unwrap();
     assert_ne!(first.identity, denied.identity);
     assert!(denied.font.is_none());
     assert!(denied.ui.is_none());
@@ -62,6 +68,6 @@ fn unchanged_registration_polls_share_sources_and_companions_but_observe_changes
     requested.reload += 1;
     assert_ne!(
         first.identity,
-        observer.source_snapshot(requested).unwrap().identity
+        observer.source_snapshot(requested, now).unwrap().identity
     );
 }

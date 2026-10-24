@@ -21,7 +21,10 @@ pub(in crate::modding) struct Receipt {
 impl Receipt {
     /// Rejects a changed or unreadable registration, including changes which reuse its request ID.
     pub(in crate::modding) fn confirm(&self, directory: &Path) -> Result<(), String> {
-        let current = Observer::default().observe(&directory.join(REGISTRATION_FILE));
+        let current = Observer::default().observe(
+            &directory.join(REGISTRATION_FILE),
+            std::time::Instant::now(),
+        );
         if current.fingerprint == self.fingerprint && current.result.is_ok() {
             Ok(())
         } else {
@@ -69,7 +72,10 @@ pub(in crate::modding) struct Registered {
 /// Reads the same bounded, migrated registration the watcher consumes.
 pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
     let Ok(Some(registration)) = Observer::default()
-        .observe(&directory.join(REGISTRATION_FILE))
+        .observe(
+            &directory.join(REGISTRATION_FILE),
+            std::time::Instant::now(),
+        )
         .result
     else {
         return Vec::new();
@@ -114,7 +120,7 @@ fn edit(
 ) -> Result<Receipt, String> {
     let path = directory.join(REGISTRATION_FILE);
     let mut registration = Observer::default()
-        .observe(&path)
+        .observe(&path, std::time::Instant::now())
         .result?
         .unwrap_or_else(Registration::empty);
     change(&mut registration)?;

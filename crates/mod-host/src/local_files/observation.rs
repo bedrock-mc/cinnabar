@@ -1,4 +1,4 @@
-//! Immutable source bytes reused only while a newly opened leaf has the same change identity.
+//! Immutable source bytes with immediate metadata checks and periodic content revalidation.
 
 use super::{Opened, open};
 use sha2::{Digest, Sha256};
@@ -12,8 +12,24 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// A subsecond timestamp can repeat until its clock tick ends; confirm once after that window.
-pub(crate) const CONFIRMATION_DELAY: Duration = Duration::from_secs(1);
+/// Rehash unchanged sources every two seconds: four normal 500 ms polls share one read.
+/// Metadata alone cannot detect every write, including writes through existing mappings.
+pub const CONTENT_REVALIDATION_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Bounds how long unchanged metadata may stand in for a fresh content read.
+pub(crate) struct ContentDeadline(Instant);
+
+impl ContentDeadline {
+    /// Starts the next content revalidation window after a bounded read.
+    pub(crate) fn new(now: Instant) -> Self {
+        Self(now + CONTENT_REVALIDATION_INTERVAL)
+    }
+
+    /// Allows metadata-only reuse strictly before the next content revalidation.
+    pub(crate) fn allows_reuse(&self, now: Instant) -> bool {
+        now < self.0
+    }
+}
 
 /// One bounded source read and its digest, shared without copying the source buffer.
 #[derive(Clone)]
@@ -26,11 +42,11 @@ struct Cached {
     identity: Identity,
     snapshot: Snapshot,
     observed: bool,
-    confirm_after: Option<Instant>,
+    deadline: ContentDeadline,
 }
 
 /// A worker-owned cache; each poll still reopens paths with the regular-file/link policy.
-/// Files without a reliable change identity are read on every poll.
+/// Equal metadata permits reuse only until the content revalidation deadline.
 /// Finish each bounded source poll with `retain_observed`, including empty polls.
 #[derive(Default)]
 pub struct ObservationCache {
@@ -39,8 +55,8 @@ pub struct ObservationCache {
 
 impl ObservationCache {
     /// Reads and hashes changed files, or shares the prior bytes after checking the opened leaf.
-    pub fn read(&mut self, path: &Path, limit: usize) -> io::Result<Snapshot> {
-        self.read_with(path, limit, |opened| opened.read(limit))
+    pub fn read(&mut self, path: &Path, limit: usize, now: Instant) -> io::Result<Snapshot> {
+        self.read_at(path, limit, now, Identity::of, |opened| opened.read(limit))
     }
 
     /// Drops files absent from the completed poll and starts tracking the next poll's reads.
@@ -52,37 +68,24 @@ impl ObservationCache {
         });
     }
 
-    /// Uses the filesystem edge clock for changed reads and one confirmation of a new stamp.
-    fn read_with(
-        &mut self,
-        path: &Path,
-        limit: usize,
-        read: impl FnOnce(&mut Opened) -> io::Result<Vec<u8>>,
-    ) -> io::Result<Snapshot> {
-        self.read_at(path, limit, Instant::now(), Identity::of, read)
-    }
-
-    /// Confirms a newly observed stamp once after its possible subsecond collision window.
+    /// Revalidates content at each deadline even when metadata never changes.
     fn read_at(
         &mut self,
         path: &Path,
         limit: usize,
         now: Instant,
-        identify: impl Fn(&File) -> io::Result<Option<Identity>>,
+        identify: impl Fn(&File) -> io::Result<Identity>,
         read: impl FnOnce(&mut Opened) -> io::Result<Vec<u8>>,
     ) -> io::Result<Snapshot> {
         let key = (path.to_owned(), limit);
         let mut opened = open(path)?;
         let before = identify(&opened.file)?;
-        let mut confirming = false;
         if let Some(cached) = self.files.get_mut(&key)
-            && before.as_ref() == Some(&cached.identity)
+            && before == cached.identity
+            && cached.deadline.allows_reuse(now)
         {
-            confirming = cached.confirm_after.is_some_and(|deadline| now >= deadline);
-            if !confirming {
-                cached.observed = true;
-                return Ok(cached.snapshot.clone());
-            }
+            cached.observed = true;
+            return Ok(cached.snapshot.clone());
         }
         let previous = self.files.remove(&key);
         if opened.file.metadata()?.len() > limit as u64 {
@@ -101,17 +104,15 @@ impl ObservationCache {
                 bytes: bytes.into(),
             },
         };
-        if let Some(identity) = after {
-            self.files.insert(
-                key,
-                Cached {
-                    identity,
-                    snapshot: snapshot.clone(),
-                    observed: true,
-                    confirm_after: (!confirming).then_some(now + CONFIRMATION_DELAY),
-                },
-            );
-        }
+        self.files.insert(
+            key,
+            Cached {
+                identity: after,
+                snapshot: snapshot.clone(),
+                observed: true,
+                deadline: ContentDeadline::new(now),
+            },
+        );
         Ok(snapshot)
     }
 }
@@ -119,41 +120,32 @@ impl ObservationCache {
 /// File identity plus content and metadata change times; access times are deliberately excluded.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Identity {
-    #[cfg(unix)]
     created: Option<std::time::SystemTime>,
+    modified: Option<std::time::SystemTime>,
+    len: u64,
     #[cfg(unix)]
-    values: (u64, u64, u64, i64, i64, i64, i64),
+    values: (u64, u64, i64, i64),
 }
 
 impl Identity {
-    /// Uses Unix file identities with subsecond stamps; other platforms keep fresh bounded reads.
-    pub(crate) fn of(file: &File) -> io::Result<Option<Self>> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            let metadata = file.metadata()?;
-            if metadata.mtime_nsec() == 0 || metadata.ctime_nsec() == 0 {
-                return Ok(None);
-            }
-            Ok(Some(Self {
-                created: metadata.created().ok(),
-                values: (
+    /// Captures best-effort change metadata; the deadline covers writes it cannot distinguish.
+    pub(crate) fn of(file: &File) -> io::Result<Self> {
+        let metadata = file.metadata()?;
+        Ok(Self {
+            created: metadata.created().ok(),
+            modified: metadata.modified().ok(),
+            len: metadata.len(),
+            #[cfg(unix)]
+            values: {
+                use std::os::unix::fs::MetadataExt;
+                (
                     metadata.dev(),
                     metadata.ino(),
-                    metadata.len(),
-                    metadata.mtime(),
-                    metadata.mtime_nsec(),
                     metadata.ctime(),
                     metadata.ctime_nsec(),
-                ),
-            }))
-        }
-        #[cfg(not(unix))]
-        {
-            // Windows mapped writes need not update file timestamps.
-            let _ = file;
-            Ok(None)
-        }
+                )
+            },
+        })
     }
 }
 

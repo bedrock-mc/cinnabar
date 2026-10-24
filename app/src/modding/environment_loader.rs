@@ -86,7 +86,7 @@ impl Loader {
                             Ok(batch) => {
                                 state.retain_sources(&batch);
                                 for request in batch {
-                                    if let Some(update) = prepare(request, &mut state)
+                                    if let Some(update) = prepare(request, &mut state, Instant::now())
                                         && results.send(Message::Updated(Box::new(update))).is_err() {
                                         return;
                                     }
@@ -164,7 +164,7 @@ impl WorkerState {
 }
 
 /// Captures one changed component and all explicit overrides before initializing its candidate.
-fn prepare(request: Request, state: &mut WorkerState) -> Option<Update> {
+fn prepare(request: Request, state: &mut WorkerState, now: Instant) -> Option<Update> {
     let key = (request.source.owner, request.source.location.clone());
     let mut candidate_identity = None;
     let result = (|| {
@@ -172,7 +172,7 @@ fn prepare(request: Request, state: &mut WorkerState) -> Option<Update> {
             mod_host::Source::Component(path) => {
                 let snapshot = state
                     .files
-                    .read(path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+                    .read(path, mod_host::MAX_COMPONENT_SOURCE_BYTES, now)
                     .map_err(|error| error.to_string())?;
                 (snapshot.bytes, snapshot.digest, None)
             }
@@ -181,7 +181,7 @@ fn prepare(request: Request, state: &mut WorkerState) -> Option<Update> {
                     .packages
                     .entry(path.clone())
                     .or_default()
-                    .read(path)
+                    .read(path, now)
                     .map_err(|error| format!("{error:#}"))?;
                 (std::sync::Arc::from([]), package.digest, Some(package))
             }
@@ -194,7 +194,7 @@ fn prepare(request: Request, state: &mut WorkerState) -> Option<Update> {
         {
             return Ok(None);
         }
-        let inputs = inputs::Inputs::read(&request, &mut state.files);
+        let inputs = inputs::Inputs::read(&request, &mut state.files, now);
         let fingerprint = AttemptIdentity {
             source: inputs.fingerprint(&request, hash)?,
             drawing: request.drawing.clone(),

@@ -7,7 +7,7 @@ mod recovery_tests;
 
 /// Captures a fresh snapshot for fixtures that do not retain an observation worker.
 fn source_snapshot(entry: Entry) -> Result<SourceSnapshot, String> {
-    source::Observer::default().source_snapshot(entry)
+    source::Observer::default().source_snapshot(entry, std::time::Instant::now())
 }
 
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
@@ -387,7 +387,7 @@ fn normalized_registration_still_rejects_a_component_leaf_symlink() {
     std::os::unix::fs::symlink(&source, &link).unwrap();
     selection::select(root, &link, true, "linked".into()).unwrap();
     let registration = source::Observer::default()
-        .observe(&root.join(REGISTRATION_FILE))
+        .observe(&root.join(REGISTRATION_FILE), std::time::Instant::now())
         .result
         .unwrap()
         .unwrap();

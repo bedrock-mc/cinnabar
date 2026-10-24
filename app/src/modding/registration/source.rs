@@ -1,6 +1,6 @@
 //! Bounded reads of the registration file and the extension sources it names.
 
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 use client_extensions::modding::font;
 use sha2::{Digest, Sha256};
@@ -21,9 +21,9 @@ pub(super) struct Observation {
 
 impl Observer {
     /// Reads a bounded registration and normalizes directory aliases without following leaf links.
-    pub(super) fn observe(&mut self, path: &Path) -> Observation {
+    pub(super) fn observe(&mut self, path: &Path, now: Instant) -> Observation {
         let bytes = (|| {
-            let bytes = match self.files.read(path, MAX_BYTES) {
+            let bytes = match self.files.read(path, MAX_BYTES, now) {
                 Ok(bytes) => bytes,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
                 Err(error) => return Err(error.to_string()),
@@ -80,19 +80,20 @@ impl Observer {
     pub(super) fn source_snapshot(
         &mut self,
         registration: Entry,
+        now: Instant,
     ) -> Result<SourceSnapshot, String> {
         let mut digest = Sha256::new();
         digest.update(serde_json::to_vec(&registration).map_err(|error| error.to_string())?);
         let component = self
             .files
-            .source(&registration.component)
+            .source(&registration.component, now)
             .map_err(|error| format!("Mod could not be read: {error}"))?;
         digest.update(component.digest);
         let font = if registration.grants.controls {
             registration
                 .font
                 .as_deref()
-                .map(|path| self.read_bounded_source(path, font::MAX_SOURCE_BYTES))
+                .map(|path| self.read_bounded_source(path, font::MAX_SOURCE_BYTES, now))
                 .transpose()?
         } else {
             None
@@ -104,7 +105,9 @@ impl Observer {
             registration
                 .ui
                 .as_deref()
-                .map(|path| self.read_bounded_source(path, ui::mod_panel::MAX_PANEL_BUNDLE_BYTES))
+                .map(|path| {
+                    self.read_bounded_source(path, ui::mod_panel::MAX_PANEL_BUNDLE_BYTES, now)
+                })
                 .transpose()?
         } else {
             None
@@ -133,8 +136,9 @@ impl Observer {
         &mut self,
         path: &Path,
         max: usize,
+        now: Instant,
     ) -> Result<mod_host::local_files::Snapshot, String> {
-        self.files.read(path, max).map_err(|error| {
+        self.files.read(path, max, now).map_err(|error| {
             format!(
                 "extension source {} could not be read: {error}",
                 path.display()
@@ -143,5 +147,5 @@ impl Observer {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests;

@@ -147,7 +147,6 @@ fn package_files_cannot_be_replaced_with_links() {
 }
 
 /// Overwrites an existing fixture with a distinct modification stamp on coarse filesystems.
-#[cfg(unix)]
 fn write_changed(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     let path = path.as_ref();
     let modified = std::fs::metadata(path)?.modified()?;
@@ -158,7 +157,6 @@ fn write_changed(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> std::io::Re
 }
 
 #[test]
-#[cfg(unix)]
 fn observations_share_verified_packages_until_any_selected_file_changes() {
     let dir = write_package(
         &[
@@ -169,15 +167,25 @@ fn observations_share_verified_packages_until_any_selected_file_changes() {
         |_| {},
     );
     let mut observer = Observation::default();
-    let mut now = std::time::Instant::now();
+    let now = std::time::Instant::now();
     let mut previous = observer
-        .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+        .read_at(
+            dir.path(),
+            now,
+            crate::local_files::Identity::of,
+            |opened, limit| opened.read(limit),
+        )
         .unwrap();
     for _ in 0..8 {
         assert!(Arc::ptr_eq(
             &previous,
             &observer
-                .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+                .read_at(
+                    dir.path(),
+                    now,
+                    crate::local_files::Identity::of,
+                    |opened, limit| opened.read(limit)
+                )
                 .unwrap()
         ));
     }
@@ -193,10 +201,14 @@ fn observations_share_verified_packages_until_any_selected_file_changes() {
         let manifest = std::fs::read_to_string(&manifest_path).unwrap();
         let old = std::fs::read(dir.path().join(path)).unwrap();
         write_changed(dir.path().join(path), bytes).unwrap();
-        now += crate::local_files::CONFIRMATION_DELAY;
         assert!(
             observer
-                .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+                .read_at(
+                    dir.path(),
+                    now,
+                    crate::local_files::Identity::of,
+                    |opened, limit| opened.read(limit)
+                )
                 .is_err(),
             "a stale manifest must reject changed {path}"
         );
@@ -205,16 +217,25 @@ fn observations_share_verified_packages_until_any_selected_file_changes() {
             manifest.replace(&hex(&Sha256::digest(&old)), &hex(&Sha256::digest(bytes))),
         )
         .unwrap();
-        now += crate::local_files::CONFIRMATION_DELAY;
         let changed = observer
-            .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+            .read_at(
+                dir.path(),
+                now,
+                crate::local_files::Identity::of,
+                |opened, limit| opened.read(limit),
+            )
             .unwrap();
         assert_ne!(previous.digest, changed.digest);
         assert!(!Arc::ptr_eq(&previous, &changed));
         assert!(Arc::ptr_eq(
             &changed,
             &observer
-                .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+                .read_at(
+                    dir.path(),
+                    now,
+                    crate::local_files::Identity::of,
+                    |opened, limit| opened.read(limit)
+                )
                 .unwrap()
         ));
         previous = changed;
@@ -227,11 +248,15 @@ fn observations_share_verified_packages_until_any_selected_file_changes() {
             .replace("0.1.0", "0.1.1"),
     )
     .unwrap();
-    now += crate::local_files::CONFIRMATION_DELAY;
     assert_ne!(
         previous.digest,
         observer
-            .read_at(dir.path(), now, |opened, limit| opened.read(limit))
+            .read_at(
+                dir.path(),
+                now,
+                crate::local_files::Identity::of,
+                |opened, limit| opened.read(limit)
+            )
             .unwrap()
             .digest
     );
@@ -241,27 +266,42 @@ fn observations_share_verified_packages_until_any_selected_file_changes() {
 fn observations_reject_removed_or_linked_package_files_and_recover_after_repair() {
     let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
     let mut observer = Observation::default();
-    let first = observer.read(dir.path()).unwrap();
+    let first = observer
+        .read(dir.path(), std::time::Instant::now())
+        .unwrap();
     let path = dir.path().join("mod.wasm");
     std::fs::remove_file(&path).unwrap();
-    assert!(observer.read(dir.path()).is_err());
+    assert!(
+        observer
+            .read(dir.path(), std::time::Instant::now())
+            .is_err()
+    );
     #[cfg(unix)]
     {
         let target = dir.path().join("outside.wasm");
         std::fs::write(&target, COMPONENT).unwrap();
         std::os::unix::fs::symlink(target, &path).unwrap();
-        assert!(observer.read(dir.path()).is_err());
+        assert!(
+            observer
+                .read(dir.path(), std::time::Instant::now())
+                .is_err()
+        );
         std::fs::remove_file(&path).unwrap();
     }
     std::fs::write(&path, COMPONENT).unwrap();
-    let repaired = observer.read(dir.path()).unwrap();
+    let repaired = observer
+        .read(dir.path(), std::time::Instant::now())
+        .unwrap();
     assert_eq!(first.digest, repaired.digest);
-    #[cfg(unix)]
-    assert!(Arc::ptr_eq(&repaired, &observer.read(dir.path()).unwrap()));
+    assert!(Arc::ptr_eq(
+        &repaired,
+        &observer
+            .read(dir.path(), std::time::Instant::now())
+            .unwrap()
+    ));
 }
 
 #[test]
-#[cfg(unix)]
 fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
     let path = dir.path().join("mod.wasm");
@@ -272,10 +312,15 @@ fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     for _ in 0..8 {
         assert!(
             observer
-                .read_at(dir.path(), now, |opened, limit| {
-                    reads += 1;
-                    opened.read(limit)
-                })
+                .read_at(
+                    dir.path(),
+                    now,
+                    crate::local_files::Identity::of,
+                    |opened, limit| {
+                        reads += 1;
+                        opened.read(limit)
+                    }
+                )
                 .is_err()
         );
     }
@@ -283,10 +328,15 @@ fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     std::fs::write(&path, COMPONENT).unwrap();
     assert!(
         observer
-            .read_at(dir.path(), now, |opened, limit| {
-                reads += 1;
-                opened.read(limit)
-            })
+            .read_at(
+                dir.path(),
+                now,
+                crate::local_files::Identity::of,
+                |opened, limit| {
+                    reads += 1;
+                    opened.read(limit)
+                }
+            )
             .is_ok()
     );
     assert_eq!(reads, 4);
@@ -294,10 +344,15 @@ fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     for _ in 0..8 {
         assert!(
             observer
-                .read_at(dir.path(), now, |opened, limit| {
-                    reads += 1;
-                    opened.read(limit)
-                })
+                .read_at(
+                    dir.path(),
+                    now,
+                    crate::local_files::Identity::of,
+                    |opened, limit| {
+                        reads += 1;
+                        opened.read(limit)
+                    }
+                )
                 .is_err()
         );
     }
@@ -306,7 +361,7 @@ fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
         "a missing companion must not cause manifest rereads"
     );
     std::fs::write(&path, COMPONENT).unwrap();
-    assert!(observer.read(dir.path()).is_ok());
+    assert!(observer.read(dir.path(), std::time::Instant::now()).is_ok());
 }
 
 #[test]
@@ -315,44 +370,79 @@ fn package_observations_retry_transient_read_errors_without_a_source_edit() {
     let mut observer = Observation::default();
     assert!(
         observer
-            .read_with(dir.path(), |_, _| {
-                Err(std::io::Error::other("temporary read failure"))
-            })
+            .read_at(
+                dir.path(),
+                std::time::Instant::now(),
+                crate::local_files::Identity::of,
+                |_, _| { Err(std::io::Error::other("temporary read failure")) }
+            )
             .is_err()
     );
-    assert_eq!(observer.read(dir.path()).unwrap().component, COMPONENT);
+    assert_eq!(
+        observer
+            .read(dir.path(), std::time::Instant::now())
+            .unwrap()
+            .component,
+        COMPONENT
+    );
 }
 
 #[test]
-#[cfg(unix)]
-fn package_observations_confirm_new_stamps_once_without_periodic_reads() {
-    let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
-    let now = std::time::Instant::now();
+fn same_stamp_package_edits_after_each_deadline_are_revalidated() {
+    let dir = write_package(
+        &[("mod.wasm", COMPONENT), ("textures/arrow.png", b"old")],
+        |_| {},
+    );
+    let manifest_path = dir.path().join(MANIFEST);
+    let identity =
+        crate::local_files::Identity::of(&std::fs::File::open(&manifest_path).unwrap()).unwrap();
+    let mut now = std::time::Instant::now();
+    let interval = crate::local_files::CONTENT_REVALIDATION_INTERVAL;
     let mut observer = Observation::default();
     let reads = std::cell::Cell::new(0);
     let observe = |observer: &mut Observation, now| {
         observer
-            .read_at(dir.path(), now, |opened, limit| {
-                reads.set(reads.get() + 1);
-                opened.read(limit)
-            })
+            .read_at(
+                dir.path(),
+                now,
+                |_| Ok(identity.clone()),
+                |opened, limit| {
+                    reads.set(reads.get() + 1);
+                    opened.read(limit)
+                },
+            )
             .unwrap()
     };
     let first = observe(&mut observer, now);
+    now += interval;
     assert!(Arc::ptr_eq(&first, &observe(&mut observer, now)));
-    assert_eq!(reads.get(), 2);
-    assert!(Arc::ptr_eq(
-        &first,
-        &observe(&mut observer, now + crate::local_files::CONFIRMATION_DELAY)
-    ));
-    assert_eq!(reads.get(), 4);
-    for seconds in [2, 10, 100, 1000] {
-        assert!(Arc::ptr_eq(
-            &first,
-            &observe(&mut observer, now + std::time::Duration::from_secs(seconds))
-        ));
+    assert_eq!(reads.get(), 6);
+    let texture_path = dir.path().join("textures/arrow.png");
+    let mut previous = first.clone();
+    for (index, bytes) in [b"new", b"end"].into_iter().enumerate() {
+        let old = std::fs::read(&texture_path).unwrap();
+        std::fs::write(&texture_path, bytes).unwrap();
+        let manifest = std::fs::read_to_string(&manifest_path).unwrap();
+        std::fs::write(
+            &manifest_path,
+            manifest.replace(&hex(&Sha256::digest(&old)), &hex(&Sha256::digest(bytes))),
+        )
+        .unwrap();
+        for poll in 0..4 {
+            assert!(Arc::ptr_eq(
+                &previous,
+                &observe(&mut observer, now + interval * poll / 4)
+            ));
+        }
+        assert_eq!(reads.get(), (index + 2) * 3);
+        now += interval;
+        let changed = observe(&mut observer, now);
+        assert_eq!(changed.files.textures[0].1, bytes);
+        assert_ne!(previous.digest, changed.digest);
+        previous = changed;
+        assert_eq!(reads.get(), (index + 3) * 3);
     }
-    assert_eq!(reads.get(), 4, "package confirmation is not periodic");
+    assert_eq!(first.files.textures[0].1, b"old");
 }
 
 #[test]
@@ -360,7 +450,9 @@ fn failed_package_observations_release_the_previous_verified_payload() {
     for missing_root in [false, true] {
         let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
         let mut observer = Observation::default();
-        let accepted = observer.read(dir.path()).unwrap();
+        let accepted = observer
+            .read(dir.path(), std::time::Instant::now())
+            .unwrap();
         let retained = Arc::downgrade(&accepted);
         drop(accepted);
         if missing_root {
@@ -368,7 +460,11 @@ fn failed_package_observations_release_the_previous_verified_payload() {
         } else {
             std::fs::write(dir.path().join("mod.wasm"), b"invalid replacement").unwrap();
         }
-        assert!(observer.read(dir.path()).is_err());
+        assert!(
+            observer
+                .read(dir.path(), std::time::Instant::now())
+                .is_err()
+        );
         assert!(
             retained.upgrade().is_none(),
             "failed verification must release the old package buffers"
