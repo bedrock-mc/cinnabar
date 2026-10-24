@@ -14,6 +14,9 @@ fn texture_names(kind: HeldBlockEntity) -> Vec<String> {
             geometry::POT_SIDE_TEXTURE.0.to_owned(),
         ],
         HeldBlockEntity::Conduit => vec![geometry::CONDUIT_TEXTURE.0.to_owned()],
+        HeldBlockEntity::Statue(oxidation) => {
+            geometry::heads::statue_textures(oxidation.age()).into()
+        }
         HeldBlockEntity::Skull(kind) => vec![head_texture(kind).to_owned()],
     }
 }
@@ -44,8 +47,42 @@ fn head_models() -> HeadModels {
     };
     HeadModels {
         piglin: Some(head.clone()),
-        dragon: Some(head),
-        ..Default::default()
+        dragon: Some(head.clone()),
+        statues: std::array::from_fn(|_| Some(head.clone())),
+    }
+}
+
+#[test]
+fn statue_items_use_standing_geometry_with_their_oxidation_artwork() {
+    let facts = assets::facts::BlockEntityFacts::pinned();
+    let items: Vec<_> = facts
+        .entries()
+        .iter()
+        .filter(|entry| entry.renderer == assets::facts::BlockEntityRenderer::Statue)
+        .flat_map(|entry| &entry.backing_blocks)
+        .collect();
+    assert!(!items.is_empty());
+    let heads = head_models();
+    for identifier in items {
+        let kind =
+            HeldBlockEntity::from_item(identifier).expect("statue items need their standing model");
+        assert_eq!(
+            kind,
+            HeldBlockEntity::Statue(Oxidation::from_block_name(identifier).unwrap())
+        );
+        let atlas = atlas_with_textures(texture_names(kind).into_iter());
+        let model = model_with_heads(EntityRigId(1), &atlas, kind, &heads).unwrap();
+        let vertices = &model.geometry.vertices;
+        for axis in 0..3 {
+            let extent = vertices
+                .iter()
+                .map(|vertex| vertex.position[axis])
+                .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), value| {
+                    (min.min(value), max.max(value))
+                });
+            assert!(extent.1 > extent.0, "{identifier} axis {axis}");
+        }
+        assert!(model_with_heads(EntityRigId(1), &atlas, kind, &HeadModels::default()).is_none());
     }
 }
 

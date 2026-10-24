@@ -404,6 +404,8 @@ and rendered qualification remain incomplete.
   their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
+  Held copper golem statues reuse the standing entity geometry with their oxidation artwork;
+  stack poses, eye lighting and native hand transforms remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
