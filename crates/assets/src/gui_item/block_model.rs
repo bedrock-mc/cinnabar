@@ -71,28 +71,9 @@ pub fn block_gui_quads(
             .and_then(|id| templates.get(id as usize))
             .is_some_and(|template| template.flags & crate::MODEL_TEMPLATE_FLAG_PANE != 0)
     {
-        let corners = carried_cuboid_faces([112, 0, 0], [144, 256, 256]);
-        return Ok(BlockFace::ALL
-            .into_iter()
-            .zip(corners)
-            .map(|(face, corners)| {
-                let uvs = corners.map(|[x, y, z]| match face {
-                    BlockFace::Up | BlockFace::Down => [x, z],
-                    BlockFace::North | BlockFace::South => [x, 1.0 - y],
-                    BlockFace::West | BlockFace::East => [z, 1.0 - y],
-                });
-                GuiBlockQuad {
-                    corners: corners.map(|[x, y, z]| [x - 0.2, y, z]),
-                    uvs,
-                    material: faces[match face {
-                        BlockFace::West | BlockFace::East => face,
-                        _ => BlockFace::Up,
-                    } as usize],
-                    two_sided: false,
-                }
-            })
-            .collect());
+        return Ok(pane_quads(faces, -0.2));
     }
+
     let flags = template
         .and_then(|id| templates.get(id as usize))
         .map_or(0, |part| part.flags);
@@ -121,6 +102,31 @@ pub fn block_gui_quads(
         transform_inventory_quads(&mut carried, scale, offset);
     }
     Ok(carried)
+}
+
+/// Builds the carried glass plate; only its inventory preview has a horizontal offset.
+fn pane_quads(faces: [u32; 6], x_offset: f32) -> Vec<GuiBlockQuad> {
+    let corners = carried_cuboid_faces([112, 0, 0], [144, 256, 256]);
+    BlockFace::ALL
+        .into_iter()
+        .zip(corners)
+        .map(|(face, corners)| {
+            let uvs = corners.map(|[x, y, z]| match face {
+                BlockFace::Up | BlockFace::Down => [x, z],
+                BlockFace::North | BlockFace::South => [x, 1.0 - y],
+                BlockFace::West | BlockFace::East => [z, 1.0 - y],
+            });
+            GuiBlockQuad {
+                corners: corners.map(|[x, y, z]| [x + x_offset, y, z]),
+                uvs,
+                material: faces[match face {
+                    BlockFace::West | BlockFace::East => face,
+                    _ => BlockFace::Up,
+                } as usize],
+                two_sided: false,
+            }
+        })
+        .collect()
 }
 
 /// Applies a GUI scale and screen offset in model space while retaining authored UVs.
@@ -205,6 +211,8 @@ pub fn block_item_quads(
                 out.extend(inventory_fence_quads(faces[BlockFace::South as usize]));
             } else if first.flags & MODEL_TEMPLATE_FLAG_WALL != 0 {
                 out.extend(carried_wall_quads(faces));
+            } else if first.flags & crate::MODEL_TEMPLATE_FLAG_PANE != 0 {
+                out.extend(pane_quads(faces, 0.0));
             } else {
                 let parts = crate::model_template_parts(templates, template)
                     .ok_or(GuiBlockReject::Geometry)?;

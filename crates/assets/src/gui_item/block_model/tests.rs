@@ -245,7 +245,7 @@ fn chorus_inventory_geometry_has_three_outward_protrusions() {
 }
 
 #[test]
-fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
+fn carried_panes_show_a_full_plate_with_body_and_edge_materials() {
     let materials = BlockFace::ALL.map(|face| face as u32 + 1);
     let templates = [ModelTemplate {
         quad_start: 0,
@@ -307,11 +307,14 @@ fn inventory_panes_show_a_full_plate_with_body_and_edge_materials() {
     );
     let held =
         block_item_quads(VisualKind::Model, materials, Some(0), &templates, &source).unwrap();
-    assert_eq!(
-        held.len(),
-        source.len(),
-        "held geometry keeps the placed template"
-    );
+    assert_eq!(held.len(), BlockFace::ALL.len());
+    for (held, shown) in held.iter().zip(&inventory) {
+        assert_eq!(held.material, shown.material);
+        assert_eq!(held.uvs, shown.uvs);
+        for (held, shown) in held.corners.iter().zip(shown.corners) {
+            assert_eq!([held[0] - 0.2, held[1], held[2]], shown);
+        }
+    }
 }
 
 #[test]

@@ -242,22 +242,30 @@ impl EquipmentRuntime {
         let (index, key, placement, location) = if let Some(held) = session {
             held
         } else {
-            let sheet = match item.kind {
-                HeldKind::Block(visual) => {
-                    self.block_placement(visual).map(|sheet| (visual, sheet))
-                }
+            use render_model::equipment::blocks::{HeldRoute, held_route};
+            let visual = match item.kind {
+                HeldKind::Block(visual) => Some(visual),
+                HeldKind::Other => return None,
                 _ => None,
             };
-            if let Some((visual, (index, placement, location))) = sheet {
-                (index, MeshKey::Block(visual), placement, location)
-            } else {
-                match item.kind {
-                    HeldKind::Other => return None,
-                    HeldKind::Block(_) if !icon_fallback => return None,
-                    _ => {}
+            let (identifier, metadata) = self
+                .dial_frames
+                .icon_key(&item.identifier, &self.icons)
+                .unwrap_or((&item.identifier, item.metadata));
+            match held_route(&self.icons, identifier, metadata, visual, |visual| {
+                self.block_placement(visual).is_some()
+            })? {
+                HeldRoute::Block(visual) => {
+                    let (index, placement, location) = self.block_placement(visual)?;
+                    (index, MeshKey::Block(visual), placement, location)
                 }
-                let (index, placement, location) = self.held_icon_parts(item)?;
-                (index, MeshKey::Sprite(index), placement, location)
+                HeldRoute::Sprite(_) => {
+                    if matches!(item.kind, HeldKind::Block(_)) && !icon_fallback {
+                        return None;
+                    }
+                    let (index, placement, location) = self.held_icon_parts(item)?;
+                    (index, MeshKey::Sprite(index), placement, location)
+                }
             }
         };
         let mesh = self.mesh_for(key, index, placement)?;

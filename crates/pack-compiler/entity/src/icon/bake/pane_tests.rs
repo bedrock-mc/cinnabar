@@ -1,8 +1,10 @@
 use super::*;
 
 #[test]
-fn pane_models_preserve_the_original_carried_sprite() {
-    for side in [16, 32] {
+fn glass_panes_keep_their_carried_model_in_hand() {
+    for (side, name) in [16, 32].into_iter().flat_map(|side| {
+        ["minecraft:glass_pane", "minecraft:red_stained_glass_pane"].map(|name| (side, name))
+    }) {
         let root = tempfile::tempdir().unwrap();
         write_fixture(root.path());
         let artwork = image::RgbaImage::from_fn(side, side, |x, y| {
@@ -18,15 +20,12 @@ fn pane_models_preserve_the_original_carried_sprite() {
                 .into_vec()
                 .into_iter()
                 .filter(|record| {
-                    matches!(
-                        record.name.as_ref(),
-                        "minecraft:air" | "minecraft:glass_pane"
-                    )
+                    record.name.as_ref() == "minecraft:air" || record.name.as_ref() == name
                 })
                 .collect::<Vec<_>>();
         let visual = records
             .iter()
-            .find(|record| record.name.as_ref() == "minecraft:glass_pane")
+            .find(|record| record.name.as_ref() == name)
             .unwrap()
             .sequential_id;
         let span = records
@@ -67,13 +66,11 @@ fn pane_models_preserve_the_original_carried_sprite() {
             .iter()
             .find(|model| model.sprite == gui)
             .unwrap();
-        let held = model
-            .held_sprite
-            .expect("a GUI pane keeps separate carried artwork");
-        assert_ne!(held, gui);
-        let held = &sprites[held as usize];
-        assert_eq!([held.width, held.height], [side as u16; 2]);
-        assert_eq!(held.rgba8.as_ref(), artwork.as_raw());
+        assert_eq!(model.visual.0, visual);
+        assert_eq!(
+            model.held_sprite, None,
+            "glass panes use their carried plate in both hands"
+        );
     }
 }
 
@@ -104,7 +101,7 @@ fn write_fixture(root: &Path) {
         ("textures/flipbook_textures.json", "[]"),
         (
             "blocks.json",
-            r#"{"glass_pane":{"textures":"glass","sound":"glass"}}"#,
+            r#"{"glass_pane":{"textures":"glass","sound":"glass"},"red_stained_glass_pane":{"textures":"glass","sound":"glass"}}"#,
         ),
         (
             "textures/terrain_texture.json",

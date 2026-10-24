@@ -77,6 +77,8 @@ pub struct PreviewHandItem {
 /// Real item-space geometry and the source atlas region, never a projected GUI icon.
 #[derive(Clone, Debug)]
 pub struct PreviewHeldModel {
+    /// Material coverage retained independently of geometry and hand placement.
+    pub alpha_mode: render_model::HandItemAlphaMode,
     pub source: ui::IconRef,
     pub vertices: Arc<[render_model::ActorRigVertex]>,
     pub placements: [PreviewHeldPlacement; 2],

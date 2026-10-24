@@ -347,6 +347,7 @@ fn equipment_batches_keep_source_pages_tint_and_shared_model_depth() {
         glint: true,
     };
     let held_model = super::super::PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: held,
         vertices: render_model::held_sprite_vertices(
             16,

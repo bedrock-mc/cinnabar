@@ -74,7 +74,7 @@ impl StagedSessionIcons {
                 .unwrap_or_default();
             block_alpha.insert(
                 Box::from(sheet.identifier.as_ref()),
-                alpha::mode_for_material_flags(flags),
+                render_model::equipment::blocks::mode_for_material_flags(flags),
             );
             sprites.push(IconSprite {
                 width,

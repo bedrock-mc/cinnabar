@@ -110,6 +110,7 @@ fn model(
     placement: PreviewHeldPlacement,
 ) -> PreviewHeldModel {
     PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: source(8),
         vertices: vertices.into(),
         placements: [placement; 2],

@@ -4,9 +4,36 @@ use super::*;
 
 /// Encodes an exact six-face model with original fractional-alpha textures and shared provenance.
 pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets {
+    world_with_width(manifest, height, alpha, 256)
+}
+
+/// Encodes an original centered model with the requested width in fixed-point block units.
+pub(super) fn world_with_width(
+    manifest: [u8; 32],
+    height: u16,
+    alpha: u8,
+    width: u16,
+) -> RuntimeAssets {
+    world_with_material(
+        manifest,
+        height,
+        alpha,
+        width,
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+    )
+}
+
+/// Encodes the same original model with a selected material alpha policy.
+pub(super) fn world_with_material(
+    manifest: [u8; 32],
+    height: u16,
+    alpha: u8,
+    width: u16,
+    flags: u32,
+) -> RuntimeAssets {
     use assets::*;
     let mut visual = BlockVisual::diagnostic(BlockFlags::empty(), ContributorRole::Primary);
-    if height == 256 {
+    if height == 256 && width == 256 {
         visual.flags = BlockFlags::OCCLUDES_FULL_FACE;
     }
     visual.kind = VisualKind::Model;
@@ -20,7 +47,7 @@ pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets
             ModelQuad {
                 positions: corners.map(|[x, y, z]| {
                     [
-                        (x * 256.0) as i16,
+                        (x * f32::from(width) + (256.0 - f32::from(width)) * 0.5) as i16,
                         (y * f32::from(height)) as i16,
                         (z * 256.0) as i16,
                     ]
@@ -43,7 +70,7 @@ pub(super) fn world(manifest: [u8; 32], height: u16, alpha: u8) -> RuntimeAssets
             Material::unvaried(),
             Material {
                 texture: TextureRef::new(0, 1).unwrap(),
-                flags: MATERIAL_FLAG_ALPHA_CUTOUT,
+                flags,
                 ..Material::unvaried()
             },
         ]

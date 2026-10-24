@@ -105,6 +105,7 @@ pub fn assert_installed_shield(
         }
     });
     let shield = PreviewHeldModel {
+        alpha_mode: render_model::HandItemAlphaMode::Cutout,
         source: ui::IconRef {
             uv: [0, 0, texture.width, texture.height],
             ..source(8)

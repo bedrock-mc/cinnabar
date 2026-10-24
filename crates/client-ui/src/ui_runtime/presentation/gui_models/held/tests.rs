@@ -147,13 +147,13 @@ fn held_banner_block_route_without_cube_sheet_remains_available_in_both_preview_
     let icons = presentation.icon_catalog.as_deref().unwrap();
     let icon_refs = presentation.icon_refs.as_deref().unwrap();
     let mut atlas = atlas::Atlas::new(1, super::super::MODEL_PAGES);
-    let models = prepare(
+    let (models, _) = prepare(
         &mut atlas,
         &entities,
         icons,
         icon_refs,
         None,
-        &BTreeMap::new(),
+        &assets::RuntimeAssets::diagnostic(),
     )
     .unwrap();
     assert_eq!(models.len(), icons.entries().len());

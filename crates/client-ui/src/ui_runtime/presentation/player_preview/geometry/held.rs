@@ -100,7 +100,10 @@ pub(super) fn append(
         blend: UiBlendMode::Alpha,
         depth_test: true,
         depth_write: true,
-        alpha_cutoff: Some(0.5),
+        alpha_cutoff: match model.alpha_mode {
+            render_model::HandItemAlphaMode::Cutout => Some(0.5),
+            _ => None,
+        },
     });
     Some(())
 }

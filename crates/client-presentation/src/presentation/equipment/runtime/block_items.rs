@@ -52,36 +52,15 @@ impl PreparedBlockItems {
         entities: &RuntimeEntityAssets,
         icons: &RuntimeIconCatalog,
     ) -> Arc<Self> {
-        let mut blocks = world.as_deref().map_or_else(
-            || BlockSheets {
-                sheets: Vec::new(),
-                by_visual: BTreeMap::new(),
-                models: BTreeMap::new(),
-            },
-            |world| {
-                let mut blocks =
-                    render_model::equipment::blocks::collect_held(world, entities, icons);
-                blocks.prefer_carried_faces(world, icons);
-                blocks
-            },
-        );
-        let mut carried = BTreeMap::new();
-        for sheet in carried_sheets(entities, icons, &blocks.models) {
-            let index = *carried.entry(sheet.sprite).or_insert_with(|| {
-                let index = blocks.sheets.len();
-                blocks
-                    .sheets
-                    .push(icons.sprites()[sheet.sprite as usize].clone());
-                index
-            });
-            blocks.by_visual.insert(sheet.visual.0, index);
-        }
+        let blocks =
+            render_model::equipment::blocks::prepare_held(world.as_deref(), entities, icons);
         let BlockSheets {
             sheets,
             by_visual,
             models,
         } = blocks;
-        let alpha = alpha::block_alpha_modes(world.as_deref(), &by_visual);
+        let alpha =
+            render_model::equipment::blocks::block_alpha_modes(world.as_deref(), &by_visual);
         let atlas = SpriteAtlas::pack(&sheets);
         Arc::new(Self {
             world,
@@ -92,19 +71,6 @@ impl PreparedBlockItems {
             rasters: atlas.layers,
         })
     }
-}
-
-/// Selects compatible authored carried routes without replacing a shaped block model.
-fn carried_sheets<'a>(
-    entities: &RuntimeEntityAssets,
-    icons: &'a RuntimeIconCatalog,
-    models: &'a BTreeMap<u32, Vec<render_model::ActorRigVertex>>,
-) -> impl Iterator<Item = &'a assets::IconBlockSheet> {
-    let compatible = icons.source_manifest_sha256() == entities.source_manifest_sha256();
-    let visual_count = entities.block_visual_count();
-    icons.block_sheets().iter().filter(move |sheet| {
-        compatible && sheet.visual.0 < visual_count && !models.contains_key(&sheet.visual.0)
-    })
 }
 
 impl PreparedBlockItems {
