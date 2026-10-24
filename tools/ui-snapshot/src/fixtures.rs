@@ -896,6 +896,12 @@ const STATES: &[State] = &[
         fixture: mods::declared,
     },
     State {
+        name: "settings-mods-compact-library",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: mods::compact_library,
+    },
+    State {
         name: "settings-mods-undeclared",
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,

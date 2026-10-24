@@ -17,7 +17,7 @@ fn view(section: &str) -> MenuView {
     view
 }
 
-fn paint(presentation: &mut UiPresentationRuntime, view: &MenuView, size: [f32; 2]) {
+pub(super) fn paint(presentation: &mut UiPresentationRuntime, view: &MenuView, size: [f32; 2]) {
     let (mut nodes, mut next) = (Vec::new(), 1);
     let metrics = TextMetrics::for_viewport(
         [size[0] as u32, size[1] as u32],
