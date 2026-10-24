@@ -38,7 +38,7 @@ def render(schema):
              'fn fmt(&self, f: &mut std::fmt::Formatter<\'_>) -> std::fmt::Result { f.write_str("encoded message too large for maximum rate burst") }',
              '}', 'impl std::error::Error for BurstExceeded {}',
              '#[cfg(feature = "host")]', 'impl crate::session::Control {',
-             '/// Classifies a control in its wire direction; only an outstanding notice acknowledgment is exempt.',
+             '/// Classifies controls by direction; acknowledgments are exempt only for an outstanding notice.',
              'pub fn rate_class(&self, direction: crate::wire::Direction, matching_notice: bool) -> RateClass {',
              'use crate::wire::Direction; match self {']
     go += ['default: return RateCost{}, errors.New("unknown rate class")', '}', '}',
@@ -47,7 +47,7 @@ def render(schema):
            'type BurstExceeded struct {}',
            '// Error explains why retrying the unchanged batch cannot succeed.',
            'func (*BurstExceeded) Error() string { return "encoded message too large for maximum rate burst" }',
-           '// RateClass classifies a control; only an outstanding notice acknowledgment is exempt.',
+           '// RateClass classifies controls; acknowledgments are exempt only for an outstanding notice.',
            'func (c Control) RateClass(direction Direction, matchingNotice bool) RateClass {', 'switch {']
     for v in control['variants']:
         rate = v['rate']

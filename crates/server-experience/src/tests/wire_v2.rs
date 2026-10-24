@@ -566,7 +566,8 @@ fn server_epoch_requests_preserve_the_data_budget_and_envelope_sequence() {
                 ingress
                     .receive_epoch_request(
                         &protocol::ExperienceMessage::new(request.clone()),
-                        &grant
+                        &grant,
+                        0
                     )
                     .unwrap(),
                 Some(8)
@@ -583,7 +584,11 @@ fn server_epoch_requests_preserve_the_data_budget_and_envelope_sequence() {
         }
         assert_eq!(
             ingress
-                .receive_epoch_request(&protocol::ExperienceMessage::new(request.clone()), &grant)
+                .receive_epoch_request(
+                    &protocol::ExperienceMessage::new(request.clone()),
+                    &grant,
+                    0
+                )
                 .unwrap(),
             Some(8)
         );
@@ -608,13 +613,21 @@ fn server_epoch_requests_keep_the_control_size_limit() {
     let mut ingress = Ingress::new(0);
     assert!(
         ingress
-            .receive_epoch_request(&protocol::ExperienceMessage::new(request.clone()), &grant)
+            .receive_epoch_request(
+                &protocol::ExperienceMessage::new(request.clone()),
+                &grant,
+                0
+            )
             .is_err()
     );
     request.truncate(request.iter().rposition(|byte| *byte == b'}').unwrap() + 1);
     assert!(
         ingress
-            .receive_epoch_request(&protocol::ExperienceMessage::new(request.clone()), &grant)
+            .receive_epoch_request(
+                &protocol::ExperienceMessage::new(request.clone()),
+                &grant,
+                0
+            )
             .is_err()
     );
 }
@@ -636,12 +649,20 @@ fn server_epoch_requests_cannot_interrupt_fragmented_messages() {
     .unwrap();
     assert!(
         ingress
-            .receive_epoch_request(&protocol::ExperienceMessage::new(request.clone()), &grant)
+            .receive_epoch_request(
+                &protocol::ExperienceMessage::new(request.clone()),
+                &grant,
+                0
+            )
             .is_err()
     );
     assert!(
         ingress
-            .receive_epoch_request(&protocol::ExperienceMessage::new(request.clone()), &grant)
+            .receive_epoch_request(
+                &protocol::ExperienceMessage::new(request.clone()),
+                &grant,
+                0
+            )
             .is_err()
     );
 }

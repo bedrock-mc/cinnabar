@@ -393,6 +393,8 @@ the maximum burst is a permanent error, never a deferred reply. `SendControl`
 returns an error (previously a Boolean): nil means sent or retained for a temporary credit shortage, and
 `*cinnabarext.BurstExceeded` identifies a batch that cannot fit. Use `errors.As` to
 handle that case. The helper counts and logs these rejected controls.
+Rust hosts calling `Ingress::receive_epoch_request` now supply their caller-owned
+`now_ms`, as they already do for data admission.
 
 Charge bytes/messages before JSON parsing, then check identity, sequence, schema
 and queue bounds. Unknown schema revisions are counted and skipped while consuming

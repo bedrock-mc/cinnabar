@@ -543,7 +543,10 @@ impl<H: Worker> Live<H> {
         epoch: u64,
     ) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
-        if let Some(requested) = self.ingress.receive_epoch_request(message, &self.grant)? {
+        if let Some(requested) = self
+            .ingress
+            .receive_epoch_request(message, &self.grant, now_ms)?
+        {
             self.requested_epoch = Some(self.requested_epoch.unwrap_or(0).max(requested));
             return Ok(());
         }

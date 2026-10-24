@@ -55,7 +55,7 @@ type BurstExceeded struct{}
 // Error explains why retrying the unchanged batch cannot succeed.
 func (*BurstExceeded) Error() string { return "encoded message too large for maximum rate burst" }
 
-// RateClass classifies a control; only an outstanding notice acknowledgment is exempt.
+// RateClass classifies controls; acknowledgments are exempt only for an outstanding notice.
 func (c Control) RateClass(direction Direction, matchingNotice bool) RateClass {
 	switch {
 	case c.Hello != nil:

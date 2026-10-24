@@ -55,7 +55,7 @@ impl std::fmt::Display for BurstExceeded {
 impl std::error::Error for BurstExceeded {}
 #[cfg(feature = "host")]
 impl crate::session::Control {
-    /// Classifies a control in its wire direction; only an outstanding notice acknowledgment is exempt.
+    /// Classifies controls by direction; acknowledgments are exempt only for an outstanding notice.
     pub fn rate_class(
         &self,
         direction: crate::wire::Direction,

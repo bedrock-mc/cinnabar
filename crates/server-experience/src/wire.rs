@@ -159,7 +159,7 @@ impl Channel {
 }
 // END GENERATED EXTENSION CONTRACT
 
-use crate::rate_limit::RateLimit;
+use crate::rate_limit::{RateClass, RateLimit};
 use crate::{
     manifest::identifier,
     negotiation::{Grant, Wire},
@@ -321,6 +321,7 @@ impl Ingress {
         &mut self,
         message: &protocol::ExperienceMessage,
         grant: &Grant,
+        now_ms: u64,
     ) -> Result<Option<u64>> {
         let Some((session, world_epoch)) = message.world_notice() else {
             return Ok(None);
@@ -341,6 +342,8 @@ impl Ingress {
                 self.partial.is_none(),
                 "world notice inside a fragmented message"
             );
+            self.rate
+                .charge_class(RateClass::WorldNotice, message.as_bytes().len(), now_ms)?;
             Ok(Some(world_epoch))
         })();
         if result.is_err() {
