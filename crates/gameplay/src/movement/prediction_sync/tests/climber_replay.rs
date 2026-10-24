@@ -61,6 +61,69 @@ fn consumed_unstamped_climber_write_survives_replay_from_101_and_102() {
 }
 
 #[test]
+fn future_stamped_climber_write_replays_at_its_live_consumption_tick() {
+    let mut physics = due_physics();
+    let tick = simulation_clock::TICK_DURATION;
+    physics.advance(tick * 2, sim::MovementInput::default(), &OpenWorld);
+    let word = 1 << (ActorFlag::OverDescendingBlock.wire_value() % 64);
+    edit(&mut physics, 200, word);
+    let live = physics.advance(
+        tick,
+        sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    assert_eq!(live.samples[0].tick, 103);
+    assert_eq!(live.samples[0].movement[1], -0.15_f32);
+    let flags = reported(&physics);
+    for anchor in [101, 102] {
+        let mut replay = physics.clone();
+        let plan = replay.replay_retained_from(anchor, &OpenWorld).unwrap();
+        assert_eq!(
+            plan.replayed_samples.last().unwrap().movement,
+            live.samples[0].movement
+        );
+        assert_eq!(reported(&replay), flags);
+    }
+}
+
+#[test]
+fn clearing_a_consumed_climber_write_uses_the_immutable_live_capture() {
+    let mut physics = due_physics();
+    let tick = simulation_clock::TICK_DURATION;
+    physics.advance(tick * 2, sim::MovementInput::default(), &OpenWorld);
+    let word = 1 << (ActorFlag::OverDescendingBlock.wire_value() % 64);
+    edit(&mut physics, 0, word);
+    let live = physics.advance(
+        tick,
+        sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    assert_eq!(live.samples[0].movement[1], -0.15_f32);
+    physics.replay_retained_from(101, &OpenWorld).unwrap();
+    assert_eq!(
+        physics.apply_server_movement_flags(
+            102,
+            client_world::MovementFlagUpdate {
+                extended_flags: Some(0),
+                ..Default::default()
+            },
+        ),
+        Some(102)
+    );
+    for anchor in [102, 101, 102] {
+        let plan = physics.replay_retained_from(anchor, &OpenWorld).unwrap();
+        assert_ne!(plan.replayed_samples.last().unwrap().movement[1], -0.15_f32);
+        assert_eq!(reported(&physics)[1], 0);
+    }
+}
+
+#[test]
 fn consumed_climber_edits_match_live_processing_from_every_replay_anchor() {
     let flags = [
         ActorFlag::InScaffolding,

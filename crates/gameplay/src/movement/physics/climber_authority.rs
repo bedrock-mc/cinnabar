@@ -1,12 +1,6 @@
-//! Accepted climber flag edits retained at their pre-input replay boundary.
+//! Server climber writes move from pending state to the input frame that consumes them.
 
 use super::*;
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ClimberCorrection {
-    pub(super) tick: u64,
-    pub(super) write: ClimberWrite,
-}
 
 /// Changed climber bits, composed in arrival order without replacing untouched contact.
 #[derive(Debug, Clone, Copy, Default)]
@@ -58,11 +52,7 @@ impl LocalPhysicsController {
         self.live_climber = Some(ClimberFlags::from_word(word));
         self.pending_climber = write;
         if let Some(state) = self.state.as_mut() {
-            self.climber_corrections
-                .retain(|edit| edit.tick <= state.tick);
             write.apply(state);
-        } else {
-            self.climber_corrections.clear();
         }
     }
 
@@ -72,49 +62,29 @@ impl LocalPhysicsController {
         let live = self.live_climber.unwrap_or_default().word();
         let oldest = self.history.oldest_tick().unwrap_or(state.tick);
         let anchor = stamp.max(oldest);
-        let boundary = if stamp == 0 {
-            state.tick.saturating_add(1)
-        } else if stamp > state.tick {
-            state.tick
-        } else {
-            anchor.saturating_add(1)
-        };
-        // The following capture includes live writes accepted between completed ticks.
-        let baseline = if stamp != 0 && anchor < state.tick {
+        let consumed = if stamp != 0 && anchor < state.tick {
             self.controller_history
-                .iter()
+                .iter_mut()
                 .find(|frame| frame.tick == anchor.saturating_add(1))
-                .and_then(|frame| frame.entry_climber)
-                .map_or(live, ClimberFlags::word)
         } else {
-            live
+            None
         };
+        // Completed inputs compare with their original live entry, including accepted writes.
+        let baseline = consumed
+            .as_ref()
+            .map_or(live, |frame| frame.entry_climber.unwrap_or_default().word());
         let mask = (baseline ^ word) & ClimberFlags::mask();
         let flags = ClimberFlags::from_word((live & !mask) | (word & mask));
         self.live_climber = Some(flags);
         flags.apply(state, mask);
         let write = ClimberWrite { word, mask };
-        if boundary > state.tick {
-            self.pending_climber.merge(write);
-        } else {
+        if let Some(frame) = consumed {
+            frame.climber_write.merge(write);
             self.pending_climber.supersede(mask);
+            (mask != 0).then_some(anchor)
+        } else {
+            self.pending_climber.merge(write);
+            None
         }
-        self.climber_corrections.retain(|edit| edit.tick > oldest);
-        if let Some(edit) = self
-            .climber_corrections
-            .iter_mut()
-            .find(|edit| edit.tick == boundary)
-        {
-            edit.write.merge(write);
-        } else if mask != 0 {
-            if self.climber_corrections.len() >= self.history_capacity {
-                self.climber_corrections.pop_front();
-            }
-            self.climber_corrections.push_back(ClimberCorrection {
-                tick: boundary,
-                write,
-            });
-        }
-        (stamp != 0 && anchor < state.tick && mask != 0).then_some(anchor)
     }
 }

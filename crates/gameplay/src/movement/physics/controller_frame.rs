@@ -44,8 +44,10 @@ pub(super) struct ControllerFrame {
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
-    /// Climber flags captured before this tick consumes local input.
+    /// Original live pre-input flags, including accepted writes; replay never changes them.
     pub entry_climber: Option<ClimberFlags>,
+    /// Server writes consumed before this input, overlaid on regenerated contact during replay.
+    pub climber_write: climber_authority::ClimberWrite,
     /// Block-climber flags reported by the prediction sync after this tick.
     pub climber: Option<ClimberFlags>,
 }

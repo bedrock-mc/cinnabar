@@ -234,8 +234,7 @@ impl LocalPhysicsController {
         let mut sync_state = anchor_controller.sync_state;
         let deferred_corrections = self.deferred_corrections.clone();
         let boosts = self.boosts.clone();
-        let climber_corrections = self.climber_corrections.clone();
-        let mut effective_climber = None;
+        let mut effective_climber = anchor_controller.climber;
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -247,7 +246,6 @@ impl LocalPhysicsController {
                 world,
                 &motion_overlays,
                 |state, input, world, previous| {
-                    let mut preceding_climber = None;
                     if let Some(previous) = previous {
                         let frame = controller_frames
                             .iter_mut()
@@ -259,7 +257,7 @@ impl LocalPhysicsController {
                             &frame.environment,
                             effective_climber,
                         );
-                        preceding_climber = Some(frame.climber);
+                        effective_climber = frame.climber;
                         frame.finish_eye(&mut eye, state);
                         sync_state.replay_server(&frame.sync_server);
                         sync_state.complete_tick(frame, state);
@@ -272,25 +270,9 @@ impl LocalPhysicsController {
                         .iter_mut()
                         .find(|frame| frame.tick == next_tick)
                         .expect("controller and prediction histories retain the same ticks");
-                    if let Some(climber) = preceding_climber
-                        && !frame
-                            .sync_server
-                            .iter()
-                            .any(|write| matches!(write, posture::ServerWrite::Replacement(..)))
-                    {
-                        frame.entry_climber = climber;
-                    }
-                    if let Some(climber) = frame.entry_climber {
+                    effective_climber = frame.climber_write.apply_flags(effective_climber);
+                    if let Some(climber) = effective_climber {
                         climber.apply(state, ClimberFlags::mask());
-                    }
-                    // Keep the comparison capture unchanged while input consumes its corrections.
-                    effective_climber = frame.entry_climber;
-                    for correction in climber_corrections
-                        .iter()
-                        .filter(|correction| correction.tick == next_tick)
-                    {
-                        correction.write.apply(state);
-                        effective_climber = correction.write.apply_flags(effective_climber);
                     }
                     boosts.apply(state.tick + 1, &mut input.effects);
                     let environment = previous.map_or(anchor_controller.environment, |output| {

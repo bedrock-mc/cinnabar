@@ -26,7 +26,6 @@ impl LocalPhysicsController {
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();
-        self.climber_corrections.clear();
         self.motion_ticks.clear();
         self.motion_anchor = self
             .state
@@ -96,7 +95,6 @@ impl LocalPhysicsController {
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();
-        self.climber_corrections.clear();
         self.motion_ticks.clear();
         self.motion_anchor = self
             .state

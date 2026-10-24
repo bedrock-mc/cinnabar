@@ -159,7 +159,7 @@ fn climber_server_writes_preserve_bits_unchanged_from_the_selected_capture() {
 }
 
 #[test]
-fn climber_server_writes_with_a_future_stamp_attach_to_the_current_capture() {
+fn future_climber_writes_wait_for_the_next_input_after_older_replay() {
     let mut physics = due_physics();
     let mut actor = local_actor();
     let frame = physics.advance(
@@ -181,11 +181,17 @@ fn climber_server_writes_with_a_future_stamp_attach_to_the_current_capture() {
         .replay_retained_from(anchor.tick, &OpenWorld)
         .unwrap();
     assert_ne!(plan.replayed_samples[0].movement[1], -0.15_f32);
-    assert_eq!(plan.replayed_samples[1].movement[1], -0.15_f32);
-    assert_eq!(
-        reported(&physics, &actor)[1],
-        1 << (ActorFlag::DescendThroughBlock.wire_value() % 64)
+    assert_ne!(plan.replayed_samples[1].movement[1], -0.15_f32);
+    assert_eq!(reported(&physics, &actor)[1], words[1]);
+    let next = physics.advance(
+        simulation_clock::TICK_DURATION,
+        sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        },
+        &OpenWorld,
     );
+    assert_eq!(next.samples[0].movement[1], -0.15_f32);
 }
 
 #[test]
@@ -242,7 +248,7 @@ fn climber_echo_compares_with_following_entry_after_an_unstamped_write() {
 }
 
 #[test]
-fn climber_replay_keeps_the_first_entry_and_refreshes_later_entries() {
+fn climber_replay_consumes_a_write_once_before_the_contact_scan() {
     let mut physics = due_physics();
     let mut actor = local_actor();
     let tick = simulation_clock::TICK_DURATION;

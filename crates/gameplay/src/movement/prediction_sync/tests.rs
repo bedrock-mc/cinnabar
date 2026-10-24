@@ -3,6 +3,7 @@
 use super::*;
 use crate::movement::physics::ClimberFlags;
 
+mod climber_model;
 mod climber_replay;
 mod climber_writes;
 

@@ -278,7 +278,6 @@ pub struct LocalPhysicsController {
     controller_history: VecDeque<ControllerFrame>,
     live_climber: Option<ClimberFlags>,
     pending_climber: climber_authority::ClimberWrite,
-    climber_corrections: VecDeque<climber_authority::ClimberCorrection>,
     motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
     motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
@@ -334,7 +333,6 @@ impl Default for LocalPhysicsController {
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             live_climber: None,
             pending_climber: Default::default(),
-            climber_corrections: VecDeque::new(),
             motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
             motion_anchor: None,
             server_motions: VecDeque::new(),
