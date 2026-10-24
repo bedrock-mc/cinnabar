@@ -165,6 +165,7 @@ func (m *lifecycleMatrix) step(name string) {
 			return
 		}
 		admitted := m.part.server.PlayerSession(f.actor.UUID())
+		hostSession := f.h.PlayerSession(f.actor)
 		listen := m.part.server.Listener(func(server.Config) (server.Listener, error) {
 			return lifecycleListener{c: &lifecycleConn{id: f.actor.UUID()}}, nil
 		})
@@ -182,7 +183,7 @@ func (m *lifecycleMatrix) step(name string) {
 		if err := duplicate.Close(); err != nil {
 			f.t.Fatal(err)
 		}
-		if m.part.server.PlayerSession(f.actor.UUID()) != admitted || f.h.PlayerSession(f.actor) != admitted {
+		if m.part.server.PlayerSession(f.actor.UUID()) != admitted || f.h.PlayerSession(f.actor) != hostSession {
 			f.t.Fatal("rejecting a duplicate login lost the connected player's session")
 		}
 	case "cancel_run":
