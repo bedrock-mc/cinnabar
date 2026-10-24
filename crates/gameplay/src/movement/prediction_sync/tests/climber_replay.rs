@@ -1,0 +1,144 @@
+use super::*;
+
+/// Applies the supplied extended metadata word through movement authority.
+fn edit(physics: &mut LocalPhysicsController, stamp: u64, word: u64) {
+    assert_eq!(
+        physics.apply_server_movement_flags(
+            stamp,
+            client_world::MovementFlagUpdate {
+                extended_flags: Some(word),
+                ..Default::default()
+            },
+        ),
+        None
+    );
+}
+
+/// Projects the completed controller flags into prediction-sync packet words.
+fn reported(physics: &LocalPhysicsController) -> [u64; 3] {
+    predicted_flag_words(
+        &local_actor().0.metadata,
+        physics.prediction_sync_flags(),
+        None,
+    )
+}
+
+#[test]
+fn consumed_unstamped_climber_write_survives_replay_from_101_and_102() {
+    let mut physics = due_physics();
+    let tick = simulation_clock::TICK_DURATION;
+    let earlier = physics.advance(tick * 2, sim::MovementInput::default(), &OpenWorld);
+    let mut words = [0; 3];
+    set_flag(&mut words, ActorFlag::OverDescendingBlock, true);
+    edit(&mut physics, 0, words[1]);
+    let live = physics.advance(
+        tick,
+        sim::MovementInput {
+            sneaking: true,
+            ..Default::default()
+        },
+        &OpenWorld,
+    );
+    assert_eq!(live.samples[0].tick, 103);
+    assert_eq!(live.samples[0].movement[1], -0.15_f32);
+    let flags = reported(&physics);
+    assert!(flag_set(&flags, ActorFlag::DescendThroughBlock));
+    for anchor in &earlier.samples {
+        let mut replay = physics.clone();
+        let plan = replay
+            .replay_retained_from(anchor.tick, &OpenWorld)
+            .unwrap();
+        let sample = plan.replayed_samples.last().unwrap();
+        assert_eq!(
+            sample.movement, live.samples[0].movement,
+            "anchor={}",
+            anchor.tick
+        );
+        assert_eq!(sample.position, live.samples[0].position);
+        assert_eq!(sample.velocity, live.samples[0].velocity);
+        assert_eq!(reported(&replay), flags);
+    }
+}
+
+#[test]
+fn consumed_climber_edits_match_live_processing_from_every_replay_anchor() {
+    let flags = [
+        ActorFlag::InScaffolding,
+        ActorFlag::OverScaffolding,
+        ActorFlag::DescendThroughBlock,
+        ActorFlag::InAscendingBlock,
+        ActorFlag::OverDescendingBlock,
+    ];
+    let mut mask = [0; 3];
+    for flag in flags {
+        set_flag(&mut mask, flag, true);
+    }
+    assert_eq!(mask[1], ClimberFlags::mask());
+    let variants = 1 << flags.len();
+    for controls in 0..variants {
+        for edit_pattern in 0..variants {
+            for stamped in [false, true] {
+                let mut physics = due_physics();
+                let tick = simulation_clock::TICK_DURATION;
+                let mut samples = physics
+                    .advance(tick, sim::MovementInput::default(), &OpenWorld)
+                    .samples;
+                for step in 0..flags.len() {
+                    let stamp = if stamped {
+                        physics.state().unwrap().tick
+                    } else {
+                        0
+                    };
+                    let mut words = [0; 3];
+                    for (bit, flag) in flags.iter().enumerate() {
+                        set_flag(
+                            &mut words,
+                            *flag,
+                            edit_pattern & (1 << ((bit + step) % flags.len())) != 0,
+                        );
+                    }
+                    // Accept a set and a clear at the same boundary before the final word.
+                    edit(&mut physics, stamp, mask[1]);
+                    edit(&mut physics, stamp, 0);
+                    edit(&mut physics, stamp, words[1]);
+                    samples.extend(
+                        physics
+                            .advance(
+                                tick,
+                                sim::MovementInput {
+                                    sneaking: controls & (1 << step) != 0,
+                                    ..Default::default()
+                                },
+                                &OpenWorld,
+                            )
+                            .samples,
+                    );
+                }
+                let expected_flags = reported(&physics);
+                for anchor in &samples {
+                    let mut replay = physics.clone();
+                    for _ in 0..2 {
+                        let plan = replay
+                            .replay_retained_from(anchor.tick, &OpenWorld)
+                            .unwrap();
+                        let expected: Vec<_> = samples
+                            .iter()
+                            .filter(|sample| sample.tick > anchor.tick)
+                            .collect();
+                        assert_eq!(plan.replayed_samples.len(), expected.len());
+                        for (actual, expected) in plan.replayed_samples.iter().zip(expected) {
+                            assert_eq!(
+                                actual.movement, expected.movement,
+                                "controls={controls} edits={edit_pattern} stamped={stamped} anchor={} tick={}",
+                                anchor.tick, actual.tick
+                            );
+                            assert_eq!(actual.position, expected.position);
+                            assert_eq!(actual.velocity, expected.velocity);
+                        }
+                        assert_eq!(reported(&replay), expected_flags);
+                    }
+                }
+            }
+        }
+    }
+}
