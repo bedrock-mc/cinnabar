@@ -193,6 +193,58 @@ fn dropped_sprites_follow_pack_replacement_at_the_same_atlas_region() {
 }
 
 #[test]
+fn framed_cube_faces_follow_pack_replacement_and_removal() {
+    let (mut icons, stream) = fixture(0);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    world.insert_resource(render_scene::StaticItemPlacementsResource(
+        render_model::StaticItemPlacements(vec![render_model::StaticItemPlacement {
+            identifier: ITEM.into(),
+            metadata: 0,
+            potted_block: None,
+            carried_block: Some(assets::BlockVisualId(1)),
+            world_from_item: render_model::dropped_item_transform([10.0, 2.0, 3.0], 0.0, 1.0),
+            light: None,
+        }]),
+    ));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    for color in [Some(90), Some(160), None] {
+        install(&mut icons, color, true, 0);
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            Default::default(),
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        let instance = scene
+            .instances
+            .iter()
+            .find(|instance| instance.world_from_item[0][3] == 10.0)
+            .expect("the framed item remains visible");
+        match (color, &scene.models[instance.model as usize]) {
+            (Some(color), DroppedItemModel::Cube(cube)) => {
+                for (face, pixels) in cube.faces.iter().enumerate() {
+                    assert!(
+                        pixels
+                            .as_chunks::<4>()
+                            .0
+                            .iter()
+                            .all(|pixel| *pixel == [color, face as u8, 80, 255])
+                    );
+                }
+            }
+            (None, DroppedItemModel::Sprite(sprite)) => {
+                assert_eq!(sprite.rgba8.as_ref(), [20, 30, 40, 255])
+            }
+            _ => panic!("frames must retain the current pack's cube artwork"),
+        }
+    }
+}
+
+#[test]
 fn dropped_cube_uses_exact_metadata_without_borrowing_another_variant() {
     for (metadata, sheet_metadata, custom) in [(7, 7, true), (7, 0, true), (3, 7, false)] {
         let (mut icons, stream) = fixture(metadata);

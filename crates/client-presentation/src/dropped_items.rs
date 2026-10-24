@@ -398,6 +398,21 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
+    /// Shares a session block's admitted geometry and artwork across static and dropped items.
+    fn session_block_model(
+        cache: &mut ModelCache,
+        icons: &UiPresentationRuntime,
+        identifier: &str,
+        metadata: u32,
+        sheet: ui::IconRef,
+    ) -> Option<u32> {
+        cache.model(
+            ModelKey::session_block(sheet),
+            || icons.session_block_texture_layers(identifier, metadata),
+            || icons.session_block_model(identifier, metadata, sheet),
+        )
+    }
+
     /// Resolves a static item's compatible carried geometry before its icon fallback.
     fn placement_model(
         cache: &mut ModelCache,
@@ -408,6 +423,19 @@ impl DroppedItemPublisher<'_, '_> {
     ) -> Option<u32> {
         if let Some(id) = placement.potted_block {
             return assets.and_then(|assets| Self::potted_model(cache, assets, id));
+        }
+        if placement.carried_block.is_some()
+            && let Some(sheet) =
+                icons.session_block_sheet(&placement.identifier, placement.metadata)
+            && let Some(model) = Self::session_block_model(
+                cache,
+                icons,
+                &placement.identifier,
+                placement.metadata,
+                sheet,
+            )
+        {
+            return Some(model);
         }
         if let (Some(visual), Some(assets)) = (placement.carried_block, assets)
             && let Some(model) =
@@ -511,6 +539,11 @@ impl DroppedItemPublisher<'_, '_> {
                     continue;
                 }
                 if let Some(visual) = placement.carried_block {
+                    if let Some(sheet) =
+                        icons.session_block_sheet(&placement.identifier, placement.metadata)
+                    {
+                        cache.request(&ModelKey::session_block(sheet));
+                    }
                     cache.request(&ModelKey::CarriedBlock {
                         hashed: false,
                         id: visual.0,
@@ -562,21 +595,12 @@ impl DroppedItemPublisher<'_, '_> {
                         &ModelKey::session_block(sheet),
                         DroppedItemShape::Cube,
                         |cache| {
-                            cache.model(
-                                ModelKey::session_block(sheet),
-                                || {
-                                    icons.session_block_texture_layers(
-                                        identifier,
-                                        view.item.identity.metadata,
-                                    )
-                                },
-                                || {
-                                    icons.session_block_model(
-                                        identifier,
-                                        view.item.identity.metadata,
-                                        sheet,
-                                    )
-                                },
+                            Self::session_block_model(
+                                cache,
+                                icons,
+                                identifier,
+                                view.item.identity.metadata,
+                                sheet,
                             )
                         },
                     )
