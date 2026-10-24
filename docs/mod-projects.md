@@ -62,15 +62,14 @@ Both codecs check field counts, types and bounds; the host still validates signe
 Import the generated package into your Go server. Its module path is
 `cinnabar.local/<project>/messages`; use a local `replace` directive or move the
 generated package under your server module. Rebuild both together when definitions change.
-Keep the generated helper-source `replace` directive in the main server module too;
-Go does not inherit dependency modules' replacements.
 
 Each message implements the Dragonfly helper's `cinnabarext.Message`: `Route()`
 selects its bundle, channel and revision, and `Encode()` returns its native record.
 Use `ext.Send` and `ext.Broadcast` directly with these messages. `messages.TravelType`
 provides the generated route and decoder for `cinnabarext.OnMessage`. The generated
 Go module pins the helper and a compatible upstream Dragonfly version. Import it as
-`github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext`.
+`github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext`. Regenerate older
+bindings and their Go module together so all helper imports use this module identity.
 
 Before listening, register the definition handshake with
 `messages.RegisterRegistry(ext)` and handle its returned error. Register application
