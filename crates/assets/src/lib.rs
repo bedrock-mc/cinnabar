@@ -166,7 +166,7 @@ pub use entity::{
     MOLANG_QUERY_MANIFEST_VERSION, MolangBranch, MolangCall, MolangCollection,
     MolangCollectionItem, MolangEaseCurve, MolangEaseMode, MolangFunction, MolangOp, MolangProgram,
     MolangQuery, MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler,
-    MolangQueryOutput, MolangQuerySupport, MolangSymbol, MolangSymbolKind,
+    MolangQueryOutput, MolangQuerySampling, MolangQuerySupport, MolangSymbol, MolangSymbolKind,
     PACK_EQUIPMENT_INDEX_BASE, PACK_RIG_ID_BASE, RuntimeEntityAssets, bind_molang_queries,
     encode_entity_blob, entity_render_pattern_matches, interactions, item_use, molang_call,
     molang_program_stack, placement, seats as entity_seats, validate_entity_geometry_inheritance,

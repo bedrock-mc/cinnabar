@@ -342,7 +342,7 @@ impl RigPlan {
             controllers: controllers.into(),
             camera,
             swing,
-            frames: camera || render_frame::sampling::needs_frame_sampling(assets, binding),
+            frames: camera || render_frame::sampling::needs_frame_sampling(assets, layout, binding),
             presentation: render_frame::camera::presentation_expressions(
                 assets, layout, binding, geometry,
             ),

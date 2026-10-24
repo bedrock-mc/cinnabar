@@ -95,9 +95,10 @@ pub(super) struct VariableLayout {
     pub(super) plans: rig_plans::RigPlans,
 }
 
-/// Immutable camera and attack inputs used to admit scratch presentation evaluation.
+/// Immutable frame, camera and attack inputs used to admit scratch presentation evaluation.
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub(super) struct PresentationReads {
+    pub frame: bool,
     pub camera: bool,
     pub swing: bool,
 }

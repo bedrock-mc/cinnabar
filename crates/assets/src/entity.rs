@@ -16,7 +16,7 @@ pub mod seats;
 pub use query_manifest::{
     MOLANG_QUERIES, MOLANG_QUERY_DESCRIPTORS, MOLANG_QUERY_MANIFEST_VERSION, MolangQuery,
     MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler, MolangQueryOutput,
-    MolangQuerySupport, bind_molang_queries,
+    MolangQuerySampling, MolangQuerySupport, bind_molang_queries,
 };
 pub mod mount;
 mod server_animation;
