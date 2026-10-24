@@ -165,6 +165,8 @@ fn prepare(input: WorldInput, ui: WorldUi) -> Result<CommandQueue> {
     let entities = Arc::clone(assets.entities.runtime());
     let actor = actor.context("load exact entity-linked neutral actor artwork")?;
     let artwork = crate::asset_bindings::actor_artwork(&actor, &entities);
+    let default_skin =
+        client_shell::player_skin::LocalPlayerSkin::generated_default("").standard_skin();
     let hand_geometry = render_model::ViewmodelGeometry::from_runtime(&entities, &artwork);
     crate::runtime::network::install_vanilla_item_assets(&entities, &ui.icons);
     let (equipment_runtime, artwork, geometries) =
@@ -213,6 +215,14 @@ fn prepare(input: WorldInput, ui: WorldUi) -> Result<CommandQueue> {
     let runtime = assets.runtime;
     let mut queue = CommandQueue::default();
     queue.push(move |world: &mut World| {
+        if let Some(mut skin) =
+            world.get_resource_mut::<client_shell::player_skin::LocalPlayerSkin>()
+        {
+            skin.refresh_default_player_skin(&default_skin);
+        }
+        if let Some(mut menu) = world.get_resource_mut::<client_shell::menu::MenuRuntime>() {
+            menu.refresh_default_player_skin(default_skin);
+        }
         let mut presentation = world.resource_mut::<UiPresentationResource>();
         presentation.set_equipment_catalog(equipment.clone());
         presentation.set_form_texture_fallbacks(&entities, ui.vanilla_pack);
