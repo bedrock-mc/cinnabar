@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
-STRUCT_TYPES = {"string": ("String", "string"), "u64": ("u64", "uint64"), "u32": ("u32", "uint32"), "strings": ("Vec<String>", "[]string")}
+STRUCT_TYPES = {"string": ("String", "string"), "u64": ("u64", "uint64"), "u32": ("u32", "uint32"), "strings": ("Vec<String>", "[]string"), "bool": ("bool", "bool")}
 
 
 def constant_value(row, root, resolved):

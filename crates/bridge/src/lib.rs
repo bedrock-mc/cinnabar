@@ -13,8 +13,8 @@ pub use player_identity::{valid_cinnabar_uuid, valid_cinnabar_xuid};
 mod cinnabar_api;
 #[cfg(not(target_arch = "wasm32"))]
 pub use cinnabar_api::{
-    CinnabarApiConfig, CinnabarLookup, configure_cinnabar_api, lookup_cinnabar_players,
-    sync_cinnabar_players,
+    CinnabarApiConfig, CinnabarLookup, cinnabar_mods, configure_cinnabar_api,
+    lookup_cinnabar_players, remove_cinnabar_mod, sync_cinnabar_players,
 };
 /// Shared values and wire enums for the Rust and Go bridge.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]

@@ -1,0 +1,27 @@
+{
+  "public_key": "lSb5YEqBeXmlmyc5Xg5zqHKLWklg3zlZbCj4GAVu/TQ=",
+  "xuid": "2535400000008001",
+  "selected": {
+    "slug": "cedar-hud",
+    "version": "1.0.1",
+    "sha256": "999e72f430110cbf435e2aa2109d02b0425867de903a20c3a3a50a8c3ca2c6ef",
+    "bytes": 1010,
+    "grants": {
+      "hud": true
+    },
+    "sent_at": "2026-10-24T14:43:20.420Z",
+    "pulled": false
+  },
+  "exact_path": "/v1/mods/cedar-hud/releases/1.0.1/999e72f430110cbf435e2aa2109d02b0425867de903a20c3a3a50a8c3ca2c6ef",
+  "release_response": "{\"release\":{\"statement\":\"{\\\"approved_at\\\":1792852999022,\\\"approvers\\\":[],\\\"bytes\\\":1010,\\\"grants\\\":{\\\"hud\\\":true},\\\"sha256\\\":\\\"999e72f430110cbf435e2aa2109d02b0425867de903a20c3a3a50a8c3ca2c6ef\\\",\\\"slug\\\":\\\"cedar-hud\\\",\\\"version\\\":\\\"1.0.1\\\",\\\"metadata\\\":{\\\"slug\\\":\\\"cedar-hud\\\",\\\"name\\\":\\\"Cedar HUD\\\",\\\"summary\\\":\\\"A compact HUD with clear coordinates.\\\",\\\"description\\\":\\\"## A clearer view\\\\n**Coordinates** with a compact layout.\\\",\\\"version\\\":\\\"1.0.1\\\",\\\"source\\\":\\\"\\\",\\\"category\\\":\\\"Interface\\\",\\\"license\\\":\\\"MIT\\\",\\\"notes\\\":\\\"Release 1.0.1\\\"},\\\"media\\\":[{\\\"sha256\\\":\\\"ba8dd84acfa138e6800e05268b5f9791b77a0fd0187bf547fd7ac1f65b21ec29\\\",\\\"bytes\\\":1212,\\\"type\\\":\\\"image/webp\\\",\\\"caption\\\":\\\"HUD in the upper left\\\",\\\"alt\\\":\\\"Coordinates in a compact HUD\\\"}],\\\"policy\\\":\\\"cinnabar-marketplace-2026-10-24-v2\\\",\\\"client_revision\\\":\\\"31ec2294fd662e6d49fc171dfb50bf653aa8ad36\\\",\\\"scan_job\\\":\\\"7e7e3159-44f2-4db6-a300-2e37e791ef35\\\",\\\"publication\\\":\\\"automatic\\\"}\",\"signature\":\"jdbdDH7ba-BdTTe8i04eipJdd7r6jcH09NRBdG31r3t4vgc2Wpe6XF47-wa9JgX8eVXKQ-UfNg-mpx95OXyvDQ\"}}",
+  "artifact": "AGFzbQ0AAQAHIQFCAwFqAAFzAUABBHRleHRzAAAEAAlzZXQtbGFiZWwBAQohAQAcY2lubmFiYXI6ZXh0ZW5zaW9uL2h1ZEAwLjEuMAUABxkBQgIBQAAAfwQADGRlbW8tcHJlc3NlZAEACiMBAB5jaW5uYWJhcjpleHRlbnNpb24vaW5wdXRAMC4xLjAFAQctAUIEAWt5AWoAAXMBQAEFdGlja3MAAAEEABFzZXQtdGltZS1vdmVycmlkZQECCikBACRjaW5uYWJhcjpleHRlbnNpb24vZW52aXJvbm1lbnRAMC4xLjAFAgYzAwEAAhFzZXQtdGltZS1vdmVycmlkZQEAAAlzZXQtbGFiZWwBAAEMZGVtby1wcmVzc2VkAYUBAGFzbQEAAAABCQFgBH9/f38BfwMCAQAFAwEAAQYHAX8BQYAgCwcUAgZtZW1vcnkCAAdyZWFsbG9jAAAKEQEPAQF/IwAiBCADaiQAIAQLCwsBAEEACwVIZWxsbwAoBG5hbWUADg1tZW1vcnktbW9kdWxlAggBAAEEA29sZAcHAQAEbmV4dAIEAQAAAAYYAgACAQAGbWVtb3J5AAABAAdyZWFsbG9jCBUDAQABAgMABAABAAACAwAEAAEAAgABogEAYXNtAQAAAAEOA2ADf39/AGAAAX9gAAACOAQEaG9zdAR0aW1lAAAEaG9zdAVsYWJlbAAABGhvc3QHcHJlc3NlZAABBGhvc3QGbWVtb3J5AgABAwMCAgIHEAIEaW5pdAADBWZyYW1lAAQKEAILAEEAQQVBgAQQAQsCAAsAJQRuYW1lAAUEY29kZQEXAwAEdGltZQEFbGFiZWwCB3ByZXNzZWQCLwIBBAR0aW1lAAIFbGFiZWwAAQdwcmVzc2VkAAMGbWVtb3J5AgAAAQEEaG9zdBIBBwUBQAABAAYKAQAAAQIEaW5pdAgGAQAABAADBwUBQAABAAYLAQAAAQIFZnJhbWUIBgEAAAUABAsUAgAEaW5pdAEDAAAFZnJhbWUBBAAAwwEOY29tcG9uZW50LW5hbWUBMgAABAAHcmVhbGxvYwELbG93ZXItbGFiZWwCCmxvd2VyLXRpbWUDC2xvd2VyLWlucHV0AQsAAgEABm1lbW9yeQEYABECAA1tZW1vcnktbW9kdWxlAQRjb2RlARMAEgMAA21lbQEEaG9zdAIDcnVuASUBAwAIc2V0LXRpbWUBCXNldC1sYWJlbAIMZGVtby1wcmVzc2VkARsFAwADaHVkAQVpbnB1dAILZW52aXJvbm1lbnQADQd2ZXJzaW9uMS4wLjEAHA9jaW5uYWJhcjpncmFudHN7Imh1ZCI6dHJ1ZX0=",
+  "revocations": {
+    "body": "{\"issued_at\":1792853000588,\"expires_at\":1792853900588,\"revoked\":[]}",
+    "signature": "R1_qMrQcsJdmjVn61nc5OpqaHqN-efLwuSsPwUQErNcum-ATwOcLktVkI1AzH7lajFkkvgP8oTkRDE8wpa0IBQ"
+  },
+  "withdrawn": {
+    "body": "{\"issued_at\":1792853000629,\"expires_at\":1792853900629,\"revoked\":[{\"slug\":\"cedar-hud\",\"version\":\"1.0.1\",\"sha256\":\"999e72f430110cbf435e2aa2109d02b0425867de903a20c3a3a50a8c3ca2c6ef\",\"reason\":\"Synthetic integration withdrawal\"}]}",
+    "signature": "omDd6hAmHBb9An8HyzlgD2db6qZVJKfpbcxsJV_8r2Nu0rglkt_QE_-tZB06DvyYeZK06SdlMEluEuYLgNkHCg"
+  },
+  "checked_at": 1792853000588
+}

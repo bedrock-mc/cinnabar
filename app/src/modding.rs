@@ -38,6 +38,7 @@ use drive::drive_mod;
 mod environment_loader;
 mod hud_editor;
 mod library;
+mod marketplace;
 mod native_camera;
 mod native_input;
 mod packet_highlights;
@@ -244,6 +245,7 @@ pub(crate) fn configure_from_environment(app: &mut App) {
                     layout.mods_dir(),
                     layout.user_config_root,
                     watcher.removal_client(),
+                    watcher.marketplace.clone(),
                 );
                 app.insert_resource(watcher);
                 if configured {

@@ -148,6 +148,9 @@
         },
         {
           "$ref": "#/$defs/LoadoutState"
+        },
+        {
+          "$ref": "#/$defs/ModLibraryRemove"
         }
       ]
     },
@@ -279,6 +282,9 @@
         },
         {
           "$ref": "#/$defs/CosmeticOwnership"
+        },
+        {
+          "$ref": "#/$defs/ModLibrary"
         }
       ]
     },
@@ -341,6 +347,9 @@
           "type": "integer",
           "minimum": 1,
           "default": 300000
+        },
+        "mod_library": {
+          "$ref": "#/$defs/ModLibraryEntries"
         },
         "loadout_revision": {
           "$ref": "#/$defs/Build"
@@ -1157,6 +1166,84 @@
           "items": {
             "$ref": "#/$defs/CosmeticItemId"
           }
+        }
+      }
+    },
+    "ModLibraryEntries": {
+      "description": "Mods the player sent to their game from the website, oldest first. Clients download each by SHA-256, verify it, import it with every grant off, and turn off pulled versions, showing pull_reason.",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": [
+          "slug",
+          "version",
+          "sha256",
+          "bytes",
+          "grants",
+          "sent_at",
+          "pulled"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 32
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16777216
+          },
+          "grants": {
+            "description": "The component's cinnabar:grants request, as declared.",
+            "type": "object",
+            "maxProperties": 64
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pulled": {
+            "type": "boolean"
+          },
+          "pull_reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      }
+    },
+    "ModLibraryRemove": {
+      "description": "An authenticated game client removes its exact website send request; stale requests are harmless.",
+      "type": "object",
+      "required": ["type", "slug", "sha256", "sent_at"],
+      "properties": {
+        "type": {"const": "mod_library_remove"},
+        "slug": {"$ref": "#/$defs/ModLibraryEntries/items/properties/slug"},
+        "sha256": {"$ref": "#/$defs/ModLibraryEntries/items/properties/sha256"},
+        "sent_at": {"$ref": "#/$defs/Timestamp"}
+      }
+    },
+    "ModLibrary": {
+      "type": "object",
+      "required": [
+        "type",
+        "mods"
+      ],
+      "properties": {
+        "type": {
+          "const": "mod_library"
+        },
+        "mods": {
+          "$ref": "#/$defs/ModLibraryEntries"
         }
       }
     }

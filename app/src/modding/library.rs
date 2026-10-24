@@ -12,6 +12,7 @@ use launcher::mods::{
     Action, ActiveMod, COMPONENT_EXTENSION, InstalledMod, Library, Permission, UpdatePhase,
     UpdateProgress,
 };
+use launcher_host::account_control::AccountControl;
 use launcher_host::desktop::picker::{self, Filter};
 use sha2::{Digest, Sha256};
 use std::{
@@ -25,6 +26,7 @@ use std::{
 mod update;
 
 enum Command {
+    Marketplace(Box<launcher_host::marketplace::Downloaded>),
     Action(Action),
     Update(launcher_host::mod_updates::Downloaded, Sender<()>),
     Message(String),
@@ -40,6 +42,7 @@ const FILTER: Filter = Filter {
 
 #[derive(Resource)]
 pub(super) struct ModLibrary {
+    marketplace: Option<launcher_host::marketplace::Service>,
     commands: Sender<Command>,
     published: Receiver<Library>,
     updates: Option<launcher_host::mod_updates::Checker>,
@@ -56,7 +59,14 @@ pub(super) fn configure(
     mods: PathBuf,
     registration: PathBuf,
     removal: removal::Client,
+    marketplace: Arc<launcher_host::marketplace::Guard>,
 ) {
+    let service = launcher_host::marketplace::Service::start(
+        mods.clone(),
+        mod_host::MAX_COMPONENT_SOURCE_BYTES,
+        marketplace,
+    )
+    .ok();
     let update_staging = mods.join(".updates");
     let (commands, incoming) = unbounded();
     let (outgoing, published) = unbounded();
@@ -77,6 +87,7 @@ pub(super) fn configure(
         return;
     }
     app.insert_resource(ModLibrary {
+        marketplace: service,
         commands,
         published,
         updates: launcher_host::mod_updates::Checker::start(
@@ -97,7 +108,33 @@ pub(super) fn configure(
 }
 
 /// Forwards Mods-tab work and publishes the newest library.
-fn drive(mut library: ResMut<ModLibrary>, menu: Option<ResMut<MenuRuntime>>) {
+fn drive(
+    mut library: ResMut<ModLibrary>,
+    menu: Option<ResMut<MenuRuntime>>,
+    mut account: Option<ResMut<client_shell::menu::launcher_account::LauncherAccount>>,
+) {
+    let context = account.as_deref_mut().and_then(|account| {
+        if account.0.account_status() != Some(launcher::menu::auth::AuthState::Authenticated) {
+            return None;
+        }
+        account
+            .0
+            .account_generation()
+            .map(|generation| (account.0.socket_dir().to_owned(), generation))
+    });
+    if let Some(service) = &mut library.marketplace {
+        service.configure(context);
+        let downloads = service.downloads();
+        let message = service.message();
+        if let Some(message) = message {
+            let _ = library.commands.send(Command::Message(message));
+        }
+        for download in downloads {
+            let _ = library
+                .commands
+                .send(Command::Marketplace(Box::new(download)));
+        }
+    }
     let Some(mut menu) = menu else { return };
     let mut requested = None;
     for action in std::mem::take(&mut menu.mod_actions) {
@@ -205,6 +242,23 @@ fn run(
     let _ = outgoing.send(library.clone());
     loop {
         let message = match incoming.recv_timeout(super::RELOAD_INTERVAL) {
+            Ok(Command::Marketplace(download)) => {
+                let download = *download;
+                library.busy = true;
+                library.message = "Verifying marketplace component compatibility…".into();
+                let _ = outgoing.send(library.clone());
+                let result = (|| {
+                    let bytes = download.bytes().map_err(|error| error.to_string())?;
+                    mod_host::validate_source(&bytes)
+                        .map_err(|error| format!("Unsupported marketplace component: {error:#}"))?;
+                    super::marketplace::declarations(&bytes, download.manifest())?;
+                    download
+                        .install(launcher_host::marketplace::now_ms())
+                        .map_err(|error| error.to_string())?;
+                    Ok::<_, String>("Marketplace mod added to Available. Enable it and choose its permissions in Mods.".to_owned())
+                })();
+                result.unwrap_or_else(|error| format!("Marketplace installation held: {error}"))
+            }
             Ok(Command::Message(message)) => message,
             Ok(Command::Update(download, finished)) => {
                 library.busy = true;
@@ -391,6 +445,9 @@ fn perform(
 
 /// Validates a chosen component and copies it into the mods directory; returns its file name.
 fn import(mods: &Path, source: &Path) -> Result<String, String> {
+    if launcher_host::marketplace::managed(source) {
+        return Err("Marketplace files require their signed installation flow. Send this mod from the website.".into());
+    }
     let name = source
         .file_name()
         .and_then(|name| name.to_str())

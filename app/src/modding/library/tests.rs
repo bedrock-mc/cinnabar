@@ -1,3 +1,4 @@
+mod marketplace;
 mod native_import;
 #[cfg(target_os = "linux")]
 mod publication;

@@ -16,6 +16,7 @@ reads = [
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
+    "crates/launcher-host/src/marketplace/fixtures/*.json",
     "crates/mod-host/src/packet_mod/tests/guest.wat",
     "crates/mod-host/src/tests/render.wat",
     "crates/protocol/fixtures/crafting_data_manual_named_1x1.bin",
@@ -174,6 +175,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [dev-dependencies]
+base64 = "0.22"
 resource-pack = { path = "../crates/resource-pack", features = ["test-support"] }
 mimalloc.workspace = true
 render-model = { path = "../crates/render-model", features = ["test-support"] }

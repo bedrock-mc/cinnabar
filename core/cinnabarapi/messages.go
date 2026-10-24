@@ -80,15 +80,17 @@ type lookupMessage struct {
 
 // inbound is the union of server messages; absent fields stay zero and unknown ones are ignored.
 type inbound struct {
-	OwnedCosmetics  []string           `json:"owned_cosmetics"`
-	LoadoutRevision uint64             `json:"loadout_revision"`
-	XUID            string             `json:"xuid"`
-	UUID            string             `json:"uuid"`
-	EmoteID         *string            `json:"emote_id"`
-	Revision        uint64             `json:"revision"`
-	Slots           map[string]*string `json:"slots"`
-	ElapsedMS       uint32             `json:"elapsed_ms"`
-	ValidForMS      uint64             `json:"valid_for_ms"`
+	Mods            []bridgecontract.CinnabarModEntry `json:"mods"`
+	ModLibrary      []bridgecontract.CinnabarModEntry `json:"mod_library"`
+	OwnedCosmetics  []string                          `json:"owned_cosmetics"`
+	LoadoutRevision uint64                            `json:"loadout_revision"`
+	XUID            string                            `json:"xuid"`
+	UUID            string                            `json:"uuid"`
+	EmoteID         *string                           `json:"emote_id"`
+	Revision        uint64                            `json:"revision"`
+	Slots           map[string]*string                `json:"slots"`
+	ElapsedMS       uint32                            `json:"elapsed_ms"`
+	ValidForMS      uint64                            `json:"valid_for_ms"`
 	parameters
 	Build         uint64   `json:"build"`
 	Type          string   `json:"type"`

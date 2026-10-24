@@ -118,6 +118,9 @@ impl Checker {
             installed
                 .iter()
                 .filter_map(|item| {
+                    if crate::marketplace::managed(std::path::Path::new(&item.file)) {
+                        return None;
+                    }
                     let source = item.metadata.update_url.as_ref();
                     let repository = source
                         .map(|source| source.repository())

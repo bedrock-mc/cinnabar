@@ -90,9 +90,44 @@ pub async fn sync_cinnabar_players(
     .await
 }
 
+/// Reads the live account's marketplace hints; every install still requires signed evidence.
+pub async fn cinnabar_mods(
+    socket_dir: &Path,
+) -> Result<crate::contract::CinnabarModLibrary, BridgeError> {
+    call::<_, ()>(socket_dir, crate::contract::METHOD_CINNABAR_MODS, None).await
+}
+
+/// Queues a conditional removal of one consumed website send and returns the current snapshot.
+pub async fn remove_cinnabar_mod(
+    socket_dir: &Path,
+    selected: &crate::contract::CinnabarModEntry,
+) -> Result<crate::contract::CinnabarModLibrary, BridgeError> {
+    #[derive(Serialize)]
+    struct Params<'a> {
+        remove: &'a crate::contract::CinnabarModEntry,
+    }
+    call(
+        socket_dir,
+        crate::contract::METHOD_CINNABAR_MODS,
+        Some(Params { remove: selected }),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn marketplace_snapshots_use_the_versioned_control_envelope() {
+        let response = br#"{"jsonrpc":"2.0","id":1,"result":{"schema_version":1,"xuid":"11","mods":[{"slug":"fixture-mod","version":"1.0.0","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","bytes":8,"sent_at":"2026-10-23T00:00:00.000Z","pulled":true}]}}"#;
+        let library =
+            crate::account::parse_response::<crate::contract::CinnabarModLibrary>(response)
+                .unwrap();
+        assert_eq!(library.xuid, "11");
+        assert_eq!(library.mods.len(), 1);
+        assert!(library.mods[0].pulled);
+    }
 
     #[test]
     fn configuration_uses_the_core_field_names() {

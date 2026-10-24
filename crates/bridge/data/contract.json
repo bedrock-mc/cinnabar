@@ -85,6 +85,9 @@
     {"rust_name": "RPC_CINNABAR_RATE_LIMITED", "go_name": "RPCCinnabarRateLimited", "value": -32024, "rust_type": "i64", "doc": "Control error code for a Cinnabar lookup the API rate-limited."},
     {"rust_name": "METHOD_CINNABAR_API", "go_name": "MethodCinnabarAPI", "value": "cinnabar_api.v1", "rust_type": "str", "doc": "Control method for the Cinnabar API identity and visibility."},
     {"rust_name": "METHOD_CINNABAR_PLAYERS", "go_name": "MethodCinnabarPlayers", "value": "cinnabar_players.v1", "rust_type": "str", "doc": "Control method for nearby Cinnabar emotes and cosmetics."},
+    {"rust_name": "METHOD_CINNABAR_MODS", "go_name": "MethodCinnabarMods", "value": "cinnabar_mods.v1", "rust_type": "str", "doc": "Control method for the authenticated marketplace library."},
+    {"rust_name": "CINNABAR_MODS_MAX_ENTRIES", "go_name": "CinnabarModsMaxEntries", "value": 100, "rust_type": "usize", "doc": "Maximum marketplace library selections; checked against the pinned API schema."},
+    {"rust_name": "", "go_name": "CinnabarAPIMaxFrameBytes", "value": 2097152, "rust_type": "usize", "doc": "Bounded API frames including a full marketplace library."},
     {"rust_name": "METHOD_CINNABAR_LOOKUP", "go_name": "MethodCinnabarLookup", "value": "cinnabar_lookup.v1", "rust_type": "str", "doc": "Control method for a Cinnabar player lookup."},
     {
       "rust_name": "CINNABAR_API_BASE_URL",
@@ -527,6 +530,26 @@
           "default": true,
           "doc": "Paid grants supplied by the account API database."
         }
+      ]
+    },{
+      "rust_name": "CinnabarModEntry", "go_name": "CinnabarModEntry",
+      "derive": ["Clone", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "doc": "A marketplace selection hint; clients independently verify its signed release.",
+      "fields": [
+        {"name": "slug", "go_name": "Slug", "type": "string", "doc": "Project selector."},
+        {"name": "version", "go_name": "Version", "type": "string", "doc": "Selected release version."},
+        {"name": "sha256", "go_name": "SHA256", "type": "string", "doc": "Selected immutable artifact digest."},
+        {"name": "bytes", "go_name": "Bytes", "type": "u64", "doc": "Claimed size, rechecked against signed metadata."},
+        {"name": "sent_at", "go_name": "SentAt", "type": "string", "doc": "Explicit website send request identity."},
+        {"name": "pulled", "go_name": "Pulled", "type": "bool", "doc": "Immediate withdrawal hint, independently checked against signed revocations."}
+      ]
+    },{
+      "rust_name": "CinnabarModLibrary", "go_name": "CinnabarModLibrary",
+      "derive": ["Clone", "Debug", "Default", "Deserialize", "Eq", "PartialEq", "Serialize"],
+      "doc": "Current authenticated account's marketplace selections; empty while disconnected.",
+      "fields": [
+        {"name": "xuid", "go_name": "XUID", "type": "string", "doc": "Verified local account identity."},
+        {"name": "mods", "go_name": "Mods", "type": "list:CinnabarModEntry", "doc": "Whole library snapshot with no granting authority."}
       ]
     }
   ],

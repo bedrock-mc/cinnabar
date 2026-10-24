@@ -2,6 +2,8 @@ use super::*;
 use candidate::build_candidate;
 use std::fs;
 
+#[path = "marketplace_tests.rs"]
+mod marketplace_tests;
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
 
@@ -72,6 +74,7 @@ fn world() -> (World, Receiver<Message>, Receiver<Retired>) {
     let (retired, retiring) = bounded(mod_api::MAX_LOADED_MODS * 2);
     let mut world = World::new();
     world.insert_resource(Watcher {
+        marketplace: Arc::new(launcher_host::marketplace::Guard::default()),
         updates,
         messages,
         retired,

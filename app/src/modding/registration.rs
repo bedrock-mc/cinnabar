@@ -250,6 +250,7 @@ enum Message {
 
 #[derive(Resource)]
 pub(crate) struct Watcher {
+    pub(super) marketplace: Arc<launcher_host::marketplace::Guard>,
     updates: Receiver<Update>,
     messages: Sender<Message>,
     retired: Sender<Retired>,
@@ -284,6 +285,8 @@ impl Watcher {
     }
     /// Starts bounded list observation and a separate admission/retirement worker.
     pub(super) fn start(directory: PathBuf) -> Result<Self, String> {
+        let marketplace = Arc::new(launcher_host::marketplace::Guard::default());
+        let authority = marketplace.clone();
         let (send_updates, updates) = bounded(1);
         let (messages, receive_messages) = bounded(8);
         let (retired, receive_retired) = bounded(mod_api::MAX_LOADED_MODS * 2);
@@ -311,11 +314,13 @@ impl Watcher {
                     selection,
                     current,
                     fences,
+                    authority,
                 );
                 life.store(false, Ordering::Release);
             })
             .map_err(|error| error.to_string())?;
         Ok(Self {
+            marketplace,
             updates,
             messages,
             retired,

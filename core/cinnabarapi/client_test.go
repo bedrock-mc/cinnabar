@@ -31,6 +31,7 @@ type fakeAPI struct {
 	minted         atomic.Int64
 	welcome        parameters
 	ownedCosmetics []string
+	modLibrary     []bridgecontract.CinnabarModEntry
 	sessions       chan *fakeSession
 }
 
@@ -93,11 +94,12 @@ func (api *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = writeJSON(ctx, conn, struct {
-		Type           string   `json:"type"`
-		XUID           string   `json:"xuid"`
-		OwnedCosmetics []string `json:"owned_cosmetics,omitempty"`
+		Type           string           `json:"type"`
+		XUID           string           `json:"xuid"`
+		OwnedCosmetics []string         `json:"owned_cosmetics,omitempty"`
+		ModLibrary     []serverModEntry `json:"mod_library,omitempty"`
 		parameters
-	}{Type: typeWelcome, XUID: "2535400000000001", OwnedCosmetics: api.ownedCosmetics, parameters: api.welcome})
+	}{Type: typeWelcome, XUID: "2535400000000001", OwnedCosmetics: api.ownedCosmetics, ModLibrary: serverMods(api.modLibrary), parameters: api.welcome})
 	session := &fakeSession{conn: conn, hello: hello, key: key.(*ecdsa.PublicKey), done: make(chan struct{})}
 	api.sessions <- session
 	select {

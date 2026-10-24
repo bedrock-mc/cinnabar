@@ -63,6 +63,7 @@ pub(super) fn run(
     desired: Arc<Mutex<Desired>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
     drawing: Arc<Mutex<BTreeMap<PathBuf, super::super::admission::DrawingContext>>>,
+    marketplace: Arc<launcher_host::marketplace::Guard>,
 ) {
     let (loads, receive_loads) = bounded::<LoadRequest>(1);
     let (results, receive_results) = bounded(1);
@@ -118,9 +119,22 @@ pub(super) fn run(
                 let mut snapshot =
                     observer
                         .source_snapshot(entry.clone(), now)
-                        .map(|mut snapshot| {
+                        .and_then(|mut snapshot| {
+                            marketplace
+                                .check(
+                                    &entry.component,
+                                    &snapshot.component,
+                                    launcher_host::marketplace::now_ms(),
+                                )
+                                .map_err(|error| error.to_string())?;
+                            if let Some(manifest) = marketplace.manifest(&entry.component) {
+                                super::super::marketplace::declarations(
+                                    &snapshot.component,
+                                    &manifest,
+                                )?;
+                            }
                             snapshot.drawing = fences.get(&entry.component).cloned();
-                            snapshot
+                            Ok(snapshot)
                         });
                 match &snapshot {
                     Ok(snapshot) => digest.update(snapshot.identity),

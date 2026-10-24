@@ -17,6 +17,8 @@ reads = [
 test-support = []
 
 [dependencies]
+base64 = "0.22"
+ring = "0.17"
 cosmetics = { path = "../cosmetics" }
 anyhow.workspace = true
 bridge = { path = "../bridge" }

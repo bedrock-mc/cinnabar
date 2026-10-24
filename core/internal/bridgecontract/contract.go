@@ -171,6 +171,12 @@ const (
 	MethodCinnabarAPI = "cinnabar_api.v1"
 	// MethodCinnabarPlayers: Control method for nearby Cinnabar emotes and cosmetics.
 	MethodCinnabarPlayers = "cinnabar_players.v1"
+	// MethodCinnabarMods: Control method for the authenticated marketplace library.
+	MethodCinnabarMods = "cinnabar_mods.v1"
+	// CinnabarModsMaxEntries: Maximum marketplace library selections; checked against the pinned API schema.
+	CinnabarModsMaxEntries = 100
+	// CinnabarAPIMaxFrameBytes: Bounded API frames including a full marketplace library.
+	CinnabarAPIMaxFrameBytes = 2097152
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
 	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
@@ -427,6 +433,30 @@ type CinnabarPlayerUpdates struct {
 	OwnershipXUID string `json:"ownership_xuid"`
 	// OwnedCosmetics: Paid grants supplied by the account API database.
 	OwnedCosmetics []string `json:"owned_cosmetics"`
+}
+
+// CinnabarModEntry: A marketplace selection hint; clients independently verify its signed release.
+type CinnabarModEntry struct {
+	// Slug: Project selector.
+	Slug string `json:"slug"`
+	// Version: Selected release version.
+	Version string `json:"version"`
+	// SHA256: Selected immutable artifact digest.
+	SHA256 string `json:"sha256"`
+	// Bytes: Claimed size, rechecked against signed metadata.
+	Bytes uint64 `json:"bytes"`
+	// SentAt: Explicit website send request identity.
+	SentAt string `json:"sent_at"`
+	// Pulled: Immediate withdrawal hint, independently checked against signed revocations.
+	Pulled bool `json:"pulled"`
+}
+
+// CinnabarModLibrary: Current authenticated account's marketplace selections; empty while disconnected.
+type CinnabarModLibrary struct {
+	// XUID: Verified local account identity.
+	XUID string `json:"xuid"`
+	// Mods: Whole library snapshot with no granting authority.
+	Mods []CinnabarModEntry `json:"mods"`
 }
 
 // InboxCategories: Inbox category names in display order.

@@ -254,6 +254,12 @@ pub const METHOD_CINNABAR_API: &str = "cinnabar_api.v1";
 /// Control method for nearby Cinnabar emotes and cosmetics.
 pub const METHOD_CINNABAR_PLAYERS: &str = "cinnabar_players.v1";
 
+/// Control method for the authenticated marketplace library.
+pub const METHOD_CINNABAR_MODS: &str = "cinnabar_mods.v1";
+
+/// Maximum marketplace library selections; checked against the pinned API schema.
+pub const CINNABAR_MODS_MAX_ENTRIES: usize = 100;
+
 /// Control method for a Cinnabar player lookup.
 pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
 
@@ -661,4 +667,30 @@ pub struct CinnabarPlayerUpdates {
     /// Paid grants supplied by the account API database.
     #[serde(default)]
     pub owned_cosmetics: Vec<String>,
+}
+
+/// A marketplace selection hint; clients independently verify its signed release.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarModEntry {
+    /// Project selector.
+    pub slug: String,
+    /// Selected release version.
+    pub version: String,
+    /// Selected immutable artifact digest.
+    pub sha256: String,
+    /// Claimed size, rechecked against signed metadata.
+    pub bytes: u64,
+    /// Explicit website send request identity.
+    pub sent_at: String,
+    /// Immediate withdrawal hint, independently checked against signed revocations.
+    pub pulled: bool,
+}
+
+/// Current authenticated account's marketplace selections; empty while disconnected.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarModLibrary {
+    /// Verified local account identity.
+    pub xuid: String,
+    /// Whole library snapshot with no granting authority.
+    pub mods: Vec<CinnabarModEntry>,
 }
