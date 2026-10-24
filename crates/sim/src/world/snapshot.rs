@@ -75,6 +75,13 @@ impl CollisionWorld for CollisionSnapshot {
         self.world().collision_boxes_with_provenance(query)
     }
 
+    fn collision_boxes_for_mover(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<MoverColliders>, WorldQueryError> {
+        self.world().collision_boxes_for_mover(query)
+    }
+
     fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
         self.world().block_physics(block)
     }

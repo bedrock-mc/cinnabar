@@ -1,8 +1,66 @@
 //! A Mods tab library with and without self-declared component metadata.
 
-use super::{Arc, Fixture, settings};
+use super::{Arc, Fixture, GUI_SCALE, State, TALL_SIZE, settings};
 use launcher::mods::{ActiveMod, InstalledMod, Library, Permission, Snapshot, Status};
 use ui::mod_metadata::ModMetadata;
+
+/// Settings → Mods captures.
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "settings-mods",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: declared,
+    },
+    State {
+        name: "settings-mods-compact-library",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: compact_library,
+    },
+    State {
+        name: "settings-mods-undeclared",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: undeclared,
+    },
+    State {
+        name: "settings-mods-permissions-collapsed",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: collapsed,
+    },
+    State {
+        name: "settings-mods-permissions-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: consent,
+    },
+    State {
+        name: "settings-mods-permissions-requested",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: requested_only,
+    },
+    State {
+        name: "settings-mods-permissions-all",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: show_all,
+    },
+    State {
+        name: "settings-mods-permissions-narrow",
+        size: [360, 900],
+        gui_scale: GUI_SCALE,
+        fixture: show_all,
+    },
+    State {
+        name: "settings-mods-permissions-undeclared-consent",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: undeclared_permissions,
+    },
+];
 
 /// Three components; `metadata` decides whether they describe themselves.
 fn view(metadata: bool) -> Fixture {
@@ -110,7 +168,7 @@ fn permissions(customizing: bool, show_all: bool, consent: bool, declared: bool)
     };
     let snapshot = Arc::make_mut(&mut view.mods);
     snapshot.library.installed.truncate(1);
-    snapshot.details_expanded = None;
+    snapshot.details_expanded = Some(1);
     snapshot.customizing = customizing.then_some(1);
     snapshot.show_all_permissions = show_all;
     snapshot.consent = consent.then_some(1);
@@ -183,7 +241,7 @@ fn permissions(customizing: bool, show_all: bool, consent: bool, declared: bool)
     Fixture::Menu(view)
 }
 
-/// Collapsed actions, requested-grant count and allowed gameplay warnings.
+/// An expanded card with a short grant summary and its customization entry.
 pub fn collapsed() -> Fixture {
     permissions(false, false, false, true)
 }
@@ -206,4 +264,21 @@ pub fn show_all() -> Fixture {
 /// A component without a declaration can only customize its grants.
 pub fn undeclared_permissions() -> Fixture {
     permissions(false, false, true, false)
+}
+
+/// Three closed cards with long descriptions to compare list density.
+pub fn compact_library() -> Fixture {
+    let Fixture::Menu(mut view) = view(true) else {
+        unreachable!()
+    };
+    let snapshot = Arc::make_mut(&mut view.mods);
+    snapshot.details_expanded = None;
+    for item in &mut snapshot.library.installed {
+        item.metadata.description = Some(format!(
+            "{} adds customizable features to your game. Choose your preferred controls, adjust the settings to suit your play style, and use the permissions panel to decide which capabilities it can access.",
+            item.name()
+        ));
+        item.metadata.authors = Some("Example Author".into());
+    }
+    Fixture::Menu(view)
 }

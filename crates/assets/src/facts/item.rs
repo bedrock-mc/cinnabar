@@ -32,6 +32,18 @@ pub const TORCH_ITEM_IDENTIFIERS: [&str; 4] = [
     "minecraft:copper_torch",
 ];
 
+/// Shaped plants and eggs whose dropped stacks use their carried sprite instead of a world mesh.
+pub const SHAPED_SPRITE_ITEM_IDENTIFIERS: [&str; 8] = [
+    "minecraft:closed_eyeblossom",
+    "minecraft:open_eyeblossom",
+    "minecraft:pitcher_plant",
+    "minecraft:pointed_dripstone",
+    "minecraft:sulfur_spike",
+    "minecraft:frog_spawn",
+    "minecraft:sniffer_egg",
+    "minecraft:turtle_egg",
+];
+
 /// Flower-bed items whose dropped form uses their carried sprite.
 pub const FLOWER_BED_ITEM_IDENTIFIERS: [&str; 2] =
     ["minecraft:pink_petals", "minecraft:wildflowers"];

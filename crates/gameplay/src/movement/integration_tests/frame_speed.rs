@@ -280,7 +280,7 @@ fn always_sprint_keeps_request_flags_while_actor_sprint_is_gated() {
         (1.0, false, false, true, true),
         (0.0, false, false, true, false),
         (1.0, false, false, true, true),
-        (1.0, true, false, true, true),
+        (1.0, true, false, true, false),
         (1.0, false, true, true, false),
         (1.0, false, false, true, true),
         (1.0, false, false, false, false),
@@ -381,6 +381,46 @@ fn suspended_input_keeps_toggled_sneak_only_under_persistent_controls() {
             has(flags, PlayerInputFlags::PERSIST_SNEAK),
             kept,
             "{mode:?}"
+        );
+    }
+}
+
+/// A held gamepad sneak control is the toggle-sneak control under either sneak
+/// setting, so its descent request and SneakToggleDown survive hold-to-sneak.
+#[test]
+fn a_held_gamepad_sneak_is_the_toggle_sneak_control() {
+    let has = |flags: PlayerInputFlags, flag: PlayerInputFlags| flags.bits() & flag.bits() != 0;
+    for (mode, toggle_sneak, toggle_down) in [
+        (PlayerInputMode::Mouse, false, false),
+        (PlayerInputMode::Mouse, true, true),
+        (PlayerInputMode::GamePad, false, true),
+        (PlayerInputMode::GamePad, true, true),
+    ] {
+        let (mut physics, mut ticker) = walked_physics(0);
+        let mut locals = super::LocomotionState::default();
+        let mut speed = super::LocalMovementSpeedAuthority::default();
+        let mut effects = super::LocalMovementEffectTimeline::default();
+        let mut frame = speed_frame(Default::default());
+        frame.input_mode = mode;
+        frame.toggle_sneak = toggle_sneak;
+        frame.sneak = semantic_input::ActionPhase {
+            pressed: true,
+            held: true,
+            released: false,
+        };
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedFloor(1),
+        ));
+        let flags = ticker.pending_snapshots().last().unwrap().flags;
+        assert_eq!(
+            has(flags, PlayerInputFlags::SNEAK_TOGGLE_DOWN),
+            toggle_down,
+            "{mode:?} toggle={toggle_sneak}"
         );
     }
 }

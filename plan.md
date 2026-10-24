@@ -308,6 +308,22 @@ Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
 
+The block climber rewrites its contact flags after each movement tick; the descent
+action reads the retained contact before movement. Prediction sync reports those values
+with newer accepted server flag edits, which retained corrections also apply before input
+on replay. Each input frame retains the server edits it consumed and its original live
+entry flags. Replay rebuilds contact without replacing that comparison capture. Per-bit
+edits survive unrelated replays before and after consumption, including unstamped and
+future-stamped edits. Powder snow uses the mover's contextual query,
+including step and sneak-edge checks: snow-standing wearers get the full block, and falls
+over 2.5 blocks get the 0.9 fall-into shape. Replay refreshes historical fall distance
+while preserving the live value through spatial copy-back and snaps. The next input
+retains any restored live value so later replays consume it at the same boundary.
+No-move ticks preserve it unless an action or contact
+clears it. Flight toggles, bubble columns, honey sliding and water entry clear it at their
+movement phases; lava halves the retained distance before the current drop, and slow glide
+uses its entry velocity. The missing touch descend control, first-tick terrain seeding,
+coordinate/query recovery and broader custom geometry remain inherited incomplete work.
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
 independently of simulation admission. Unsupported attribute models leave reporting
@@ -427,7 +443,8 @@ and rendered qualification remain incomplete.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
   sprites; falling blocks retain their world models.
-  Implemented dropped sprite families, including flower beds, use their carried artwork.
+  Implemented dropped sprite families, including flower beds, shaped plants and eggs, use
+  their carried artwork. Spike icon faces and native transforms remain incomplete.
   Other drop classes and native poses remain incomplete. Falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
@@ -997,13 +1014,16 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   fenced throughout. Write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
   incomplete.
-- Local mods and server experiences still need runtime/input isolation, reload/reorder/
+- The Mods settings list starts with compact headers and opens one whole card at a time;
+  actions and permission details remain inside that card.
+  Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
-  Source-driven mod projects generate typed Rust/Go messages, registry confirmation,
+  Source-driven mod projects generate typed Rust/Go messages, direction-checked sends
+  and handlers on both halves, registry confirmation,
   compile-checked asset constants and paired `.cmod` packages through `devtool mod new/build`.
   Typed block/item declarations generate server registration and ordinary packs; installation
   feeds the existing local-server hosts, and `mod run` builds an isolated development loop.

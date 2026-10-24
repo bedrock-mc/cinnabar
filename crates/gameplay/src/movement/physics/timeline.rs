@@ -294,6 +294,7 @@ impl LocalPhysicsController {
         self.note_server_flags(client_world::MovementFlagUpdate {
             sneaking: None,
             sprinting: None,
+            extended_flags: None,
             gliding: None,
             swimming: None,
             crawling: None,
@@ -301,6 +302,9 @@ impl LocalPhysicsController {
             ..flags
         });
         self.state.as_ref()?;
+        let climber_rewind = flags
+            .extended_flags
+            .and_then(|word| self.adopt_climber_flags(tick, word));
         let rewind = match self.timeline_slot(tick) {
             TimelineSlot::Live => None,
             TimelineSlot::Rewind(tick) => Some(tick),
@@ -309,7 +313,7 @@ impl LocalPhysicsController {
         let Some(tick) = rewind else {
             self.adopt_live_server_flags(tick, FlagWrite::from_flags(&flags));
             self.adopt_live_flags(flags);
-            return None;
+            return climber_rewind;
         };
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
@@ -361,7 +365,7 @@ impl LocalPhysicsController {
             present.sneaking = reached.then_some(sneaking);
         }
         self.adopt_live_flags(present);
-        changed.then_some(tick)
+        changed.then_some(tick).or(climber_rewind)
     }
 
     /// Takes the sprint/sneak states the control latches must adopt.

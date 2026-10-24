@@ -67,7 +67,8 @@ pub struct ModeIntent {
     pub creative_flight: bool,
     /// An unbroken elytra is equipped in the chest slot.
     pub elytra_ready: bool,
-    /// Leather boots let the wearer stand on powder snow, which then also ends a glide.
+    /// Leather boots let the wearer stand on powder snow, which then also ends
+    /// a glide and climbs like a ladder.
     pub can_stand_on_snow: bool,
     /// Boot enchantment levels the simulator reads.
     pub depth_strider: u8,
@@ -109,20 +110,6 @@ pub(super) struct ModeObservation {
     pub jump_down: bool,
     /// A Riptide spin was active before this tick.
     pub spinning: bool,
-}
-
-impl ModeObservation {
-    /// Intent systems see item slowdown before the later sneak/crawl multiplier.
-    pub(super) fn input_vector(input: sim::MovementInput) -> [f32; 2] {
-        sim::MovementInput {
-            sneaking: false,
-            mode: MovementMode::Walking,
-            ..input
-        }
-        .processed_controls()
-        .move_vector
-        .map(|axis| axis as f32)
-    }
 }
 
 /// One tick's selected mode plus whether a low ceiling forces the sneak pose.
@@ -268,6 +255,24 @@ impl ModeTracker {
 
     pub(super) const fn sprinting(&self) -> bool {
         self.sprinting
+    }
+
+    /// The move vector sprint intent reads, from the previous tick's pose. A sneak request or
+    /// a sneaking or crawling pose scales it, except while flying, swimming or in water, so
+    /// crouching blocks and stops a sprint. Swift Sneak raises the factor only once the pose
+    /// is active; a fresh request uses the plain sneak factor.
+    pub(super) fn intent_vector(&self, input: sim::MovementInput, in_water: bool) -> [f32; 2] {
+        let pose = self.sneaking || self.mode == MovementMode::Crawling;
+        let exempt = matches!(self.mode, MovementMode::Flying | MovementMode::Swimming) || in_water;
+        sim::MovementInput {
+            sneaking: (input.sneaking || pose) && !exempt,
+            mode: MovementMode::Walking,
+            swift_sneak: if pose { input.swift_sneak } else { 0 },
+            ..input
+        }
+        .processed_controls()
+        .move_vector
+        .map(|axis| axis as f32)
     }
 
     pub(super) fn restore_controls(&mut self, sprinting: bool, sneaking: bool) {

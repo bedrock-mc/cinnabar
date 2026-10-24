@@ -19,12 +19,20 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
     let client = root.join("src/client.rs");
     let source = fs::read_to_string(&client).unwrap().replace(
         "let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;",
-        "let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;\nexperience_sdk::client::send_message(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 42 }).unwrap();",
+        "let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;\nexperience_sdk::client::send(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 42 }).unwrap();",
     );
     fs::write(&client, source).unwrap();
     let shared = root.join("src/shared.rs");
     fs::write(&shared, format!("{}\n#[message(id = \"space.notice\", schema = 1, to_client)]\npub struct Notice {{ pub trap: bool }}\n", fs::read_to_string(&shared).unwrap())).unwrap();
-    fs::write(&client, format!("{}\nimpl Client {{\n    /// Exercises a recoverable callback failure in the generated component.\n    fn receive(record: Vec<experience_sdk::Value>) {{\n        use experience_sdk::message::Message;\n        if crate::shared::Notice::decode(record).unwrap().trap {{ panic!(\"recoverable callback failure\"); }}\n    }}\n}}\n", fs::read_to_string(&client).unwrap().replace("impl ClientPart for Client {", "impl ClientPart for Client {\n    /// Processes the declared test notification.\n    fn dispatch(_channel: String, record: Vec<experience_sdk::Value>) { Self::receive(record); }\n    /// Proves callbacks run again after a fresh confirmation.\n    fn epoch() { experience_sdk::client::send_message(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 43 }).unwrap(); }"))).unwrap();
+    fs::write(&client, fs::read_to_string(&client).unwrap().replace("impl ClientPart for Client {", r#"impl ClientPart for Client {
+    /// Exercises a recoverable typed callback failure in the generated component.
+    #[on_message]
+    fn notice(notice: crate::shared::Notice) {
+        if notice.trap { panic!("recoverable callback failure"); }
+    }
+    /// Proves callbacks run again after a fresh confirmation.
+    fn epoch() { experience_sdk::client::send(&crate::shared::Travel { world: crate::shared::HOME.clone(), request: 43 }).unwrap(); }
+"#)).unwrap();
     let private = "SERVER_ONLY_SENTINEL_9b1d38";
     fs::write(root.join("assets/server/secret.txt"), private).unwrap();
     let server_source = root.join("src/server.rs");

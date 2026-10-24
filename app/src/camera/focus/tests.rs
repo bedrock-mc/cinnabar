@@ -811,45 +811,6 @@ fn explicit_join_keeps_return_authorization_across_loading() {
     }
 }
 
-/// Without an OS grab, gameplay holds input exactly where desktop would lock the cursor, so a
-/// hardware keyboard drives gameplay and screens still own their input.
-#[test]
-fn grab_free_capture_follows_the_desktop_capture_rules() {
-    let gameplay = client_presentation::observations::CursorPolicy {
-        capture_allowed: true,
-        consent: false,
-        absorbs_input: false,
-        steals_mouse: Some(true),
-        driven: false,
-    };
-    assert!(super::grab_free_capture(&gameplay, true));
-    assert!(!super::grab_free_capture(&gameplay, false), "unfocused");
-    for blocked in [
-        client_presentation::observations::CursorPolicy {
-            capture_allowed: false,
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            consent: true,
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            absorbs_input: true,
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            steals_mouse: Some(false),
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            driven: true,
-            ..gameplay
-        },
-    ] {
-        assert!(!super::grab_free_capture(&blocked, true));
-    }
-}
-
 /// Builds a focus app driving a shown data-driven custom form (instance 7, form 4) through a
 /// painted presentation.
 fn data_driven_app() -> (App, Entity) {

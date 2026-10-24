@@ -36,6 +36,8 @@ pub(super) fn tick(
         flight::apply_drag(&mut next.velocity, &input, controls.move_vector, 1.0);
     }
     next.collision_shape = None;
+    next.climber = None;
+    next.fall_distance = 0.0;
     next.on_ground = false;
     next.collisions = AxisCollisions::default();
     next.jump_delay = 0;
@@ -54,7 +56,10 @@ pub(super) fn tick(
             movement: next.movement,
             collisions: next.collisions,
             on_ground: false,
-            environment: MovementEnvironment::default(),
+            environment: MovementEnvironment {
+                climber_unsampled: true,
+                ..MovementEnvironment::default()
+            },
             world_identity: WorldCollisionIdentity {
                 registry,
                 chunks: Box::default(),
