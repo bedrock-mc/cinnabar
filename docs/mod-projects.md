@@ -113,12 +113,15 @@ bindings and their module together to update the module identity.
 
 Before listening, call `messages.RegisterRegistry(ext)` and check its error.
 Use `cinnabarext.OnMessage(ext, messages.PingType, callback)` to receive, and
-`ext.Send`/`ext.Broadcast` with generated messages to send. Import the helper at
-the path emitted by `messages.go`. Message/epoch hooks receive the originating
+`ext.Send`/`ext.Broadcast` with generated messages to send. Typed `OnMessage`
+receivers get `(uuid.UUID, T)`; world access belongs in Dragonfly transactions.
+`EncodeRecord` and `DecodeRecord` expose canonical wire-v2 records for other transports.
+
+Current low-level `OnClientMessage`/`OnEpoch` hooks also receive the originating
 `cinnabarext.PlayerSession`; match it to the admitted session before routing input.
-Player identity comes from the connection; world access still belongs in
-Dragonfly transactions. `EncodeRecord` and
-`DecodeRecord` expose canonical wire-v2 records for other transports.
+The [generated helper pin](../crates/experience-sdk/src/project/go.rs) predates these
+signatures. To use them, update the main server module's helper dependency to the
+Cinnabar revision deployed with the host; regenerating bindings alone is insufficient.
 
 `SendControl` retains a refused negotiation/acknowledgment reply until credit
 refills; newer replies on the route replace it. Epoch changes and disconnects

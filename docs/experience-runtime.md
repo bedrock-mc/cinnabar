@@ -262,7 +262,7 @@ freezing the server registry. Never run guest IPC on the world thread.
 Snapshot events, validate and commit returned operations atomically, then deliver
 messages on declared client routes. Own instance generations, player-session and
 epoch fences, scoped snapshots, storage, stale checks, quotas, strikes and shutdown
-deadlines. Go message/epoch callbacks receive the originating
+deadlines. Current Go `OnClientMessage`/`OnEpoch` hooks receive the originating
 `cinnabarext.PlayerSession`; match the admitted session before routing input. Use
 the [Go adapter](../tools/localserver/experience) and its `testdata/protocol`
 fixtures to check a new host.
