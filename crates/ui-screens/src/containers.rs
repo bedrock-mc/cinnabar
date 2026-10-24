@@ -589,22 +589,25 @@ pub enum HeldStackPress {
 /// to a cursor drop, or reaches a drop panel; it destroys on a panel mapping it to
 /// `button.destroy_selection`, such as the creative and recipe book item grid. Every
 /// other `common.root_panel` section, such as the inventory or creative hotbar,
-/// claims presses anywhere on its background, as do its buttons.
+/// claims presses anywhere on its background, as do its buttons. A disabled control
+/// claims the press and does nothing with it.
 pub fn engine_held_stack_press(frame: &EngineFrame, gui: [f32; 2]) -> Option<HeldStackPress> {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
-    // A scroll view's viewport takes the wheel, not the press: the press reaches the input
-    // panel around it, as the item grid's background does.
+    // A scroll view without its own press mapping takes the wheel, not the press: the press
+    // reaches the input panel around it, as the item grid's background does.
     let region = frame.hits.iter().rev().find(|region| {
         region.contains(point)
             && match region.kind {
-                HitKind::ScrollView => false,
-                HitKind::Panel => region.pressed.is_some(),
+                HitKind::ScrollView | HitKind::Panel => region.pressed.is_some(),
                 _ => true,
             }
     });
     let Some(region) = region else {
         return Some(HeldStackPress::Drop);
     };
+    if !region.enabled {
+        return None;
+    }
     match region.pressed.as_deref() {
         Some(target) if CURSOR_DROPS.contains(&target) => Some(HeldStackPress::Drop),
         Some(DESTROY_SELECTION) => Some(HeldStackPress::Destroy),
