@@ -545,7 +545,7 @@ fn v0_6_artifact_loads_and_runs() {
         }
     );
     assert_eq!(
-        run(&engine, &loaded, &scheduled(0)),
+        run(&engine, &loaded, &scheduled(p(0))),
         Outcome::Committed { ops: vec![] }
     );
 }

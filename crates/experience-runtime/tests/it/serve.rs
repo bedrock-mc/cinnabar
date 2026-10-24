@@ -177,6 +177,7 @@ fn load_then_callback_round_trip() {
             blocks: loaded.blocks,
             items: loaded.items,
             focus: loaded.focus,
+            worlds: loaded.worlds,
         }
     );
     session.send(&interact(0));
