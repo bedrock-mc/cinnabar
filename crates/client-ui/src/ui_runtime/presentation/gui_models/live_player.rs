@@ -33,11 +33,11 @@ impl UiPresentationRuntime {
         &mut self,
         motion: &[(cosmetics::Item, render_model::hats::Motion)],
     ) {
-        let motion: std::collections::HashMap<_, _> = motion.iter().copied().collect();
-        if self.gui_models.live_player.hat_motion != motion {
-            self.gui_models.live_player.hat_motion = motion;
-            self.last_frame = None;
-        }
+        let retained = &mut self.gui_models.live_player.hat_motion;
+        retained.clear();
+        retained.extend(motion.iter().copied());
+        // The next capture updates the model vertices. Retained drawing compares those
+        // vertices and preserves the rest of the HUD, including its indices and batches.
     }
 
     /// Projects the full-body evaluation, never the separate first-person hand skeleton.
@@ -306,5 +306,7 @@ fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
 mod cape_tests;
 #[cfg(test)]
 mod hud_doll_tests;
+#[cfg(test)]
+mod redraw_tests;
 #[cfg(test)]
 mod tests;
