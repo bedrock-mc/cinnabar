@@ -215,6 +215,15 @@ impl ActorStore {
         self.items.canonicalize(stack)
     }
 
+    /// Resolves a named block-entity stack through the current compiled item routes.
+    pub(crate) fn named_item_visual(
+        &self,
+        identifier: &str,
+        metadata: u32,
+    ) -> assets::ItemVisualRoute {
+        self.items.resolve_visual(identifier, metadata, 0)
+    }
+
     /// Reads the current numeric registry's intrinsic shine disposition.
     pub(crate) fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
         self.items.item_glint(network_id)

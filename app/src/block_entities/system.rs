@@ -722,15 +722,26 @@ fn yaw_toward(eye: Vec3, position: [i32; 3]) -> f32 {
     (-dx).atan2(-dz).to_degrees()
 }
 
+/// Retains a frame's compiled block identity alongside its artwork and fixed pose.
 fn held_placement(
     item: &HeldItem,
     world_from_item: [[f32; 4]; 3],
     light: Option<(u8, u8)>,
+    frame_stream: Option<&chunk_pipeline::WorldStream>,
 ) -> StaticItemPlacement {
     StaticItemPlacement {
         identifier: Arc::clone(&item.identifier),
         metadata: item.metadata,
         potted_block: None,
+        carried_block: frame_stream.and_then(|stream| {
+            match stream
+                .authority()
+                .named_item_visual(&item.identifier, item.metadata)
+            {
+                assets::ItemVisualRoute::BlockItem(visual) => Some(visual),
+                _ => None,
+            }
+        }),
         world_from_item,
         light,
     }
@@ -907,6 +918,7 @@ fn resolve(
                     item,
                     item_frame_item_transform(position, model.outward, rotation_degrees),
                     model.glow.then_some((15, 15)),
+                    Some(stream),
                 ));
             }
             Some(BlockEntityKind::ItemFrame(model))
@@ -924,6 +936,7 @@ fn resolve(
                 identifier: Arc::clone(&plant.identifier),
                 metadata: 0,
                 potted_block: Some(id),
+                carried_block: None,
                 world_from_item: render_model::dropped_item_transform(
                     position.map(|axis| axis as f32 + 0.5),
                     0.0,
@@ -947,7 +960,7 @@ fn resolve(
                     * Mat4::from_translation(Vec3::new(x, CAMPFIRE_ITEM_HEIGHT, z))
                     * Mat4::from_scale(Vec3::splat(CAMPFIRE_ITEM_SCALE * 16.0))
                     * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2);
-                held.push(held_placement(item, matrix_rows(pose), None));
+                held.push(held_placement(item, matrix_rows(pose), None, None));
             }
             None
         }

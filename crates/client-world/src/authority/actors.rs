@@ -102,6 +102,11 @@ impl WorldAuthority {
     ) -> Option<crate::item::CanonicalItemStack> {
         self.actors.canonical_item_stack(stack)
     }
+
+    /// Resolves a named block-entity stack with the same visual rules as actor equipment.
+    pub fn named_item_visual(&self, identifier: &str, metadata: u32) -> assets::ItemVisualRoute {
+        self.actors.named_item_visual(identifier, metadata)
+    }
     /// Reads intrinsic shine admitted for the current numeric item identity.
     pub fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
         self.actors.item_glint(network_id)

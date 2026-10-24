@@ -11,8 +11,10 @@ pub struct StaticItemPlacement {
     pub identifier: Arc<str>,
     pub metadata: u32,
     /// A retained sequential block identity whose dedicated pot-content model is drawn.
-    /// `None` selects the item sprite used by frames and campfires.
+    /// `None` selects the ordinary carried model or item sprite.
     pub potted_block: Option<u32>,
+    /// A frame's canonical block visual, before selecting its compatible carried geometry.
+    pub carried_block: Option<assets::BlockVisualId>,
     /// Maps the unit item model into the world.
     pub world_from_item: [[f32; 4]; 3],
     /// Fixed light levels; `None` samples the world at the item.

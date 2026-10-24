@@ -16,7 +16,7 @@ impl ItemStateStore {
 
     /// Resolves an exact visual, using the base block only when aux cannot select a state.
     /// Sprite items keep their metadata-specific visual rules.
-    pub(super) fn resolve_visual(
+    pub(crate) fn resolve_visual(
         &self,
         identifier: &str,
         metadata: u32,

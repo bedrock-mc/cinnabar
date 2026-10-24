@@ -398,6 +398,30 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
+    /// Resolves a static item's compatible carried geometry before its icon fallback.
+    fn placement_model(
+        cache: &mut ModelCache,
+        icons: &UiPresentationRuntime,
+        assets: Option<&RuntimeAssets>,
+        placement: &render_model::StaticItemPlacement,
+        icon: Option<ui::IconRef>,
+    ) -> Option<u32> {
+        if let Some(id) = placement.potted_block {
+            return assets.and_then(|assets| Self::potted_model(cache, assets, id));
+        }
+        if let (Some(visual), Some(assets)) = (placement.carried_block, assets)
+            && let Some(model) =
+                Self::carried_block_model(cache, icons, assets, NetworkIdMode::Sequential, visual.0)
+        {
+            return Some(model);
+        }
+        icon.and_then(|icon| {
+            Self::resolved_icon_model(cache, icon, false, || {
+                icon_sprite(icons, &placement.identifier, placement.metadata, false)
+            })
+        })
+    }
+
     /// Publishes sampled item and rope geometry for the current frame.
     pub(super) fn publish(
         &mut self,
@@ -485,6 +509,12 @@ impl DroppedItemPublisher<'_, '_> {
                     cache.request(&ModelKey::PottedBlock { id });
                     placement_icons.push(None);
                     continue;
+                }
+                if let Some(visual) = placement.carried_block {
+                    cache.request(&ModelKey::CarriedBlock {
+                        hashed: false,
+                        id: visual.0,
+                    });
                 }
                 let icon = icons.item_icon(&placement.identifier, placement.metadata);
                 if let Some(icon) = icon {
@@ -583,19 +613,10 @@ impl DroppedItemPublisher<'_, '_> {
             }
         }
 
-        // Items held by block entities (item frames, campfires) use the same sprite path.
+        // Static items share carried models and icon fallbacks with dropped items.
         if let Some(placements) = self.placements.as_ref() {
             for (placement, &icon) in placements.0.0.iter().zip(placement_icons.iter()) {
-                let model = if let Some(id) = placement.potted_block {
-                    assets.and_then(|assets| Self::potted_model(cache, assets, id))
-                } else {
-                    // Demand collection already resolved this placement's icon.
-                    icon.and_then(|icon| {
-                        Self::resolved_icon_model(cache, icon, false, || {
-                            icon_sprite(icons, &placement.identifier, placement.metadata, false)
-                        })
-                    })
-                };
+                let model = Self::placement_model(cache, icons, assets, placement, icon);
                 let Some(model) = model else {
                     continue;
                 };

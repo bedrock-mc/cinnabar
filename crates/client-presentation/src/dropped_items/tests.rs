@@ -488,6 +488,85 @@ fn dropped_barrel_models_use_authored_carried_faces_for_both_id_modes() {
 }
 
 #[test]
+fn static_cube_items_retain_carried_faces_and_keep_sprite_fallbacks() {
+    let (compiled, records) = barrels();
+    let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let visual = assets::BlockVisualId(
+        records
+            .iter()
+            .find(|record| record.name.as_ref() == "minecraft:barrel")
+            .unwrap()
+            .sequential_id,
+    );
+    let tiles = std::array::from_fn(|face| assets::IconSprite {
+        width: assets::BLOCK_ITEM_FACE_SIDE,
+        height: assets::BLOCK_ITEM_FACE_SIDE,
+        rgba8: [31 + face as u8, 70, 90, 255]
+            .repeat(usize::from(assets::BLOCK_ITEM_FACE_SIDE).pow(2))
+            .into(),
+    });
+    let catalog = assets::RuntimeIconCatalog::decode(
+        &assets::encode_icon_catalog_with_block_sheets(
+            runtime.provenance().source_manifest_sha256,
+            &[assets::compose_block_item_sheet(&tiles).unwrap()],
+            &[assets::IconEntry {
+                identifier: "minecraft:barrel".into(),
+                metadata: 0,
+                sprite: 0,
+            }],
+            &[assets::IconBlockSheet { visual, sprite: 0 }],
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let icons = UiPresentationRuntime::with_hud_and_icons(
+        ui_engine::test_support::fixture_font(),
+        client_ui::test_support::fixture_hud(),
+        Arc::new(catalog),
+    )
+    .unwrap();
+    let mut placement = render_model::StaticItemPlacement {
+        identifier: "minecraft:barrel".into(),
+        metadata: 0,
+        potted_block: None,
+        carried_block: Some(visual),
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        light: None,
+    };
+    let icon = icons.item_icon(&placement.identifier, placement.metadata);
+    assert!(icon.is_some());
+    let mut cache = ModelCache::default();
+    cache.begin_frame();
+    cache.finish_demand();
+    let model =
+        DroppedItemPublisher::placement_model(&mut cache, &icons, Some(&runtime), &placement, icon)
+            .unwrap();
+    let DroppedItemModel::Cube(cube) = &cache.models[model as usize] else {
+        panic!("framed cubes retain six carried faces");
+    };
+    for (face, pixels) in cube.faces.iter().enumerate() {
+        assert_eq!(pixels.as_ref(), tiles[face].rgba8.as_ref());
+    }
+    for assets in [None, Some(&runtime)] {
+        placement.carried_block = None;
+        let sprite =
+            DroppedItemPublisher::placement_model(&mut cache, &icons, assets, &placement, icon)
+                .unwrap();
+        assert!(matches!(
+            &cache.models[sprite as usize],
+            DroppedItemModel::Sprite(_)
+        ));
+    }
+    placement.carried_block = Some(visual);
+    let sprite =
+        DroppedItemPublisher::placement_model(&mut cache, &icons, None, &placement, icon).unwrap();
+    assert!(matches!(
+        &cache.models[sprite as usize],
+        DroppedItemModel::Sprite(_)
+    ));
+}
+
+#[test]
 fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
     let (mut compiled, records) = barrels();
     let record = records
