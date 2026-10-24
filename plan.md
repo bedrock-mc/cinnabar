@@ -778,10 +778,15 @@ native packet order remains incomplete.
 
 ### Held block placement
 
-Held placement still needs confirmation of direction/face/intercept retention, repeat
-timing and reset behavior across slot/item changes, unavailable selection and deferred
-presses. Empty hands and non-block items repeat a block's own interaction; bucket
-repeats and item-specific uses on blocks remain incomplete. Preserve the explicit incomplete scope in the
+Held placement is incomplete: it keeps only the latest frame ray and prevents a second
+attempt in the same tick after a failed placement. Ordered frame-pick evaluation and
+same-tick retries while the existing deadline remains due still need implementation.
+Locked-line targeting also applies an extra support-centre range check after selecting
+the support; retained hit refresh and buffer-consumption behavior need full qualification.
+Direction/face/intercept retention, repeat timing and reset behavior across slot/item
+changes, unavailable selection and deferred presses still need confirmation. Empty hands
+and non-block items repeat a block's own interaction; bucket repeats and item-specific
+uses on blocks remain incomplete. Preserve the explicit incomplete scope in the
 [held-placement reference](docs/reference/held-block-placement.md).
 
 See [inventory ownership](docs/architecture/inventory.md),
