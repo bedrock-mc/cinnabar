@@ -61,19 +61,21 @@ mod tests {
     #[test]
     #[should_panic(expected = "aux-state owner membership differs from the pinned source")]
     fn aux_state_owner_validation_rejects_an_omission() {
-        let omitted = SOURCE.replace("minecraft:anvil\n", "");
-        assert_ne!(omitted, SOURCE);
+        let source = SOURCE.replace("\r\n", "\n");
+        let omitted = source.replace("minecraft:anvil\n", "");
+        assert_ne!(omitted, source);
         assert_valid_catalog(&omitted);
     }
 
     #[test]
     #[should_panic(expected = "aux-state owner membership differs from the pinned source")]
     fn aux_state_owner_validation_rejects_an_extra() {
-        let extra = SOURCE.replace(
+        let source = SOURCE.replace("\r\n", "\n");
+        let extra = source.replace(
             "minecraft:bone_block\n",
             "minecraft:blue_terracotta\nminecraft:bone_block\n",
         );
-        assert_ne!(extra, SOURCE);
+        assert_ne!(extra, source);
         assert_valid_catalog(&extra);
     }
 
