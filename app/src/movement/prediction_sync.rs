@@ -22,7 +22,7 @@ pub(crate) fn send_movement_prediction_sync(
         &client_interaction::movement::world_view::GameplayWorldView(stream),
         player_runtime.facts.air_drag_modifier(),
         movement_speed.reported_current(),
-        using_item,
+        Some(using_item),
         |packet| network.send_movement_packet(packet).is_ok(),
     );
 }
