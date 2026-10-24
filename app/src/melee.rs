@@ -86,7 +86,7 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
-    item_use: bevy::prelude::Res<client_interaction::item_use::ItemUseRuntime>,
+    mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
 ) {
     let ordered = context
         .input
@@ -149,6 +149,11 @@ pub(crate) fn prepare_melee(
     let now_millis = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let focused =
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
+    // A same-frame slot change ends the old item's use before Attack is judged, as the later
+    // item-use producer and the ordered hotbar path would.
+    if let Some(slot) = player_runtime.selected_hotbar_slot() {
+        item_use.retire_reselected_use(slot);
+    }
     if let Err(reason) = press_admission(
         focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),

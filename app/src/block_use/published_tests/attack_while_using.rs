@@ -107,3 +107,35 @@ fn eating_ignores_held_attack_mining() {
         );
     }
 }
+
+/// A slot change in the same frame ends the eat before Attack is judged, so the press stays
+/// queued for the newly selected item (it waits for the selection to be announced) instead
+/// of being dropped as an attack during item use.
+#[test]
+fn a_same_frame_slot_change_ends_the_eat_before_the_attack() {
+    let (mut world, _captured) = attack_fixture(7.5);
+    start_eating(&mut world);
+    let selected = world
+        .resource::<client_state::PlayerRuntime>()
+        .selected_hotbar_slot()
+        .unwrap();
+    let mode = world
+        .resource::<client_state::PlayerRuntime>()
+        .facts
+        .player_game_mode();
+    world
+        .resource_mut::<client_state::PlayerRuntime>()
+        .inventory
+        .queue_local_hotbar_selection((selected + 1) % 9, mode);
+    attack(&mut world);
+    assert!(
+        !world
+            .resource::<client_interaction::item_use::ItemUseRuntime>()
+            .is_using(),
+        "the slot change left the old item in use"
+    );
+    assert!(
+        world.resource::<MeleeRuntime>().press_pending(),
+        "the attack after the slot change was dropped"
+    );
+}
