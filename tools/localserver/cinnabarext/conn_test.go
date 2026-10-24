@@ -162,6 +162,9 @@ func newConn(t *testing.T, change func(*Config)) *connFixture {
 	if f.conn, err = l.Accept(); err != nil {
 		t.Fatal(err)
 	}
+	if err := f.conn.WritePacket(&packet.ItemRegistry{}); err != nil {
+		t.Fatal(err)
+	}
 	return f
 }
 
@@ -767,5 +770,51 @@ func TestDeclaresTheToClientChannels(t *testing.T) {
 		if s.Declares(manifest.ID, c.ID, c.Schema+1) || s.Declares("other", c.ID, c.Schema) {
 			t.Errorf("declares another schema or Experience for %s", c.ID)
 		}
+	}
+}
+
+// TestRejectedDuplicateKeepsAdmittedSession preserves sends and world changes during a second login.
+func TestRejectedDuplicateKeepsAdmittedSession(t *testing.T) {
+	f, _ := readyFixture(t)
+	admitted := f.s.PlayerSession(f.player)
+	duplicate := &fakeConn{identity: f.inner.identity}
+	f.listener.conns = append(f.listener.conns, duplicate)
+	l := &listener{Listener: f.listener, s: f.s}
+	pending, err := l.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.s.PlayerSession(f.player) != admitted || !f.sendToClient(1) {
+		t.Fatal("pending duplicate replaced the admitted session")
+	}
+	if err := l.Disconnect(pending, "Already logged in."); err != nil {
+		t.Fatal(err)
+	}
+	if f.s.PlayerSession(f.player) != admitted || !f.sendToClient(1) {
+		t.Fatal("rejected duplicate removed the admitted session")
+	}
+	if !f.s.WorldChanged(f.player, "sample:destination") {
+		t.Fatal("rejected duplicate lost world-change authority")
+	}
+}
+
+// TestRejectedLoginNeverRegisters keeps a failed initial login out of the admitted sessions.
+func TestRejectedLoginNeverRegisters(t *testing.T) {
+	s, _ := testServer(t, nil)
+	id := uuid.New()
+	inner := &fakeListener{conns: []session.Conn{&fakeConn{identity: login.IdentityData{Identity: id.String()}}}}
+	l := &listener{Listener: inner, s: s}
+	pending, err := l.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.PlayerSession(id) != nil {
+		t.Fatal("unadmitted login registered a session")
+	}
+	if err := l.Disconnect(pending, "Connection timeout."); err != nil {
+		t.Fatal(err)
+	}
+	if s.PlayerSession(id) != nil {
+		t.Fatal("rejected login retained a session")
 	}
 }

@@ -165,3 +165,33 @@ func TestDrainRetainsLeaveBehindFullQueue(t *testing.T) {
 		t.Fatalf("full queue lost leave write: %+v", state)
 	}
 }
+
+// TestDrainAfterCancelledRun persists queued callbacks and final leaves after the workers exit.
+func TestDrainAfterCancelledRun(t *testing.T) {
+	for _, mode := range []string{"before_start", "during_callback"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newRuntimeFixture(t)
+			sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
+			sup.registered.Worlds = f.d.sup.registered.Worlds
+			f.d.sup = sup
+			runCtx, cancelRun := context.WithCancel(context.Background())
+			defer cancelRun()
+			if mode == "before_start" {
+				cancelRun()
+			} else {
+				f.h.afterCall = cancelRun
+			}
+			f.h.Run(runCtx)
+			f.h.afterCall = nil
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := f.h.Drain(ctx); err != nil {
+				t.Fatal(err)
+			}
+			state := openTestStore(t, f.h.store.dir).readStates("probe", []stateAddress{{Scope: StorePlayer, Owner: f.actor.UUID().String()}})[0]
+			if state.Revision != 1 || state.Data == nil || *state.Data != "01" {
+				t.Fatalf("stopped workers lost final leave write: %+v", state)
+			}
+		})
+	}
+}

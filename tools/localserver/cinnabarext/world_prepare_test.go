@@ -1,8 +1,10 @@
 package cinnabarext
 
 import (
-	"github.com/google/uuid"
 	"testing"
+
+	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
 // TestPreparedWorldChangeFencesAndAborts preserves ordinary traffic without a committed transfer.
@@ -187,6 +189,9 @@ func TestReconnectAfterCommittedTransferRetiresWorldState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := f.conn.WritePacket(&packet.ItemRegistry{}); err != nil {
+		t.Fatal(err)
+	}
 	hello := f.hello()
 	hello.Wire = nil
 	accept := f.accept(hello)
@@ -210,6 +215,9 @@ func TestOldSessionCannotRetireReconnect(t *testing.T) {
 	wrapped := &listener{Listener: f.listener, s: f.s}
 	f.conn, err = wrapped.Accept()
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.conn.WritePacket(&packet.ItemRegistry{}); err != nil {
 		t.Fatal(err)
 	}
 	hello := f.hello()

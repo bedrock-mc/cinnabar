@@ -43,7 +43,7 @@ func (l *listener) Accept() (session.Conn, error) {
 	}
 	wrapped := &Conn{Conn: c, s: l.s, player: player, hostEpoch: 1}
 	l.s.mu.Lock()
-	l.s.connections[player] = wrapped
+	l.s.pending[wrapped] = struct{}{}
 	l.s.mu.Unlock()
 	return wrapped, nil
 }
@@ -85,6 +85,7 @@ type Conn struct {
 	mu             sync.Mutex
 	phase          phase
 	retired        bool
+	admitted       bool
 	pendingChange  *WorldChange
 	committedWorld WorldID
 	hostEpoch      uint64
@@ -134,7 +135,29 @@ func (c *Conn) WritePacket(pk packet.Packet) error {
 	if _, ok := pk.(*packet.ChangeDimension); ok {
 		c.dimensionChanged()
 	}
-	return c.Conn.WritePacket(pk)
+	if err := c.Conn.WritePacket(pk); err != nil {
+		return err
+	}
+	if _, ok := pk.(*packet.ItemRegistry); ok {
+		// Dragonfly writes the registry after StartGame and its duplicate-login check,
+		// before spawning the session or calling the server's player admission handler.
+		c.admit()
+	}
+	return nil
+}
+
+// admit publishes this pending connection after Dragonfly accepts its login.
+func (c *Conn) admit() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.retired || c.admitted {
+		return
+	}
+	c.admitted = true
+	c.s.mu.Lock()
+	delete(c.s.pending, c)
+	c.s.connections[c.player] = c
+	c.s.mu.Unlock()
 }
 
 // Close ends the client part with the connection.
@@ -490,6 +513,7 @@ func (c *Conn) Retire() {
 	c.fallBack(errors.New("disconnected"))
 	c.mu.Unlock()
 	c.s.mu.Lock()
+	delete(c.s.pending, c)
 	if c.s.connections[c.player] == c {
 		delete(c.s.connections, c.player)
 	}

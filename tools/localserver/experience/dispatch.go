@@ -61,6 +61,8 @@ type Host struct {
 	stop chan struct{}
 	// workers counts the running workers.
 	workers sync.WaitGroup
+	// done closes once Run has stopped every worker.
+	done chan struct{}
 
 	// mu guards the fields below.
 	mu sync.Mutex
@@ -144,6 +146,7 @@ func NewHost(
 		dispatchers: make(map[string]*dispatcher, len(sups)),
 		tell:        messageTeller{},
 		stop:        make(chan struct{}),
+		done:        make(chan struct{}),
 		resume:      make(chan struct{}),
 	}
 	close(h.resume)
@@ -183,6 +186,7 @@ func (h *Host) Run(ctx context.Context) {
 	}
 	cancel()
 	h.workers.Wait()
+	close(h.done)
 }
 
 // Pause stops the workers before their next snapshot or commit while paused is true; Pause(false)
@@ -420,7 +424,7 @@ func (h *Host) drop(d *dispatcher) {
 
 // work runs the Experience's events one at a time until ctx is done.
 func (h *Host) work(ctx context.Context, d *dispatcher) {
-	for {
+	for ctx.Err() == nil {
 		select {
 		case <-ctx.Done():
 			return
