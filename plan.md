@@ -170,6 +170,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
   faults from geometry; do not mask them with speculative renderer changes.
+  Slab templates reverse north/east U and underside V while preserving height crops
+  and boundary culling. Their registry-wide geometry guard does not close visual acceptance.
 - [ ] Close vine attachment-mask, neighbour, connectivity and texture/UV acceptance.
   Adjudicate glow lichen and sculk vein separately rather than assuming identical rules.
 - [ ] Close the exhaustive residual-family inventory for the pinned target. Every
