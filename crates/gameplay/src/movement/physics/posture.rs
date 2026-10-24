@@ -24,6 +24,7 @@ pub(super) enum ServerWrite {
         client_world::ExplicitDimensions,
     ),
     Flags(client_world::MovementFlagUpdate),
+    PoseCorrection(server_flags::FlagCorrection),
     Controls(client_world::MovementFlagUpdate),
     Dimensions(client_world::ExplicitDimensions),
 }
@@ -35,7 +36,10 @@ pub(super) fn replay_actor_modes(writes: &[ServerWrite], modes: &mut ModeTracker
             ServerWrite::Controls(flags) => {
                 modes.adopt_actor_flags(flags);
             }
-            ServerWrite::Replacement(..) | ServerWrite::Flags(_) | ServerWrite::Dimensions(_) => {}
+            ServerWrite::Replacement(..)
+            | ServerWrite::Flags(_)
+            | ServerWrite::PoseCorrection(_)
+            | ServerWrite::Dimensions(_) => {}
         }
     }
 }
@@ -135,6 +139,10 @@ impl SyncState {
                     self.replace_actor(flags, dimensions)
                 }
                 ServerWrite::Flags(flags) => self.apply_flags(flags),
+                ServerWrite::PoseCorrection(correction) => {
+                    self.flags.merge(correction.flags());
+                    self.resize();
+                }
                 ServerWrite::Dimensions(dimensions) => {
                     self.apply_dimensions(dimensions);
                 }
@@ -289,6 +297,183 @@ fn moving_between(before: Vec3, after: Vec3) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct OpenWorld;
+
+    impl CollisionWorld for OpenWorld {
+        /// Supplies empty terrain for the local pose and correction ticks.
+        fn collision_boxes(
+            &self,
+            _: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+    }
+
+    /// Starts and immediately stops a glide, applying its stamped start live or by replay.
+    fn stopped_glide(replay: bool) -> LocalPhysicsController {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+        let mut dimensions = client_world::ExplicitDimensions::for_spawn(1);
+        dimensions.record(
+            &protocol::ActorMetadata {
+                key: protocol_ids::ActorDataKey::Height.wire_value(),
+                value: protocol::ActorMetadataValue::Float(0.7),
+            },
+            1,
+        );
+        physics.note_server_dimensions(dimensions);
+        let anchor = physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &OpenWorld,
+            )
+            .samples
+            .remove(0);
+        assert!(physics.sync_state.explicit_size);
+        let start = client_world::MovementFlagUpdate {
+            gliding: Some(true),
+            ..Default::default()
+        };
+        if !replay {
+            assert_eq!(
+                physics.apply_server_movement_flags(anchor.tick, start),
+                None
+            );
+        }
+        let sample = physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &OpenWorld,
+            )
+            .samples
+            .remove(0);
+        assert_eq!(sample.processed.mode, sim::MovementMode::Walking);
+        if replay {
+            assert_eq!(
+                physics.apply_server_movement_flags(anchor.tick, start),
+                Some(anchor.tick)
+            );
+            let plan = physics
+                .apply_correction(
+                    crate::movement::PhysicsAnchor {
+                        network_position: anchor.position,
+                        tick: anchor.tick,
+                        on_ground: false,
+                        velocity: Some(anchor.velocity),
+                    },
+                    crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                    None,
+                    &OpenWorld,
+                )
+                .unwrap();
+            assert_eq!(plan.replayed_samples.len(), 1);
+            assert_eq!(
+                plan.replayed_samples[0].processed.mode,
+                sim::MovementMode::Walking
+            );
+        }
+        physics
+    }
+
+    #[test]
+    fn replayed_glide_start_and_immediate_stop_report_standing_height() {
+        let physics = stopped_glide(true);
+        assert_eq!(
+            physics.prediction_sync_size(),
+            Some([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+        );
+        assert!(!physics.prediction_sync_explicit_size());
+    }
+
+    #[test]
+    fn replayed_glide_start_and_immediate_stop_match_live_sync_state() {
+        assert_eq!(
+            stopped_glide(true).sync_state,
+            stopped_glide(false).sync_state
+        );
+    }
+
+    #[test]
+    fn pose_correction_and_dimension_order_survives_replay() {
+        for dimensions_first in [false, true] {
+            let mut physics = LocalPhysicsController::default();
+            physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+            let anchor = physics
+                .advance(
+                    simulation_clock::TICK_DURATION,
+                    MovementInput::default(),
+                    &OpenWorld,
+                )
+                .samples
+                .remove(0);
+            let mut dimensions = client_world::ExplicitDimensions::for_spawn(1);
+            dimensions.record(
+                &protocol::ActorMetadata {
+                    key: protocol_ids::ActorDataKey::Width.wire_value(),
+                    value: protocol::ActorMetadataValue::Float(0.8),
+                },
+                1,
+            );
+            if dimensions_first {
+                physics.note_server_dimensions(dimensions);
+            }
+            physics.apply_server_movement_flags(
+                0,
+                client_world::MovementFlagUpdate {
+                    gliding: Some(true),
+                    ..Default::default()
+                },
+            );
+            if !dimensions_first {
+                physics.note_server_dimensions(dimensions);
+            }
+            physics.advance_with_context(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                PhysicsSampleContext {
+                    mode_intent: ModeIntent {
+                        elytra_ready: true,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                &OpenWorld,
+            );
+            let live = physics.sync_state;
+            assert_eq!(live.explicit_size, !dimensions_first);
+            assert_eq!(
+                live.size,
+                Some([
+                    if dimensions_first {
+                        sim::PLAYER_WIDTH as f32
+                    } else {
+                        0.8
+                    },
+                    sim::PLAYER_WIDTH as f32,
+                ])
+            );
+            physics
+                .apply_correction(
+                    crate::movement::PhysicsAnchor {
+                        network_position: anchor.position,
+                        tick: anchor.tick,
+                        on_ground: false,
+                        velocity: Some(anchor.velocity),
+                    },
+                    crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                    None,
+                    &OpenWorld,
+                )
+                .unwrap();
+            assert_eq!(
+                physics.sync_state, live,
+                "dimensions first: {dimensions_first}"
+            );
+        }
+    }
 
     #[test]
     fn replacement_resets_every_sync_field_and_replays_as_one_write() {

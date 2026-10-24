@@ -278,7 +278,6 @@ impl LocalPhysicsController {
                             .find(|frame| frame.tick == previous.tick_result.tick)
                             .expect("controller and prediction histories retain the same ticks");
                         frame.finish_eye(&mut eye, state);
-                        sync_state.replay_server(&frame.sync_server);
                         sync_state.complete_tick(frame, state);
                         frame.sync_state = sync_state;
                     }
@@ -321,6 +320,9 @@ impl LocalPhysicsController {
                     };
                     let word = frame.flag_correction.apply(frame.entry_flags);
                     server_flags::impose(word, &mut modes, state, dormant);
+                    // Accepted pose changes resize before local producers can end them.
+                    // Replay them with dimensions in their original arrival order.
+                    sync_state.replay_server(&frame.sync_server);
                     baselines.push((
                         frame.tick,
                         modes.mode(),
@@ -359,7 +361,6 @@ impl LocalPhysicsController {
                 .as_ref()
                 .expect("successful replay retains state");
             frame.finish_eye(&mut eye, state);
-            sync_state.replay_server(&frame.sync_server);
             sync_state.complete_tick(frame, state);
             frame.sync_state = sync_state;
         }

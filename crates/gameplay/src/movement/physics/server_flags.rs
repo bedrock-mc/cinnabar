@@ -87,6 +87,18 @@ pub(super) struct FlagCorrection {
 }
 
 impl FlagCorrection {
+    /// Returns only the pose and spin bits changed by this correction.
+    pub(super) fn flags(self) -> client_world::MovementFlagUpdate {
+        let flag = |bit| (self.mask & bit != 0).then_some(self.value & bit != 0);
+        client_world::MovementFlagUpdate {
+            gliding: flag(1),
+            swimming: flag(1 << 1),
+            crawling: flag(1 << 2),
+            spinning: flag(SPINNING),
+            ..Default::default()
+        }
+    }
+
     /// The bits of `write` that differ from `base`.
     fn against(write: FlagWrite, base: FlagWord) -> Self {
         let mask = write.present & (write.value ^ base.0);
@@ -359,7 +371,9 @@ impl LocalPhysicsController {
             return;
         }
         self.correct_live(correction);
+        let sync_write = posture::ServerWrite::PoseCorrection(correction);
         if tick == 0 {
+            self.sync_pending.push(sync_write);
             return;
         }
         let Some(current) = self.state.as_ref().map(|state| state.tick) else {
@@ -372,9 +386,13 @@ impl LocalPhysicsController {
                 .find(|frame| frame.tick == current)
             {
                 frame.flag_correction = frame.flag_correction.then(correction);
+                frame.sync_server.push(sync_write);
+            } else {
+                self.sync_pending.push(sync_write);
             }
             return;
         }
+        self.sync_pending.push(sync_write);
         let Some(next) = current.checked_add(1) else {
             return;
         };
@@ -405,6 +423,9 @@ impl LocalPhysicsController {
             return false;
         }
         frame.flag_correction = frame.flag_correction.then(correction);
+        frame
+            .sync_server
+            .push(posture::ServerWrite::PoseCorrection(correction));
         self.correct_live(correction);
         true
     }
