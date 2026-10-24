@@ -75,6 +75,12 @@ impl WorldStream {
         // A sorted, deduplicated Vec visits keys in the same ascending order a BTreeSet
         // would, without a node allocation per key on a full-view teleport.
         let mut changed = self.resident_keys_in_columns(&columns);
+        // Capture acknowledged absence before detaching sources and pruning applied state.
+        let prepared_air = changed
+            .iter()
+            .copied()
+            .filter(|&key| self.has_settled_air_publication(key))
+            .collect::<HashSet<_>>();
         let removing_all = changed.len() == self.resident.len();
         for &column in &columns {
             if let Some(range) = self.authority.dimension_range(column.dimension) {
@@ -147,7 +153,9 @@ impl WorldStream {
                 self.lighting.remove_key(key);
             }
             // Removals publish whatever detail the column had, so no mesh outlives it.
-            self.mark_dirty_exact_ungated(key, now, false);
+            if !prepared_air.contains(&key) {
+                self.mark_dirty_exact_ungated(key, now, false);
+            }
         }
         for key in light_dirty {
             self.mark_light_dirty_exact_with_priority(key, false);
@@ -165,6 +173,15 @@ impl WorldStream {
             });
         }
         self.spawn_far_summaries(far_retiring);
+    }
+
+    /// Proves current air was acknowledged with no newer or unfinished mesh work.
+    pub(super) fn has_settled_air_publication(&self, key: SubChunkKey) -> bool {
+        self.is_mesh_clean(key)
+            && self.applied_mesh_generations.contains_key(&key)
+            && !self.mesh_jobs.pending.contains_key(&key)
+            && !self.mesh_jobs.in_flight.contains_key(&key)
+            && self.terrain_removal_kind(key) == render_api::TerrainRemovalKind::Empty
     }
 
     /// Resident keys outside the removed columns that sample a removed key: face neighbours

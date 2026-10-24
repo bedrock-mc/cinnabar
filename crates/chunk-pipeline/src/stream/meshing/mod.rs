@@ -6,3 +6,6 @@ mod retries;
 pub(in crate::stream) mod types;
 
 pub(in crate::stream) mod memory;
+
+#[cfg(test)]
+pub(in crate::stream) use jobs::GEOMETRY_CLASSIFICATIONS;

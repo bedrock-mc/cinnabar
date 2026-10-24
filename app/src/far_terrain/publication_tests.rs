@@ -24,6 +24,17 @@ use render_scene::{
 };
 use world::{ChunkKey, SubChunkKey};
 
+/// Publishes current receipt scope before refreshing the read-only draw target.
+fn refresh_target(
+    far: &mut FarTerrain,
+    stream: &mut WorldStream,
+    horizon: i32,
+    scene: &mut FarTerrainScene,
+) {
+    far.publish_source(Some(stream), scene);
+    far.publish_target(stream, horizon, scene);
+}
+
 /// Transfers admitted world changes through the same permitted render queue used at runtime.
 fn publish_changes(app: &mut App, stream: &mut WorldStream) {
     let mut queue = app.world_mut().resource_mut::<ChunkRenderQueue>();
@@ -92,11 +103,11 @@ fn acknowledge(app: &App, stream: &mut WorldStream) -> usize {
 }
 
 /// Rebuilds and publishes the production near mask after stream acknowledgements.
-fn refresh_mask(app: &mut App, far: &mut FarTerrain, stream: &WorldStream) {
+fn refresh_mask(app: &mut App, far: &mut FarTerrain, stream: &mut WorldStream) {
     far.update_near(stream, ChunkKey::new(0, 0, 0), 1, 32);
     let mut scene = app.world_mut().resource_mut::<FarTerrainScene>();
     scene.near = Arc::clone(&far.near);
-    far.publish_target(stream, 32, &mut scene);
+    refresh_target(far, stream, 32, &mut scene);
 }
 
 /// Observes actual extracted near geometry and allocations, rather than handoff membership.
@@ -167,12 +178,12 @@ fn publication_source_tracks_stream_and_dimension_visits_without_following_featu
     stream.stage_publication_fixture_known_air(key);
     let mut far = FarTerrain::new(None);
     let mut scene = FarTerrainScene::default();
-    far.publish_source(Some(&stream), &mut scene);
+    far.publish_source(Some(&mut stream), &mut scene);
     let original = scene.publications.clone().unwrap();
     original.record(key, 1, true);
     for enabled in [true, false, true] {
         stream.set_far_terrain_enabled(enabled);
-        far.publish_source(Some(&stream), &mut scene);
+        far.publish_source(Some(&mut stream), &mut scene);
         assert!(scene.publications.as_ref().unwrap().same_source(&original));
         assert_eq!(
             scene
@@ -199,12 +210,12 @@ fn publication_source_tracks_stream_and_dimension_visits_without_following_featu
         stream.poll([0.0; 3], 0);
         stream.current_dimension() == 1
     });
-    far.publish_source(Some(&stream), &mut scene);
+    far.publish_source(Some(&mut stream), &mut scene);
     let dimension = scene.publications.clone().unwrap();
     assert!(!dimension.same_source(&original));
     assert!(dimension.changed_empty(None).unwrap().1.is_empty());
-    let replacement = WorldStream::new(bootstrap);
-    far.publish_source(Some(&replacement), &mut scene);
+    let mut replacement = WorldStream::new(bootstrap);
+    far.publish_source(Some(&mut replacement), &mut scene);
     assert!(!scene.publications.as_ref().unwrap().same_source(&dimension));
     far.publish_source(None, &mut scene);
     assert!(scene.publications.is_none());
@@ -221,7 +232,10 @@ fn enabling_far_terrain_reuses_full_and_empty_gpu_publications_across_toggle_cyc
     let air_column = ChunkKey::new(0, 9, 0);
     let air = SubChunkKey::from_chunk(air_column, 0);
     let publications = render_scene::terrain_publication::TerrainPublications::default();
-    publications.retain([solid, empty, air].into_iter());
+    publications.retain(
+        true,
+        [(column, vec![solid, empty]), (air_column, vec![air])],
+    );
     let assets = Arc::new(assets::RuntimeAssets::diagnostic());
     let source = world::SubChunk::decode(&[9, 1, 0, 1, 2], &world::RawBlockIds { air: 0 });
     let mesh = meshing::mesh_sub_chunk(
@@ -437,12 +451,12 @@ fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_remo
         stream.far_handoffs().any(|ready| ready == column)
     });
     let mut far = FarTerrain::new(None);
-    refresh_mask(&mut app, &mut far, &stream);
+    refresh_mask(&mut app, &mut far, &mut stream);
     assert!(far.near.contains(pos));
     settle_publication_noop_frame(&mut app);
     assert_column_coverage(&mut app, column, true);
     stream.finish_far_handoff(column);
-    refresh_mask(&mut app, &mut far, &stream);
+    refresh_mask(&mut app, &mut far, &mut stream);
     assert!(!stream.near_drawn_columns().1.any(|drawn| drawn == column));
     assert!(
         !far.near.contains(pos),
@@ -453,7 +467,7 @@ fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_remo
         allowance.begin_frame(frame, 0, 0, 0, config.maximum_frame_items);
         stream.poll([8.0, 64.0, 8.0], 3);
         assert_eq!(stream.pending_mesh_change_count(), 0);
-        refresh_mask(&mut app, &mut far, &stream);
+        refresh_mask(&mut app, &mut far, &mut stream);
         settle_publication_noop_frame(&mut app);
         assert_near_geometry(&mut app, 3);
         assert_column_coverage(&mut app, column, false);
@@ -468,7 +482,7 @@ fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_remo
     app.world_mut()
         .insert_resource(budget.with_zero_byte_operations_per_frame(0));
     for _ in 0..3 {
-        refresh_mask(&mut app, &mut far, &stream);
+        refresh_mask(&mut app, &mut far, &mut stream);
         settle_publication_noop_frame(&mut app);
         assert_near_geometry(&mut app, 3);
         assert_column_coverage(&mut app, column, false);
@@ -481,7 +495,7 @@ fn outgoing_draw_switch_is_atomic_through_delayed_and_budget_split_physical_remo
         assert_near_geometry(&mut app, remaining);
         assert_column_coverage(&mut app, column, false);
         assert_eq!(acknowledge(&app, &mut stream), 1);
-        refresh_mask(&mut app, &mut far, &stream);
+        refresh_mask(&mut app, &mut far, &mut stream);
         assert_column_coverage(&mut app, column, false);
     }
     settle_publication_noop_frame(&mut app);
@@ -513,15 +527,15 @@ fn publication_membership_growth_and_retirement_refresh_cached_sources_and_targe
     stream.load_publication_fixture_column(first.chunk());
     let mut far = FarTerrain::new(None);
     let mut scene = FarTerrainScene::default();
-    far.publish_target(&stream, 32, &mut scene);
+    refresh_target(&mut far, &mut stream, 32, &mut scene);
     let source = scene.publications.clone().unwrap();
     source.record(first, a.generation, true);
     let before = scene.target.clone().unwrap();
-    far.publish_target(&stream, 32, &mut scene);
+    refresh_target(&mut far, &mut stream, 32, &mut scene);
     assert!(Arc::ptr_eq(&before, scene.target.as_ref().unwrap()));
 
     let b = stream.stage_publication_fixture_known_air(second);
-    far.publish_target(&stream, 32, &mut scene);
+    refresh_target(&mut far, &mut stream, 32, &mut scene);
     let grown = scene.target.clone().unwrap();
     assert!(!Arc::ptr_eq(&before, &grown));
     assert!(source.same_source(scene.publications.as_ref().unwrap()));
@@ -542,11 +556,11 @@ fn publication_membership_growth_and_retirement_refresh_cached_sources_and_targe
         stamp,
         "a resend keeps membership"
     );
-    far.publish_source(Some(&stream), &mut scene);
+    far.publish_source(Some(&mut stream), &mut scene);
     assert!(source.changed_empty(Some(revision)).is_none());
 
     stream.evict_publication_fixture_column(first.chunk());
-    far.publish_target(&stream, 32, &mut scene);
+    refresh_target(&mut far, &mut stream, 32, &mut scene);
     assert!(scene.target.as_ref().unwrap().retained.is_empty());
     assert!(scene.target.as_ref().unwrap().near.is_empty());
     assert!(source.changed_empty(None).unwrap().1.is_empty());
@@ -582,11 +596,11 @@ fn a_new_stream_republishes_targets_even_when_section_counters_match() {
     );
     let mut far = FarTerrain::new(None);
     let mut scene = FarTerrainScene::default();
-    far.publish_target(&first, 32, &mut scene);
+    refresh_target(&mut far, &mut first, 32, &mut scene);
     let target = scene.target.clone().unwrap();
     let source = scene.publications.clone().unwrap();
     source.record(key, 1, true);
-    far.publish_target(&second, 32, &mut scene);
+    refresh_target(&mut far, &mut second, 32, &mut scene);
     assert!(!Arc::ptr_eq(&target, scene.target.as_ref().unwrap()));
     assert!(!source.same_source(scene.publications.as_ref().unwrap()));
     assert!(
@@ -677,7 +691,7 @@ fn first_delivered_air_masks_cached_terrain_at_either_mesh_radius() {
                 ..Default::default()
             };
             let mut far = FarTerrain::new(None);
-            far.publish_target(&stream, 32, &mut scene);
+            refresh_target(&mut far, &mut stream, 32, &mut scene);
             let mut app = publication_app(
                 ChunkTextureAssets::new(assets),
                 ChunkBiomeTints::default(),
@@ -705,7 +719,7 @@ fn first_delivered_air_masks_cached_terrain_at_either_mesh_radius() {
             let actual = publication_render_terminal_snapshot(&mut app);
             assert_eq!((actual.near_updates, actual.near_upload_bytes), (0, 0));
             assert_eq!(acknowledge(&app, &mut stream), sections);
-            refresh_mask(&mut app, &mut far, &stream);
+            refresh_mask(&mut app, &mut far, &mut stream);
             settle_publication_noop_frame(&mut app);
             assert_eq!(publication_terrain_draws(&mut app, column), (vec![], false));
             assert_eq!(allowance.live_permits(), 0);
@@ -734,10 +748,11 @@ fn far_tile_changes_reuse_section_requirements() {
         }
         let mut far = FarTerrain::new(None);
         let mut scene = FarTerrainScene::default();
-        far.publish_target(&stream, 256, &mut scene);
+        refresh_target(&mut far, &mut stream, 256, &mut scene);
         let before = scene.target.clone().unwrap();
         far.tiles.clear();
-        let (_, allocations) = test_alloc::measure(|| far.publish_target(&stream, 256, &mut scene));
+        let (_, allocations) =
+            test_alloc::measure(|| refresh_target(&mut far, &mut stream, 256, &mut scene));
         let after = scene.target.as_ref().unwrap();
         assert!(!Arc::ptr_eq(&before, after));
         assert_eq!(after.near.len(), count as usize);
@@ -748,5 +763,49 @@ fn far_tile_changes_reuse_section_requirements() {
     assert_eq!(
         work[0], work[1],
         "far-only updates must not rescan section requirements"
+    );
+}
+
+/// Changing one column must not copy unrelated sections or lose their GPU receipts.
+#[test]
+fn publication_residency_changes_allocate_only_for_changed_columns() {
+    let mut work = Vec::new();
+    for count in [1, 2048] {
+        let mut stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            dimension: 0,
+            local_player_runtime_id: 1,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        for x in 0..count {
+            for y in 0..3 {
+                stream.stage_publication_fixture_known_air(SubChunkKey::new(0, x, y, 0));
+            }
+        }
+        let mut far = FarTerrain::new(None);
+        let mut scene = FarTerrainScene::default();
+        far.publish_source(Some(&mut stream), &mut scene);
+        let source = scene.publications.clone().unwrap();
+        let kept = SubChunkKey::new(0, count - 1, 0, 0);
+        source.record(kept, 1, true);
+
+        let added = SubChunkKey::new(0, 0, 3, 0);
+        stream.stage_publication_fixture_known_air(added);
+        let (_, allocations) =
+            test_alloc::measure(|| far.publish_source(Some(&mut stream), &mut scene));
+        work.push(allocations);
+        assert!(source.same_source(scene.publications.as_ref().unwrap()));
+        source.record(added, 2, true);
+        assert_eq!(
+            source.changed_empty(None).unwrap().1,
+            std::collections::HashMap::from([(kept, 1), (added, 2)])
+        );
+    }
+    assert_eq!(
+        work[0], work[1],
+        "unrelated residency grew reconciliation copies"
     );
 }

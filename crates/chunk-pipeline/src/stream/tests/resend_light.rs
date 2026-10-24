@@ -2,6 +2,8 @@
 
 use super::{light_scheduler::install_current_light, *};
 
+mod biome_only;
+
 /// Commits chunk 1's single section as `runtime_id` with solved light and no queued meshes.
 fn settled_column(runtime_id: u32) -> (WorldStream, SubChunkKey) {
     let mut stream = WorldStream::new(WorldBootstrap {

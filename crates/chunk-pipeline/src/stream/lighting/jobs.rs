@@ -268,6 +268,12 @@ impl WorldStream {
                 lower = next;
             }
             let batch_urgent = batch_inputs.iter().any(|(_, pending, _, _)| pending.urgent);
+            let context = LightBatchContext {
+                retained: &batch_keys,
+                top_sub_chunk_y: (key.dimension == 0)
+                    .then(|| self.light_column_top_sub_chunk_y(key))
+                    .flatten(),
+            };
             let batch = batch_inputs
                 .into_iter()
                 .map(|(key, mut pending, block_generation, bounds)| {
@@ -277,7 +283,7 @@ impl WorldStream {
                         pending,
                         block_generation,
                         bounds,
-                        &batch_keys,
+                        &context,
                         batch_id,
                     )
                 })
@@ -334,21 +340,22 @@ impl WorldStream {
         drop(dispatch);
         dispatched
     }
+    /// Takes one member's exact identity and snapshots while reusing immutable batch inputs.
     fn take_prepared_light_job(
         &mut self,
         key: SubChunkKey,
         pending: PendingLight,
         block_generation: u64,
         bounds: LightBounds,
-        retained_batch: &HashSet<SubChunkKey>,
+        context: &LightBatchContext<'_>,
         batch_id: u64,
     ) -> PreparedLightJob {
         if !self.lighting.ownership.contains_key(&key) {
             debug_assert!(self.lighting.store.light(key).is_some());
         }
         self.lighting.remove_waiter_target(key);
-        let blocks = self.light_block_snapshot(key);
-        self.register_untrusted_light_waiters(key, retained_batch);
+        let blocks = self.light_block_snapshot_with_top(key, context.top_sub_chunk_y);
+        self.register_untrusted_light_waiters(key, context.retained, context.top_sub_chunk_y);
         let prior = self.light_prior_snapshot(key);
         // Changed cells stand for the whole key only while the light around it is settled: each
         // neighbour outside the batch has current light or none yet, whose first solve relights
@@ -361,7 +368,7 @@ impl WorldStream {
                 key.mesh_dependents()
                     .filter(|neighbour| *neighbour != key)
                     .all(|neighbour| {
-                        !retained_batch.contains(&neighbour)
+                        !context.retained.contains(&neighbour)
                             && !matches!(
                                 self.light_source_state(neighbour),
                                 LightSourceState::Stale
@@ -380,7 +387,7 @@ impl WorldStream {
             batch_id,
             urgent: pending.urgent,
         };
-        self.lighting.jobs.pending.remove(&key);
+        self.lighting.jobs.remove_pending(&key);
         self.lighting.priority_wakeups.remove(&key);
         self.lighting.jobs.in_flight.insert(key, identity);
         PreparedLightJob {
@@ -655,17 +662,9 @@ impl WorldStream {
                 let neighbour_in_flight = self.lighting.jobs.in_flight.contains_key(&neighbour);
                 let neighbour_in_same_batch =
                     self.lighting.last_dispatched_batch.get(&neighbour) == Some(&batch_id);
-                if !neighbour_in_flight
-                    && let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour)
-                {
-                    let revision = pending.revision;
-                    // Its retained light was solved against this face's previous light.
-                    self.lighting.changed_cells.remove(&neighbour);
-                    if urgent {
-                        pending.urgent = true;
-                        self.lighting.jobs.scan.push_front((neighbour, revision));
-                    }
-                    self.lighting.priority_wakeups.insert(neighbour, revision);
+                if !neighbour_in_flight && self.lighting.jobs.pending.contains_key(&neighbour) {
+                    // A deferred neighbour needs the same readiness wake as an explicit waiter.
+                    requeue.insert(neighbour);
                     continue;
                 }
                 if neighbour_in_same_batch {
@@ -710,11 +709,15 @@ impl WorldStream {
             }
         }
     }
-    pub(in crate::stream) fn known_air_has_vertical_direct_sky(&self, key: SubChunkKey) -> bool {
+    /// Checks direct sky at this member using its batch's already captured ceiling.
+    pub(in crate::stream) fn known_air_has_vertical_direct_sky(
+        &self,
+        key: SubChunkKey,
+        top_sub_chunk_y: Option<i32>,
+    ) -> bool {
         if key.dimension != 0 || !self.known_air.contains(&key) {
             return false;
         }
-        let top_sub_chunk_y = self.light_column_top_sub_chunk_y(key);
         if Some(key.y) == top_sub_chunk_y {
             return true;
         }
@@ -729,6 +732,12 @@ impl WorldStream {
                     .is_some_and(|direct| is_uniform_direct_sky(light, direct.mask.as_ref()))
             })
     }
+}
+
+/// Immutable column-wide inputs shared while each selected member becomes an in-flight job.
+struct LightBatchContext<'a> {
+    retained: &'a HashSet<SubChunkKey>,
+    top_sub_chunk_y: Option<i32>,
 }
 
 /// Occupies one light worker slot until the solve itself finishes.

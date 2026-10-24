@@ -297,6 +297,89 @@ fn ordinary_dependency_wakeup_requeues_a_consumed_pending_candidate() {
     assert!(stream.lighting.waiters.is_empty());
 }
 
+/// A changed face releases its deferred neighbour before lower-priority ready lighting.
+#[test]
+fn changed_light_face_wakes_deferred_ordinary_neighbour() {
+    let mut stream = lit_stream(0);
+    let source = SubChunkKey::new(0, 0, 0, 0);
+    let target = SubChunkKey::new(0, 1, 0, 0);
+    let distant = [SubChunkKey::new(0, 20, 9, 0), SubChunkKey::new(0, 22, 9, 0)];
+    let camera = [8.0, 152.0, 8.0];
+    for key in [source, target].into_iter().chain(distant) {
+        stream
+            .authority
+            .commit_sub_chunk(
+                key,
+                super::uniform_sub_chunk(if key == source { 1 } else { 3 }),
+            )
+            .unwrap();
+        install_current_light(&mut stream, key, 0, 0, false);
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    assert!(!scheduler::mesh_is_near(
+        stream.scheduler_view(camera),
+        target
+    ));
+    let pending = stream.lighting.jobs.pending[&target];
+
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    assert!(stream.lighting.jobs.in_flight.contains_key(&source));
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    assert!(stream.lighting.jobs.in_flight.contains_key(&distant[0]));
+    assert!(!stream.lighting.jobs.in_flight.contains_key(&target));
+    assert!(
+        !stream
+            .lighting
+            .waiters
+            .values()
+            .any(|waiters| waiters.contains(&target))
+    );
+
+    let mut completed = Vec::new();
+    test_time::eventually("source and independent light completions", || {
+        completed.extend(stream.lighting.rx.try_iter());
+        completed.len() == 2
+    });
+    let source_index = completed
+        .iter()
+        .position(|completion| completion.key == source)
+        .unwrap();
+    let source_completion = completed.swap_remove(source_index);
+    let target_face = LIGHT_NEIGHBOUR_OFFSETS
+        .iter()
+        .position(|&offset| offset_sub_chunk_key(source, offset) == Some(target))
+        .unwrap();
+    assert!(source_completion.result.as_ref().unwrap().changed_faces[target_face]);
+    stream.accept_light_completion(completed.pop().unwrap());
+    stream.accept_light_completion(source_completion);
+    assert_eq!(
+        stream.lighting.jobs.pending[&target].revision,
+        pending.revision
+    );
+    assert_eq!(
+        stream.lighting.jobs.pending[&target].queued_at,
+        pending.queued_at
+    );
+    assert!(stream.lighting.jobs.pending.contains_key(&distant[1]));
+
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(stream.dispatch_light_jobs(camera, 1), 1);
+    assert!(
+        stream.lighting.jobs.in_flight.contains_key(&target),
+        "changed face left ready neighbour behind distant lighting"
+    );
+    assert!(!stream.lighting.jobs.in_flight.contains_key(&distant[1]));
+    test_time::eventually("released neighbour light completion", || {
+        let Ok(completion) = stream.lighting.rx.try_recv() else {
+            return false;
+        };
+        assert_eq!(completion.key, target);
+        stream.accept_light_completion(completion);
+        true
+    });
+    assert!(stream.light_is_current(target));
+}
+
 #[test]
 fn ordinary_dependency_wakeup_restores_a_consumed_urgent_candidate_to_the_front() {
     let mut stream = lit_stream(0);

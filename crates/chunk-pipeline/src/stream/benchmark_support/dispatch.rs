@@ -12,6 +12,29 @@ impl DispatchFixture {
     /// Installs a bounded mixed-palette terrain cohort; setup is outside the timed region.
     pub fn new(sections: usize) -> Self {
         assert!(sections > 0);
+        let side = (sections.div_ceil(4) as f64).sqrt().ceil() as i32;
+        let keys = (0..sections)
+            .map(|index| {
+                let column = (index / 4) as i32;
+                SubChunkKey::new(0, column % side, (index % 4) as i32, column / side)
+            })
+            .collect();
+        Self::with_keys(keys)
+    }
+
+    /// Installs one tall column to expose repeated ceiling walks during batch capture.
+    pub fn column(sections: usize) -> Self {
+        assert!(sections > 0);
+        Self::with_keys(
+            (0..sections)
+                .rev()
+                .map(|y| SubChunkKey::new(0, 0, i32::try_from(y).unwrap(), 0))
+                .collect(),
+        )
+    }
+
+    /// Gives each measured key the same resident packed halo and retained light.
+    fn with_keys(keys: Vec<SubChunkKey>) -> Self {
         let mut stream = WorldStream::new(client_world::ingestion::WorldBootstrap {
             local_player_unique_id: 1,
             dimension: 0,
@@ -21,19 +44,12 @@ impl DispatchFixture {
             air_network_id: 0,
             block_network_ids_are_hashes: false,
         });
-        let side = (sections.div_ceil(4) as f64).sqrt().ceil() as i32;
         let mut bytes = vec![9, 1, 0, 3];
         for _ in 0..128 {
             bytes.extend_from_slice(&0xaaaa_aaaa_u32.to_le_bytes());
         }
         bytes.extend([4, 0, 2]);
         let section = SubChunk::decode(&bytes, &world::RawBlockIds { air: 0 });
-        let keys: Vec<_> = (0..sections)
-            .map(|index| {
-                let column = (index / 4) as i32;
-                SubChunkKey::new(0, column % side, (index % 4) as i32, column / side)
-            })
-            .collect();
         let halo: BTreeSet<_> = keys
             .iter()
             .flat_map(|key| key.mesh_neighbourhood_dependents())
@@ -74,6 +90,29 @@ impl DispatchFixture {
                 self.stream.light_prior_snapshot(key),
             ));
         }
+    }
+
+    /// Captures a whole column with the original per-member ceiling walk as a baseline.
+    pub fn capture_light_column_uncached(&self) {
+        self.capture_light_column(|key| self.stream.light_block_snapshot(key));
+    }
+
+    /// Captures a whole column with the same shared ceiling used by production dispatch.
+    pub fn capture_light_column_shared(&self) {
+        let key = self.keys[0];
+        debug_assert!(self.keys.iter().all(|member| member.chunk() == key.chunk()));
+        let top = self.stream.light_column_top_sub_chunk_y(key);
+        self.capture_light_column(|key| self.stream.light_block_snapshot_with_top(key, top));
+    }
+
+    /// Retains every member's block and prior-light handles until the batch capture is complete.
+    fn capture_light_column(&self, mut blocks: impl FnMut(SubChunkKey) -> LightBlockSnapshot) {
+        let inputs: Vec<_> = self
+            .keys
+            .iter()
+            .map(|&key| (blocks(key), self.stream.light_prior_snapshot(key)))
+            .collect();
+        std::hint::black_box(inputs);
     }
 
     /// Captures and releases the same inputs prepared for each dispatched mesh job.

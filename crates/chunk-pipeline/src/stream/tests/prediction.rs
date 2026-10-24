@@ -755,7 +755,7 @@ fn chunk_data_offload_still_commits_a_ready_block_change() {
         "the spent ingress allocation left the change ready"
     );
     stream.between_frames_service = true;
-    stream.service_window = stream.poll_budget;
+    stream.service_poll_time = stream.poll_budget;
     stream.poll(camera_position, 0);
     assert_eq!(block(&stream, position), Some(1));
 }

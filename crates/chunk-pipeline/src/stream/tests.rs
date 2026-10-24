@@ -113,6 +113,7 @@ mod column_residency;
 mod commit_budget;
 mod dimension_ranges;
 mod dimension_transfer;
+mod empty_retirement;
 mod job_snapshots;
 mod light_scheduler;
 mod local_retention;

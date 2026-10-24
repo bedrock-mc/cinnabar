@@ -8,7 +8,7 @@ use std::{
 };
 
 use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
-use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
+use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, TerrainPublicationCursor, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
     ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
@@ -44,6 +44,7 @@ pub(crate) struct FarTerrain {
     publication: Option<PublicationKey>,
     /// Session/dimension identity and residency indexes used by near publication receipts.
     source_revision: Option<((u64, u64), u64, u64)>,
+    source_cursor: TerrainPublicationCursor,
     retiring: Vec<Retiring>,
 }
 
@@ -79,6 +80,7 @@ impl FarTerrain {
             published: None,
             publication: None,
             source_revision: None,
+            source_cursor: TerrainPublicationCursor::default(),
             retiring: Vec::new(),
         }
     }
@@ -114,24 +116,27 @@ impl FarTerrain {
     }
 
     /// Keeps near receipts bounded and scoped to the stream even while far terrain is disabled.
-    fn publish_source(&mut self, stream: Option<&WorldStream>, scene: &mut FarTerrainScene) {
-        let revision = stream.map(WorldStream::terrain_publication_source);
+    fn publish_source(&mut self, stream: Option<&mut WorldStream>, scene: &mut FarTerrainScene) {
+        let revision = stream
+            .as_deref()
+            .map(WorldStream::terrain_publication_source);
         if self.source_revision == revision {
             return;
         }
         if self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0) {
-            scene.publications = stream.map(|_| Default::default());
+            scene.publications = stream.as_ref().map(|_| Default::default());
             self.publication = None;
+            self.source_cursor = TerrainPublicationCursor::default();
         }
         if let (Some(stream), Some(publications)) = (stream, &scene.publications) {
-            publications.retain(stream.terrain_publication_sections());
+            let (reset, columns) = stream.take_terrain_publication_columns(&self.source_cursor);
+            publications.retain(reset, columns);
         }
         self.source_revision = revision;
     }
 
     /// Shares current section requirements without rebuilding an unchanged publication target.
     fn publish_target(&mut self, stream: &WorldStream, horizon: i32, scene: &mut FarTerrainScene) {
-        self.publish_source(Some(stream), scene);
         let revision = stream.terrain_publication_revision();
         let centre = stream.far_terrain_centre();
         let key = (
@@ -482,8 +487,15 @@ pub(crate) fn feed_far_terrain(
     {
         stream.set_full_detail_radius(full_detail);
     }
+    if far.source_revision
+        != world
+            .stream
+            .as_ref()
+            .map(WorldStream::terrain_publication_source)
+    {
+        far.publish_source(world.stream.as_mut(), &mut scene);
+    }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
-        far.publish_source(world.stream.as_ref(), &mut scene);
         far.cache.poll_budgeted(now, &mut summary_budget);
         if far.published.take().is_some() {
             *scene = FarTerrainScene {

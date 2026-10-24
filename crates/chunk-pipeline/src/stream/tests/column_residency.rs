@@ -22,6 +22,86 @@ fn stream_with_unrelated_columns(count: i32) -> WorldStream {
     stream
 }
 
+/// Observes receipt membership without depending on duplicate or iteration order.
+fn publication_columns(
+    stream: &mut WorldStream,
+    cursor: &TerrainPublicationCursor,
+) -> (bool, HashMap<ChunkKey, BTreeSet<SubChunkKey>>) {
+    let (reset, columns) = stream.take_terrain_publication_columns(cursor);
+    (
+        reset,
+        columns
+            .map(|(column, keys)| (column, keys.into_iter().collect()))
+            .collect(),
+    )
+}
+
+#[test]
+fn publication_residency_deltas_visit_only_changed_columns_and_preserve_the_union() {
+    for unrelated in [1, 4096] {
+        let mut stream = stream_with_unrelated_columns(unrelated);
+        let cursor = TerrainPublicationCursor::default();
+        let first = SubChunkKey::new(0, 0, i32::MIN, 0);
+        let second = SubChunkKey {
+            y: i32::MAX,
+            ..first
+        };
+        let added = SubChunkKey { y: 19, ..first };
+        stream.resident.extend([first, second]);
+        stream.known_air.insert(first);
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(reset);
+        assert_eq!(columns.len(), unrelated as usize + 1);
+        assert_eq!(columns[&first.chunk()], BTreeSet::from([first, second]));
+
+        stream
+            .resident
+            .replace_column(first.chunk(), [second, added]);
+        stream.known_air.remove(&first);
+        take_visited_keys();
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(!reset);
+        assert_eq!(
+            columns,
+            HashMap::from([(first.chunk(), BTreeSet::from([added, second]))])
+        );
+        assert_eq!(take_visited_keys(), 2, "unrelated sections were copied");
+
+        stream.known_air.insert(first);
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(!reset);
+        assert_eq!(
+            columns,
+            HashMap::from([(first.chunk(), BTreeSet::from([first, added, second]))])
+        );
+        stream.resident.retire();
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(reset);
+        assert_eq!(columns.len(), unrelated as usize + 1);
+        assert_eq!(columns[&first.chunk()], BTreeSet::from([first]));
+        stream.known_air.remove(&first);
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(!reset);
+        assert_eq!(columns, HashMap::from([(first.chunk(), BTreeSet::new())]));
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(!reset);
+        assert!(columns.is_empty());
+
+        stream.resident.retire();
+        stream.known_air.retire();
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(reset);
+        assert!(columns.is_empty());
+        stream.record_known_air(first);
+        let (reset, columns) = publication_columns(&mut stream, &cursor);
+        assert!(!reset);
+        assert_eq!(
+            columns,
+            HashMap::from([(first.chunk(), BTreeSet::from([first]))])
+        );
+    }
+}
+
 #[test]
 fn light_column_queries_visit_only_the_requested_column_at_any_world_height() {
     let mut stream = stream_with_unrelated_columns(0);

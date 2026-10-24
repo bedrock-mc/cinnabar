@@ -279,6 +279,7 @@ mod sky_boundary;
 mod worker_caps;
 
 mod mesh_admission;
+mod mesh_preparation;
 
 mod backlog;
 mod mixed_prefix;
@@ -326,3 +327,5 @@ fn settle_light_waits_for_retired_worker_slots() {
     joined.unwrap();
     assert!(stream.light_is_current(key));
 }
+
+mod batch_preparation;
