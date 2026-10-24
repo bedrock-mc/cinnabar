@@ -325,19 +325,21 @@ fn produce_use(
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
 }
 
-/// Publishes local starts and stops before importing server events that they supersede.
-/// A game-mode stop then precedes the latest server value written after it.
+/// Retires a stopped owner, publishes its remaining local writes, then imports the latest flag.
 fn take_server_item_use(
     runtime: &mut ItemUseRuntime,
     mut physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
 ) {
+    if physics
+        .as_deref_mut()
+        .is_some_and(|physics| physics.take_server_item_use_stop())
+    {
+        runtime.stop_for_server_control();
+    }
     publish_local_using_item(runtime, physics.as_deref_mut());
     let Some(physics) = physics else {
         return;
     };
-    if physics.take_server_item_use_stop() {
-        runtime.stop_for_server_control();
-    }
     if let Some(using) = physics.take_server_using_item() {
         runtime.adopt_server_using_item(Some(using));
     }

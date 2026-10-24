@@ -281,3 +281,40 @@ fn deferred_use_edges_keep_server_clears_in_input_order() {
         );
     }
 }
+
+/// A later server stop retires local writes from the old use before its following start.
+#[test]
+fn a_server_control_retires_older_local_item_use_writes() {
+    let (mut world, mut captured) = server_using_bow(true);
+    world
+        .run_system_cached_with(crate::hotbar::ordered::select, Action::Hotbar2)
+        .unwrap();
+    {
+        let mut physics = world.resource_mut::<LocalPhysicsController>();
+        physics.stop_item_use_for_game_mode();
+        physics.apply_server_movement_flags(
+            0,
+            client_world::MovementFlagUpdate {
+                using_item: Some(true),
+                ..Default::default()
+            },
+        );
+    }
+    route_use_events(
+        &mut world,
+        semantic_input::DesktopEvents::default(),
+        vec![2],
+    );
+    world.run_system_cached(produce_block_use).unwrap();
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    assert!(
+        world.resource::<ItemUseRuntime>().is_using(),
+        "the later server start must survive old local writes"
+    );
+    assert!(world.resource::<LocalPhysicsController>().live_using_item());
+    assert!(captured.drain().iter().all(|packet| {
+        protocol::test_support::transactions::observe_transaction(packet).is_none()
+    }));
+}
