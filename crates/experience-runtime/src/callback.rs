@@ -667,6 +667,29 @@ impl CallbackRes {
         schema: u16,
         payload: Vec<ValueNode>,
     ) -> Result<Result<(), WorldError>> {
+        self.stage_client(player, channel, schema, payload, false)
+    }
+
+    /// Stages a reply for the adapter's retained control delivery using the same send limits.
+    pub(crate) fn send_control(
+        &mut self,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+    ) -> Result<Result<(), WorldError>> {
+        self.stage_client(player, channel, schema, payload, true)
+    }
+
+    /// Validates and stages one actor message with its selected delivery mode.
+    fn stage_client(
+        &mut self,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+        control: bool,
+    ) -> Result<Result<(), WorldError>> {
         self.host_call()?;
         if let Err(error) = self.actor_is(&player) {
             return Ok(Err(error));
@@ -687,6 +710,7 @@ impl CallbackRes {
             return Err(LimitExceeded(sends).into());
         }
         let op = Op::SendClient {
+            control,
             player,
             channel,
             schema,

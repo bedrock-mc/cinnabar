@@ -94,6 +94,18 @@ impl world_access::HostCallback for HostState {
         Current::send_client(self, ctx, player, channel, schema, payload)
     }
 
+    /// Retains control replies from guests built against the 0.6 server API.
+    fn send_control(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+    ) -> Result<Result<(), WorldError>> {
+        Current::send_control(self, ctx, player, channel, schema, payload)
+    }
+
     fn focus(&mut self, ctx: Resource<CallbackRes>) -> Result<Option<BlockPos>> {
         Current::focus(self, ctx)
     }

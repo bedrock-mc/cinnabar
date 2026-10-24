@@ -182,3 +182,41 @@ func TestRetainedControlSurvivesAbortedPreparation(t *testing.T) {
 		}
 	}
 }
+
+// TestControlReplyRejectsEpochChangedDuringEncoding rechecks authority after user encoding.
+func TestControlReplyRejectsEpochChangedDuringEncoding(t *testing.T) {
+	f, _ := readyFixture(t)
+	c := f.conn.(*Conn)
+	c.hostEpoch = 1
+	ch := f.channel(ToClient)
+	message := epochControl{testMessage{Route{f.manifest.ID, ch.ID, ch.Schema}, 7}, func() {
+		change, err := c.PrepareWorldChange(CoordinatedChange)
+		if err != nil || !change.CommitAt("sample:next", 2) {
+			t.Fatalf("commit: %v", err)
+		}
+		notice := f.lastWorldNotice()
+		f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
+	}}
+	before := len(f.carrier())
+	if err := c.SendControlAt(1, message); err == nil {
+		t.Fatal("old-world control reply crossed the new admission epoch")
+	}
+	if len(c.controls) != 0 || len(f.carrier()) != before+1 {
+		t.Fatal("stale control was retained or sent after the world notice")
+	}
+	if err := c.SendControlAt(2, message.testMessage); err != nil {
+		t.Fatalf("current epoch rejected: %v", err)
+	}
+}
+
+// epochControl changes admission while encoding a reply to expose a stale send race.
+type epochControl struct {
+	testMessage
+	encode func()
+}
+
+// Encode advances the scripted lifecycle before returning the reply record.
+func (m epochControl) Encode() (Record, error) {
+	m.encode()
+	return m.testMessage.Encode()
+}

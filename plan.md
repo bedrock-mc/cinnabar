@@ -401,13 +401,18 @@ and rendered qualification remain incomplete.
   weapon sprites and custom-model icon fallbacks.
   Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
-  hooks, ladders, lily pads and sea pickles use their carried sprites; falling blocks retain
+  hooks, ladders, lily pads, sea pickles, levers, vines, glow lichen and sculk veins use their
+  carried sprites; falling blocks retain
   their world models.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads and sea pickles use their carried sprites; falling
   blocks retain their world models.
+  Dropped crossed plants, lanterns, chains, ladders, lily pads and sea pickles use their carried sprites; falling blocks retain their world models.
+  Held lecterns reuse the placed stand; their hand pose comparisons remain incomplete.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
+  Held copper golem statues reuse the standing entity geometry with their oxidation artwork;
+  stack poses, eye lighting and native hand transforms remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
@@ -925,8 +930,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
-  chosen documents into app cache storage before importing them. Mod installation uses a
-  no-overwrite rename instead of a hard link, which Android forbids; device acceptance and skin
+  chosen documents into app cache storage before importing them. Mod installation and resource-pack
+  cache publication use a no-overwrite rename instead of hard links; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
   Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
@@ -957,23 +962,30 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
   incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
-  removal, consent, custom screen transitions and media qualification. Unmeasured shared
+  removal, consent, custom screen transitions and media qualification. Source polling
+  reuses immutable source bytes and verified packages while their selected files retain the
+  same identity and change timestamps, with content revalidated every two seconds (four
+  normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
   Source-driven mod projects generate typed Rust/Go messages, registry confirmation,
-  compile-checked asset constants and signed bundles through `devtool mod new/build`.
+  compile-checked asset constants and paired `.cmod` packages through `devtool mod new/build`.
+  Typed block/item declarations generate server registration and ordinary packs; installation
+  feeds the existing local-server hosts, and `mod run` builds an isolated development loop.
   Each recipient retains messages, media, input and state in one callback queue during
   registry negotiation. Generated confirmations retry after send-budget refusal and
-  expire with their connection or world epoch. A shared Rust/Go rate contract charges
+  expire with their connection or world epoch. Incompatible registries receive the server
+  fingerprint and visibly stop the client part, clearing its queued callbacks.
+  A shared Rust/Go rate contract charges
   native epochs and encoded fragment sizes, rejects impossible control batches, and
   reserves acknowledgment exemptions for outstanding notices. Confirmation replays
   the latest queued state once, then all callback kinds follow FIFO order through a fair recipient scheduler;
   traps preserve later queued work, stale world callbacks are discarded,
   and queue overflow visibly stops the affected part.
-  Complete server-helper delivery and personal-renderer port acceptance remain incomplete;
+  Full rendered development-loop, complete server-helper delivery and personal-renderer port acceptance remain incomplete;
   see [mod projects](docs/mod-projects.md).
   Server Experience block storage and player focus use bound world instances, with opening
   generations that invalidate stale callback work and migration from dimension-keyed stores.
-  Server WIT 0.7 adds registered world definitions, instance creation/unload, typed scoped state,
+  Server WIT 0.8 adds registered world definitions, instance creation/unload, typed scoped state,
   player observations and a transfer coordinator with departure epochs and source recovery.
   Coordinator moves, native teleports, sampled world swaps and reconnect placement use one admission path.
   Its session-pinned transport fences old input and sends; same-instance transfers explicitly

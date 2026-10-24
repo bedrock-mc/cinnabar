@@ -1,6 +1,7 @@
 //! Loading a server artifact: verify it, compile it against the `server` world, run `register`
 //! and validate the blocks it declares.
 
+use experience_sdk::artifact::{ASSETS_DIR, SERVER_WASM};
 mod block_type;
 mod geometry;
 mod items;
@@ -28,7 +29,7 @@ use crate::limits::{
     EPOCH_PERIOD, MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_COMPONENT_BYTES, MAX_DISPLAY_NAME_BYTES,
     MAX_NAME_BYTES, MAX_WASM_STACK_BYTES, REGISTER_DEADLINE, REGISTER_FUEL,
 };
-use crate::manifest::{ASSETS_DIR, Manifest, SERVER_WASM, read_manifest, resolve};
+use crate::manifest::{Manifest, read_manifest, resolve};
 use crate::protocol::{self, PlacementState, StateDef, StateValues};
 
 pub(crate) use block_type::holds;
@@ -141,7 +142,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
     let registration = register(engine, &pre, &manifest.id)?;
     let (blocks, items) = validate_registration(dir, &manifest, registration)?;
-    let worlds = if let Pre::V0_7(component) = &pre {
+    let worlds = if let Pre::V0_8(component) = &pre {
         let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
         let declared = component
             .instantiate(&mut store)?

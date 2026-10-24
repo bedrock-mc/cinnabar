@@ -45,6 +45,12 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "list-mod-clients" {
+		return listModClients(args[1:], stdout)
+	}
+	if len(args) > 0 && args[0] == "export-mod-pack" {
+		return exportModPack(args[1:])
+	}
 	standby := len(args) == 1 && args[0] == standbyFlag
 	if standby {
 		started, rest, ok, err := awaitStandbyStart(stdin)
@@ -55,6 +61,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	cfg, err := parseSettings(args, stderr)
 	if err != nil {
+		return err
+	}
+	if err := cfg.loadMods(); err != nil {
 		return err
 	}
 	if cfg.terrainFixtureGenerate {
@@ -88,7 +97,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return err
 	}
 	var exps *experiences
-	if cfg.experiences != "" {
+	if cfg.experiences != "" || len(cfg.modArtifacts) > 0 {
 		if exps, err = startExperiences(cfg, logger); err != nil {
 			return err
 		}
@@ -284,9 +293,13 @@ type experiences struct {
 // provided, then registers the blocks before server.Config.New and records their IDs together.
 // On error no helper is left running.
 func startExperiences(cfg settings, log *slog.Logger) (_ *experiences, err error) {
-	dirs, err := discoverArtifacts(cfg.experiences)
-	if err != nil {
-		return nil, err
+	dirs := slices.Clone(cfg.modArtifacts)
+	if cfg.experiences != "" {
+		found, err := discoverArtifacts(cfg.experiences)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, found...)
 	}
 	store, err := experience.OpenStore(filepath.Join(cfg.dir, experienceDataDir))
 	if err != nil {

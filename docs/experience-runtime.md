@@ -148,7 +148,7 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.6.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.8.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
 `on-break`, `on-interact` and `on-neighbor-changed`, `client-message`, `epoch` and
 `on-scheduled-update`. Every world
@@ -499,7 +499,7 @@ contains an opening generation. Unbinding an instance invalidates its handles, q
 and already-read results before the world closes; reopening it preserves storage but assigns a new generation.
 Unbound worlds do not admit Experience hooks. Player focus belongs to that live instance opening.
 Opening generations are reserved in `_worlds.json` before publication, so handles saved by an
-older server process cannot regain authority after restart. Server WIT 0.7 exposes these identities
+older server process cannot regain authority after restart. Server WIT 0.8 exposes these identities
 through `callback.world` and `resolve-world`; legacy `callback.info` metadata keeps its old meaning.
 
 Data-file schema 3 retains schema 2's instance-keyed blocks and adds scoped state records.
@@ -521,10 +521,10 @@ risking unreadable saved chunks.
 
 ## Guest worlds, players and private state
 
-Server WIT 0.7 adds `Experience::world_definitions` and `Experience::on_player`. Existing
-0.1-0.6 artifacts keep their ABIs; rebuilding with the current SDK requires `api = "0.7"`.
+Server WIT 0.8 adds `Experience::world_definitions` and `Experience::on_player`. Existing
+0.1-0.6 artifacts keep their ABIs; rebuilding with the current SDK requires `api = "0.8"`.
 The SDK supplies empty/default implementations for the new exports. The helper and adapter
-must both speak IPC protocol 7. Reloads must retain the same world declarations.
+must both speak IPC protocol 8. Reloads must retain the same world declarations.
 
 `world_definitions` registers immutable, mod-namespaced definition IDs and optional startup
 instances before players join. A definition selects an empty or flat generator, a built-in
@@ -631,8 +631,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.7; 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
-| IPC protocol | 7 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.8; 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 8 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |

@@ -19,7 +19,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 7
+const protocolVersion = 8
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -271,6 +271,8 @@ type TellOp struct {
 // SendClientOp sends Payload on Channel, revision Schema, to Player's client part once the rest
 // of its result has committed.
 type SendClientOp struct {
+	// Control retains negotiation replies after transport budget refusal.
+	Control bool                 `json:"control,omitempty"`
 	Player  string               `json:"player"`
 	Channel string               `json:"channel"`
 	Schema  uint16               `json:"schema"`

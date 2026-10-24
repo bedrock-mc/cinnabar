@@ -19,9 +19,11 @@ pub struct FloatRange {
 impl FloatRange {
     pub const ONE: Self = Self { min: 1.0, max: 1.0 };
 
-    /// Value at `unit` in `[0, 1]` between the bounds.
-    pub fn sample(self, unit: f32) -> f32 {
-        self.min + (self.max - self.min) * unit.clamp(0.0, 1.0)
+    /// Triangular value from two independent rolls in `[0, 1]`: the midpoint plus half the
+    /// span times their difference, as vanilla samples sound volume and pitch.
+    pub fn sample(self, first: f32, second: f32) -> f32 {
+        let offset = first.clamp(0.0, 1.0) - second.clamp(0.0, 1.0);
+        (self.min + self.max) * 0.5 + (self.max - self.min) * offset * 0.5
     }
 
     fn scaled(self, other: Self) -> Self {
@@ -54,12 +56,32 @@ pub struct SoundRoute {
     pub pitch: FloatRange,
 }
 
+/// An event entry as written: its own ranges replace its set's ranges, and an omitted
+/// range inherits the set's.
+#[derive(Clone, Debug, PartialEq)]
+struct EventRoute {
+    sound: Box<str>,
+    volume: Option<FloatRange>,
+    pitch: Option<FloatRange>,
+}
+
+impl EventRoute {
+    /// Fills omitted ranges from the defining set.
+    fn resolve(self, set: &EventSet) -> SoundRoute {
+        SoundRoute {
+            sound: self.sound,
+            volume: self.volume.unwrap_or(set.volume),
+            pitch: self.pitch.unwrap_or(set.pitch),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 enum Entry {
     Silent,
-    Route(SoundRoute),
+    Route(EventRoute),
     /// Per-material alternatives keyed by material name plus `default`.
-    ByMaterial(HashMap<Box<str>, Option<SoundRoute>>),
+    ByMaterial(HashMap<Box<str>, Option<EventRoute>>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -100,39 +122,42 @@ pub struct SoundEventTables {
     materials: HashMap<Box<str>, Box<str>>,
 }
 
-fn route(value: &Value) -> Option<SoundRoute> {
+fn event_route(value: &Value) -> Option<EventRoute> {
     match value {
-        Value::String(name) if !name.is_empty() => Some(SoundRoute {
+        Value::String(name) if !name.is_empty() => Some(EventRoute {
             sound: name.as_str().into(),
-            volume: FloatRange::ONE,
-            pitch: FloatRange::ONE,
+            volume: None,
+            pitch: None,
         }),
         Value::Object(map) => {
             let sound = map.get("sound")?.as_str().filter(|name| !name.is_empty())?;
-            Some(SoundRoute {
+            Some(EventRoute {
                 sound: sound.into(),
-                volume: map
-                    .get("volume")
-                    .and_then(FloatRange::from_json)
-                    .unwrap_or(FloatRange::ONE),
-                pitch: map
-                    .get("pitch")
-                    .and_then(FloatRange::from_json)
-                    .unwrap_or(FloatRange::ONE),
+                volume: map.get("volume").and_then(FloatRange::from_json),
+                pitch: map.get("pitch").and_then(FloatRange::from_json),
             })
         }
         _ => None,
     }
 }
 
+/// Individual events belong to no set, so omitted ranges are unity.
+fn route(value: &Value) -> Option<SoundRoute> {
+    event_route(value).map(|found| SoundRoute {
+        sound: found.sound,
+        volume: found.volume.unwrap_or(FloatRange::ONE),
+        pitch: found.pitch.unwrap_or(FloatRange::ONE),
+    })
+}
+
 fn entry(value: &Value) -> Entry {
-    if let Some(found) = route(value) {
+    if let Some(found) = event_route(value) {
         return Entry::Route(found);
     }
     match value {
         Value::Object(map) if !map.contains_key("sound") && !map.is_empty() => Entry::ByMaterial(
             map.iter()
-                .map(|(material, value)| (material.as_str().into(), route(value)))
+                .map(|(material, value)| (material.as_str().into(), event_route(value)))
                 .collect(),
         ),
         _ => Entry::Silent,
@@ -247,11 +272,7 @@ fn lookup(set: &EventSet, event: &str, material: Option<&str>) -> RouteLookup {
             }
         }
     };
-    RouteLookup::Route(SoundRoute {
-        sound: base.sound,
-        volume: base.volume.scaled(set.volume),
-        pitch: base.pitch.scaled(set.pitch),
-    })
+    RouteLookup::Route(base.resolve(set))
 }
 
 fn resolve(set: &EventSet, event: &str, material: Option<&str>) -> Option<SoundRoute> {
@@ -433,14 +454,9 @@ impl SoundEventTables {
         if entity.base.events.contains_key(event) {
             return lookup(&entity.base, event, None);
         }
-        match lookup(&self.entity_defaults, event, None) {
-            RouteLookup::Route(found) => RouteLookup::Route(SoundRoute {
-                volume: found.volume.scaled(entity.base.volume),
-                pitch: found.pitch.scaled(entity.base.pitch),
-                ..found
-            }),
-            other => other,
-        }
+        // The shared defaults keep their own ranges; the entity's set ranges apply only to
+        // events the entity defines.
+        lookup(&self.entity_defaults, event, None)
     }
 
     /// Footstep/fall/jump/land route of an actor moving over a block sound material. Block routes are
@@ -536,10 +552,10 @@ mod tests {
     }
 
     #[test]
-    fn block_route_scales_by_set_ranges_and_default_is_silent() {
+    fn block_event_ranges_replace_set_ranges_and_default_is_silent() {
         let route = tables().block("stone", "break").expect("break route");
         assert_eq!(&*route.sound, "dig.stone");
-        assert!((route.volume.min - 0.4).abs() < 1e-6);
+        assert_eq!(route.volume, FloatRange { min: 0.8, max: 0.8 });
         assert_eq!(route.pitch, FloatRange { min: 1.0, max: 2.0 });
         assert!(tables().block("stone", "place").is_none());
     }
@@ -553,11 +569,52 @@ mod tests {
         );
         assert!(tables.entity("cow", "step", None).is_none());
         let eat = tables.entity("minecraft:cow", "eat", None).unwrap();
-        assert_eq!(eat.pitch, FloatRange { min: 0.8, max: 1.2 });
+        assert_eq!(eat.pitch, FloatRange::ONE);
         assert_eq!(
             &*tables.entity("pig", "hurt", None).unwrap().sound,
             "game.hurt"
         );
+    }
+
+    /// The pinned pack gives the player no `eat`, so it plays the shared default's
+    /// own ranges, not those ranges multiplied by the default and player set ranges.
+    #[test]
+    fn player_eat_uses_the_default_event_ranges_unscaled() {
+        let tables = SoundEventTables::from_json(
+            &json!({"entity_sounds": {
+                "defaults": {"volume": 1.0, "pitch": [0.8, 1.2], "events": {
+                    "eat": {"sound": "random.eat", "volume": [0.5, 1.1], "pitch": [0.8, 1.2]},
+                    "hurt": "game.hurt"
+                }},
+                "entities": {"player": {"volume": 1.0, "pitch": [0.8, 1.2], "events": {
+                    "attack.strong": "game.player.attack.strong"
+                }}}
+            }}),
+            &json!({}),
+        );
+        let eat = tables.entity("minecraft:player", "eat", None).unwrap();
+        assert_eq!(&*eat.sound, "random.eat");
+        assert_eq!(eat.pitch, FloatRange { min: 0.8, max: 1.2 });
+        assert_eq!(eat.volume, FloatRange { min: 0.5, max: 1.1 });
+        let hurt = tables.entity("minecraft:player", "hurt", None).unwrap();
+        assert_eq!(hurt.pitch, FloatRange { min: 0.8, max: 1.2 });
+        let attack = tables
+            .entity("minecraft:player", "attack.strong", None)
+            .unwrap();
+        assert_eq!(attack.pitch, FloatRange { min: 0.8, max: 1.2 });
+        assert_eq!(attack.volume, FloatRange::ONE);
+    }
+
+    /// Two rolls give a triangular spread that peaks at the midpoint and stays in range.
+    #[test]
+    fn range_samples_are_triangular_within_the_bounds() {
+        let range = FloatRange { min: 0.8, max: 1.2 };
+        assert!((range.sample(0.5, 0.5) - 1.0).abs() < 1e-6);
+        assert!((range.sample(0.9, 0.9) - 1.0).abs() < 1e-6);
+        assert!((range.sample(1.0, 0.0) - 1.2).abs() < 1e-6);
+        assert!((range.sample(0.0, 1.0) - 0.8).abs() < 1e-6);
+        assert!((range.sample(0.75, 0.25) - 1.1).abs() < 1e-6);
+        assert_eq!(FloatRange::ONE.sample(0.3, 0.9), 1.0);
     }
 
     #[test]

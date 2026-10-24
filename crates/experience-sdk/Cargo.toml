@@ -14,7 +14,7 @@ reads = ["tools/localserver"]
 [features]
 default = ["server", "client", "declarations", "project"]
 # The server half: `server::Experience` and `export_experience!`.
-server = ["dep:wit-bindgen", "dep:serde", "dep:serde_json"]
+server = ["dep:wit-bindgen", "messages"]
 # The client part: `client::ClientPart`, `client::send` and `export_client_part!`.
 client = ["dep:wit-bindgen", "messages"]
 messages = ["dep:serde", "dep:serde_json"]
@@ -24,6 +24,7 @@ project = ["declarations", "messages", "dep:anyhow", "dep:syn", "dep:quote", "de
 declarations = ["dep:serde", "dep:toml"]
 
 [dependencies]
+experience-macros = { path = "../experience-macros" }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 toml = { version = "0.9", optional = true }

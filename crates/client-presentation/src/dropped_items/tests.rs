@@ -434,6 +434,70 @@ fn dropped_carried_sprite_families_do_not_use_their_placed_models() {
 }
 
 #[test]
+fn dropped_attachments_use_carried_sprites_without_changing_falling_blocks() {
+    let stream = stream(false, 1);
+    let registry = protocol::vanilla_item_registry();
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let attachments: std::collections::BTreeSet<_> = records
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.model_family,
+                assets::ModelFamily::Lever
+                    | assets::ModelFamily::Vine
+                    | assets::ModelFamily::GlowLichen
+                    | assets::ModelFamily::SculkVein
+            ) && registry
+                .iter()
+                .any(|entry| entry.identifier.as_ref() == record.name.as_ref())
+        })
+        .map(|record| record.name.as_ref())
+        .collect();
+    assert_eq!(
+        assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        attachments
+    );
+    for identifier in attachments {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier} must use its carried sprite"
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1))
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}
+
+#[test]
 fn dropped_flat_block_families_keep_their_carried_sprite_routes() {
     let stream = stream(false, 1);
     let registry = protocol::vanilla_item_registry();

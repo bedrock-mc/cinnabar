@@ -33,8 +33,8 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 /// the helper exiting; 3 the session items a dispatch carries; 4 carries initialization messages
 /// from a restarted guest alongside the failed callback's diagnostic; 5 reports terminal
 /// callback queue overflow separately from recoverable callback failures; 6 reports callbacks
-/// that must remain queued until registry confirmation.
-const HELPER_PROTOCOL: u32 = 6;
+/// that must remain queued until registry confirmation; 7 reports terminal registry mismatches.
+const HELPER_PROTOCOL: u32 = 7;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -201,6 +201,8 @@ pub enum FailureKind {
     Refused,
     /// The component could not be compiled, linked or initialized.
     Startup,
+    /// The server's shared definitions differ from this client part's definitions.
+    RegistryMismatch,
 }
 
 /// A failed callback: its bundle, the guest export it called, the kind of failure and a bounded
@@ -222,11 +224,15 @@ impl CallFailure {
     /// guest backtrace of a trap.
     pub(crate) fn of(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
         use wasmtime::Trap;
-        let kind = match error.downcast_ref::<Trap>() {
-            Some(Trap::OutOfFuel) => FailureKind::Fuel,
-            Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
-            Some(_) => FailureKind::Trap,
-            None => FailureKind::Refused,
+        let kind = if error.is::<crate::server::RegistryMismatch>() {
+            FailureKind::RegistryMismatch
+        } else {
+            match error.downcast_ref::<Trap>() {
+                Some(Trap::OutOfFuel) => FailureKind::Fuel,
+                Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
+                Some(_) => FailureKind::Trap,
+                None => FailureKind::Refused,
+            }
         };
         Self::new(bundle, callback, kind, error)
     }

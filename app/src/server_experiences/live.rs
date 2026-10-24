@@ -687,7 +687,9 @@ fn failed<H>(
         reason = %failure.reason,
         "client part callback failed; its output was dropped"
     );
-    let why = if failure.kind == FailureKind::Startup {
+    let why = if failure.kind == FailureKind::RegistryMismatch {
+        experience_sdk::REGISTRY_MISMATCH
+    } else if failure.kind == FailureKind::Startup {
         STOPPED_AT_START
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS

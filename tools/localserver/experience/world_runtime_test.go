@@ -524,6 +524,24 @@ func (c runtimeChannels) SendRecordAt(_ uint64, exp, channel string, schema uint
 	return c.SendRecord(uuid.Nil, exp, channel, schema, payload)
 }
 
+// SendControl records a typed reply using the fixture's ordinary delivery observer.
+func (c runtimeChannels) SendControl(_ uuid.UUID, message cinnabarext.Message) error {
+	return c.SendControlAt(0, message)
+}
+
+// SendControlAt adapts a typed reply without a live protocol transport.
+func (c runtimeChannels) SendControlAt(_ uint64, message cinnabarext.Message) error {
+	payload, err := message.Encode()
+	if err != nil {
+		return err
+	}
+	route := message.Route()
+	if !c.SendRecord(uuid.Nil, route.Bundle, route.Channel, route.Schema, payload) {
+		return errors.New("control recipient unavailable")
+	}
+	return nil
+}
+
 // Retire has no external resources in the fake transport.
 func (runtimeChannels) Retire() {}
 

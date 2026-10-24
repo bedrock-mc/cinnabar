@@ -15,6 +15,18 @@ import (
 // Pending replies expire with their connection or world epoch. A BurstExceeded error
 // means the encoded reply can never fit; ordinary data should use Send instead.
 func (s *Server) SendControl(player uuid.UUID, message Message) error {
+	s.mu.Lock()
+	c := s.connections[player]
+	s.mu.Unlock()
+	if c == nil {
+		return errors.New("control recipient unavailable")
+	}
+	return c.SendControlAt(0, message)
+}
+
+// SendControlAt retains a reply only while its captured host epoch owns this login.
+// Zero is reserved for callers outside the host's player lifecycle.
+func (c *Conn) SendControlAt(epoch uint64, message Message) error {
 	payload, err := message.Encode()
 	if err != nil {
 		return err
@@ -28,20 +40,17 @@ func (s *Server) SendControl(player uuid.UUID, message Message) error {
 		return err
 	}
 	route := message.Route()
-	s.mu.Lock()
-	c := s.connections[player]
-	s.mu.Unlock()
-	if c == nil {
-		return errors.New("control recipient unavailable")
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.retired || epoch != 0 && epoch != c.hostEpoch {
+		return errors.New("control recipient unavailable")
+	}
 	err = c.sendLocked(route.Bundle, route.Channel, route.Schema, payload)
 	if err != nil && !errors.Is(err, ErrRateExceeded) {
 		var burst *BurstExceeded
 		if errors.As(err, &burst) {
 			c.rejectedControls++
-			s.log.Warn("client part control rejected", "bundle", route.Bundle, "channel", route.Channel,
+			c.s.log.Warn("client part control rejected", "bundle", route.Bundle, "channel", route.Channel,
 				"reason", err.Error(), "rejected_controls", c.rejectedControls)
 		}
 		return err

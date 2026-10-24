@@ -23,6 +23,8 @@ type ClientChannels interface {
 	// runs, and reports whether it went out: false when the player has no active client part, or
 	// when the message does not fit the channel or the connection's limits.
 	SendRecord(player uuid.UUID, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool
+	// SendControl retains a negotiation reply until credit refills or its connection or epoch ends.
+	SendControl(player uuid.UUID, message cinnabarext.Message) error
 }
 
 // DeliverClientMessage queues the client-message callback of the Experience exp for payload,
@@ -86,6 +88,20 @@ func (h *Host) DeliverEpoch(player *world.EntityHandle, exp string) bool {
 	}
 }
 
+// clientControl adapts a staged reply to the transport's existing typed control queue.
+type clientControl struct {
+	bundle string
+	op     *SendClientOp
+}
+
+// Route binds the reply to the committing Experience's declared channel.
+func (c clientControl) Route() cinnabarext.Route {
+	return cinnabarext.Route{Bundle: c.bundle, Channel: c.op.Channel, Schema: c.op.Schema}
+}
+
+// Encode supplies the committed record; SendControl validates and owns its retained copy.
+func (c clientControl) Encode() (cinnabarext.Record, error) { return c.op.Payload, nil }
+
 // dropCount counts things dropped, and limits how often the count is logged.
 type dropCount struct {
 	n atomic.Uint64
@@ -123,9 +139,17 @@ func (h *Host) sendCurrent(d *dispatcher, ev event, op *SendClientOp) {
 	}
 	sent := false
 	if state != nil && state.connection != nil {
-		sent = state.connection.SendRecordAt(ev.epoch, d.id, op.Channel, op.Schema, op.Payload)
+		if op.Control {
+			sent = state.connection.SendControlAt(ev.epoch, clientControl{d.id, op}) == nil
+		} else {
+			sent = state.connection.SendRecordAt(ev.epoch, d.id, op.Channel, op.Schema, op.Payload)
+		}
 	} else if h.channels != nil {
-		sent = h.channels.SendRecord(ev.actor.UUID(), d.id, op.Channel, op.Schema, op.Payload)
+		if op.Control {
+			sent = h.channels.SendControl(ev.actor.UUID(), clientControl{d.id, op}) == nil
+		} else {
+			sent = h.channels.SendRecord(ev.actor.UUID(), d.id, op.Channel, op.Schema, op.Payload)
+		}
 	}
 	if !sent {
 		if n, ok := d.unsent.add(); ok {

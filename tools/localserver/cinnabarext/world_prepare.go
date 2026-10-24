@@ -15,6 +15,8 @@ type PlayerSession interface {
 	PrepareWorldChange(kind WorldChangeKind) (*WorldChange, error)
 	// SendRecordAt rejects output captured before a different host epoch was admitted.
 	SendRecordAt(epoch uint64, exp, channel string, schema uint16, payload []Scalar) bool
+	// SendControlAt retains replies only for the captured session and admission epoch.
+	SendControlAt(epoch uint64, message Message) error
 	// Retire discards this login's connection authority and pending transfers.
 	Retire()
 }

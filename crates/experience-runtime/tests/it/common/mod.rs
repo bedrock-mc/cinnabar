@@ -2,6 +2,7 @@
 //! the probe's callback requests. The probe selects a behavior by the interacted block's x; `p(x)`
 //! is that block and `up(x)` the one above.
 
+use experience_sdk::artifact::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -9,7 +10,6 @@ use std::sync::LazyLock;
 
 use experience_runtime::callback::run;
 use experience_runtime::load::{EpochTicker, Loaded, engine, load};
-use experience_runtime::manifest::{ASSETS_DIR, MANIFEST_FILE, SERVER_WASM};
 use experience_runtime::protocol::{
     BlockPos, Call, Cell, Crafted, Face, INVENTORY_SLOTS, Info, Inventory, ItemMatch, Op, Outcome,
     Recipe, Request, Scalar, ServerItem,
@@ -72,8 +72,9 @@ const SERVER_WIT_0_2: &str = include_str!("../../../wit/0.2/server.wit");
 const SERVER_WIT_0_3: &str = include_str!("../../../wit/0.3/server.wit");
 /// The server WIT 0.4, which the runtime still accepts.
 const SERVER_WIT_0_4: &str = include_str!("../../../wit/0.4/server.wit");
-/// The server WIT 0.5, which the runtime still accepts.
+/// The server WIT 0.6, including retained control replies.
 const SERVER_WIT_0_6: &str = include_str!("../../../wit/0.6/server.wit");
+/// The server WIT 0.5, which the runtime still accepts.
 const SERVER_WIT_0_5: &str = include_str!("../../../wit/0.5/server.wit");
 
 /// A core module for the `server` world whose `register` spins forever and whose callbacks trap.
@@ -759,6 +760,7 @@ pub fn tell(text: &str) -> Op {
 /// A client message to the actor.
 pub fn send(channel: &str, schema: u16, payload: Vec<Scalar>) -> Op {
     Op::SendClient {
+        control: false,
         player: ACTOR.to_owned(),
         channel: channel.to_owned(),
         schema,
@@ -768,9 +770,24 @@ pub fn send(channel: &str, schema: u16, payload: Vec<Scalar>) -> Op {
 
 /// A frozen 0.6 component with the 0.5 fixture's content and a scheduled-update export.
 pub fn v0_6_dir() -> TempDir {
+    v0_6_artifact(false)
+}
+
+/// A 0.6 component that echoes messages through the retained control import.
+pub fn v0_6_control_dir() -> TempDir {
+    v0_6_artifact(true)
+}
+
+/// Builds a preserved 0.6 component with ordinary or retained client replies.
+fn v0_6_artifact(control: bool) -> TempDir {
     let guest = V0_5_GUEST
         .replace("@0.5.0", "@0.6.0")
         .replace("v0.5", "v0.6");
+    let guest = if control {
+        guest.replace("callback.send-client", "callback.send-control")
+    } else {
+        guest
+    };
     let guest = guest.trim_end().strip_suffix(')').unwrap();
     let guest = format!(
         "{guest}(func (export \"on-scheduled-update\") (param i32 i32 i32 i32) (result i32) (call $drop (local.get 0)) (i32.const 0)))"
