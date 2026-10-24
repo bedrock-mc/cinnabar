@@ -96,22 +96,15 @@ fn needs_pose_sampling(
     geometry_binding: usize,
     controllers: &[ControllerState],
     swing: bool,
-    include_layer_inputs: bool,
+    include_clips: bool,
 ) -> bool {
     let samples_clip = |clip: usize| {
-        include_layer_inputs && camera_clip_with_layers(assets, layout, rig_binding, clip, swing)
+        include_clips && camera_clip_with_layers(assets, layout, rig_binding, clip, swing)
     };
-    // Appearance scripts refresh layers without making the body pose depend on their inputs.
-    // The broad rig plan includes them; active body sampling keeps only pre-animation scripts.
-    let expressions = if include_layer_inputs {
+    let expressions = if include_clips {
         super::sampling::render_expressions(assets, rig_binding)
     } else {
-        assets
-            .rig_bindings()
-            .get(rig_binding)
-            .and_then(|rig| rig.pre_animation)
-            .into_iter()
-            .collect()
+        super::sampling::rig_expressions(assets, rig_binding)
     };
     if expressions
         .into_iter()

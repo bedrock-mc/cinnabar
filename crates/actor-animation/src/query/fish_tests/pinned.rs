@@ -1,10 +1,13 @@
 use super::*;
 
 #[test]
-#[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to the pinned compiled entity carrier"]
 fn pinned_stationary_fish_swim_poses_advance_without_land_roll() {
-    let bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ENTITY_CARRIER",
+        "pinned_stationary_fish_swim_poses_advance_without_land_roll",
+    ) else {
+        return;
+    };
     for identifier in FISH {
         let mut actor = actor(identifier);
         actor.status.fluid = Some((true, false));

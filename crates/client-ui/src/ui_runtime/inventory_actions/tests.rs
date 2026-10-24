@@ -372,3 +372,28 @@ fn creative_json_ui_secondary_catalog_click_takes_or_destroys_one() {
         assert_eq!((shown.network_id, shown.count), expected);
     }
 }
+
+/// A primary press on the item grid's empty background deletes the held stack in creative
+/// and leaves it held in survival.
+#[test]
+fn item_grid_background_destroys_the_held_stack_only_in_creative() {
+    for creative in [true, false] {
+        let Some((mut runtime, mut player)) = creative_selection(Some((9000, 8))) else {
+            return;
+        };
+        if !creative {
+            player
+                .facts
+                .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+        }
+        assert_eq!(
+            runtime.destroy_held_on_item_grid(&mut player).is_ok(),
+            creative
+        );
+        assert_eq!(
+            player.inventory.ledger().cursor_stack().is_none(),
+            creative,
+            "creative={creative}"
+        );
+    }
+}

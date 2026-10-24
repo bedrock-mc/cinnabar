@@ -2,13 +2,19 @@ use super::*;
 
 /// Lists the authored expressions that can affect an actor's rendered layers.
 pub(super) fn render_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
+    let mut expressions = rig_expressions(assets, binding);
+    expressions.extend(render_controller_expressions(assets, binding));
+    expressions
+}
+
+/// Lists rig scripts that run before body pose sampling.
+pub(super) fn rig_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
     let Some(rig) = assets.rig_bindings().get(binding) else {
         return Vec::new();
     };
     let mut expressions = Vec::new();
     expressions.extend(rig.pre_animation);
     expressions.extend(rig.held_item_scale);
-    expressions.extend(render_controller_expressions(assets, binding));
     expressions
 }
 

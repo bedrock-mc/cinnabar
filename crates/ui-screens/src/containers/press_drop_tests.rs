@@ -3,7 +3,7 @@
 use json_ui::{Catalog, Context, LayoutEnv, TextMeasure, TextureMeta, TextureSource, ViewState};
 use ui_engine::frame::EngineFrame;
 
-use super::engine_press_drops;
+use super::{HeldStackPress, engine_held_stack_press};
 
 struct NoArt;
 impl TextMeasure for NoArt {
@@ -18,8 +18,10 @@ impl TextureSource for NoArt {
 }
 
 /// A screen shaped like vanilla's: the screen maps presses to a cursor drop,
-/// two `common.root_panel`-style sections claim them, and a plain panel and a
-/// `drop_item_panel` sit beside them.
+/// two `common.root_panel`-style sections claim them, a plain panel and a
+/// `drop_item_panel` sit beside them, and an item scroll panel destroys. Below them, a
+/// disabled item panel, an item panel under a disabled ancestor, and a section holding a
+/// scroll view that maps its own press to a cursor drop.
 const SCREEN: &str = r#"{
   "namespace": "drop",
   "section": {
@@ -40,7 +42,26 @@ const SCREEN: &str = r#"{
       {"drop_item_panel": {"type": "input_panel", "size": [40, 40],
         "anchor_from": "top_left", "anchor_to": "top_left", "offset": [150, 0],
         "button_mappings": [{"from_button_id": "button.menu_select",
-          "to_button_id": "button.cursor_drop_all", "mapping_type": "pressed"}]}}
+          "to_button_id": "button.cursor_drop_all", "mapping_type": "pressed"}]}},
+      {"item_scroll_panel": {"type": "input_panel", "size": [40, 40],
+        "anchor_from": "top_left", "anchor_to": "top_left", "offset": [50, 50],
+        "button_mappings": [{"from_button_id": "button.menu_select",
+          "to_button_id": "button.destroy_selection", "mapping_type": "pressed"}],
+        "controls": [{"view": {"type": "scroll_view", "size": ["100%", "100%"]}}]}},
+      {"disabled_item_panel": {"type": "input_panel", "size": [40, 40], "enabled": false,
+        "anchor_from": "top_left", "anchor_to": "top_left", "offset": [100, 50],
+        "button_mappings": [{"from_button_id": "button.menu_select",
+          "to_button_id": "button.destroy_selection", "mapping_type": "pressed"}],
+        "controls": [{"view": {"type": "scroll_view", "size": ["100%", "100%"]}}]}},
+      {"disabled_section": {"type": "panel", "size": [40, 40], "enabled": false,
+        "anchor_from": "top_left", "anchor_to": "top_left", "offset": [150, 50],
+        "controls": [{"item_panel": {"type": "input_panel", "size": ["100%", "100%"],
+          "button_mappings": [{"from_button_id": "button.menu_select",
+            "to_button_id": "button.destroy_selection", "mapping_type": "pressed"}]}}]}},
+      {"pack_section@drop.section": {"offset": [0, 50],
+        "controls": [{"dropping_view": {"type": "scroll_view", "size": ["100%", "100%"],
+          "button_mappings": [{"from_button_id": "button.menu_select",
+            "to_button_id": "button.cursor_drop_all", "mapping_type": "pressed"}]}}]}}
     ]
   }
 }"#;
@@ -75,14 +96,63 @@ fn frame() -> EngineFrame {
 #[test]
 fn presses_on_any_section_keep_the_held_stack() {
     let frame = frame();
-    assert!(!engine_press_drops(&frame, [10.0, 10.0]), "root panel");
-    assert!(!engine_press_drops(&frame, [60.0, 10.0]), "recipe book");
+    assert_eq!(
+        engine_held_stack_press(&frame, [10.0, 10.0]),
+        None,
+        "root panel"
+    );
+    assert_eq!(
+        engine_held_stack_press(&frame, [60.0, 10.0]),
+        None,
+        "recipe book"
+    );
 }
 
 #[test]
 fn presses_off_the_sections_drop_the_held_stack() {
     let frame = frame();
-    assert!(engine_press_drops(&frame, [110.0, 10.0]), "plain panel");
-    assert!(engine_press_drops(&frame, [160.0, 10.0]), "drop panel");
-    assert!(engine_press_drops(&frame, [10.0, 60.0]), "empty screen");
+    for (point, place) in [
+        ([110.0, 10.0], "plain panel"),
+        ([160.0, 10.0], "drop panel"),
+        ([60.0, 95.0], "empty screen"),
+    ] {
+        assert_eq!(
+            engine_held_stack_press(&frame, point),
+            Some(HeldStackPress::Drop),
+            "{place}"
+        );
+    }
+}
+
+/// Vanilla's creative and recipe book item grid maps a press on its empty background,
+/// under the grid's scroll view, to `button.destroy_selection`.
+#[test]
+fn presses_on_an_item_scroll_panel_destroy_the_held_stack() {
+    assert_eq!(
+        engine_held_stack_press(&frame(), [60.0, 60.0]),
+        Some(HeldStackPress::Destroy)
+    );
+}
+
+/// A disabled item panel, or one under a disabled ancestor, claims the press without
+/// destroying the held stack or letting the press through to the screen's drop.
+#[test]
+fn presses_on_a_disabled_item_panel_keep_the_held_stack() {
+    let frame = frame();
+    for (point, place) in [
+        ([110.0, 60.0], "disabled panel"),
+        ([160.0, 60.0], "disabled ancestor"),
+    ] {
+        assert_eq!(engine_held_stack_press(&frame, point), None, "{place}");
+    }
+}
+
+/// A scroll view that maps its own press keeps that mapping instead of passing the press to
+/// the section under it, which would keep the stack.
+#[test]
+fn a_scroll_view_with_its_own_drop_mapping_drops_the_held_stack() {
+    assert_eq!(
+        engine_held_stack_press(&frame(), [10.0, 60.0]),
+        Some(HeldStackPress::Drop)
+    );
 }

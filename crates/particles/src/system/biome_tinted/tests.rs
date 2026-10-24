@@ -131,9 +131,14 @@ fn emitter_relative_custom_motion_and_kill_planes_do_not_share_origins() {
 }
 
 #[test]
-#[ignore = "requires PINNED_BEDROCK_SAMPLES_PACK pointing at the pinned full sample resource_pack"]
 fn cached_foliage_uses_actual_pinned_shape_motion_and_colour_variables() {
-    let pack = std::path::PathBuf::from(std::env::var_os("PINNED_BEDROCK_SAMPLES_PACK").unwrap());
+    let Some(pack) = std::env::var_os("PINNED_BEDROCK_SAMPLES_PACK") else {
+        eprintln!(
+            "skipping cached_foliage_uses_actual_pinned_shape_motion_and_colour_variables: missing sample pack fixture (PINNED_BEDROCK_SAMPLES_PACK)"
+        );
+        return;
+    };
+    let pack = std::path::PathBuf::from(pack);
     let bytes = std::fs::read(pack.join("particles/biome_tinted_leaves_particle.json")).unwrap();
     let source: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     let effect = &source["particle_effect"];
