@@ -72,10 +72,12 @@ fn compile(controller: Value) -> (assets::EntityRenderData, MolangCompiler) {
     )
 }
 
-/// Reads expected raster words from the material policy shared by all compiler consumers.
+/// Reads expected raster words from the compiler material resolver.
 fn material_word(name: &str) -> u32 {
     let rules = assets::facts::pack::rules();
-    rules.raster(name).word(rules.material_state(name))
+    rules
+        .raster(name)
+        .word(MaterialStates::default().resolve(name))
 }
 
 /// Resolves the raster words that actually draw one named bone for a fixture query value.
@@ -129,6 +131,7 @@ fn material_arrays_select_one_raster_with_wrapped_and_clamped_indices() {
     }));
     let solid = material_word("entity_alphatest");
     let blend = material_word("entity_alphablend");
+    assert_ne!(solid, blend);
     for (index, expected) in [
         (0.0, solid),
         (1.0, blend),
