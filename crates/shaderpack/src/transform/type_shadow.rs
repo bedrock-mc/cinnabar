@@ -3,16 +3,18 @@
 //! GLSL lets `Face Face = load();` hide the type `Face` from the end of that declarator to the
 //! end of its scope, so a later `Face.size` reads the variable. naga's GLSL frontend keeps
 //! reading the name as the type and expects a constructor there, so each hiding variable and
-//! its uses get one fresh name per struct. Initializers still see the type, as in GLSL.
+//! its uses get one fresh name per struct. Initializers still see the type, as in GLSL, and so
+//! does a struct of the same name declared in a nested block, until that block ends.
 
-use super::items::{Item, shadowed_bindings, struct_body_end};
+use super::items::{Item, binding_uses, matching, struct_body_end};
 use crate::token::{Tok, id};
 use std::collections::HashSet;
 use std::ops::Range;
 
 /// Renames every function-local variable that shares its name with a top-level struct, and
 /// the uses that variable hides, leaving the type's own uses (including in the variable's
-/// initializer) untouched. Members of structs declared inside a function keep their names.
+/// initializer) untouched. Members of structs declared inside a function keep their names, and
+/// a struct declared after the variable takes the name back for the rest of its block.
 pub(super) fn rename_struct_shadowing_locals(items: &mut [Item], source: &[Tok]) {
     let structs: Vec<String> = items
         .iter()
@@ -41,13 +43,19 @@ pub(super) fn rename_struct_shadowing_locals(items: &mut [Item], source: &[Tok])
         let Item::Func { toks, .. } = item else {
             continue;
         };
-        let bodies = struct_bodies(toks);
-        let hidden = shadowed_bindings(toks, structs.iter().map(String::as_str));
-        for index in hidden {
-            if bodies.iter().any(|body| body.contains(&index)) {
+        let local_types = local_structs(toks);
+        let bindings = binding_uses(toks, structs.iter().map(String::as_str));
+        for (index, declarator) in bindings {
+            let token = &toks[index];
+            let names_a_type = local_types.iter().any(|local| {
+                local.body.contains(&index)
+                    || (token.ident() == local.name.as_deref()
+                        && local.visible.start > declarator
+                        && local.visible.contains(&index))
+            });
+            if names_a_type {
                 continue;
             }
-            let token = &toks[index];
             if let Some((_, renamed)) = fresh
                 .iter()
                 .find(|(name, _)| token.ident() == Some(name.as_str()))
@@ -58,11 +66,38 @@ pub(super) fn rename_struct_shadowing_locals(items: &mut [Item], source: &[Tok])
     }
 }
 
-/// Token ranges of the struct declarations in `toks`, from `struct` to the closing brace.
-fn struct_bodies(toks: &[Tok]) -> Vec<Range<usize>> {
-    (0..toks.len())
-        .filter_map(|start| Some(start..struct_body_end(toks, start)?))
-        .collect()
+/// A struct declared inside a function body.
+struct LocalStruct {
+    /// The struct's name, if it has one.
+    name: Option<String>,
+    /// The declaration, from `struct` to its closing brace; its members are not variables.
+    body: Range<usize>,
+    /// The tokens in which the name means this type: from `struct` to the end of its block.
+    visible: Range<usize>,
+}
+
+/// Finds the struct declarations in the function tokens `toks`.
+fn local_structs(toks: &[Tok]) -> Vec<LocalStruct> {
+    let mut blocks = Vec::new();
+    let mut found = Vec::new();
+    for (index, token) in toks.iter().enumerate() {
+        if let Some(end) = struct_body_end(toks, index) {
+            let block_end = blocks
+                .last()
+                .map_or(toks.len(), |&open| matching(toks, open, "{", "}") + 1);
+            found.push(LocalStruct {
+                name: toks.get(index + 1).and_then(Tok::ident).map(str::to_string),
+                body: index..end,
+                visible: index..block_end,
+            });
+        }
+        if token.is("{") {
+            blocks.push(index);
+        } else if token.is("}") {
+            blocks.pop();
+        }
+    }
+    found
 }
 
 #[cfg(test)]
@@ -120,6 +155,16 @@ mod tests {
                 "struct S { float x; }; float f() { float S = 0.0; struct T { float S; }; T t = T(1.0); return t.S + S; }"
             ),
             "float f ( ) { float __shaderpack_S_local_0 = 0.0 ; struct T { float S ; } ; T t = T ( 1.0 ) ; return t . S + __shaderpack_S_local_0 ; }"
+        );
+    }
+
+    #[test]
+    fn a_struct_declared_in_an_inner_block_takes_its_name_back_there() {
+        assert_eq!(
+            renamed(
+                "struct S { float x; }; float f() { float S = 0.0; { struct S { float x; }; S value = S(1.0); { S S = S(2.0); S.x += value.x; } } return S; }"
+            ),
+            "float f ( ) { float __shaderpack_S_local_0 = 0.0 ; { struct S { float x ; } ; S value = S ( 1.0 ) ; { S __shaderpack_S_local_0 = S ( 2.0 ) ; __shaderpack_S_local_0 . x += value . x ; } } return __shaderpack_S_local_0 ; }"
         );
     }
 

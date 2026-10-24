@@ -397,6 +397,27 @@ fn compatibility_locals_named_after_their_struct_type_hide_it_in_their_scope() {
 }
 
 #[test]
+fn compatibility_local_structs_keep_their_names_beside_a_hiding_local() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        vec4 shade() {
+            float Face = 0.5;
+            struct Pair { float Face; };
+            Pair pair = Pair(Face);
+            vec4 result = vec4(pair.Face);
+            {
+                struct Face { float x; };
+                Face inner = Face(0.25);
+                result.x += inner.x;
+            }
+            return result + vec4(Face);
+        }
+        out vec4 color; void main() { color = shade(); }",
+    );
+}
+
+#[test]
 fn compatibility_unsized_array_declarations_take_sized_initializer_lengths() {
     success(
         VERTEX,
