@@ -79,6 +79,76 @@ fn checked_in_fixtures_match() {
 }
 
 #[test]
+fn fixture_bytes_survive_crlf_checkouts() {
+    let checkout = tempfile::tempdir().unwrap();
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    std::fs::copy(
+        source.join(".gitattributes"),
+        checkout.path().join(".gitattributes"),
+    )
+    .unwrap();
+    let mut pending = vec![fixture_dir()];
+    let mut fixtures = Vec::new();
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                pending.push(entry.path());
+                continue;
+            }
+            let path = entry.path();
+            let relative = path
+                .canonicalize()
+                .unwrap()
+                .strip_prefix(source.canonicalize().unwrap())
+                .unwrap()
+                .to_owned();
+            let target = checkout.path().join(&relative);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::copy(&path, target).unwrap();
+            fixtures.push((
+                relative.to_str().unwrap().to_owned(),
+                std::fs::read(path).unwrap(),
+            ));
+        }
+    }
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .current_dir(checkout.path())
+            .args(["-c", "core.autocrlf=true"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    git(&["init", "--quiet"]);
+    let mut args = vec!["check-attr", "text", "--"];
+    args.extend(fixtures.iter().map(|(path, _)| path.as_str()));
+    let attributes = git(&args);
+    assert_eq!(attributes.lines().count(), fixtures.len());
+    assert!(
+        attributes
+            .lines()
+            .all(|line| line.ends_with(": text: unset")),
+        "{attributes}"
+    );
+    git(&["add", "."]);
+    git(&["checkout-index", "--all", "--force"]);
+    for (path, bytes) in fixtures {
+        assert_eq!(
+            std::fs::read(checkout.path().join(&path)).unwrap(),
+            bytes,
+            "{path} changed in a CRLF checkout"
+        );
+    }
+}
+
+#[test]
 fn fixtures_pass_the_client_verifiers() {
     let seeds: serde_json::Value = serde_json::from_slice(&read("test_seeds.json")).unwrap();
     let digests: BTreeMap<String, String> = serde_json::from_slice(&read("digests.json")).unwrap();

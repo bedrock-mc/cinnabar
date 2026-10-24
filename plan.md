@@ -793,13 +793,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   the local server imports the same implementation. Explicit world notices fence
   messages before notice admission until the client acknowledges that specific
   notice and invoke the existing client-part epoch callback, including
-  same-dimension-type transfers. Notices and their correlated acknowledgments bypass
-  data credits at network and runtime admission, with one outstanding size-bounded
-  notice per connection until its acknowledgment is written. The server coalesces
-  rapid transfers to the latest desired world, sending its next notice only after
-  the outstanding acknowledgment arrives and keeping messages fenced throughout.
-  Excess control traffic
-  is dropped without quarantining data; write failures end the optional session without retry timers. A two-world
+  same-dimension-type transfers. Size-bounded notices bypass data credits when their
+  epoch exceeds the last acknowledged notice; equal and older epochs drop silently.
+  Acknowledged epochs advance before transport handoff, allowing the next notice
+  during a pending flush. Only the outstanding notice's acknowledgment bypasses
+  server data credits; replayed acknowledgments consume the normal budget. The
+  server coalesces rapid transfers to the latest desired world, sending its next
+  notice only after the outstanding acknowledgment arrives and keeping messages
+  fenced throughout. Write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting, generated application
   Go message bindings and live multi-client transfer qualification remain incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/

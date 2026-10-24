@@ -100,7 +100,8 @@ a transfer. Each connection has at most one outstanding notice. Further transfer
 record only the latest desired world. After the outstanding acknowledgment arrives,
 the server sends one notice for that world if it differs from the noticed world.
 The fence stays closed until the latest desired world is acknowledged. Retired and
-repeated acknowledgments are ignored. There are no
+repeated acknowledgments leave that fence unchanged but consume the normal data
+budget; exceeding it ends the optional session. There are no
 retry timers. A write failure ends the optional client part while ordinary play
 continues. `WorldChanged` returns false when there is no usable v2 session or the
 world ID is empty.

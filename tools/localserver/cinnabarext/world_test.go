@@ -1,6 +1,8 @@
 package cinnabarext
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 	"time"
 
@@ -108,6 +110,39 @@ func TestWorldControlsPreserveDataCredits(t *testing.T) {
 	}
 	if len(f.messages()) != MaxMessagesPerSecond {
 		t.Fatal("world acknowledgment spent inbound data credit")
+	}
+}
+
+func TestReplayedWorldAcknowledgmentsConsumeDataBudgets(t *testing.T) {
+	for _, outstanding := range []bool{false, true} {
+		for _, budget := range []string{"messages", "bytes"} {
+			t.Run(fmt.Sprintf("outstanding=%t/%s", outstanding, budget), func(t *testing.T) {
+				f, _ := readyFixture(t)
+				f.s.WorldChanged(f.player, "sample:first")
+				notice := f.lastWorldNotice()
+				ack := f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch))
+				f.deliver(ack)
+				if outstanding {
+					f.s.WorldChanged(f.player, "sample:second")
+				}
+				count := MaxMessagesPerSecond
+				if budget == "bytes" {
+					ack = append(ack, bytes.Repeat([]byte(" "), MaxEnvelopeBytes-len(ack))...)
+					count = MaxBytesPerSecond / len(ack)
+				}
+				for range count {
+					f.deliver(ack)
+					if f.conn.(*Conn).phase != active {
+						t.Fatal("replayed acknowledgment ended the client part within its budget")
+					}
+				}
+				f.deliver(ack)
+				if f.conn.(*Conn).phase != fallenBack {
+					t.Fatal("replayed acknowledgments bypassed the data budget")
+				}
+				f.fellBack()
+			})
+		}
 	}
 }
 

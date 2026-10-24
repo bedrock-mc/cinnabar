@@ -193,8 +193,9 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 		envelope, err = c.ingress.Receive(data, nowMs, c.epoch, c.grant)
 	} else {
 		msg, controlErr := control(data)
-		// Notice acknowledgments bypass data credits, just like the outbound notices.
-		if controlErr == nil && msg.WorldAck != nil {
+		// Only the outstanding notice's acknowledgment bypasses data credits.
+		if ack := msg.WorldAck; controlErr == nil && ack != nil && c.worldNoticePending &&
+			ack.RequestedEpoch == c.requestedEpoch && ack.Session == c.session {
 			return nil, c.changeEpoch(msg)
 		}
 		if err = c.ingress.charge(len(data), nowMs); err == nil {

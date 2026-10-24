@@ -223,7 +223,6 @@ where
 {
     let mut packets = Vec::with_capacity(frame.len());
     let mut receipts = Vec::with_capacity(frame.len());
-    let mut world_acks = Vec::new();
     for queued in frame {
         if protocol::is_experience_packet(&queued.packet) && !experience_gate.enabled() {
             continue;
@@ -247,9 +246,6 @@ where
             continue;
         }
         let (preceding, packet) = finalize_interaction_packet(queued.packet, queued.interaction);
-        if let Some(epoch) = protocol::experience_world_ack(&packet) {
-            world_acks.push(epoch);
-        }
         // Traces are formatted from the final packet and published only after the write.
         let line = queued
             .physics
@@ -292,6 +288,13 @@ where
         (trace, trace.now(), packets.len() as i64, tick)
     });
     let now = opportunity.map(|origin| simulation_clock::Moment::from_elapsed(origin.elapsed()));
+    // The peer can receive an acknowledgment and send its next notice before this flush
+    // resolves. Retire the acknowledged epochs before handing the batch to the transport.
+    for packet in &packets {
+        if let Some(epoch) = protocol::experience_world_ack(packet) {
+            experience_gate.acknowledged(epoch);
+        }
+    }
     match wait_for_send_or_cancel(outbound.send_batch(packets, now), shutdown_rx).await {
         None => Flush::Stopped,
         Some(Err(error)) => Flush::Failed(FlushFailure {
@@ -300,9 +303,6 @@ where
             trace_armed,
         }),
         Some(Ok(())) => {
-            for epoch in world_acks {
-                experience_gate.acknowledged(epoch);
-            }
             if let Some((trace, begun, count, tick)) = traced {
                 trace.record(
                     bridge::latency_trace::kind::OUTBOUND_FLUSH,

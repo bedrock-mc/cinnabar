@@ -9,7 +9,7 @@ use super::{InboundWorldEvent, NetworkHandle, WorldEvent};
 #[derive(Default)]
 pub(super) struct ExperienceGate {
     state: AtomicU8,
-    pending_notice: AtomicU64,
+    acknowledged_epoch: AtomicU64,
 }
 
 impl ExperienceGate {
@@ -33,11 +33,7 @@ impl ExperienceGate {
         }
         if let Some((_, epoch)) = message.world_notice() {
             return message.as_bytes().len() <= protocol::MAX_EXPERIENCE_CONTROL_BYTES
-                && epoch != 0
-                && self
-                    .pending_notice
-                    .compare_exchange(0, epoch, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok();
+                && epoch > self.acknowledged_epoch.load(Ordering::Acquire);
         }
         if rate
             .get_or_insert_with(|| RateLimit::new(now_ms))
@@ -50,11 +46,9 @@ impl ExperienceGate {
         true
     }
 
-    /// Reopens the control lane only after its matching acknowledgment was written.
+    /// Retires equal and older notices before the acknowledgment reaches the transport.
     pub(super) fn acknowledged(&self, epoch: u64) {
-        let _ = self
-            .pending_notice
-            .compare_exchange(epoch, 0, Ordering::AcqRel, Ordering::Acquire);
+        self.acknowledged_epoch.fetch_max(epoch, Ordering::AcqRel);
     }
 }
 
@@ -120,7 +114,7 @@ impl ExperienceIngress {
         Some(message)
     }
 
-    /// Models the successful socket write of an outbound acknowledgment.
+    /// Models handing an outbound acknowledgment to the transport.
     pub fn written(&self, bytes: Vec<u8>) {
         if let Some(epoch) =
             protocol::experience_world_ack(&protocol::experience_packet(bytes).unwrap())
@@ -187,78 +181,135 @@ mod tests {
         assert!(!ingress.failed());
     }
 
+    /// Builds a server notice with a stable session and a caller-selected epoch.
+    fn world_notice(epoch: u64) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({"kind":"epoch","body":{
+            "session":"session", "world_epoch":epoch
+        }}))
+        .unwrap()
+    }
+
+    /// Echoes a notice while advancing to the same client world epoch.
+    fn world_ack(epoch: u64) -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({"kind":"world_ack","body":{
+            "session":"session", "world_epoch":epoch, "requested_epoch":epoch
+        }}))
+        .unwrap()
+    }
+
+    #[test]
+    fn acknowledged_epochs_drop_equal_and_older_notices_without_spending_data_credits() {
+        let mut ingress = ExperienceIngress::default();
+        assert!(ingress.admit(world_notice(2), 0).is_some());
+        ingress.written(world_ack(2));
+        for _ in 0..server_experience::policy::MAX_MESSAGES_PER_SECOND {
+            assert!(ingress.admit(world_notice(2), 0).is_none());
+            assert!(ingress.admit(world_notice(1), 0).is_none());
+            assert!(ingress.admit(b"data".to_vec(), 0).is_some());
+        }
+        // A late acknowledgment cannot move the admitted epoch backward.
+        ingress.written(world_ack(1));
+        assert!(ingress.admit(world_notice(2), 0).is_none());
+        assert!(ingress.admit(world_notice(3), 0).is_some());
+        assert!(!ingress.failed());
+    }
+
     #[tokio::test]
-    async fn only_a_successful_matching_ack_write_reopens_the_control_lane() {
+    async fn coalesced_notice_is_acknowledged_before_the_previous_ack_write_completes() {
         use super::super::{
             NetworkCommand,
             outbound::{OutboundRuntime, run_outbound},
         };
-        use std::sync::Arc;
+        use std::sync::{Arc, Mutex};
         use tokio::sync::{mpsc, watch};
 
-        struct Writer(bool);
+        struct Writer {
+            gate: Arc<ExperienceGate>,
+            commands: Option<mpsc::Sender<NetworkCommand>>,
+            written: Arc<Mutex<Vec<u64>>>,
+        }
         impl super::super::OutboundSession for Writer {
             type Error = &'static str;
 
-            /// Completes or rejects the batch at the actual transport boundary.
+            /// Delivers the coalesced notice while the previous flush is still unresolved.
             async fn send_batch(
                 &mut self,
-                _: Vec<protocol::Packet>,
+                packets: Vec<protocol::Packet>,
                 _: Option<simulation_clock::Moment>,
             ) -> Result<(), Self::Error> {
-                if self.0 { Ok(()) } else { Err("write failed") }
+                assert_eq!(packets.len(), 1);
+                let epoch = protocol::experience_world_ack(&packets[0]).unwrap();
+                self.written.lock().unwrap().push(epoch);
+                if epoch == 2 {
+                    let event = InboundWorldEvent::Event(WorldEvent::Experience(
+                        protocol::ExperienceMessage::new(world_notice(3)),
+                    ));
+                    assert!(self.gate.admit(&event, &mut None, 0));
+                    let commands = self.commands.take().unwrap();
+                    commands
+                        .try_send(NetworkCommand::Send {
+                            packet: protocol::experience_packet(world_ack(3)).unwrap(),
+                            sub_chunk: None,
+                            chat: None,
+                            physics: None,
+                            physics_reanchor: None,
+                            interaction: None,
+                        })
+                        .unwrap();
+                    commands
+                        .try_send(NetworkCommand::FlushFrame {
+                            cache_opportunity: false,
+                        })
+                        .unwrap();
+                }
+                Ok(())
             }
         }
 
-        for (success, requested_epoch) in [(true, 2), (false, 2), (true, 3)] {
-            let mut ingress = ExperienceIngress::default();
-            let notice =
-                br#"{"kind":"epoch","body":{"session":"session","world_epoch":2}}"#.to_vec();
-            assert!(ingress.admit(notice.clone(), 0).is_some());
-            let gate = Arc::new(ingress.gate);
-            let ack = serde_json::json!({"kind":"world_ack","body":{
-                "session":"session", "world_epoch":2, "requested_epoch":requested_epoch
-            }});
-            let (commands, receiver) = mpsc::channel(2);
-            commands
-                .try_send(NetworkCommand::Send {
-                    packet: protocol::experience_packet(serde_json::to_vec(&ack).unwrap()).unwrap(),
-                    sub_chunk: None,
-                    chat: None,
-                    physics: None,
-                    physics_reanchor: None,
-                    interaction: None,
-                })
-                .unwrap();
-            commands
-                .try_send(NetworkCommand::FlushFrame {
-                    cache_opportunity: false,
-                })
-                .unwrap();
-            drop(commands);
-            let (hooks, _hook_rx) = mpsc::unbounded_channel();
-            let (_shutdown, shutdown_rx) = watch::channel(false);
-            run_outbound(OutboundRuntime {
-                outbound: Writer(success),
-                commands: receiver,
-                control_event_tx: mpsc::channel::<super::super::NetworkControlEvent>(1).0,
-                hooks,
-                shutdown_rx,
-                experience_gate: Arc::clone(&gate),
-                trace_line: |_: u64, _: &protocol::Packet| None::<String>,
-                write_trace: |_: &str| {},
-                fast_transfer_action_marker: None,
+        let mut ingress = ExperienceIngress::default();
+        assert!(ingress.admit(world_notice(2), 0).is_some());
+        let gate = Arc::new(ingress.gate);
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let (commands, receiver) = mpsc::channel(2);
+        commands
+            .try_send(NetworkCommand::Send {
+                packet: protocol::experience_packet(world_ack(2)).unwrap(),
+                sub_chunk: None,
+                chat: None,
+                physics: None,
+                physics_reanchor: None,
+                interaction: None,
             })
-            .await;
-            let event = InboundWorldEvent::Event(WorldEvent::Experience(
-                protocol::ExperienceMessage::new(notice),
-            ));
-            assert_eq!(
-                gate.admit(&event, &mut ingress.rate, 0),
-                success && requested_epoch == 2
-            );
-            assert!(gate.enabled());
-        }
+            .unwrap();
+        commands
+            .try_send(NetworkCommand::FlushFrame {
+                cache_opportunity: false,
+            })
+            .unwrap();
+        let (hooks, _hook_rx) = mpsc::unbounded_channel();
+        let (_shutdown, shutdown_rx) = watch::channel(false);
+        run_outbound(OutboundRuntime {
+            outbound: Writer {
+                gate: Arc::clone(&gate),
+                commands: Some(commands),
+                written: Arc::clone(&written),
+            },
+            commands: receiver,
+            control_event_tx: mpsc::channel::<super::super::NetworkControlEvent>(1).0,
+            hooks,
+            shutdown_rx,
+            experience_gate: Arc::clone(&gate),
+            trace_line: |_: u64, _: &protocol::Packet| None::<String>,
+            write_trace: |_: &str| {},
+            fast_transfer_action_marker: None,
+        })
+        .await;
+        assert_eq!(*written.lock().unwrap(), [2, 3]);
+        let event = InboundWorldEvent::Event(WorldEvent::Experience(
+            protocol::ExperienceMessage::new(world_notice(3)),
+        ));
+        assert!(!gate.admit(&event, &mut ingress.rate, 0));
+        assert!(gate.enabled());
     }
 
     struct RecordingSession(std::sync::Arc<std::sync::Mutex<Vec<bytes::Bytes>>>);
