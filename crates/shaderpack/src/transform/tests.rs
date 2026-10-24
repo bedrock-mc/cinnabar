@@ -4,7 +4,7 @@ use super::*;
 use crate::compile::{OutputMap, compile};
 use crate::options::OptionValues;
 use crate::preprocess::{expand, preprocess};
-use crate::reflection::VertexAttribute;
+use crate::reflection::{SamplerClass, VertexAttribute};
 use crate::source::PackSource;
 
 const VERTEX: &str = "#version 120

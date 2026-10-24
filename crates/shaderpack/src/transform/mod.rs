@@ -23,7 +23,7 @@ mod specialize;
 use crate::preprocess::Preprocessed;
 use crate::programs::StageKind;
 use crate::reflection::{
-    LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, SamplerClass, TEXTURE_GROUP,
+    LEGACY_UNIFORMS, SHADOW_SAMPLER_BINDING, SHADOW_SAMPLER_NAME, TEXTURE_GROUP,
 };
 use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
