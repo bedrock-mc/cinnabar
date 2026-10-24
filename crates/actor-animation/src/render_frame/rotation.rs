@@ -2,27 +2,16 @@ use super::*;
 
 /// Rotation queries read the same partial tick before relative yaw is clamped.
 pub(super) fn is_query(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
-    use assets::MolangQuery as Q;
-    matches!(
-        assets.molang_query_binding(symbol),
-        Some(
-            Q::BodyYRotation
-                | Q::BodyXRotation
-                | Q::TargetYRotation
-                | Q::TargetXRotation
-                | Q::HeadYRotation
-                | Q::HeadXRotation
-        )
-    )
+    assets
+        .molang_query_binding(symbol)
+        .is_some_and(|query| query.descriptor().sampling == assets::MolangQuerySampling::Rotation)
 }
 
 /// Walk queries read the stride and speed interpolated to the frame.
 pub(super) fn is_walk_query(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
-    use assets::MolangQuery as Q;
-    matches!(
-        assets.molang_query_binding(symbol),
-        Some(Q::ModifiedDistanceMoved | Q::ModifiedMoveSpeed)
-    )
+    assets
+        .molang_query_binding(symbol)
+        .is_some_and(|query| query.descriptor().sampling == assets::MolangQuerySampling::Walk)
 }
 
 impl ActorTickInput {

@@ -133,6 +133,7 @@ pub(super) fn compile_render(
     let (mut layers, mut slots, mut candidates, mut visibility) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut layer_geometries = Vec::new();
+    let mut material_selections = Vec::new();
     let mut geometry_parents = None;
     let geometry_indices = unique_geometry_indices(geometries)?;
     for (rig_index, rig) in rigs.iter().enumerate() {
@@ -324,6 +325,7 @@ pub(super) fn compile_render(
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
+                material_selection: None,
                 first_slot: first_slot as u32,
                 slot_count: (slots.len() - first_slot) as u16,
                 unresolved_textures: slots.len() == first_slot,
@@ -348,6 +350,7 @@ pub(super) fn compile_render(
                 layer,
                 groups,
                 material_groups::Records {
+                    selections: &mut material_selections,
                     layers: &mut layers,
                     slots: &mut slots,
                     candidates: &mut candidates,
@@ -359,6 +362,7 @@ pub(super) fn compile_render(
         }
     }
     Ok(EntityRenderData {
+        material_selections: material_selections.into_boxed_slice(),
         layers: layers.into_boxed_slice(),
         slots: slots.into_boxed_slice(),
         candidates: candidates.into_boxed_slice(),
