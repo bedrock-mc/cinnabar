@@ -124,7 +124,7 @@ impl Value {
 
     /// Parses one scalar literal, retaining signedness and 32-bit float rounding.
     fn literal(token: &Tok) -> Option<Self> {
-        Some(match &token.kind {
+        let value = match &token.kind {
             TokKind::Int(text) => {
                 let digits = text.trim_end_matches(['u', 'U']);
                 let (digits, radix) = if let Some(hex) = digits
@@ -153,8 +153,8 @@ impl Value {
             }
             TokKind::Ident(text) if text == "true" || text == "false" => Self::Bool(text == "true"),
             _ => return None,
-        })
-        .finite()
+        };
+        value.finite()
     }
 }
 
