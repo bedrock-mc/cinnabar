@@ -744,6 +744,15 @@ impl BundleHost {
         }
     }
 
+    /// Returns the guest's held references even while an older drawing snapshot is transferring.
+    pub(crate) fn drawing_references(&self) -> Vec<mod_render::retained::EntityKey> {
+        self.store
+            .data()
+            .presentation
+            .drawing_entity_keys()
+            .collect()
+    }
+
     /// Returns changed drawing only; bundles without drawing authority publish no presentation.
     pub(crate) fn take_presentation(
         &mut self,

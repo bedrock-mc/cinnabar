@@ -33,8 +33,8 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
 /// the helper exiting; 3 the session items a dispatch carries; 4 verified drawing assets,
 /// native drawing context and typed presentation output; 5 requires that context at startup
-/// and before every callback.
-const HELPER_PROTOCOL: u32 = 5;
+/// and before every callback; 6 reports held actor references independently of drawing chunks.
+const HELPER_PROTOCOL: u32 = 6;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -175,12 +175,16 @@ pub enum Reply {
     Committed {
         transaction: Transaction,
         fuel: u64,
+        references: Vec<mod_render::retained::EntityKey>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         presentation: Option<Box<crate::presentation::Chunk>>,
     },
     /// The callback failed and published nothing. After a failed dispatch the helper runs on, on
     /// a fresh instance of the guest; after a failed start it exits.
-    Failed(CallFailure),
+    Failed {
+        failure: CallFailure,
+        references: Vec<mod_render::retained::EntityKey>,
+    },
 }
 
 /// Why one callback, or the start, failed.
@@ -481,7 +485,14 @@ pub fn serve_developer() -> Result<()> {
         Ok(host) => host,
         Err(error) => {
             let failure = CallFailure::startup(&bundle, &error);
-            write_frame(&mut output, &Reply::Failed(failure), MAX_REPLY_IPC)?;
+            write_frame(
+                &mut output,
+                &Reply::Failed {
+                    failure,
+                    references: Vec::new(),
+                },
+                MAX_REPLY_IPC,
+            )?;
             return Err(error);
         }
     };
@@ -497,10 +508,13 @@ pub fn serve_developer() -> Result<()> {
         }
         let reply = match host.dispatch(&request.event, request.epoch, &request.drawing) {
             Ok(transaction) => committed(&mut host, transaction, &bundle, callback),
-            Err(error) => Reply::Failed(CallFailure {
-                fuel: Some(host.last_fuel_used()),
-                ..CallFailure::of(&bundle, callback, &error)
-            }),
+            Err(error) => Reply::Failed {
+                failure: CallFailure {
+                    fuel: Some(host.last_fuel_used()),
+                    ..CallFailure::of(&bundle, callback, &error)
+                },
+                references: host.drawing_references(),
+            },
         };
         answer(&mut output, reply, &bundle, callback)?;
     }
@@ -514,7 +528,13 @@ fn committed(
     callback: &str,
 ) -> Reply {
     let fuel = host.last_fuel_used();
-    let presentation = serde_json::to_vec(&transaction)
+    let mut reply = Reply::Committed {
+        transaction,
+        fuel,
+        references: host.drawing_references(),
+        presentation: None,
+    };
+    let presentation = serde_json::to_vec(&reply)
         .map_err(anyhow::Error::from)
         .and_then(|bytes| {
             let allowance =
@@ -522,15 +542,19 @@ fn committed(
             host.take_presentation(allowance)
         });
     match presentation {
-        Ok(presentation) => Reply::Committed {
-            transaction,
-            fuel,
-            presentation,
+        Ok(chunk) => {
+            if let Reply::Committed { presentation, .. } = &mut reply {
+                *presentation = chunk;
+            }
+            reply
+        }
+        Err(error) => Reply::Failed {
+            failure: CallFailure {
+                fuel: Some(fuel),
+                ..CallFailure::of(bundle, callback, &error)
+            },
+            references: host.drawing_references(),
         },
-        Err(error) => Reply::Failed(CallFailure {
-            fuel: Some(fuel),
-            ..CallFailure::of(bundle, callback, &error)
-        }),
     }
 }
 
@@ -540,7 +564,18 @@ fn answer(output: &mut impl Write, reply: Reply, bundle: &str, callback: &str) -
         Ok(bytes) => bytes,
         Err(error) => {
             let failure = CallFailure::new(bundle, callback, FailureKind::Refused, &error);
-            serialize_frame(&Reply::Failed(failure), MAX_REPLY_IPC)?
+            let references = match reply {
+                Reply::Committed { references, .. } | Reply::Failed { references, .. } => {
+                    references
+                }
+            };
+            serialize_frame(
+                &Reply::Failed {
+                    failure,
+                    references,
+                },
+                MAX_REPLY_IPC,
+            )?
         }
     };
     output.write_all(&(bytes.len() as u32).to_le_bytes())?;

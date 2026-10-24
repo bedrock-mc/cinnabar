@@ -4,6 +4,7 @@
 
 use render_scene::ModRenderScene;
 
+mod buffers;
 mod passes;
 #[cfg(test)]
 pub(crate) use passes::PassGpu;

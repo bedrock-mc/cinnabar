@@ -128,7 +128,7 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
 
 fn failure(reply: Reply) -> CallFailure {
     match reply {
-        Reply::Failed(failure) => failure,
+        Reply::Failed { failure, .. } => failure,
         Reply::Committed { transaction, .. } => panic!("committed {transaction:?}"),
     }
 }
@@ -145,7 +145,7 @@ fn count(reply: Reply) -> i64 {
             },
             other => panic!("{other:?}"),
         },
-        Reply::Failed(failure) => panic!("failed {failure:?}"),
+        Reply::Failed { failure, .. } => panic!("failed {failure:?}"),
     }
 }
 

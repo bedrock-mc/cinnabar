@@ -59,8 +59,28 @@ fn allocated(app: &App) -> u64 {
         + gpu
             .views
             .values()
-            .map(|view| view.buffer.size() + view.frame.size())
+            .map(|view| view.buffer.as_ref().map_or(0, |buffer| buffer.size()) + view.frame.size())
             .sum::<u64>()
+}
+
+#[test]
+fn instance_growth_recovers_after_retiring_the_old_buffer() {
+    let instance = std::mem::size_of::<render_scene::mod_scene::retained::GpuInstance>();
+    let limit = (3 * std::mem::size_of::<mod_render::retained::mesh::GpuVertex>()
+        + std::mem::size_of::<gpu::CameraFrame>()
+        + (2 * instance).next_power_of_two()) as u64;
+    let (mut app, _, ledger) = fixture(limit);
+    for _ in 0..3 {
+        app.world_mut().run_system_once(gpu::queue).unwrap();
+        assert!(ledger.used() <= ledger.limit());
+        complete(&mut app);
+        assert!(ledger.used() <= ledger.limit());
+    }
+    let gpu = app.world().resource::<gpu::Gpu>();
+    let view = gpu.views.values().next().unwrap();
+    assert_eq!(view.uploaded.len(), 2);
+    assert_eq!(ledger.used(), allocated(&app));
+    assert_eq!(ledger.used(), limit);
 }
 
 #[test]

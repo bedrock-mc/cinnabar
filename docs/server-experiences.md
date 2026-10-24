@@ -436,6 +436,10 @@ lets the guest rebuild without restarting its component. Before `init()` and eac
 later callback, the host binds drawing to the current native connection, world
 epoch, dimension type and actor identities together. A changed binding revokes old
 references before guest code runs; an unbound or stale context cannot dispatch.
+Each reply reports the guest's held actor references independently of snapshot chunks.
+The application checks those references and the in-flight callback's candidates against
+the native actor store. Leaving the nearest-candidate set keeps a live reference,
+including while a callback or snapshot transfer is pending.
 While native context is unavailable, new callbacks wait and existing helpers keep
 being polled. Only outstanding work has a deadline; queued replies are judged by
 their completion time. Temporary culling never changes retained mask membership:
@@ -563,7 +567,10 @@ Each bundle has one GPU allocation ledger shared by retained and immediate geome
 per-view instance capacity, actor-mask coverage, depth, resolve and halo attachments,
 and media textures. Every allocation checks the signed ceiling before creating storage.
 Shrinking a scene keeps its resident capacity charged; retired storage releases its
-charge after its final GPU use. Resizing and multisampling use the same ledger.
+charge after its final GPU use. If a larger immediate or instance buffer fits only
+after the old buffer is released, drawing pauses for that buffer while it retires,
+then retries allocation and upload on later frames. Resizing and multisampling use
+the same ledger.
 Readiness waits for every initializer; their bounded sends follow the ready record.
 These are not OS resident-memory or compiler limits.
 

@@ -30,14 +30,7 @@ impl Instance {
     pub(crate) fn drawing_entity_keys(
         &self,
     ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
-        self.store
-            .data()
-            .render
-            .retained
-            .snapshot()
-            .entities
-            .values()
-            .copied()
+        self.store.data().drawing_entity_keys()
     }
 
     /// Reconciles native actor lifetime changes outside guest callback transactions.

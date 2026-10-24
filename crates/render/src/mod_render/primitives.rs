@@ -76,7 +76,7 @@ pub(super) fn install(app: &mut App) {
 #[derive(Resource)]
 pub(crate) struct PrimitiveGpu {
     bind_group: Option<BindGroup>,
-    vertices: mod_render::GpuAllocation<Buffer>,
+    vertices: Option<mod_render::GpuAllocation<Buffer>>,
     capacity: u64,
     uploaded: Arc<[ModVertex]>,
     uploaded_marker: Arc<[ModVertex]>,
@@ -108,9 +108,11 @@ impl PrimitiveGpu {
     /// Allocates vertex capacity and the animation uniform through their owner's ledger.
     fn new(device: &RenderDevice, ledger: Option<&mod_render::GpuLedger>) -> Option<Self> {
         Some(Self {
-            vertices: mod_render::GpuAllocation::new(ledger, vertex_descriptor(6).size, || {
-                crate::gpu_allocation::buffer(device, &vertex_descriptor(6))
-            })?,
+            vertices: Some(mod_render::GpuAllocation::new(
+                ledger,
+                vertex_descriptor(6).size,
+                || crate::gpu_allocation::buffer(device, &vertex_descriptor(6)),
+            )?),
             capacity: 6,
             uploaded: Arc::from([]),
             uploaded_marker: Arc::from([]),
@@ -173,7 +175,7 @@ fn upload(
     ledger: Option<&mod_render::GpuLedger>,
 ) {
     let needed = (vertices.len() + marker_vertices.len() + block_vertices.len()) as u64;
-    let grew = needed > gpu.capacity;
+    let grew = needed > gpu.capacity || gpu.vertices.is_none();
     if grew {
         let capacity = needed.next_power_of_two().min(
             (mod_render::geometry::MAX_VERTICES
@@ -181,20 +183,24 @@ fn upload(
                 + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::MAX_VERTICES_PER_BLOCK)
                 as u64,
         );
-        let Some(vertices) =
-            mod_render::GpuAllocation::new(ledger, vertex_descriptor(capacity).size, || {
-                crate::gpu_allocation::buffer(device, &vertex_descriptor(capacity))
-            })
-        else {
-            // Budget pressure or out of memory keeps the previous upload for this frame.
+        gpu.bind_group = None;
+        if !super::buffers::replace(
+            &mut gpu.vertices,
+            &vertex_descriptor(capacity),
+            ledger,
+            device,
+            queue,
+        ) {
+            if gpu.vertices.is_none() {
+                gpu.capacity = 0;
+                gpu.vertex_count = 0;
+                gpu.block_count = 0;
+            }
             return;
-        };
-        gpu.bind_group = None;
-        let old = std::mem::replace(&mut gpu.vertices, vertices);
-        crate::device_poll::on_frame_complete(queue, move || drop(old));
+        }
         gpu.capacity = capacity;
-        gpu.bind_group = None;
     }
+    let storage = gpu.vertices.as_ref().expect("admitted primitive storage");
     let previous_primitive_count = gpu.uploaded.len() + gpu.uploaded_marker.len();
     let [guest_changed, marker_changed] = upload_changes(
         &gpu.uploaded,
@@ -204,11 +210,11 @@ fn upload(
         grew,
     );
     if guest_changed && !vertices.is_empty() {
-        queue.profiled_write_buffer(&gpu.vertices, 0, bytemuck::cast_slice(vertices));
+        queue.profiled_write_buffer(storage, 0, bytemuck::cast_slice(vertices));
     }
     if marker_changed && !marker_vertices.is_empty() {
         queue.profiled_write_buffer(
-            &gpu.vertices,
+            storage,
             vertices.len() as u64 * VERTEX_BYTES,
             bytemuck::cast_slice(marker_vertices),
         );
@@ -229,7 +235,7 @@ fn upload(
     );
     if blocks_changed && !block_vertices.is_empty() {
         queue.profiled_write_buffer(
-            &gpu.vertices,
+            storage,
             primitive_count as u64 * VERTEX_BYTES,
             bytemuck::cast_slice(block_vertices),
         );
@@ -459,6 +465,10 @@ fn bind(
     view_uniforms: &ViewUniforms,
     gpu: &mut PrimitiveGpu,
 ) {
+    let Some(vertices) = gpu.vertices.as_ref() else {
+        gpu.bind_group = None;
+        return;
+    };
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
         gpu.bind_group = None;
         return;
@@ -480,7 +490,7 @@ fn bind(
             },
             BindGroupEntry {
                 binding: 1,
-                resource: gpu.vertices.as_entire_binding(),
+                resource: vertices.as_entire_binding(),
             },
             BindGroupEntry {
                 binding: 2,

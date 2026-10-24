@@ -40,6 +40,7 @@ impl<H: Worker> Live<H> {
                     transaction,
                     fuel,
                     presentation,
+                    references,
                 }) => {
                     bevy::log::debug!(bundle = %instance.owner.bundle, callback = instance.callback,
                         fuel, "client part callback committed");
@@ -47,6 +48,7 @@ impl<H: Worker> Live<H> {
                         .commit(
                             transaction,
                             presentation,
+                            references,
                             self.epoch,
                             self.drawing_fence,
                             &mut self.modal_order,
@@ -101,9 +103,21 @@ impl<H: Worker> Live<H> {
                             Ok(())
                         })
                 }
-                Ok(Reply::Failed(failure)) => {
-                    failed(instance, &mut self.budget, &failure, now_ms);
-                    Ok(())
+                Ok(Reply::Failed {
+                    failure,
+                    references,
+                }) => {
+                    let result = if instance.epoch == self.epoch
+                        && Some(instance.pending_drawing_context.fence()) == self.drawing_fence
+                    {
+                        instance.accept_references(references)
+                    } else {
+                        Ok(())
+                    };
+                    if result.is_ok() {
+                        failed(instance, &mut self.budget, &failure, now_ms);
+                    }
+                    result
                 }
                 Err(error) => Err(error),
             };
@@ -201,6 +215,22 @@ impl<H: Worker> Live<H> {
 }
 
 impl<H> Instance<H> {
+    /// Records the guest's bounded held references without waiting for scene publication.
+    fn accept_references(
+        &mut self,
+        references: Vec<mod_render::retained::EntityKey>,
+    ) -> Result<()> {
+        ensure!(
+            references.len() <= mod_api::MAX_DRAW_ENTITIES
+                && references
+                    .iter()
+                    .all(|key| self.pending_drawing_context.live.contains(key)),
+            "unadmitted drawing references"
+        );
+        self.drawing_references = references;
+        Ok(())
+    }
+
     /// Revokes this stopped producer's queued side effects without touching another bundle.
     fn discard_outputs(
         &self,
@@ -228,23 +258,24 @@ impl<H> Instance<H> {
         &mut self,
         transaction: Transaction,
         presentation: Option<Box<mod_host::presentation::Chunk>>,
+        references: Vec<mod_render::retained::EntityKey>,
         epoch: u64,
         fence: Option<(u64, u64, i32)>,
         modal_order: &mut u64,
     ) -> Result<Vec<Command>> {
         self.contributions
             .apply(&transaction, &self.owner, self.epoch, &self.capabilities)?;
-        if transaction.epoch == epoch
-            && Some(self.pending_drawing_context.fence()) == fence
-            && let Some(presentation) = presentation
-        {
-            self.presentation.receive(
-                *presentation,
-                mod_host::server::drawing_grants(&self.capabilities).drawing_permissions(),
-                &self.pending_drawing_context,
-                self.capabilities.scope.memory_bytes,
-                self.capabilities.scope.gpu_bytes,
-            )?;
+        if transaction.epoch == epoch && Some(self.pending_drawing_context.fence()) == fence {
+            self.accept_references(references)?;
+            if let Some(presentation) = presentation {
+                self.presentation.receive(
+                    *presentation,
+                    mod_host::server::drawing_grants(&self.capabilities).drawing_permissions(),
+                    &self.pending_drawing_context,
+                    self.capabilities.scope.memory_bytes,
+                    self.capabilities.scope.gpu_bytes,
+                )?;
+            }
         }
         modal::note_opened(self, &transaction, modal_order);
         Ok(transaction.commands)

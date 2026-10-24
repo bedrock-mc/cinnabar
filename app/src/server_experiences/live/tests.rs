@@ -29,6 +29,7 @@ struct FakeWorker {
     /// Makes epoch callbacks publish the actor references they observe.
     observe_epoch: bool,
     contexts: Vec<mod_host::presentation::Context>,
+    references: Vec<mod_render::retained::EntityKey>,
     /// The modal size each dispatch carried.
     sizes: Vec<Option<GuiSize>>,
     /// The revision of the session items each dispatch carried.
@@ -57,6 +58,7 @@ impl Worker for FakeWorker {
             dispatched: Vec::new(),
             observe_epoch: false,
             contexts: vec![drawing],
+            references: Vec::new(),
             sizes: Vec::new(),
             items: Vec::new(),
             owner,
@@ -68,12 +70,16 @@ impl Worker for FakeWorker {
             return Some(Err(anyhow::anyhow!("fixture reply decode failed")));
         }
         if let Some(failure) = self.failure.take() {
-            return Some(Ok(Reply::Failed(failure)));
+            return Some(Ok(Reply::Failed {
+                failure,
+                references: self.references.clone(),
+            }));
         }
         self.response.take().map(|transaction| {
             Ok(Reply::Committed {
                 transaction,
                 fuel: 1,
+                references: self.references.clone(),
                 presentation: self.presentation.pop_front().map(Box::new),
             })
         })
@@ -85,6 +91,7 @@ impl Worker for FakeWorker {
         let context = request.drawing.clone();
         self.contexts.push(context.clone());
         if self.observe_epoch && matches!(request.event, Event::Epoch) {
+            self.references = context.candidates.clone();
             let mut output = mod_host::presentation::Output::default();
             output.drawing.entities = context
                 .candidates
@@ -240,6 +247,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     shift: Some(false),
                     drawing_context: Default::default(),
                     pending_drawing_context: Default::default(),
+                    drawing_references: Vec::new(),
                 },
             )
         })

@@ -56,6 +56,8 @@ struct Instance<H> {
     shift: Option<bool>,
     drawing_context: mod_host::presentation::Context,
     pending_drawing_context: mod_host::presentation::Context,
+    /// The helper's latest held references, independent of snapshot transfer progress.
+    drawing_references: Vec<mod_render::retained::EntityKey>,
 }
 
 impl<H: Worker> Instance<H> {
@@ -123,6 +125,7 @@ impl<H> Instance<H> {
         self.events.clear();
         self.contributions = Contributions::default();
         self.presentation.clear();
+        self.drawing_references.clear();
         self.assets.clear();
         budget.quarantine(&self.owner);
         self.stopped = Some(why);
@@ -248,6 +251,7 @@ impl<H: Worker> Live<H> {
                 shift: Some(false),
                 drawing_context: Default::default(),
                 pending_drawing_context: Default::default(),
+                drawing_references: Vec::new(),
             };
             if let Err(error) = admission {
                 let failure = CallFailure::startup(&instance.owner.bundle, &error);
@@ -373,6 +377,7 @@ impl<H: Worker> Live<H> {
         if self.drawing_fence != Some(context.fence()) {
             for instance in self.instances.values_mut() {
                 instance.presentation.clear();
+                instance.drawing_references.clear();
             }
             self.drawing_sources.clear();
             self.drawing_fence = Some(context.fence());
@@ -380,12 +385,18 @@ impl<H: Worker> Live<H> {
         for instance in self.instances.values_mut() {
             let mut current = context.clone();
             for key in instance
-                .presentation
-                .output()
-                .0
-                .retained
+                .drawing_references
                 .iter()
-                .flat_map(|resources| resources.entities.values())
+                .chain(
+                    instance
+                        .pending_drawing_context
+                        .candidates
+                        .iter()
+                        .filter(|_| {
+                            instance.busy
+                                && instance.pending_drawing_context.fence() == context.fence()
+                        }),
+                )
                 .copied()
                 .filter(|key| valid(*key))
             {
@@ -393,6 +404,7 @@ impl<H: Worker> Live<H> {
                     current.live.push(key);
                 }
             }
+            current.check(context.epoch)?;
             instance.drawing_context = current;
         }
         Ok(())

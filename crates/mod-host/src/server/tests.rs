@@ -1104,7 +1104,20 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
             targets: vec![(target, 3)],
         };
         host.dispatch(&Event::Epoch, 2, &context).unwrap();
+        assert_eq!(host.drawing_references(), [actor]);
     }
+    let first = host.take_presentation(1).unwrap().unwrap();
+    assert!(first.bytes.len() < first.total as usize);
+    let mut context = drawing_context(2);
+    context.live.push(actor);
+    host.dispatch(&Event::Frame, 2, &context).unwrap();
+    assert_eq!(host.drawing_references(), [actor]);
+    let next = host.take_presentation(1).unwrap().unwrap();
+    assert_eq!(first.revision, next.revision);
+    assert_eq!(next.offset, 1);
+    context.live.clear();
+    host.dispatch(&Event::Frame, 2, &context).unwrap();
+    assert!(host.drawing_references().is_empty());
 }
 
 mod binding;

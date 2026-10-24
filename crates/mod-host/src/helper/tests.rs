@@ -140,6 +140,7 @@ fn completed_callback_survives_a_long_pause_before_polling() {
                     commands: Vec::new(),
                 },
                 fuel: 1,
+                references: Vec::new(),
                 presentation: None,
             }),
         ))
@@ -314,6 +315,7 @@ fn idle_helpers_have_no_deadline_and_late_replies_still_expire() {
                     commands: Vec::new(),
                 },
                 fuel: 1,
+                references: Vec::new(),
                 presentation: None,
             }),
         ))

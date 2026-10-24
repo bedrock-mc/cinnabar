@@ -72,6 +72,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn primitive_growth_recovers_after_retiring_the_old_buffer() {
+        let (app, _) = crate::queue_review_support::app();
+        let device = app.world().resource::<RenderDevice>();
+        let queue = app.world().resource::<RenderQueue>();
+        let vertices: Arc<[ModVertex]> = vec![ModVertex::default(); 48].into();
+        let capacity = (vertices.len() as u64).next_power_of_two();
+        let ledger = mod_render::GpuLedger::new(vertex_descriptor(capacity).size + FRAME_BYTES);
+        let mut gpu = PrimitiveGpu::new(device, Some(&ledger)).unwrap();
+        let empty = Arc::from([]);
+        for _ in 0..3 {
+            upload(
+                &mut gpu,
+                &vertices,
+                &empty,
+                &empty,
+                [0.; 2],
+                device,
+                queue,
+                Some(&ledger),
+            );
+            assert!(ledger.used() <= ledger.limit());
+            queue.submit([]);
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            assert!(ledger.used() <= ledger.limit());
+        }
+        assert_eq!(gpu.vertex_count as usize, vertices.len());
+        assert_eq!(ledger.used(), ledger.limit());
+        drop(gpu);
+        assert_eq!(ledger.used(), 0);
+    }
+
+    #[test]
     fn primitive_capacity_stays_charged_when_output_shrinks_and_grows_only_when_it_fits() {
         let (app, _) = crate::queue_review_support::app();
         let device = app.world().resource::<RenderDevice>();
@@ -93,7 +125,10 @@ mod tests {
         queue.submit([]);
         device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         let grown = ledger.used();
-        assert_eq!(grown, gpu.vertices.size() + gpu.frame.size());
+        assert_eq!(
+            grown,
+            gpu.vertices.as_ref().unwrap().size() + gpu.frame.size()
+        );
         upload(
             &mut gpu,
             &empty,
@@ -110,7 +145,7 @@ mod tests {
             .allocate(ledger.limit() - grown, || Some(()))
             .unwrap();
         let too_large = vec![ModVertex::default(); 96].into();
-        let buffer = gpu.vertices.id();
+        let buffer = gpu.vertices.as_ref().unwrap().id();
         upload(
             &mut gpu,
             &too_large,
@@ -121,7 +156,7 @@ mod tests {
             queue,
             Some(&ledger),
         );
-        assert_eq!(gpu.vertices.id(), buffer);
+        assert_eq!(gpu.vertices.as_ref().unwrap().id(), buffer);
         assert_eq!(
             gpu.vertex_count, 0,
             "failed admission preserves the previous upload"

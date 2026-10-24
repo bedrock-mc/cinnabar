@@ -1,6 +1,180 @@
 use super::*;
 
 #[test]
+fn actor_leaving_candidates_during_a_callback_keeps_its_live_reference() {
+    let mut live = initialized(1);
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    let mut observed = context(1);
+    observed.candidates.push(actor);
+    observed.live.push(actor);
+    live.bind_drawing(&observed, |_| true).unwrap();
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .dispatch(None, Event::Frame, 1, None)
+        .unwrap();
+    assert!(
+        live.instances["bundle0"]
+            .presentation
+            .output()
+            .0
+            .retained
+            .is_empty()
+    );
+    live.bind_drawing(&context(1), |key| key == actor).unwrap();
+    assert!(
+        live.instances["bundle0"]
+            .drawing_context
+            .live
+            .contains(&actor)
+    );
+    live.bind_drawing(&context(1), |_| false).unwrap();
+    assert!(
+        !live.instances["bundle0"]
+            .drawing_context
+            .live
+            .contains(&actor)
+    );
+}
+
+#[test]
+fn restarted_initializer_references_stay_live_while_dispatch_pauses() {
+    let mut live = initialized(1);
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    let mut observed = context(1);
+    observed.candidates.push(actor);
+    observed.live.push(actor);
+    live.bind_drawing(&observed, |_| true).unwrap();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance.dispatch(None, Event::Frame, 1, None).unwrap();
+    let helper = instance.helper.as_mut().unwrap();
+    helper.references = vec![actor];
+    helper.response = None;
+    helper.failure = Some(CallFailure {
+        bundle: "bundle0".into(),
+        callback: "frame".into(),
+        kind: FailureKind::Panic,
+        reason: "fixture restart".into(),
+        fuel: Some(1),
+    });
+    live.bind_drawing(&context(1), |_| true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, false).unwrap();
+    live.bind_drawing(&context(1), |_| true).unwrap();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    assert!(instance.stopped.is_none());
+    assert!(!instance.busy);
+    instance.dispatch(None, Event::Frame, 1, None).unwrap();
+    let next = instance.helper.as_ref().unwrap().contexts.last().unwrap();
+    assert!(next.candidates.is_empty());
+    assert_eq!(next.live, [actor]);
+}
+
+#[test]
+fn held_actor_references_survive_candidate_turnover_during_snapshot_transfer() {
+    let mut live = initialized(1);
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    let mut observed = context(1);
+    observed.candidates.push(actor);
+    observed.live.push(actor);
+    live.bind_drawing(&observed, |_| true).unwrap();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance.capabilities.scope.permissions.extend([
+        Permission::WorldDraw,
+        Permission::EntityObserve,
+        Permission::RenderThroughWalls,
+    ]);
+    instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    instance.dispatch(None, Event::Frame, 1, None).unwrap();
+    let helper = instance.helper.as_mut().unwrap();
+    helper.references = vec![actor];
+    let mut output = mod_host::presentation::Output::default();
+    output.drawing.entities.push((
+        mod_api::drawing::DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        actor,
+    ));
+    let bytes = serde_json::to_vec(&output).unwrap();
+    helper.presentation = bytes
+        .chunks(32)
+        .enumerate()
+        .map(|(index, part)| mod_host::presentation::Chunk {
+            revision: 1,
+            offset: (index * 32) as u32,
+            total: bytes.len() as u32,
+            bytes: part.to_vec(),
+        })
+        .collect();
+    let pieces = helper.presentation.len();
+    for slice in 1..=pieces + mod_api::MAX_DRAW_ENTITIES * 3 {
+        let other = mod_render::retained::EntityKey {
+            runtime_id: 100 + slice as u64,
+            ..actor
+        };
+        let mut next = context(1);
+        next.candidates.push(other);
+        next.live.push(other);
+        live.bind_drawing(&next, |_| true).unwrap();
+        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true)
+            .unwrap();
+        let instance = &live.instances["bundle0"];
+        assert!(instance.stopped.is_none());
+        let dispatched = instance.helper.as_ref().unwrap().contexts.last().unwrap();
+        assert!(dispatched.live.contains(&actor));
+        assert!(!dispatched.candidates.contains(&actor));
+        if slice < pieces {
+            assert!(instance.presentation.output().0.retained.is_empty());
+        }
+    }
+    assert_eq!(
+        live.instances["bundle0"].presentation.output().0.retained[0]
+            .entities
+            .values()
+            .copied()
+            .collect::<Vec<_>>(),
+        [actor]
+    );
+    live.bind_drawing(&context(1), |_| false).unwrap();
+    assert!(
+        !live.instances["bundle0"]
+            .drawing_context
+            .live
+            .contains(&actor)
+    );
+    let changed = mod_host::presentation::Context {
+        dimension: 1,
+        ..context(1)
+    };
+    live.bind_drawing(&changed, |_| true).unwrap();
+    assert!(live.instances["bundle0"].drawing_context.live.is_empty());
+    assert!(
+        live.instances["bundle0"]
+            .presentation
+            .output()
+            .0
+            .retained
+            .is_empty()
+    );
+}
+
+#[test]
 fn staggered_drawing_initializers_send_ready_before_overlapping_frames() {
     let mut live = fixture(2);
     for instance in live.instances.values_mut() {

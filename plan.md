@@ -800,13 +800,17 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   context, actor-only snapshots, staggered initialization,
   fair frame callbacks and expanded triangle limits have regression coverage. Bundle
   admission and helper failures revoke only their producer; paused dispatch continues
-  completion polling, and temporary culling preserves retained mask selections. Guest
+  completion polling, and temporary culling preserves retained mask selections. Actor
+  references stay live during callbacks and partial snapshot transfers; only confirmed
+  despawns or world rebinds revoke them. Guest
   drawing imports share the receiver's per-bundle draw ceiling. Immediate
   primitives share one admitted list whose allocation ranges survive layer merging.
   One frame publisher rebuilds anchor availability from all current contributors,
   including server-only configurations. One allocation ledger per bundle
   covers drawing, every view's resident instance capacity, masks and media textures;
-  retired storage releases charges without new guest snapshots. Atmosphere and shader packs share time-override precedence:
+  retired storage releases charges without new guest snapshots. Immediate and retained
+  buffers defer growth until old storage retires when both allocations cannot fit together.
+  Atmosphere and shader packs share time-override precedence:
   capture pin, personal mod, client part, then authoritative server time. Headless planet /
   star-cube rendering and F9 teardown are captured; hardware performance qualification
   remains incomplete.

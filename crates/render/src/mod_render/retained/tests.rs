@@ -223,7 +223,7 @@ fn animation_changes_only_the_frame_uniform() {
     let mesh_buffer = gpu.meshes.values().next().unwrap().buffer.id();
     let view = gpu.views.values().next().unwrap();
     let instances = view.uploaded.clone();
-    let instance_buffer = view.buffer.id();
+    let instance_buffer = view.buffer.as_ref().unwrap().id();
     app.world_mut()
         .resource_mut::<clock::AnimationClock>()
         .phase = mod_render::material::phase(1.);
@@ -231,7 +231,7 @@ fn animation_changes_only_the_frame_uniform() {
     let gpu = app.world().resource::<gpu::Gpu>();
     assert_eq!(mesh_buffer, gpu.meshes.values().next().unwrap().buffer.id());
     let view = gpu.views.values().next().unwrap();
-    assert_eq!(instance_buffer, view.buffer.id());
+    assert_eq!(instance_buffer, view.buffer.as_ref().unwrap().id());
     assert_eq!(instances, view.uploaded);
     assert_eq!(
         view.frame_uploaded.animation[0],

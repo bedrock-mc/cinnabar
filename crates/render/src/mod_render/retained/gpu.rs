@@ -42,7 +42,7 @@ pub(super) struct Batch {
 }
 pub(super) struct ViewGpu {
     pub bindings: BTreeMap<DrawingHandle, BindGroup>,
-    pub buffer: mod_render::GpuAllocation<Buffer>,
+    pub buffer: Option<mod_render::GpuAllocation<Buffer>>,
     pub uploaded: Vec<GpuInstance>,
     pub batches: Vec<Batch>,
     pub frame: mod_render::GpuAllocation<Buffer>,
@@ -285,7 +285,7 @@ pub(super) fn queue(
                     continue;
                 };
                 entry.insert(ViewGpu {
-                    buffer: instance_buffer,
+                    buffer: Some(instance_buffer),
                     uploaded: Vec::new(),
                     batches: Vec::new(),
                     bindings: BTreeMap::new(),
@@ -318,26 +318,37 @@ pub(super) fn queue(
                 prepared.frame_uploaded = camera_frame;
             }
             let bytes = instances.len() * std::mem::size_of::<GpuInstance>();
-            if bytes as u64 > prepared.buffer.size() {
-                if let Some(grown) =
-                    mod_render::GpuAllocation::new(ledger, bytes.next_power_of_two() as u64, || {
-                        buffer(&device, LABEL, bytes.next_power_of_two())
-                    })
-                {
-                    prepared.bindings.clear();
-                    let old = std::mem::replace(&mut prepared.buffer, grown);
-                    crate::device_poll::on_frame_complete(&queue, move || drop(old));
+            if prepared
+                .buffer
+                .as_ref()
+                .is_none_or(|buffer| bytes as u64 > buffer.size())
+            {
+                prepared.bindings.clear();
+                if super::super::buffers::replace(
+                    &mut prepared.buffer,
+                    &BufferDescriptor {
+                        label: Some(LABEL),
+                        size: (bytes.next_power_of_two() as u64).max(16),
+                        usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    },
+                    ledger,
+                    &device,
+                    &queue,
+                ) {
+                    prepared.uploaded.clear();
                 } else {
                     // Budget pressure or out of memory draws only what the current buffer holds.
-                    let capacity =
-                        prepared.buffer.size() as usize / std::mem::size_of::<GpuInstance>();
+                    let capacity = prepared.buffer.as_ref().map_or(0, |buffer| {
+                        buffer.size() as usize / std::mem::size_of::<GpuInstance>()
+                    });
                     truncate_to(&mut instances, &mut batches, capacity);
                 }
             }
             if instances != prepared.uploaded {
                 if !instances.is_empty() {
                     queue.profiled_write_buffer(
-                        &prepared.buffer,
+                        prepared.buffer.as_ref().expect("admitted instance storage"),
                         0,
                         bytemuck::cast_slice(&instances),
                     );

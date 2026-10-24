@@ -4,6 +4,13 @@ use super::*;
 use wasmtime::component::{HasSelf, Linker};
 
 impl State {
+    /// Reads committed actor references without copying geometry or waiting for a snapshot.
+    pub(crate) fn drawing_entity_keys(
+        &self,
+    ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
+        self.render.retained.snapshot().entities.values().copied()
+    }
+
     /// Links the canonical imports directly to the same host implementation in both contexts.
     pub(crate) fn link_presentation<T: 'static>(
         linker: &mut Linker<T>,
