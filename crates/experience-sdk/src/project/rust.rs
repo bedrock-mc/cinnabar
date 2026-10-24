@@ -62,6 +62,18 @@ pub fn generate(project: &Project) -> Result<String> {
             "let mut fields = ::core::iter::IntoIterator::into_iter(record);"
         };
         writeln!(out, "/// Validates and decodes exactly this message's positional fields.\nfn decode(record: ::std::vec::Vec<::experience_sdk::Value>) -> ::core::result::Result<Self, ::std::string::String> {{\n::experience_sdk::message::validate(&Self::CHANNEL, &record)?;\n{iterator}\n::core::result::Result::Ok(Self {{ {} }})\n}}\n}}", message.source.fields.iter().map(|f| format!("{}: ::experience_sdk::message::WireValue::from_value(::core::iter::Iterator::next(&mut fields).ok_or(\"missing message field\")?)?", f.ident.as_ref().expect("named fields"))).collect::<Vec<_>>().join(","))?;
+        if message.to_server {
+            writeln!(
+                out,
+                "impl ::experience_sdk::message::ToServer for {name} {{}}"
+            )?;
+        } else {
+            writeln!(
+                out,
+                "impl ::experience_sdk::message::ToClient for {name} {{ const CONTROL: ::core::primitive::bool = {}; }}",
+                message.control
+            )?;
+        }
     }
     let fingerprint = project.fingerprint();
     writeln!(

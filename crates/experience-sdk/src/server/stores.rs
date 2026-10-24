@@ -14,7 +14,7 @@ pub enum StateError {
     Encoding(serde_json::Error),
 }
 
-impl Callback {
+impl Callback<'_> {
     /// Reads one typed record. A different schema revision requires explicit migration.
     pub fn read_state<T: Persistent>(&self, scope: StoreScope) -> Result<Option<T>, StateError> {
         self.store_read(StoreKey {
