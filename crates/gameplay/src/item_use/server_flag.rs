@@ -19,6 +19,22 @@ impl ItemUseRuntime {
         }
     }
 
+    /// Observes queued button states in order until an owned use is released.
+    /// Later presses cannot hide that release while its action awaits admission.
+    pub fn observe_ordered_use_buttons(
+        &mut self,
+        held: bool,
+        later: impl IntoIterator<Item = bool>,
+    ) {
+        self.observe_use_button(held);
+        for held in later {
+            if self.is_releasing(self.button_held) {
+                break;
+            }
+            self.observe_use_button(held);
+        }
+    }
+
     /// Takes the item-use flag the latest local start (`true`) or end
     /// (`false`) wrote, for movement's live flag word.
     pub fn take_local_using_item(&mut self) -> Option<bool> {

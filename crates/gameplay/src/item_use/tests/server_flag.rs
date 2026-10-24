@@ -599,3 +599,32 @@ fn a_server_start_waits_on_a_predicted_empty_slot() {
     assert!(runtime.resolve_server_using_item(&snowballs(13, false, 2)));
     assert!(runtime.is_using());
 }
+
+/// Queued input releases an owned use once and never treats a held press as button-up.
+#[test]
+fn ordered_button_states_preserve_ownership_and_release_order() {
+    for owned in [false, true] {
+        for later in [
+            vec![],
+            vec![true],
+            vec![true, false],
+            vec![false, true],
+            vec![true, false, true],
+        ] {
+            let mut runtime = ItemUseRuntime::default();
+            runtime.observe_use_button(owned);
+            runtime.adopt_server_using_item(Some(true));
+            assert!(runtime.resolve_server_using_item(&frame(10, owned)));
+            runtime.adopt_server_using_item(Some(false));
+            let release = (owned && later.contains(&false))
+                || later.windows(2).any(|buttons| buttons == [true, false]);
+            runtime.observe_ordered_use_buttons(owned, later.clone());
+            assert!(!runtime.resolve_server_using_item(&frame(11, false)));
+            assert_eq!(
+                runtime.is_using(),
+                release,
+                "owned={owned}, later={later:?}"
+            );
+        }
+    }
+}

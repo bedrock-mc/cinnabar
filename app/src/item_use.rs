@@ -121,10 +121,15 @@ pub(crate) fn adopt_server_item_use(
     // its tick, so a release now still sends its transaction.
     let button = use_button(&player_runtime, &context);
     runtime.observe_gameplay_focus(button.gameplay_focused);
-    // A press behind an earlier ordered action still lets its later release
-    // release this accepted use instead of starting another one after physics.
-    runtime.observe_use_button(button.held || button.pressed_later);
-    runtime.observe_use_button(button.held_through_frame);
+    runtime.observe_ordered_use_buttons(
+        button.held,
+        crate::ordered_interactions::later_button_states(
+            context.ordered.as_deref(),
+            &context.input,
+            Action::Use,
+        )
+        .filter(|_| button.admitted),
+    );
     publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
     if !runtime.has_server_using_item() {
         return;
@@ -347,12 +352,6 @@ struct UseButton {
     admitted: bool,
     /// The admitted use button is down at the ordered input cursor.
     held: bool,
-    /// The button is down at the cursor and this frame's input releases it no
-    /// later, so a release queued behind earlier ordered edges counts as up,
-    /// even when a re-press follows it.
-    held_through_frame: bool,
-    /// An unconsumed Use press can take ownership of an accepted use.
-    pressed_later: bool,
 }
 
 /// Reads this frame's use-button facts from focus, game mode and input.
@@ -372,18 +371,6 @@ fn use_button(player_runtime: &client_state::PlayerRuntime, context: &ItemUseCon
         gameplay_focused,
         admitted,
         held,
-        pressed_later: admitted
-            && crate::ordered_interactions::pressed_later_in_frame(
-                context.ordered.as_deref(),
-                &context.input,
-                Action::Use,
-            ),
-        held_through_frame: held
-            && !crate::ordered_interactions::released_later_in_frame(
-                context.ordered.as_deref(),
-                &context.input,
-                Action::Use,
-            ),
     }
 }
 

@@ -211,56 +211,72 @@ fn a_local_reselection_orders_game_mode_stops_and_pending_server_starts() {
     }
 }
 
-/// A deferred press takes ownership of the existing server use before its deferred release.
+/// Deferred button transitions preserve a real release without inventing one for a held press.
 #[test]
-fn a_deferred_use_press_and_release_precede_a_server_clear() {
-    let (mut world, mut captured) = server_using_bow(false);
-    world
-        .resource_mut::<LocalPhysicsController>()
-        .apply_server_movement_flags(
-            0,
-            client_world::MovementFlagUpdate {
-                using_item: Some(false),
-                ..Default::default()
-            },
+fn deferred_use_edges_keep_server_clears_in_input_order() {
+    for buttons in [vec![true], vec![true, false], vec![false, true]] {
+        let releasing = buttons == [true, false];
+        let (mut world, mut captured) = server_using_bow(false);
+        world
+            .resource_mut::<LocalPhysicsController>()
+            .apply_server_movement_flags(
+                0,
+                client_world::MovementFlagUpdate {
+                    using_item: Some(false),
+                    ..Default::default()
+                },
+            );
+        let mut events = semantic_input::DesktopEvents::default();
+        for (button, pressed) in [(3, true), (3, false)] {
+            events.push(semantic_input::DesktopEvent::Button {
+                control: semantic_input::PhysicalControl::MouseButton(button),
+                pressed,
+                modifiers: Default::default(),
+            });
+        }
+        for pressed in &buttons {
+            events.push(semantic_input::DesktopEvent::Button {
+                control: semantic_input::PhysicalControl::MouseButton(2),
+                pressed: *pressed,
+                modifiers: Default::default(),
+            });
+        }
+        let held = if *buttons.last().unwrap() {
+            vec![2]
+        } else {
+            Vec::new()
+        };
+        route_use_events(&mut world, events, held);
+        world.run_system_cached(produce_block_use).unwrap();
+        world
+            .run_system_cached(crate::item_use::adopt_server_item_use)
+            .unwrap();
+        assert_eq!(
+            world.resource::<ItemUseRuntime>().is_using(),
+            releasing,
+            "only a real owned release may precede the server clear: {buttons:?}"
         );
-    let mut events = semantic_input::DesktopEvents::default();
-    for (button, pressed) in [(3, true), (3, false), (2, true), (2, false)] {
-        events.push(semantic_input::DesktopEvent::Button {
-            control: semantic_input::PhysicalControl::MouseButton(button),
-            pressed,
-            modifiers: Default::default(),
-        });
+        crate::ordered_interactions::drain(
+            &mut world,
+            crate::ordered_interactions::DispatchPhase::AfterMovement,
+        );
+        assert!(!world.resource::<ItemUseRuntime>().is_using());
+        let transactions: Vec<_> = captured
+            .drain()
+            .iter()
+            .filter_map(protocol::test_support::transactions::observe_transaction)
+            .collect();
+        assert_eq!(
+            transactions
+                .iter()
+                .filter(|transaction| transaction.release().is_some())
+                .count(),
+            usize::from(releasing)
+        );
+        assert!(
+            !transactions
+                .iter()
+                .any(|transaction| transaction.item_use().is_some())
+        );
     }
-    route_use_events(&mut world, events, Vec::new());
-    world.run_system_cached(produce_block_use).unwrap();
-    world
-        .run_system_cached(crate::item_use::adopt_server_item_use)
-        .unwrap();
-    assert!(
-        world.resource::<ItemUseRuntime>().is_using(),
-        "the deferred release must keep its accepted use"
-    );
-    crate::ordered_interactions::drain(
-        &mut world,
-        crate::ordered_interactions::DispatchPhase::AfterMovement,
-    );
-    assert!(!world.resource::<ItemUseRuntime>().is_using());
-    let transactions: Vec<_> = captured
-        .drain()
-        .iter()
-        .filter_map(protocol::test_support::transactions::observe_transaction)
-        .collect();
-    assert_eq!(
-        transactions
-            .iter()
-            .filter(|transaction| transaction.release().is_some())
-            .count(),
-        1
-    );
-    assert!(
-        !transactions
-            .iter()
-            .any(|transaction| transaction.item_use().is_some())
-    );
 }

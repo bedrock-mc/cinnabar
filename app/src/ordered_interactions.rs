@@ -134,43 +134,21 @@ pub(crate) fn held(
             )
 }
 
-/// Whether this frame's input still releases `action` after the consumed
-/// cursor, including a release followed by a re-press.
-pub(crate) fn released_later_in_frame(
+/// Reads unconsumed button transitions in their original order, unless the batch is quarantined.
+pub(crate) fn later_button_states<'a>(
     runtime: Option<&InteractionRuntime>,
-    input: &SemanticInputSnapshot,
+    input: &'a SemanticInputSnapshot,
     action: Action,
-) -> bool {
-    runtime
-        .zip(input.snapshot().and_then(|input| input.ordered.as_ref()))
-        .map_or_else(
-            || input.phase(action).released || !input.phase(action).held,
-            |(runtime, ordered)| ordered.releases_after(runtime.ingested, action),
-        )
-}
-
-/// Whether an unconsumed press can acquire an existing use before a queued release.
-pub(crate) fn pressed_later_in_frame(
-    runtime: Option<&InteractionRuntime>,
-    input: &SemanticInputSnapshot,
-    action: Action,
-) -> bool {
-    !is_blocked(runtime)
-        && runtime
-            .zip(input.snapshot().and_then(|input| input.ordered.as_ref()))
-            .map_or_else(
-                || input.phase(action).pressed,
-                |(runtime, ordered)| {
-                    ordered
-                        .events()
-                        .get(runtime.ingested..)
-                        .is_some_and(|events| {
-                            events
-                                .iter()
-                                .any(|event| event.action == action && event.pressed)
-                        })
-                },
-            )
+) -> impl Iterator<Item = bool> + 'a {
+    let consumed = runtime.map_or(0, |runtime| runtime.ingested);
+    let blocked = is_blocked(runtime);
+    input
+        .snapshot()
+        .and_then(|input| input.ordered.as_ref())
+        .into_iter()
+        .flat_map(move |ordered| ordered.events().iter().skip(consumed))
+        .filter(move |event| !blocked && event.action == action)
+        .map(|event| event.pressed)
 }
 
 /// Cancels unadmitted gestures without deleting gameplay-owned accepted carriers.
