@@ -172,6 +172,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         })
         .transpose()?;
     let entities = if let Pre::V0_9(component) = &pre {
+        let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
         let definitions = component
             .instantiate(&mut store)?
             .call_entity_definitions(&mut store)?

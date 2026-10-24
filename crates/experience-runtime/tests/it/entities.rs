@@ -143,6 +143,32 @@ fn guest_entities_register_spawn_move_mount_and_steer() {
     };
     assert_eq!(state.velocity.x, 0.5);
     assert_eq!(state.velocity.z, -0.25);
+    let steered = state.clone();
+    let Outcome::Committed { ops } = run(
+        &engine,
+        &loaded,
+        &request(
+            Call::Tick { step },
+            None,
+            vec![EntitySnapshot {
+                state: steered.clone(),
+                revision: 2,
+                riders: Vec::new(),
+            }],
+        ),
+    ) else {
+        panic!("steered tick failed")
+    };
+    let [
+        Op::Entity {
+            action: EntityOp::Update { state, .. },
+        },
+    ] = ops.as_slice()
+    else {
+        panic!("steered movement missing")
+    };
+    assert_eq!(state.position.x, steered.position.x + 0.5);
+    assert_eq!(state.position.z, steered.position.z - 0.25);
     let outcome = run(
         &engine,
         &loaded,

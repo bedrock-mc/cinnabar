@@ -128,6 +128,9 @@ func (h *Host) validateEntities(tx *world.Tx, owner string, ev event, snap snaps
 			if actor == nil || riding || typ == nil || int(action.Seat) >= len(typ.def.Seats) || slices.ContainsFunc(entity.Riders, func(r EntityRider) bool { return r.Seat == action.Seat }) {
 				return errInvalid
 			}
+			if _, ok := world.SeatPosition(entity.State.Position.vec(), entity.State.Rotation.Yaw, typ.Seats()[action.Seat]); !ok {
+				return errInvalid
+			}
 			entity.Riders = append(slices.Clone(entity.Riders), EntityRider{actor.H().UUID().String(), action.Seat})
 			staged[action.Handle] = entity
 			riding = true

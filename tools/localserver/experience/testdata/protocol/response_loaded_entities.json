@@ -1,0 +1,92 @@
+{
+  "type": "loaded",
+  "entities": [
+    {
+      "id": "probe:ship",
+      "collision": {
+        "min": {
+          "x": -1.75,
+          "y": -1.5,
+          "z": -1.25
+        },
+        "max": {
+          "x": 2.25,
+          "y": 2.5,
+          "z": 2.75
+        }
+      },
+      "appearance": {
+        "type": "vanilla",
+        "id": "minecraft:boat"
+      },
+      "seats": [
+        {
+          "position": {
+            "x": 0.25,
+            "y": 0.5,
+            "z": 0.75
+          },
+          "rotation_limit": 45.5,
+          "steers": true
+        }
+      ],
+      "properties": [
+        {
+          "id": "probe:throttle",
+          "min": -1.5,
+          "max": 1.5,
+          "initial": 0.25
+        }
+      ]
+    },
+    {
+      "id": "probe:custom_ship",
+      "collision": {
+        "min": {
+          "x": -1.75,
+          "y": -1.5,
+          "z": -1.25
+        },
+        "max": {
+          "x": 2.25,
+          "y": 2.5,
+          "z": 2.75
+        }
+      },
+      "appearance": {
+        "type": "custom",
+        "art": {
+          "geometry": "/srv/probe/assets/ship.geo.json",
+          "texture": "/srv/probe/assets/ship.png",
+          "render_controller": "/srv/probe/assets/ship.render.json"
+        }
+      },
+      "seats": [
+        {
+          "position": {
+            "x": 0.25,
+            "y": 0.5,
+            "z": 0.75
+          },
+          "rotation_limit": 45.5,
+          "steers": true
+        }
+      ],
+      "properties": [
+        {
+          "id": "probe:throttle",
+          "min": -1.5,
+          "max": 1.5,
+          "initial": 0.25
+        }
+      ]
+    }
+  ],
+  "protocol": 9,
+  "id": "probe",
+  "version": "0.1.0",
+  "blocks": [],
+  "items": [],
+  "focus": true,
+  "simulation": true
+}

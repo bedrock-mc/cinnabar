@@ -293,6 +293,31 @@ func TestEntityRegistrationBuildsResourcesAndPreservesFrameworkFactories(t *test
 	}
 }
 
+func TestEntityBuiltinAppearanceRetainsCustomIdentityAndBaseClass(t *testing.T) {
+	def := entityDefinition()
+	typ, err := newModEntityType("probe", def, newAssetCache())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if typ.EncodeEntity() != def.ID || typ.BaseEntityIdentifier() != def.Appearance.ID {
+		t.Fatal("appearance replaced the custom identity or lost its base")
+	}
+	var behaviour struct {
+		Entity struct {
+			Description struct {
+				Identifier string `json:"identifier"`
+				Runtime    string `json:"runtime_identifier"`
+			} `json:"description"`
+		} `json:"minecraft:entity"`
+	}
+	if err := json.Unmarshal(typ.Resources().Definition, &behaviour); err != nil {
+		t.Fatal(err)
+	}
+	if behaviour.Entity.Description.Identifier != def.ID || behaviour.Entity.Description.Runtime != def.Appearance.ID {
+		t.Fatal("behaviour pack lost the custom or base identity")
+	}
+}
+
 func TestEntityInvalidBatchPublishesNothing(t *testing.T) {
 	f := newEntityFixture(t)
 	handle := f.spawnEntity()
@@ -314,5 +339,76 @@ func TestEntityInvalidBatchPublishesNothing(t *testing.T) {
 	})
 	if len(recorder.all()) != 0 {
 		t.Fatal("batch partially published")
+	}
+}
+
+func TestPlayerEntitySnapshotsRetainObservationAndFenceDeparture(t *testing.T) {
+	f := newEntityFixture(t)
+	handle := f.spawnEntity()
+	f.do(f.source, func(tx *world.Tx) {
+		e, _ := f.actor.Entity(tx)
+		instance, _ := f.h.worlds.of(tx.World())
+		f.h.players.mu.Lock()
+		defer f.h.players.mu.Unlock()
+		location := f.h.players.items[f.actor].location
+		f.h.observeLocked(e.(*player.Player), instance, PlayerEvent{Type: "join", Location: &location})
+	})
+	ev := <-f.d.events
+	f.d.seq++
+	snap, err := f.h.snapshot(t.Context(), f.d, &ev)
+	if err != nil || len(snap.req.Info.Context.Entities) != 1 || snap.req.Info.Context.Entities[0].State.Handle != handle {
+		t.Fatalf("player observation lost its owned actor: %v", err)
+	}
+	f.do(f.source, func(tx *world.Tx) {
+		if _, err := f.h.apply(tx, "probe", ev, snap, []Op{{Entity: &EntityCommand{Action: EntityOp{Type: "mount", Handle: handle}}}}); err != nil {
+			t.Fatalf("live player observation could not board: %v", err)
+		}
+	})
+	if err := f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatal(err)
+	}
+	historical, err := f.h.snapshot(t.Context(), f.d, &ev)
+	if err != nil || len(historical.req.Info.Context.Entities) != 1 {
+		t.Fatalf("departure discarded the historical observation: %v", err)
+	}
+	f.do(f.source, func(tx *world.Tx) {
+		if _, err := f.h.apply(tx, "probe", ev, historical, []Op{{Entity: &EntityCommand{Action: EntityOp{Type: "mount", Handle: handle}}}}); !errors.Is(err, errStale) {
+			t.Fatalf("departed player's actor authority survived: %v", err)
+		}
+	})
+}
+
+func TestUnrepresentableMountRejectsWholeEntityBatch(t *testing.T) {
+	f := newEntityFixture(t)
+	def := entityDefinition()
+	def.Seats[0].Position = Position{X: 1.5e308, Z: 1.5e308}
+	typ, err := newModEntityType("probe", def, newAssetCache())
+	if err != nil {
+		t.Fatal(err)
+	}
+	typ.host = f.h
+	f.h.reg.entityTypes[def.ID] = typ
+	f.d.sup.registered.Entities = []EntityDefinition{def}
+	f.d.seq++
+	ev, snap := f.request()
+	handle := EntityHandle{snap.req.Info.EventSequence*maxStagedOps + 2, ev.instance.handle.Generation}
+	state := EntityState{Handle: handle, Kind: def.ID, Position: Position{X: 8, Y: 70, Z: 8}, Rotation: EntityRotation{Yaw: 45}, Scale: 1, Properties: []EntityProperty{{ID: def.Properties[0].ID}}}
+	data := "01"
+	f.do(ev.w, func(tx *world.Tx) {
+		ops := []Op{
+			{StoreWrite: &StoreWriteOp{Key: StoreKey{Scope: StoreInstance, Schema: 1}, Data: &data}},
+			{Entity: &EntityCommand{Action: EntityOp{Type: "spawn", State: &state}}},
+			{Entity: &EntityCommand{Action: EntityOp{Type: "mount", Handle: handle}}},
+		}
+		if _, err := f.h.apply(tx, "probe", ev, snap, ops); !errors.Is(err, errInvalid) {
+			t.Fatalf("unrepresentable mount accepted: %v", err)
+		}
+		if len(f.h.entitySnapshot(tx, "probe")) != 0 {
+			t.Fatal("refused mount left its staged actor")
+		}
+	})
+	address := stateAddress{Scope: StoreInstance, Owner: string(ev.instance.handle.ID)}
+	if record := f.h.store.readStates("probe", []stateAddress{address})[0]; record.Data != nil {
+		t.Fatal("refused mount changed private state")
 	}
 }

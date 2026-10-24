@@ -120,6 +120,7 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 			ev.actor = nil
 		} else {
 			ev.inventory, ev.slots = inventoryOf(d.id, p)
+			ev.entities = h.entitySnapshot(p.Tx(), d.id)
 		}
 		select {
 		case d.events <- ev:
@@ -223,6 +224,7 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 		actor = &id
 	}
 	context := &WorldContext{Current: loc.World, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(loc.World.ID, ev.storePrincipal(actor)))}
+	context.Entities = ev.entities
 	if actor != nil {
 		copy := *loc
 		context.Player = &copy

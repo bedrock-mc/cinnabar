@@ -1,0 +1,109 @@
+{
+  "type": "result",
+  "seq": 7,
+  "outcome": {
+    "type": "committed",
+    "ops": [
+      {
+        "type": "entity",
+        "action": {
+          "type": "spawn",
+          "state": {
+            "handle": {
+              "id": 9007199254740993,
+              "generation": 9007199254740995
+            },
+            "kind": "probe:ship",
+            "position": {
+              "x": 12.25,
+              "y": 12.5,
+              "z": 12.75
+            },
+            "rotation": {
+              "yaw": 12.25,
+              "pitch": 3.5
+            },
+            "velocity": {
+              "x": 0.25,
+              "y": 0.5,
+              "z": 0.75
+            },
+            "name_tag": "Ship",
+            "scale": 1.25,
+            "variant": 3,
+            "properties": [
+              {
+                "id": "probe:throttle",
+                "value": 0.25
+              }
+            ]
+          }
+        }
+      },
+      {
+        "type": "entity",
+        "action": {
+          "type": "update",
+          "state": {
+            "handle": {
+              "id": 9007199254740993,
+              "generation": 9007199254740995
+            },
+            "kind": "probe:ship",
+            "position": {
+              "x": 12.25,
+              "y": 12.5,
+              "z": 12.75
+            },
+            "rotation": {
+              "yaw": 12.25,
+              "pitch": 3.5
+            },
+            "velocity": {
+              "x": 0.25,
+              "y": 0.5,
+              "z": 0.75
+            },
+            "name_tag": "Ship",
+            "scale": 1.25,
+            "variant": 3,
+            "properties": [
+              {
+                "id": "probe:throttle",
+                "value": 0.25
+              }
+            ]
+          },
+          "teleport": false
+        }
+      },
+      {
+        "type": "entity",
+        "action": {
+          "type": "mount",
+          "handle": {
+            "id": 9007199254740993,
+            "generation": 9007199254740995
+          },
+          "seat": 0
+        }
+      },
+      {
+        "type": "entity",
+        "action": {
+          "type": "dismount"
+        }
+      },
+      {
+        "type": "entity",
+        "action": {
+          "type": "despawn",
+          "handle": {
+            "id": 9007199254740993,
+            "generation": 9007199254740995
+          }
+        }
+      }
+    ]
+  }
+}

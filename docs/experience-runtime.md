@@ -684,11 +684,13 @@ floating-point properties. Use identities from the project's generated shared mo
 building a mod. Definition identifiers belong to the installing mod's namespace and freeze at
 startup; a helper restart must return the same registration.
 
-An appearance either reuses a known `minecraft:` renderer or names a geometry, PNG texture
+An appearance either selects a known `minecraft:` base actor or names a geometry, PNG texture
 and render controller under the artifact's indexed `assets/` directory. Custom geometries
 and controllers belong to the mod's namespace. Registration validates these resources before
 Dragonfly builds its resource and behaviour packs. The same entity identity enters its world
 registry, actor list and spawn packets. Client parts remain subject to their separate consent.
+Built-in appearance requests retain the mod's identity and advertise the selected base actor
+in the actor list and behaviour definition; their rendered result still needs live acceptance.
 
 `Callback::entities` reads this mod's actors in the current instance. `spawn_entity` returns
 an `EntityHandle` with an ID and the instance opening's generation. `update_entity` replaces
@@ -724,5 +726,8 @@ mod execution policy rather than limits on ordinary server content.
 Migration: rebuild SDK guests with `api = "0.9"` and deploy IPC protocol 9 in both the adapter
 and helper. Previously compiled 0.1–0.8 guests keep their frozen contracts. The probe's
 `probe:entities` conformance instance covers spawning and movement, and its entity callback
-covers boarding and steering. Mixed-client rendering, seat placement and riding acceptance
+covers boarding and steering. In an installed probe, interact with a counter at x=34 to create
+the instance, then one at x=35 to travel there. Interact with the ship to board; directional
+input sets its velocity, which the next tick applies, and sneak dismounts.
+Mixed-client rendering, seat placement and riding acceptance
 remain open until exercised with live clients.

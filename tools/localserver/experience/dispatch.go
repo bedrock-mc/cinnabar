@@ -115,6 +115,8 @@ type event struct {
 	// inventory and slots retain live player observations from their owning transaction.
 	inventory *Inventory
 	slots     []item.Stack
+	// entities retain owned actors from the same transaction as a live player observation.
+	entities []EntitySnapshot
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and

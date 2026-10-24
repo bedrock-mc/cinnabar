@@ -126,7 +126,7 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
         27 => tell(&contract::make_stacks(ctx, up)),
         28 => tell(&contract::craft(ctx)),
         29 => tell(&contract::schedule(ctx, p)),
-        30..=33 => return worlds::interact(ctx, player, p.x),
+        30..=35 => return worlds::interact(ctx, player, p.x),
         x => return Err(GuestError::Rejected(format!("no probe behavior for x={x}"))),
     }
     Ok(())

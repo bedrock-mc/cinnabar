@@ -100,9 +100,8 @@ func (t *modEntityType) buildResources(cache *assetCache) error {
 			return errors.New("vanilla appearance contains custom art")
 		}
 		if _, ok := entitydata.Lookup(d.Appearance.ID); !ok {
-			return errors.New("unknown vanilla renderer")
+			return errors.New("unknown built-in actor")
 		}
-		description["runtime_identifier"] = d.Appearance.ID
 	case "custom":
 		if d.Appearance.Art == nil || d.Appearance.ID != "" {
 			return errors.New("invalid custom art")
@@ -154,6 +153,9 @@ func (t *modEntityType) buildResources(cache *assetCache) error {
 		properties[p.ID] = map[string]any{"type": "float", "range": []float32{p.Min, p.Max}, "default": p.Initial, "client_sync": true}
 	}
 	serverDescription := map[string]any{"identifier": d.ID, "is_spawnable": false, "is_summonable": false, "properties": properties}
+	if base := t.BaseEntityIdentifier(); base != "" {
+		serverDescription["runtime_identifier"] = base
+	}
 	seats := make([]any, 0, len(d.Seats))
 	control := 0
 	for i, s := range d.Seats {
@@ -197,6 +199,14 @@ func readEntityAsset(path string, limit int) ([]byte, error) {
 
 // EncodeEntity returns the stable server and client identity of this type.
 func (t *modEntityType) EncodeEntity() string { return t.def.ID }
+
+// BaseEntityIdentifier selects a built-in actor class without changing the mod's identity.
+func (t *modEntityType) BaseEntityIdentifier() string {
+	if t.def.Appearance.Type == "vanilla" {
+		return t.def.Appearance.ID
+	}
+	return ""
+}
 
 // Resources returns immutable files consumed by Dragonfly before listening.
 func (t *modEntityType) Resources() world.EntityResources { return t.resources }

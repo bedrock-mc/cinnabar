@@ -1,5 +1,6 @@
 //! Typed actors share callback authority and maintain a consistent staged view.
 use super::*;
+use crate::callback::wit;
 use crate::protocol as p;
 
 /// Creates a callback with one registered ship and a live instance opening.

@@ -20,7 +20,11 @@ use crate::limits::{
 
 mod entities;
 mod simulation;
-pub use entities::*;
+pub use entities::{
+    EntityAppearance, EntityArt, EntityBox, EntityDefinition, EntityEvent, EntityHand,
+    EntityHandle, EntityInput, EntityOp, EntityProperty, EntityPropertyDef, EntityRider,
+    EntityRotation, EntitySeat, EntitySnapshot, EntityState,
+};
 pub use simulation::{ScheduleHandle, SimulationContext, SimulationStep};
 mod player;
 mod recipes;

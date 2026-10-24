@@ -1,7 +1,11 @@
 {
+  "max_entity_types": 64,
+  "max_entity_seats": 16,
+  "max_entity_properties": 32,
+  "max_entities": 256,
   "simulation_step_nanos": 50000000,
   "max_frame_bytes": 4194304,
-  "protocol": 8,
+  "protocol": 9,
   "max_block_data_bytes": 65536,
   "max_staged_ops": 64,
   "max_tells": 4,

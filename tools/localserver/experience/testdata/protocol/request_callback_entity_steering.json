@@ -1,0 +1,94 @@
+{
+  "type": "callback",
+  "seq": 7,
+  "info": {
+    "context": {
+      "entities": [
+        {
+          "state": {
+            "handle": {
+              "id": 9007199254740993,
+              "generation": 9007199254740995
+            },
+            "kind": "probe:ship",
+            "position": {
+              "x": 12.25,
+              "y": 12.5,
+              "z": 12.75
+            },
+            "rotation": {
+              "yaw": 12.25,
+              "pitch": 3.5
+            },
+            "velocity": {
+              "x": 0.25,
+              "y": 0.5,
+              "z": 0.75
+            },
+            "name_tag": "Ship",
+            "scale": 1.25,
+            "variant": 3,
+            "properties": [
+              {
+                "id": "probe:throttle",
+                "value": 0.25
+              }
+            ]
+          },
+          "revision": 4,
+          "riders": [
+            {
+              "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+              "seat": 0
+            }
+          ]
+        }
+      ],
+      "current": {
+        "id": "probe:planet",
+        "generation": 9007199254740995
+      },
+      "player": null,
+      "instances": [
+        {
+          "id": "probe:planet",
+          "generation": 9007199254740995
+        }
+      ],
+      "stores": []
+    },
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 3,
+    "event_sequence": 7
+  },
+  "actor": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 1024,
+  "snapshot": [],
+  "network": null,
+  "inventory": null,
+  "call": {
+    "type": "entity",
+    "handle": {
+      "id": 9007199254740993,
+      "generation": 9007199254740995
+    },
+    "event": {
+      "type": "steering",
+      "input": {
+        "rider": {
+          "player": "6f1c3c2e-5b7a-4d3e-9a51-0c8e2f4b7d10",
+          "seat": 0
+        },
+        "sideways": 0.25,
+        "forward": 0.5,
+        "yaw": 12.25,
+        "pitch": 3.5,
+        "jump": true,
+        "sneak": false
+      }
+    }
+  }
+}

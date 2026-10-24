@@ -52,7 +52,8 @@ pub fn on_tick(ctx: &Callback) -> Result<(), GuestError> {
     if ctx.world().id.value != "probe:entities" {
         return Ok(());
     }
-    if ctx.entities().is_empty() {
+    let spawning = ctx.entities().is_empty();
+    if spawning {
         ctx.spawn_entity(
             &ship(),
             Position {
@@ -68,7 +69,12 @@ pub fn on_tick(ctx: &Callback) -> Result<(), GuestError> {
         .map_err(failed)?;
     }
     for mut state in ctx.entities() {
-        state.position.x += 0.25;
+        if spawning {
+            state.velocity.x = 0.25;
+        }
+        state.position.x += state.velocity.x;
+        state.position.y += state.velocity.y;
+        state.position.z += state.velocity.z;
         ctx.update_entity(&state, false).map_err(failed)?;
     }
     Ok(())
@@ -92,6 +98,7 @@ pub fn on_entity(
             };
             state.velocity.x = f64::from(input.sideways);
             state.velocity.z = f64::from(input.forward);
+            state.rotation.yaw = input.yaw;
             ctx.update_entity(&state, false).map_err(failed)?;
         }
         _ => {}
