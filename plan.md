@@ -873,7 +873,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   registered entity resources and actor identities, world-owned generation-bearing handles,
   staged server movement and metadata, seats, steering and ordered entity events. Spawn handles
   retain their ordinal across coalesced block writes; teleports publish the requested velocity
-  after repositioning. Actor and
+  after repositioning. Moving actors retain the old chunk lease until framework membership
+  migrates on the next entity tick. Actor and
   seat state are process-local; unload releases their chunk leases. The shared-ID ship sample,
   live seat positions/link acceptance and mixed-client rendering remain incomplete.
   Coordinator moves, native teleports, sampled world swaps and reconnect placement use one admission path.

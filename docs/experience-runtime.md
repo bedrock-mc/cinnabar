@@ -713,8 +713,9 @@ whole-result transaction, with revision checks before any writes. Stale handles 
 from another mod or world do not grant access.
 
 Guest actors are process-local. Each holds its current chunk resident while its instance is
-loaded. Despawn, instance unload and server shutdown release actors, seats and chunk leases;
-terrain saves exclude them. Recreate durable gameplay actors from the mod's scoped store.
+loaded. Movement retains the previous owning chunk until the framework migrates membership
+on the next entity tick. Despawn, instance unload and server shutdown release actors, seats
+and chunk leases; terrain saves exclude them. Recreate durable gameplay actors from the mod's scoped store.
 Player travel leaves actors in their owning world and dismounts departing riders.
 
 Each seat has a position in blocks relative to the vehicle, an optional yaw rotation limit,

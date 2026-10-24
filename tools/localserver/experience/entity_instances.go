@@ -1,6 +1,7 @@
 package experience
 
 import (
+	"math"
 	"slices"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
@@ -12,11 +13,13 @@ import (
 
 // modEntityData remains owned by its framework handle across transactions.
 type modEntityData struct {
-	state    EntityState
-	instance worldInstance
-	revision uint64
-	loader   *world.Loader
-	closed   bool
+	state          EntityState
+	instance       worldInstance
+	revision       uint64
+	loader         *world.Loader
+	leaseChunk     world.ChunkPos
+	previousLoader *world.Loader
+	closed         bool
 }
 
 // modEntity is a transaction-scoped server-driven actor.
@@ -138,14 +141,31 @@ func (e *modEntity) Tick(tx *world.Tx, _ int64) {
 		_ = e.Close()
 		return
 	}
+	// Dragonfly migrates column membership before calling the entity's tick.
+	if d.previousLoader != nil {
+		d.previousLoader.Close(tx)
+		d.previousLoader = nil
+	}
 	e.pin()
 }
 
-// pin retains only the actor's current chunk while its instance is loaded.
+// pin retains the destination and the last tick's owning chunk until membership migrates.
 func (e *modEntity) pin() {
 	d := e.stateData()
+	position := e.Position()
+	chunk := world.ChunkPos{int32(math.Floor(position.X())) >> 4, int32(math.Floor(position.Z())) >> 4}
+	if d.loader != nil && chunk != d.leaseChunk {
+		if d.previousLoader == nil {
+			d.previousLoader = d.loader
+		} else {
+			// Intermediate destinations never owned the actor's column membership.
+			d.loader.Close(e.tx)
+		}
+		d.loader = nil
+	}
 	if d.loader == nil {
 		d.loader = world.NewLoader(0, e.tx.World(), world.NopViewer{})
+		d.leaseChunk = chunk
 	}
 	d.loader.Move(e.tx, e.Position())
 	d.loader.Load(e.tx, 1)
@@ -178,6 +198,10 @@ func (e *modEntity) Close() error {
 		return nil
 	}
 	d.closed = true
+	if d.previousLoader != nil {
+		d.previousLoader.Close(e.tx)
+		d.previousLoader = nil
+	}
 	if d.loader != nil {
 		d.loader.Close(e.tx)
 		d.loader = nil

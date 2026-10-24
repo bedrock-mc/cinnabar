@@ -6,11 +6,95 @@ import (
 	"fmt"
 	"math"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/go-gl/mathgl/mgl64"
 )
+
+func TestMovingEntitySurvivesChunkCleanupBeforeTick(t *testing.T) {
+	f := newEntityFixture(t)
+	synctest.Test(t, func(t *testing.T) {
+		w := world.Config{ChunkUnloadInterval: time.Second}.New()
+		w.SetPaused(true)
+		defer w.Close()
+		binding, err := f.h.BindWorld("probe:leases", w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := f.h.UnbindWorld(t.Context(), binding); err != nil {
+				t.Error(err)
+			}
+		}()
+		instance, _ := f.h.worlds.of(w)
+		state := EntityState{Handle: EntityHandle{1, instance.handle.Generation}, Kind: "probe:ship", Position: Position{Y: 70}, Scale: 1}
+		handle := world.EntitySpawnOpts{Position: state.Position.vec()}.New(f.h.reg.entityTypes[state.Kind], entityConfig{state: state, instance: instance})
+		f.do(w, func(tx *world.Tx) { tx.AddEntity(handle).(*modEntity).pin() })
+		synctest.Wait()
+		// Several guest moves may commit before Dragonfly migrates chunk membership.
+		for _, x := range []float64{32, 64, 96} {
+			state.Position.X = x
+			f.do(w, func(tx *world.Tx) {
+				e, ok := handle.Entity(tx)
+				if !ok {
+					t.Error("actor disappeared before moving")
+					return
+				}
+				e.(*modEntity).update(state, true)
+			})
+			synctest.Wait()
+		}
+		<-time.After(2 * time.Second)
+		synctest.Wait()
+		f.do(w, func(tx *world.Tx) {
+			e, ok := handle.Entity(tx)
+			if !ok || e.Position() != state.Position.vec() {
+				t.Error("cleanup closed the moving actor before chunk migration")
+				return
+			}
+			if _, loaded := tx.BlockLoaded(cube.Pos{32, 70, 0}); loaded {
+				t.Error("intermediate destination retained an unnecessary lease")
+			}
+		})
+		if t.Failed() {
+			return
+		}
+		w.AdvanceTick()
+		<-time.After(2 * time.Second)
+		synctest.Wait()
+		f.do(w, func(tx *world.Tx) {
+			if _, ok := handle.Entity(tx); !ok {
+				t.Error("cleanup closed the actor after chunk migration")
+				return
+			}
+			if _, loaded := tx.BlockLoaded(cube.Pos{0, 70, 0}); loaded {
+				t.Error("old chunk lease survived completed migration")
+			}
+		})
+		f.do(w, func(tx *world.Tx) {
+			e, ok := handle.Entity(tx)
+			if !ok {
+				t.Error("actor missing before removal")
+				return
+			}
+			state.Position.X = 128
+			e.(*modEntity).update(state, false)
+			_ = e.Close()
+		})
+		<-time.After(2 * time.Second)
+		synctest.Wait()
+		f.do(w, func(tx *world.Tx) {
+			for _, x := range []int{96, 128} {
+				if _, loaded := tx.BlockLoaded(cube.Pos{x, 70, 0}); loaded {
+					t.Errorf("removed actor retained chunk lease at x=%d", x)
+				}
+			}
+		})
+	})
+}
 
 // TestEntitySpawnOrdinalsSurviveOtherOperations validates the guest's coalesced operation stream.
 func TestEntitySpawnOrdinalsSurviveOtherOperations(t *testing.T) {
