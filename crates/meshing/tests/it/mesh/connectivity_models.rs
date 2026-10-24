@@ -128,7 +128,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             .clone();
         let glass = named("minecraft:glass");
         let see_through = ["minecraft:ice", "minecraft:tinted_glass", "minecraft:honey_block"]
-            .map(|name| named(name));
+            .map(named);
         let see_through_ids = see_through.each_ref().map(|record| record.sequential_id);
         let cube_name = cube.name.strip_prefix("minecraft:").unwrap();
         let directory = tempfile::tempdir().expect("connected fixture directory");
