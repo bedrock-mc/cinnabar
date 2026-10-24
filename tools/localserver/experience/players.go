@@ -284,7 +284,7 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 	}
 	info := newInfo(h.worldID, ev.instance.id, ev.tick, d.seq)
 	info.Context = context
-	if d.sup.registered.Simulation {
+	if d.sup.registered.Simulation && call.Event.Type != "leave" {
 		info.Simulation = h.simulationContext(d.id, ev, d.seq)
 	}
 	return snapshot{req: CallbackRequest{Info: info, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory}, slots: ev.slots}

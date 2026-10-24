@@ -678,7 +678,8 @@ reopening resumes it with a new world generation. Host pause also pauses admissi
 The clock is process-local and is not restored after a server restart.
 
 `Callback::schedule(after, period)` returns a typed handle scoped to this mod and instance
-opening. The delay starts when the result commits. A zero period runs once; a positive
+opening. Final leave callbacks have no simulation context, so timer scheduling and cancellation
+return `Unavailable` while final private-state writes remain supported. The delay starts when the result commits. A zero period runs once; a positive
 period repeats. `cancel_schedule` cancels an active handle, including an occurrence already
 queued behind the cancelling callback. Unload discards the opening's timers. Timers and
 state writes share whole-result validation, staged-op limits and callback fuel. Active timers
