@@ -1,7 +1,7 @@
 //! Top-level item splitting, the light declaration parser, and GLSL type helpers.
 
 use crate::token::{Tok, TokKind, id, int, p};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Storage, interpolation and precision qualifiers recognised before a declaration's type.
 pub(super) const QUALIFIERS: &[&str] = &[
@@ -619,32 +619,47 @@ fn statement_end(tokens: &[Tok], start: usize) -> usize {
 pub(super) fn shadowed_bindings<'a>(
     tokens: &[Tok],
     names: impl IntoIterator<Item = &'a str>,
-) -> std::collections::HashSet<usize> {
-    let names: std::collections::HashSet<_> = names.into_iter().collect();
+) -> HashSet<usize> {
+    binding_uses(tokens, names).into_keys().collect()
+}
+
+/// Maps declarations and their uses to the nearest visible declarator, including loop scopes.
+pub(super) fn binding_uses<'a>(
+    tokens: &[Tok],
+    names: impl IntoIterator<Item = &'a str>,
+) -> HashMap<usize, usize> {
+    let names: HashSet<_> = names.into_iter().collect();
     let declarators = local_declarators(tokens);
-    let mut scopes: Vec<(Vec<&str>, usize)> = vec![(vec![], tokens.len() + 1)];
+    let parameters = parameter_bindings(tokens);
+    let mut scopes = vec![(HashMap::new(), tokens.len() + 1)];
     let mut pending = None;
     let mut depth = 0;
-    let mut shadowed = std::collections::HashSet::new();
+    let mut bindings = HashMap::new();
     for (i, token) in tokens.iter().enumerate() {
         while scopes.last().is_some_and(|(_, end)| *end <= i) {
             scopes.pop();
         }
         if token.ident() == Some("for") && tokens.get(i + 1).is_some_and(|token| token.is("(")) {
             let header_end = matching(tokens, i + 1, "(", ")");
-            scopes.push((vec![], statement_end(tokens, header_end + 1)));
+            scopes.push((HashMap::new(), statement_end(tokens, header_end + 1)));
         } else if token.is("{") {
-            scopes.push((vec![], matching(tokens, i, "{", "}") + 1));
+            let params = parameters
+                .get(&i)
+                .into_iter()
+                .flatten()
+                .filter_map(|&index| Some((tokens[index].ident()?, index)))
+                .collect();
+            scopes.push((params, matching(tokens, i, "{", "}") + 1));
         }
         if token.is("(") {
             depth += 1;
         } else if token.is(")") {
             depth -= 1;
         } else if (token.is(";") || token.is(","))
-            && let Some((name, declared_depth)) = pending
+            && let Some((name, index, declared_depth)) = pending
             && declared_depth == depth
         {
-            scopes.last_mut().unwrap().0.push(name);
+            scopes.last_mut().unwrap().0.insert(name, index);
             pending = None;
         }
         let Some(name) = token.ident().filter(|name| names.contains(name)) else {
@@ -654,13 +669,42 @@ pub(super) fn shadowed_bindings<'a>(
             continue;
         }
         if declarators.contains(&i) {
-            pending = Some((name, depth));
-            shadowed.insert(i);
-        } else if scopes.iter().any(|(scope, _)| scope.contains(&name)) {
-            shadowed.insert(i);
+            pending = Some((name, i, depth));
+            bindings.insert(i, i);
+        } else if let Some(bound) = scopes.iter().rev().find_map(|(scope, _)| scope.get(name)) {
+            bindings.insert(i, *bound);
         }
     }
-    shadowed
+    bindings
+}
+
+/// Finds parameter declarators to install when each function body opens its scope.
+fn parameter_bindings(tokens: &[Tok]) -> HashMap<usize, Vec<usize>> {
+    let mut parameters = HashMap::new();
+    let mut offset = 0;
+    for item in split_items(tokens) {
+        if let Some(brace) = item.iter().position(|token| token.is("{"))
+            && brace > 0
+            && item[brace - 1].is(")")
+            && let Some((open, params)) = func_params(&item)
+        {
+            let mut cursor = offset + open + 1;
+            let mut indices = Vec::new();
+            for param in params {
+                let mut declaration = param.toks.clone();
+                declaration.push(p(";"));
+                if let Some(declaration) = parse_decl(&declaration)
+                    && let Some((_, array, _)) = declaration.decls.first()
+                {
+                    indices.push(cursor + param.toks.len() - array.len() - 1);
+                }
+                cursor += param.toks.len() + 1;
+            }
+            parameters.insert(offset + brace, indices);
+        }
+        offset += item.len();
+    }
+    parameters
 }
 
 #[cfg(test)]

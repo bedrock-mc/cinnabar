@@ -8,6 +8,7 @@
 mod assemble;
 mod body;
 mod builtins;
+mod constant_expr;
 mod declare;
 mod dot;
 mod interface;
