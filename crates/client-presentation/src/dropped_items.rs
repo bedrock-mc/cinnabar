@@ -129,11 +129,7 @@ fn item_block_id(
                 | assets::facts::BlockRenderKind::Ladder
                 | assets::facts::BlockRenderKind::LilyPad
                 | assets::facts::BlockRenderKind::SeaPickle
-                | assets::facts::BlockRenderKind::Lever
-                | assets::facts::BlockRenderKind::Vine
-                | assets::facts::BlockRenderKind::GlowLichen
-                | assets::facts::BlockRenderKind::SculkVein
-        )
+        ) || assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
     }

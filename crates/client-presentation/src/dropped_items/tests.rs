@@ -435,34 +435,46 @@ fn dropped_carried_sprite_families_do_not_use_their_placed_models() {
 
 #[test]
 fn dropped_attachments_use_carried_sprites_without_changing_falling_blocks() {
-    use assets::facts::BlockRenderKind;
     let stream = stream(false, 1);
     let registry = protocol::vanilla_item_registry();
-    for family in [
-        BlockRenderKind::Lever,
-        BlockRenderKind::Vine,
-        BlockRenderKind::GlowLichen,
-        BlockRenderKind::SculkVein,
-    ] {
-        let entries: Vec<_> = registry
-            .iter()
-            .filter(|entry| assets::facts::block_render_fact(&entry.identifier).kind == family)
-            .collect();
-        assert!(!entries.is_empty(), "{family:?} must reach its items");
-        for entry in entries {
-            for visual in [
-                ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
-                ItemVisualRoute::RetainedBlock {
-                    block_runtime_id: 1,
-                },
-            ] {
-                assert_eq!(
-                    item_block_id(&stream, visual, Some(&entry.identifier), None),
-                    None,
-                    "{} must use its carried sprite",
-                    entry.identifier
-                );
-            }
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let attachments: std::collections::BTreeSet<_> = records
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.model_family,
+                assets::ModelFamily::Lever
+                    | assets::ModelFamily::Vine
+                    | assets::ModelFamily::GlowLichen
+                    | assets::ModelFamily::SculkVein
+            ) && registry
+                .iter()
+                .any(|entry| entry.identifier.as_ref() == record.name.as_ref())
+        })
+        .map(|record| record.name.as_ref())
+        .collect();
+    assert_eq!(
+        assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        attachments
+    );
+    for identifier in attachments {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier} must use its carried sprite"
+            );
         }
     }
     assert_eq!(
