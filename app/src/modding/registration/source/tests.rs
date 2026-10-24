@@ -2,6 +2,7 @@ use super::*;
 use std::sync::Arc;
 
 #[test]
+#[cfg(unix)]
 fn unchanged_registration_polls_share_sources_and_companions_but_observe_changes() {
     let root = tempfile::tempdir().unwrap();
     let entry = Entry {

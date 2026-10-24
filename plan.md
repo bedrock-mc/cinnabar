@@ -950,9 +950,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
   incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
-  removal, consent, custom screen transitions and media qualification. Local source polling
+  removal, consent, custom screen transitions and media qualification. Unix source polling
   reuses immutable source bytes and verified packages while their selected files retain the
-  same identity and change timestamps. Unmeasured shared
+  same identity and change timestamps, with one confirmation per new stamp. Windows source
+  polling still uses bounded reads because mapped writes can leave timestamps unchanged.
+  Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
   Source-driven mod projects generate typed Rust/Go messages, registry confirmation,
   compile-checked asset constants and signed bundles through `devtool mod new/build`.

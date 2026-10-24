@@ -833,6 +833,7 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
 }
 
 #[test]
+#[cfg(unix)]
 fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("local.wasm");
@@ -870,6 +871,7 @@ fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload()
 }
 
 #[test]
+#[cfg(unix)]
 fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_reload() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path();
@@ -919,4 +921,37 @@ fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_re
     assert_ne!(prepared.host.source_digest(), previous);
     assert!(prepared.host.package().is_some());
     assert_eq!(first.files.textures[0].1, b"old");
+}
+
+#[test]
+fn removed_environment_sources_release_cached_components_and_packages() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path();
+    package(path);
+    let component_path = path.join(experience_sdk::mod_manifest::COMPONENT);
+    let component = std::fs::read(&component_path).unwrap();
+    let component_digest = Sha256::digest(&component).into();
+    let package_digest = mod_host::package::Package::read(path).unwrap().digest;
+    let mut state = WorkerState::default();
+    let mut package_request = request(path, package_digest);
+    package_request.source.location = mod_host::Source::Package(path.to_owned());
+    let requests = vec![request(&component_path, component_digest), package_request];
+    state.retain_sources(&requests);
+    for request in requests {
+        assert!(prepare(request, &mut state).is_none());
+    }
+    let component = state
+        .files
+        .read(&component_path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+        .unwrap();
+    let component_bytes = std::sync::Arc::downgrade(&component.bytes);
+    drop(component);
+    let package = state.packages.get_mut(path).unwrap().read(path).unwrap();
+    let package_bytes = std::sync::Arc::downgrade(&package);
+    drop(package);
+    state.files.retain_observed();
+    state.retain_sources(&[]);
+    state.files.retain_observed();
+    assert!(component_bytes.upgrade().is_none());
+    assert!(package_bytes.upgrade().is_none());
 }

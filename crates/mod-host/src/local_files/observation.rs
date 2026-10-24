@@ -31,6 +31,7 @@ struct Cached {
 
 /// A worker-owned cache; each poll still reopens paths with the regular-file/link policy.
 /// Files without a reliable change identity are read on every poll.
+/// Finish each bounded source poll with `retain_observed`, including empty polls.
 #[derive(Default)]
 pub struct ObservationCache {
     files: BTreeMap<(PathBuf, usize), Cached>,
@@ -118,15 +119,14 @@ impl ObservationCache {
 /// File identity plus content and metadata change times; access times are deliberately excluded.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Identity {
+    #[cfg(unix)]
     created: Option<std::time::SystemTime>,
     #[cfg(unix)]
     values: (u64, u64, u64, i64, i64, i64, i64),
-    #[cfg(windows)]
-    values: (u64, [u8; 16], u64, i64, i64),
 }
 
 impl Identity {
-    /// Uses the available file identity and refuses missing or whole-second change stamps.
+    /// Uses Unix file identities with subsecond stamps; other platforms keep fresh bounded reads.
     pub(crate) fn of(file: &File) -> io::Result<Option<Self>> {
         #[cfg(unix)]
         {
@@ -148,50 +148,9 @@ impl Identity {
                 ),
             }))
         }
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         {
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::Storage::FileSystem::{
-                FILE_BASIC_INFO, FILE_ID_INFO, FileBasicInfo, FileIdInfo,
-                GetFileInformationByHandleEx,
-            };
-            const TICKS_PER_SECOND: i64 = 10_000_000;
-            let mut basic = FILE_BASIC_INFO::default();
-            let mut id = FILE_ID_INFO::default();
-            // SAFETY: the live handle and correctly sized output buffers remain valid for both calls.
-            let available = unsafe {
-                GetFileInformationByHandleEx(
-                    file.as_raw_handle(),
-                    FileBasicInfo,
-                    (&mut basic as *mut FILE_BASIC_INFO).cast(),
-                    size_of::<FILE_BASIC_INFO>() as u32,
-                ) != 0
-                    && GetFileInformationByHandleEx(
-                        file.as_raw_handle(),
-                        FileIdInfo,
-                        (&mut id as *mut FILE_ID_INFO).cast(),
-                        size_of::<FILE_ID_INFO>() as u32,
-                    ) != 0
-            };
-            if !available
-                || basic.LastWriteTime % TICKS_PER_SECOND == 0
-                || basic.ChangeTime % TICKS_PER_SECOND == 0
-            {
-                return Ok(None);
-            }
-            Ok(Some(Self {
-                created: file.metadata()?.created().ok(),
-                values: (
-                    id.VolumeSerialNumber,
-                    id.FileId.Identifier,
-                    file.metadata()?.len(),
-                    basic.LastWriteTime,
-                    basic.ChangeTime,
-                ),
-            }))
-        }
-        #[cfg(not(any(unix, windows)))]
-        {
+            // Windows mapped writes need not update file timestamps.
             let _ = file;
             Ok(None)
         }

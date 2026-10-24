@@ -147,6 +147,7 @@ fn package_files_cannot_be_replaced_with_links() {
 }
 
 /// Overwrites an existing fixture with a distinct modification stamp on coarse filesystems.
+#[cfg(unix)]
 fn write_changed(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> std::io::Result<()> {
     let path = path.as_ref();
     let modified = std::fs::metadata(path)?.modified()?;
@@ -157,6 +158,7 @@ fn write_changed(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> std::io::Re
 }
 
 #[test]
+#[cfg(unix)]
 fn observations_share_verified_packages_until_any_selected_file_changes() {
     let dir = write_package(
         &[
@@ -254,10 +256,12 @@ fn observations_reject_removed_or_linked_package_files_and_recover_after_repair(
     std::fs::write(&path, COMPONENT).unwrap();
     let repaired = observer.read(dir.path()).unwrap();
     assert_eq!(first.digest, repaired.digest);
+    #[cfg(unix)]
     assert!(Arc::ptr_eq(&repaired, &observer.read(dir.path()).unwrap()));
 }
 
 #[test]
+#[cfg(unix)]
 fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
     let path = dir.path().join("mod.wasm");
@@ -320,6 +324,7 @@ fn package_observations_retry_transient_read_errors_without_a_source_edit() {
 }
 
 #[test]
+#[cfg(unix)]
 fn package_observations_confirm_new_stamps_once_without_periodic_reads() {
     let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
     let now = std::time::Instant::now();
@@ -348,4 +353,25 @@ fn package_observations_confirm_new_stamps_once_without_periodic_reads() {
         ));
     }
     assert_eq!(reads.get(), 4, "package confirmation is not periodic");
+}
+
+#[test]
+fn failed_package_observations_release_the_previous_verified_payload() {
+    for missing_root in [false, true] {
+        let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
+        let mut observer = Observation::default();
+        let accepted = observer.read(dir.path()).unwrap();
+        let retained = Arc::downgrade(&accepted);
+        drop(accepted);
+        if missing_root {
+            std::fs::remove_dir_all(dir.path()).unwrap();
+        } else {
+            std::fs::write(dir.path().join("mod.wasm"), b"invalid replacement").unwrap();
+        }
+        assert!(observer.read(dir.path()).is_err());
+        assert!(
+            retained.upgrade().is_none(),
+            "failed verification must release the old package buffers"
+        );
+    }
 }

@@ -2,6 +2,7 @@ use super::*;
 use std::io::Write;
 
 #[test]
+#[cfg(unix)]
 fn unchanged_observations_do_not_read_or_copy_source_bytes() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
@@ -96,6 +97,7 @@ fn same_size_replacements_and_missing_sources_do_not_reuse_old_bytes() {
 }
 
 #[test]
+#[cfg(unix)]
 fn an_edit_during_read_is_retried_instead_of_caching_a_mixed_snapshot() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
@@ -206,6 +208,7 @@ fn transient_read_errors_retry_without_a_source_edit() {
 }
 
 #[test]
+#[cfg(unix)]
 fn same_stamp_edits_are_confirmed_once_without_periodic_source_reads() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("source");
@@ -248,4 +251,25 @@ fn same_stamp_edits_are_confirmed_once_without_periodic_source_reads() {
         2,
         "the confirmation is not a periodic reread loop"
     );
+}
+
+#[test]
+fn unavailable_change_identities_keep_source_edits_visible_after_every_poll() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("source");
+    let mut cache = ObservationCache::default();
+    let now = Instant::now();
+    for bytes in [b"old", b"new", b"end"] {
+        std::fs::write(&path, bytes).unwrap();
+        let snapshot = cache
+            .read_at(
+                &path,
+                3,
+                now + Duration::from_secs(100),
+                |_| Ok(None),
+                |opened| opened.read(3),
+            )
+            .unwrap();
+        assert_eq!(snapshot.bytes.as_ref(), bytes);
+    }
 }

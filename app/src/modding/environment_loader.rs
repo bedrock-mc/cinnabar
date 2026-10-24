@@ -84,6 +84,7 @@ impl Loader {
                         },
                         recv(incoming) -> batch => match batch {
                             Ok(batch) => {
+                                state.retain_sources(&batch);
                                 for request in batch {
                                     if let Some(update) = prepare(request, &mut state)
                                         && results.send(Message::Updated(Box::new(update))).is_err() {
@@ -146,6 +147,20 @@ struct WorkerState {
     attempted: Attempts,
     files: mod_host::local_files::ObservationCache,
     packages: BTreeMap<std::path::PathBuf, mod_host::package::Observation>,
+}
+
+impl WorkerState {
+    /// Drops package snapshots and failed attempts absent from this bounded request batch.
+    fn retain_sources(&mut self, requests: &[Request]) {
+        self.packages.retain(|path, _| requests.iter().any(|request| {
+            matches!(&request.source.location, mod_host::Source::Package(current) if current == path)
+        }));
+        self.attempted.retain(|(owner, location), _| {
+            requests.iter().any(|request| {
+                request.source.owner == *owner && request.source.location == *location
+            })
+        });
+    }
 }
 
 /// Captures one changed component and all explicit overrides before initializing its candidate.

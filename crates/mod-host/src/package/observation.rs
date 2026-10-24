@@ -44,7 +44,15 @@ impl Observation {
         now: Instant,
         mut read: impl FnMut(&mut crate::local_files::Opened, usize) -> std::io::Result<Vec<u8>>,
     ) -> Result<Arc<Package>> {
-        let root = Directory::open(path).context("open mod package directory")?;
+        let root = match Directory::open(path).context("open mod package directory") {
+            Ok(root) => root,
+            Err(error) => {
+                self.cached = None;
+                self.files.clear();
+                self.confirm_after = None;
+                return Err(error);
+            }
+        };
         let mut confirming = false;
         if let Some((previous, package)) = &self.cached
             && previous == path
@@ -105,6 +113,9 @@ impl Observation {
         if reusable {
             self.cached = Some((path.to_owned(), package.clone()));
             self.confirm_after = (!confirming).then_some(now + CONFIRMATION_DELAY);
+        } else {
+            self.files.clear();
+            self.confirm_after = None;
         }
         package.map_err(anyhow::Error::msg)
     }
