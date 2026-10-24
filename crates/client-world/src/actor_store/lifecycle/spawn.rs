@@ -77,7 +77,7 @@ impl ActorStore {
             self.apply_held_local_metadata(runtime_id);
         }
         self.unique_to_runtime.insert(unique_id, runtime_id);
-        self.board_linked_riders();
+        self.add_appeared_passenger(unique_id);
         // A respawned boat restarts its prediction from the new spawn.
         self.note_local_vehicle_pose(runtime_id);
         self.adopt_spawned_unique_id(runtime_id);

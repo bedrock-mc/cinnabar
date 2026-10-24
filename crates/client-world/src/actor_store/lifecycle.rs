@@ -100,9 +100,7 @@ impl ActorStore {
             effect_members: Default::default(),
             unique_to_runtime: FastHashMap::new(),
             rider_to_ridden: FastHashMap::new(),
-            passengers: FastHashMap::new(),
-            link_arrivals: FastHashMap::new(),
-            links_received: 0,
+            vehicle_riders: FastHashMap::new(),
             max_actor_links: max_actors.min(MAX_TRACKED_ACTOR_LINKS),
             players: HashMap::new(),
             unlisted_players: HashMap::new(),
@@ -111,6 +109,7 @@ impl ActorStore {
             items: crate::item::ItemStateStore::diagnostic(),
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
+            local_unique_id: None,
             local_vehicle: Default::default(),
             pending_local_health: None,
             local_server_swings: Vec::new(),
@@ -157,6 +156,12 @@ impl ActorStore {
     /// Arm swings the server sent for the local player since the last call.
     pub(crate) fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         std::mem::take(&mut self.local_server_swings)
+    }
+
+    /// Names the local player before its actor exists, so riding links treat it as a player
+    /// already present, as vanilla's local player always is.
+    pub(crate) fn set_local_unique_id(&mut self, unique_id: i64) {
+        self.local_unique_id = Some(unique_id);
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
@@ -210,6 +215,7 @@ impl ActorStore {
         if runtime_id == 0 {
             return;
         }
+        self.local_unique_id = Some(unique_id);
         self.local_view_dirty |= self.local_first_person != feed.first_person;
         self.local_first_person = feed.first_person;
         self.local_view_bobbing = feed.view_bobbing;
@@ -280,7 +286,6 @@ impl ActorStore {
         self.bind_actor_seat(&actor);
         self.actors.insert(runtime_id, actor);
         self.apply_held_local_metadata(runtime_id);
-        self.board_linked_riders();
         self.apply_pending_local_health(runtime_id);
         self.apply_pending_local_death(runtime_id);
         if let Some(actor) = self.actors.get(&runtime_id) {

@@ -766,6 +766,8 @@ pub(crate) struct ActorStore {
     items: ItemStateStore,
     actions: RemoteActionStore,
     remote_state_excluded_runtime_id: Option<u64>,
+    /// The local player's persistent id, known from the session start before its actor exists.
+    local_unique_id: Option<i64>,
     /// The vehicle the local player steers, whose pose the client predicts.
     local_vehicle: local_vehicle::LocalVehicle,
     /// Health admitted before the client-fed local actor is created.
@@ -819,12 +821,9 @@ pub(crate) struct ActorStore {
     camera_position: [f32; 3],
     /// Rigs outside this view hold their pose instead of animating.
     animation_view: Option<actor_animation::ActorAnimationView>,
-    /// Each vehicle's boarded riders in seat order.
-    passengers: FastHashMap<i64, Vec<i64>>,
-    /// Each linked rider's place in link arrival order, which orders boarding and seats
-    /// whenever its rider and vehicle actors appear.
-    link_arrivals: FastHashMap<i64, u64>,
-    links_received: u64,
+    /// Each vehicle's passenger list in vanilla's order, including linked riders whose actors
+    /// do not exist yet; the inverse of `rider_to_ridden`.
+    vehicle_riders: FastHashMap<i64, Vec<i64>>,
     /// Seat descriptor per mount, for riders that stream no seat offset.
     seat_bindings: FastHashMap<u64, Option<u32>>,
     seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,

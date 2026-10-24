@@ -33,7 +33,7 @@ pub struct LocalVehicleFeed {
     pub render_yaw: f32,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct LocalVehicle {
     /// Server changes to the predicted vehicle, which prediction follows.
     revision: VehicleRevision,
@@ -43,6 +43,8 @@ pub(super) struct LocalVehicle {
     /// The accepted feed's render pose, which holds the boat's displayed pose through actor
     /// ticks.
     render: Option<(u64, ActorPose)>,
+    /// Passengers held on the boat's render pose, released with it.
+    held_passengers: Vec<u64>,
 }
 
 impl ActorStore {
@@ -127,15 +129,27 @@ impl ActorStore {
             actor.status.predicted_render_yaw = Some(pose.yaw);
             self.effect_members.collidable.update(actor);
         }
-        self.hold_passengers_on(runtime_id);
+        // Riders who left since the last hold return to their own heading.
+        for runtime_id in std::mem::take(&mut self.local_vehicle.held_passengers) {
+            if let Some(actor) = self.actors.get_mut(&runtime_id) {
+                actor.status.predicted_render_yaw = None;
+            }
+        }
+        self.local_vehicle.held_passengers = self.hold_passengers_on(runtime_id);
     }
 
     /// Returns a boat no longer fed to its ticked pose and body yaw.
     fn release_local_vehicle_render(&mut self) {
-        if let Some((runtime_id, _)) = self.local_vehicle.render.take()
-            && let Some(actor) = self.actors.get_mut(&runtime_id)
-        {
-            actor.status.predicted_render_yaw = None;
+        let boat = self
+            .local_vehicle
+            .render
+            .take()
+            .map(|(runtime_id, _)| runtime_id);
+        let passengers = std::mem::take(&mut self.local_vehicle.held_passengers);
+        for runtime_id in boat.into_iter().chain(passengers) {
+            if let Some(actor) = self.actors.get_mut(&runtime_id) {
+                actor.status.predicted_render_yaw = None;
+            }
         }
     }
 

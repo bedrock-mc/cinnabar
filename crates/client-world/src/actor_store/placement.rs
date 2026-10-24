@@ -137,8 +137,8 @@ impl ActorStore {
         }
         let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
         let admission = self.entity_assets.as_ref()?.seat_descriptor(*descriptor)?;
-        // Seats follow the boarded passenger order, the same order that picks the driver.
-        let passengers = self.passengers.get(&mount.unique_id)?;
+        // Seats follow the seated passenger order, the same order that picks the driver.
+        let passengers = self.seated_passengers(mount.unique_id);
         let index = passengers.iter().position(|&id| id == rider_unique_id)?;
         compiled_seat(
             admission,
@@ -223,8 +223,16 @@ impl ActorStore {
         &self,
         mount_pose: impl Fn(&super::ActorSnapshot) -> ([f32; 3], f32),
     ) -> Vec<Placement> {
-        self.rider_to_ridden
-            .iter()
+        self.placements_of(self.rider_to_ridden.iter(), mount_pose)
+    }
+
+    /// Seats for the given `(rider, vehicle)` links from the mount poses `mount_pose` reports.
+    fn placements_of<'a>(
+        &self,
+        links: impl Iterator<Item = (&'a i64, &'a i64)>,
+        mount_pose: impl Fn(&super::ActorSnapshot) -> ([f32; 3], f32),
+    ) -> Vec<Placement> {
+        links
             .filter_map(|(rider_unique_id, ridden)| {
                 let rider_id = *self.unique_to_runtime.get(rider_unique_id)?;
                 if self.remote_state_excluded_runtime_id == Some(rider_id) {
@@ -267,25 +275,32 @@ impl ActorStore {
 
     /// Seats the riders of `vehicle_runtime_id` at its current pose and holds them there
     /// whatever the actor clock's point between ticks, as the predicted boat is held.
-    pub(super) fn hold_passengers_on(&mut self, vehicle_runtime_id: u64) {
+    /// A locked passenger's body is drawn at its seat's facing on the boat's render heading.
+    /// Returns the passengers held.
+    pub(super) fn hold_passengers_on(&mut self, vehicle_runtime_id: u64) -> Vec<u64> {
         let Some(vehicle) = self
             .actors
             .get(&vehicle_runtime_id)
             .map(|actor| actor.unique_id)
         else {
-            return;
+            return Vec::new();
         };
-        let placements: Vec<_> = self
-            .rider_placements(|mount| (mount.position, mount.yaw))
-            .into_iter()
-            .filter(|placement| {
-                self.actors
-                    .get(&placement.runtime_id)
-                    .and_then(|rider| self.rider_to_ridden.get(&rider.unique_id))
-                    == Some(&vehicle)
-            })
-            .collect();
+        let riders = self
+            .vehicle_riders
+            .get(&vehicle)
+            .cloned()
+            .unwrap_or_default();
+        let placements = self
+            .placements_of(riders.iter().map(|rider| (rider, &vehicle)), |mount| {
+                (mount.position, mount.yaw)
+            });
+        let mut held = Vec::with_capacity(placements.len());
         for placement in placements {
+            let facing = self
+                .actors
+                .get(&placement.runtime_id)
+                .and_then(|rider| self.rider_view_lock(rider.unique_id, 1.0))
+                .map(|lock| lock.facing());
             let Some(rider) = self.actors.get_mut(&placement.runtime_id) else {
                 continue;
             };
@@ -293,8 +308,11 @@ impl ActorStore {
             state.seat(&placement);
             rider.apply_motion_state(state);
             rider.previous_pose = rider.current_pose();
+            rider.status.predicted_render_yaw = facing;
             self.effect_members.collidable.update(rider);
+            held.push(placement.runtime_id);
         }
+        held
     }
 
     /// Seats predicted riders exactly as [`Self::seat_riders`] seats live ones.

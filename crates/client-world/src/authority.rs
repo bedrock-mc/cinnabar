@@ -183,6 +183,7 @@ impl WorldAuthority {
             },
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
+        actors.set_local_unique_id(bootstrap.local_player_unique_id);
         Self {
             terrain: ChunkStore::new(),
             actors,

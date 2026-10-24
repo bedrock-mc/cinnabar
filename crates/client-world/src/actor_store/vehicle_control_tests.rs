@@ -749,6 +749,7 @@ fn passengers_ride_the_predicted_boat_between_ticks() {
 fn a_restored_ride_keeps_the_local_driver_ahead_of_later_riders() {
     let mut store = ActorStore::new(1, 0);
     store.exclude_remote_state_for(PLAYER as u64);
+    store.set_local_unique_id(PLAYER);
     store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
     store.apply(1, 2, spawn(OTHER_PLAYER, player("Other"), Vec::new()));
     let mut sequence = 2;
@@ -766,4 +767,178 @@ fn a_restored_ride_keeps_the_local_driver_ahead_of_later_riders() {
         &super::local_tests::local_feed(0.0, 0.0),
     );
     assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+}
+
+/// One step of a riding-order scenario.
+#[derive(Clone, Copy)]
+enum Ride {
+    /// A remote actor spawns: the boat, the pig, or a player.
+    Spawn(i64),
+    Link(i64, ActorLinkType),
+    Unlink(i64),
+    /// The local player's actor is created from its first pose feed.
+    LocalJoins,
+}
+
+/// Seat order across every ordering the riding reviews raised: links that arrive before
+/// their actors, a ride restored on join, a mob linked earlier that appears later, a player
+/// boarding behind a mob, and the driver leaving.
+#[test]
+fn seat_order_follows_vanilla_through_every_boarding_order() {
+    use ActorLinkType::{Passenger, Rider};
+    use Ride::{Link, LocalJoins, Spawn, Unlink};
+    let cases: &[(&str, &[Ride], &[i64])] = &[
+        (
+            "a link before its actor",
+            &[Spawn(BOAT), Link(OTHER_PLAYER, Rider), Spawn(OTHER_PLAYER)],
+            &[OTHER_PLAYER],
+        ),
+        (
+            "a ride restored on join",
+            &[
+                Spawn(BOAT),
+                Spawn(OTHER_PLAYER),
+                Link(PLAYER, Rider),
+                Link(OTHER_PLAYER, Passenger),
+                LocalJoins,
+            ],
+            &[PLAYER, OTHER_PLAYER],
+        ),
+        (
+            "a mob linked earlier that appears later",
+            &[
+                Spawn(BOAT),
+                Spawn(OTHER_PLAYER),
+                Link(PIG, Rider),
+                Link(OTHER_PLAYER, Passenger),
+                Spawn(PIG),
+            ],
+            &[OTHER_PLAYER, PIG],
+        ),
+        (
+            "a player behind a mob",
+            &[
+                Spawn(BOAT),
+                Spawn(PIG),
+                Spawn(OTHER_PLAYER),
+                Link(PIG, Rider),
+                Link(OTHER_PLAYER, Passenger),
+            ],
+            &[OTHER_PLAYER, PIG],
+        ),
+        (
+            "the driver leaving",
+            &[
+                Spawn(BOAT),
+                Spawn(PIG),
+                Spawn(OTHER_PLAYER),
+                LocalJoins,
+                Link(PIG, Rider),
+                Link(PLAYER, Passenger),
+                Link(OTHER_PLAYER, Passenger),
+                Unlink(PLAYER),
+            ],
+            &[PIG, OTHER_PLAYER],
+        ),
+    ];
+    for (name, steps, seats) in cases {
+        let mut store = ActorStore::new(1, 0);
+        store.exclude_remote_state_for(PLAYER as u64);
+        store.set_local_unique_id(PLAYER);
+        let mut sequence = 0;
+        for step in *steps {
+            sequence += 1;
+            match *step {
+                Spawn(BOAT) => {
+                    store.apply(
+                        1,
+                        sequence,
+                        spawn(BOAT, entity("minecraft:boat"), Vec::new()),
+                    );
+                }
+                Spawn(PIG) => {
+                    store.apply(1, sequence, spawn(PIG, entity("minecraft:pig"), Vec::new()));
+                }
+                Spawn(id) => {
+                    store.apply(1, sequence, spawn(id, player("Other"), Vec::new()));
+                }
+                Link(rider, link_type) => {
+                    store.apply_link(1, sequence, link(rider, link_type));
+                }
+                Unlink(rider) => {
+                    store.apply_link(1, sequence, link(rider, ActorLinkType::Remove));
+                }
+                LocalJoins => store.sync_local_player(
+                    PLAYER as u64,
+                    PLAYER,
+                    &super::local_tests::local_feed(0.0, 0.0),
+                ),
+            }
+        }
+        assert_eq!(&store.seated_passengers(BOAT), seats, "{name}");
+        assert_eq!(
+            store.controlling_passenger(BOAT),
+            seats.first().copied(),
+            "{name}"
+        );
+    }
+}
+
+/// A locked passenger on the predicted boat is drawn facing along its seat on the boat's
+/// render heading, and returns to its own heading when prediction ends.
+#[test]
+fn a_locked_passenger_faces_along_the_predicted_boat() {
+    let (mut store, mut sequence) = harbour(Vec::new());
+    let float = |key: ActorDataKey, value| ActorMetadata {
+        key: key.wire_value(),
+        value: ActorMetadataValue::Float(value),
+    };
+    sequence += 1;
+    store.apply(
+        1,
+        sequence,
+        spawn(
+            OTHER_PLAYER,
+            player("Other"),
+            vec![
+                ActorMetadata {
+                    key: ActorDataKey::SeatOffset.wire_value(),
+                    value: ActorMetadataValue::Vector([0.0, 0.5, -0.5]),
+                },
+                ActorMetadata {
+                    key: ActorDataKey::SeatLockPassengerRotation.wire_value(),
+                    value: ActorMetadataValue::Byte(1),
+                },
+                float(ActorDataKey::SeatLockPassengerRotationDegrees, 90.0),
+                float(ActorDataKey::SeatRotationOffsetDegrees, -90.0),
+            ],
+        ),
+    );
+    board(
+        &mut store,
+        &mut sequence,
+        &[
+            (PLAYER, ActorLinkType::Rider),
+            (OTHER_PLAYER, ActorLinkType::Passenger),
+        ],
+    );
+    store.sync_local_vehicle(Some(LocalVehicleFeed {
+        runtime_id: BOAT as u64,
+        revision: crate::VehicleRevision::default(),
+        position: [10.0, 5.0, 10.0],
+        yaw: 40.0,
+        velocity: [0.0; 3],
+        render_position: [10.0, 5.0, 10.0],
+        render_yaw: 30.0,
+    }));
+    let passenger = |store: &ActorStore| {
+        store
+            .snapshot_by_unique(OTHER_PLAYER)
+            .unwrap()
+            .status
+            .predicted_render_yaw
+    };
+    assert_eq!(passenger(&store), Some(-60.0));
+    store.sync_local_vehicle(None);
+    assert_eq!(passenger(&store), None);
 }
