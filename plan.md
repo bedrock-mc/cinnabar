@@ -1010,6 +1010,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   pixels, liquids and entities; complete Iris type checking and target-dependent return
   overloads; array-bound folding of aggregate values and built-in calls; constant folding
   for half-float packing and bit casts. Java sky and fog time
+  which keep the native scene copy; actor colour masks, multitexture materials, dissolve
+  pairs, beacon beams and additive rays, which keep native composition; packs without
+  geometry programs, whose `depthtex*` and `centerDepthSmooth` read the Vanilla scene depth
+  with its translucent layers; computed custom uniform expressions using `centerDepthSmooth`
+  beyond float aliases; complete Iris type checking and target-dependent return
+  overloads; constant folding for half-float packing and bit casts. Java sky and fog time
   curves and sunrise colours remain provisional. Shared loose uniforms still need
   stage-local type and constant resolution, equivalent array declaration matching and
   isolation from unrelated stage globals. Whole boolean uniform arrays and partially
@@ -1026,6 +1032,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   colours remain provisional. Pack rain samples a sheet scattered from the Bedrock rain
   sprites at `rain.png`'s size and streak density rather than Java's texture, and weather
   vertices carry open-sky light rather than each column's light.
+  water, whose final depth can hide those layers; complete Iris type checking and
+  target-dependent return overloads; constant folding for half-float packing and bit casts.
+  Java sky and fog time curves and sunrise colours remain provisional.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.

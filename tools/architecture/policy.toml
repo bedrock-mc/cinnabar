@@ -147,7 +147,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 name = "meshing"
 path = "crates/meshing"
 test_support_features = ["benchmark-mimalloc"]
-allowed_dependencies = ["assets", "block-transform", "world"]
+allowed_dependencies = ["assets", "world"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[crates]]
