@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ var ErrNotPlaced = errors.New("no placed experience block at position")
 
 // Key identifies a block position in one stable world instance.
 type Key struct {
-	Instance WorldInstanceID
+	Instance cinnabarext.WorldID
 	X, Y, Z  int32
 }
 
@@ -75,14 +76,14 @@ type Store struct {
 }
 
 type fileEntry struct {
-	Instance   WorldInstanceID `json:"instance"`
-	LegacyDim  *int            `json:"dim,omitempty"`
-	X          int32           `json:"x"`
-	Y          int32           `json:"y"`
-	Z          int32           `json:"z"`
-	Generation uint64          `json:"generation"`
-	Revision   uint64          `json:"revision"`
-	Data       *string         `json:"data"`
+	Instance   cinnabarext.WorldID `json:"instance"`
+	LegacyDim  *int                `json:"dim,omitempty"`
+	X          int32               `json:"x"`
+	Y          int32               `json:"y"`
+	Z          int32               `json:"z"`
+	Generation uint64              `json:"generation"`
+	Revision   uint64              `json:"revision"`
+	Data       *string             `json:"data"`
 }
 
 type experienceFile struct {

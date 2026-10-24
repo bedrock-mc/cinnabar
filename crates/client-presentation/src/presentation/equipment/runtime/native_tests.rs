@@ -151,6 +151,7 @@ fn item(identifier: &str) -> WornItem {
         identifier: identifier.into(),
         metadata: 0,
         damage: None,
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::resolve_item_use(
             &assets::item_use::diagnostic_profile(identifier),

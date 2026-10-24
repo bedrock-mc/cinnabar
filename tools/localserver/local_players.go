@@ -6,7 +6,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // localPlayerHandler owns temporary flight controls and clears Experience focus on quit.

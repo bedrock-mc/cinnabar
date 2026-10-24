@@ -3,6 +3,7 @@ package experience
 import (
 	"context"
 	"errors"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"log/slog"
 	"testing"
 
@@ -64,7 +65,7 @@ func (f *runtimeFixture) do(w *world.World, fn func(*world.Tx)) {
 // request snapshots a callback under the session's current epoch.
 func (f *runtimeFixture) request() (event, snapshot) {
 	f.t.Helper()
-	ev := event{actor: f.actor, epoch: f.h.epoch(f.actor), call: Call{ClientMessage: &ClientMessageCall{Player: f.actor.UUID().String(), Payload: []Scalar{}}}}
+	ev := event{actor: f.actor, epoch: f.h.epoch(f.actor), call: Call{ClientMessage: &ClientMessageCall{Player: f.actor.UUID().String(), Payload: []cinnabarext.Scalar{}}}}
 	snap, err := f.h.snapshot(f.t.Context(), f.d, &ev)
 	if err != nil {
 		f.t.Fatal(err)
@@ -73,7 +74,7 @@ func (f *runtimeFixture) request() (event, snapshot) {
 }
 
 // travel runs the same exclusive lifecycle result the helper emits.
-func (f *runtimeFixture) travel(ctx context.Context, id WorldInstanceID) error {
+func (f *runtimeFixture) travel(ctx context.Context, id cinnabarext.WorldID) error {
 	f.t.Helper()
 	ev, snap := f.request()
 	handle, ok := f.h.worlds.handle(id)
@@ -268,7 +269,7 @@ func TestPlayerObservationsAreOrderedAndCoalesced(t *testing.T) {
 func TestClientFenceFailureKeepsOneDestination(t *testing.T) {
 	f := newRuntimeFixture(t)
 	f.h.channels = runtimeChannels{}
-	f.h.SetWorldChangeNotifier(func(uuid.UUID, WorldHandle, uint64) bool { return false })
+	f.h.worldChanged = (func(uuid.UUID, WorldHandle, uint64) bool { return false })
 	if err := f.travel(t.Context(), "probe:one"); err == nil {
 		t.Fatal("failed notice reported success")
 	}
@@ -307,6 +308,7 @@ func TestWorldGenerationsSurviveRestart(t *testing.T) {
 
 // runtimeChannels supplies the enabled-client-parts condition without sending network data.
 type runtimeChannels struct {
+	prepare func() (*cinnabarext.WorldChange, error)
 	sent    *int
 	observe func()
 }
@@ -314,8 +316,8 @@ type runtimeChannels struct {
 // Declares refuses undeclared test channels.
 func (runtimeChannels) Declares(string, string, uint16) bool { return true }
 
-// Send keeps fixture data off the network.
-func (c runtimeChannels) Send(uuid.UUID, string, string, uint16, []Scalar) bool {
+// SendRecord keeps fixture data off the network.
+func (c runtimeChannels) SendRecord(uuid.UUID, string, string, uint16, []cinnabarext.Scalar) bool {
 	if c.observe != nil {
 		c.observe()
 	}
@@ -415,7 +417,7 @@ func TestPersistentInstanceReopensTerrainAndState(t *testing.T) {
 func TestSynchronousEpochAcknowledgmentFollowsWorldEvent(t *testing.T) {
 	f := newRuntimeFixture(t)
 	f.h.channels = runtimeChannels{}
-	f.h.SetWorldChangeNotifier(func(id uuid.UUID, handle WorldHandle, epoch uint64) bool {
+	f.h.worldChanged = (func(id uuid.UUID, handle WorldHandle, epoch uint64) bool {
 		if f.h.epoch(f.actor) != epoch || id != f.actor.UUID() || handle.ID != "probe:one" {
 			t.Fatal("notice preceded server epoch publication")
 		}
@@ -502,5 +504,26 @@ func TestLeaveRetainsPrivatePlayerScope(t *testing.T) {
 	state := f.h.store.readStates("probe", []stateAddress{{Scope: StorePlayer, Owner: f.actor.UUID().String()}})[0]
 	if state.Data == nil || *state.Data != data {
 		t.Fatal("leave wrote another scope")
+	}
+}
+
+// PrepareWorldChange gives fixtures without a network a no-op transport fence.
+func (c runtimeChannels) PrepareWorldChange(uuid.UUID) (*cinnabarext.WorldChange, error) {
+	if c.prepare != nil {
+		return c.prepare()
+	}
+	return nil, nil
+}
+
+// TestTransportPreparationFailureKeepsSource refuses unsupported sessions before departure.
+func TestTransportPreparationFailureKeepsSource(t *testing.T) {
+	f := newRuntimeFixture(t)
+	epoch := f.h.epoch(f.actor)
+	f.h.channels = runtimeChannels{prepare: func() (*cinnabarext.WorldChange, error) { return nil, errors.New("unsupported client part") }}
+	if err := f.travel(t.Context(), "probe:one"); err == nil {
+		t.Fatal("unsupported session moved")
+	}
+	if f.countLocations() != 1 || f.h.epoch(f.actor) != epoch {
+		t.Fatal("preparation failure changed location authority")
 	}
 }

@@ -6,19 +6,23 @@ import (
 
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
+
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
-// ClientChannels is the server half of the client parts (tools/localserver/extension): the
+// ClientChannels is the server half of the client parts (tools/localserver/cinnabarext): the
 // typed channels that each Experience's client part declares, and delivery to the client part
 // that a player runs. Its methods may be called from any goroutine.
 type ClientChannels interface {
+	// PrepareWorldChange fences the pinned client-part session before a player departs.
+	PrepareWorldChange(player uuid.UUID) (*cinnabarext.WorldChange, error)
 	// Declares reports whether the client part of the Experience exp declares channel, revision
 	// schema, in the direction to the client.
 	Declares(exp, channel string, schema uint16) bool
-	// Send sends payload on channel, revision schema, to the client part of exp that player
+	// SendRecord sends payload on channel, revision schema, to the client part of exp that player
 	// runs, and reports whether it went out: false when the player has no active client part, or
 	// when the message does not fit the channel or the connection's limits.
-	Send(player uuid.UUID, exp, channel string, schema uint16, payload []Scalar) bool
+	SendRecord(player uuid.UUID, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool
 }
 
 // DeliverClientMessage queues the client-message callback of the Experience exp for payload,
@@ -26,7 +30,7 @@ type ClientChannels interface {
 // runs in the world that player is in when its turn comes, with no snapshot, and commits like any
 // other. It reports false when the message was dropped: the Host does not run exp, has closed,
 // or the Experience's queue is full.
-func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel string, schema uint16, payload []Scalar) bool {
+func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool {
 	d, ok := h.dispatchers[exp]
 	if !ok || h.closed.Load() {
 		return false
@@ -40,7 +44,7 @@ func (h *Host) DeliverClientMessage(player *world.EntityHandle, exp, channel str
 		Channel: channel,
 		Schema:  schema,
 		// The protocol has a list here, never null, and the caller keeps its slice.
-		Payload: append(make([]Scalar, 0, len(payload)), payload...),
+		Payload: append(make([]cinnabarext.Scalar, 0, len(payload)), payload...),
 	}
 	select {
 	case d.events <- event{actor: player, epoch: epoch, call: Call{ClientMessage: call}}:
@@ -89,7 +93,7 @@ func (h *Host) sendClient(d *dispatcher, player uuid.UUID, op *SendClientOp) {
 		}
 		return
 	}
-	if h.channels == nil || !h.channels.Send(player, d.id, op.Channel, op.Schema, op.Payload) {
+	if h.channels == nil || !h.channels.SendRecord(player, d.id, op.Channel, op.Schema, op.Payload) {
 		if n, ok := d.unsent.add(); ok {
 			h.log.Debug("client messages not sent", "experience", d.id, "dropped", n)
 		}

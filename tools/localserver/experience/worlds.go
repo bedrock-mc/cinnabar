@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"math"
 	"strings"
 	"sync"
@@ -12,21 +13,17 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 )
 
-// WorldInstanceID is a stable storage identity supplied by the server when it opens a world.
-// Reopening that instance keeps its ID; another instance must have another ID.
-type WorldInstanceID string
-
 // WorldHandle identifies one live opening of an instance. Closing it invalidates the handle.
 type WorldHandle struct {
-	ID         WorldInstanceID `json:"id"`
-	Generation uint64          `json:"generation"`
+	ID         cinnabarext.WorldID `json:"id"`
+	Generation uint64              `json:"generation"`
 }
 
 // The default instance IDs also identify the worlds in a migrated dimension-keyed store.
 const (
-	OverworldInstance WorldInstanceID = "overworld"
-	NetherInstance    WorldInstanceID = "nether"
-	EndInstance       WorldInstanceID = "end"
+	OverworldInstance cinnabarext.WorldID = "overworld"
+	NetherInstance    cinnabarext.WorldID = "nether"
+	EndInstance       cinnabarext.WorldID = "end"
 )
 
 // ErrStaleWorld rejects a handle after its instance was unbound or reopened.
@@ -50,11 +47,11 @@ type worldBindings struct {
 	mu      sync.RWMutex
 	next    uint64
 	byWorld map[*world.World]worldInstance
-	byID    map[WorldInstanceID]*world.World
+	byID    map[cinnabarext.WorldID]*world.World
 }
 
 // bind associates a stable instance ID with a live world and assigns a fresh generation.
-func (b *worldBindings) bind(id WorldInstanceID, w *world.World, generation uint64) (WorldHandle, error) {
+func (b *worldBindings) bind(id cinnabarext.WorldID, w *world.World, generation uint64) (WorldHandle, error) {
 	if id == "" || strings.TrimSpace(string(id)) != string(id) || w == nil {
 		return WorldHandle{}, errors.New("a nonempty instance ID and world are required")
 	}
@@ -79,7 +76,7 @@ func (b *worldBindings) bind(id WorldInstanceID, w *world.World, generation uint
 	}
 	if b.byWorld == nil {
 		b.byWorld = make(map[*world.World]worldInstance)
-		b.byID = make(map[WorldInstanceID]*world.World)
+		b.byID = make(map[cinnabarext.WorldID]*world.World)
 	}
 	if generation == 0 {
 		b.next++
@@ -126,7 +123,7 @@ func (b *worldBindings) unbind(handle WorldHandle) error {
 }
 
 // legacyWorldInstance maps only the historical store's three dimension identities.
-func legacyWorldInstance(dim int) (WorldInstanceID, error) {
+func legacyWorldInstance(dim int) (cinnabarext.WorldID, error) {
 	switch dim {
 	case 0:
 		return OverworldInstance, nil
@@ -141,7 +138,7 @@ func legacyWorldInstance(dim int) (WorldInstanceID, error) {
 
 // BindWorld enables Experience hooks for a live instance. The caller owns its lifetime and
 // must unbind it before closing it or replacing it with another world.
-func (h *Host) BindWorld(id WorldInstanceID, w *world.World) (WorldHandle, error) {
+func (h *Host) BindWorld(id cinnabarext.WorldID, w *world.World) (WorldHandle, error) {
 	if h.closed.Load() {
 		return WorldHandle{}, errors.New("experience host is closed")
 	}

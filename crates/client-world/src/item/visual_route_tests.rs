@@ -1,5 +1,10 @@
 use super::*;
-use assets::{ItemTextureReference, ItemVisualAlias, ItemVisualDefinition};
+use std::sync::Arc;
+
+use protocol::NetworkItemStack;
+use sha2::{Digest, Sha256};
+
+use assets::{ItemTextureReference, ItemVisualAlias, ItemVisualDefinition, RuntimeEntityAssets};
 
 #[test]
 fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {

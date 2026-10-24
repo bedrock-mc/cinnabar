@@ -8,18 +8,10 @@ import (
 	"math"
 	"slices"
 
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/world"
-	"github.com/google/uuid"
 )
-
-// SetWorldChangeNotifier connects the extension helper's WorldChanged contract before Run.
-// The bridge includes the opening and player epoch in its notice identity for every visit.
-// Return true when no client part needs a notice or its fence has been published.
-// The helper must fence both directions until its correlated client acknowledgment.
-func (h *Host) SetWorldChangeNotifier(notify func(uuid.UUID, WorldHandle, uint64) bool) {
-	h.worldChanged = notify
-}
 
 // commitLifecycle validates the source snapshot and runs one command outside world transactions.
 func (h *Host) commitLifecycle(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) error {
@@ -72,10 +64,6 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 			return errors.New("nonfinite destination")
 		}
 	}
-	// A server offering client parts must supply the extension helper's real fence.
-	if h.channels != nil && h.worldChanged == nil {
-		return errors.New("client-part world-change fence unavailable")
-	}
 	if err := await(ctx, w.Do(func(tx *world.Tx) {
 		anchor := cube.PosFromVec3(pos.vec())
 		anchor[1] = w.Range().Min()
@@ -91,6 +79,14 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 	}
 	state.sends.Lock()
 	defer state.sends.Unlock()
+	var prepared *cinnabarext.WorldChange
+	if h.channels != nil {
+		prepared, err = h.channels.PrepareWorldChange(ev.actor.UUID())
+		if err != nil {
+			return err
+		}
+	}
+	defer prepared.Abort()
 	var before PlayerLocation
 	detached := false
 	var result error
@@ -145,7 +141,10 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 		state.location, state.w, state.publishing = after, w, true
 		h.players.mu.Unlock()
 		// Publish through the bridge without holding a registry lock across external code.
-		notified := h.worldChanged == nil || h.worldChanged(ev.actor.UUID(), destination, after.Epoch)
+		notified := prepared.Commit(destination.ID)
+		if h.worldChanged != nil {
+			notified = h.worldChanged(ev.actor.UUID(), destination, after.Epoch) && notified
+		}
 		h.players.mu.Lock()
 		state.transferring, state.publishing = !notified, false
 		pending := slices.Sorted(maps.Keys(state.pendingEpochs))

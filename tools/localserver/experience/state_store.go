@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"slices"
 
 	"github.com/google/uuid"
@@ -47,7 +48,7 @@ func validStateAddress(a stateAddress) bool {
 }
 
 // stateAddresses gives a callback only its actor, current instance and own mod record.
-func stateAddresses(instance WorldInstanceID, actor *string) []stateAddress {
+func stateAddresses(instance cinnabarext.WorldID, actor *string) []stateAddress {
 	addresses := []stateAddress{{Scope: StoreInstance, Owner: string(instance)}, {Scope: StoreMod}}
 	if actor != nil {
 		addresses = append(addresses, stateAddress{Scope: StorePlayer, Owner: *actor})

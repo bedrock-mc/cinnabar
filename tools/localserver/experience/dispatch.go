@@ -29,13 +29,14 @@ const airID = "minecraft:air"
 // current and the result valid before it applies anything. Client messages that a commit stages
 // go out through channels afterwards, and client messages that players send queue like events.
 type Host struct {
-	reg          *Registry
-	store        *Store
-	log          *slog.Logger
-	worldID      string
-	worlds       worldBindings
-	manager      worldManager
-	players      playerLocations
+	reg     *Registry
+	store   *Store
+	log     *slog.Logger
+	worldID string
+	worlds  worldBindings
+	manager worldManager
+	players playerLocations
+	// worldChanged observes publication in tests, before the coordinator releases its fence.
 	worldChanged func(uuid.UUID, WorldHandle, uint64) bool
 	// channels is the server half of the client parts; nil when the server has none, which
 	// drops every staged client message.

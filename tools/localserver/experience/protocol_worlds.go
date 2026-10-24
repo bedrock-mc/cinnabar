@@ -3,6 +3,7 @@ package experience
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // WorldDefinitionID names a definition registered by a mod at load time.
@@ -37,8 +38,8 @@ type WorldDefinition struct {
 
 // WorldInstance requests an opening of a stable instance using a registered definition.
 type WorldInstance struct {
-	ID         WorldInstanceID   `json:"id"`
-	Definition WorldDefinitionID `json:"definition"`
+	ID         cinnabarext.WorldID `json:"id"`
+	Definition WorldDefinitionID   `json:"definition"`
 }
 
 // WorldRegistration declares definitions and startup instances before player admission.

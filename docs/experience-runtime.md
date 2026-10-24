@@ -354,7 +354,7 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 
 ## Client parts
 
-The server half of client parts (`tools/localserver/extension`) offers each Experience's client
+The server half of client parts (`tools/localserver/cinnabarext`) offers each Experience's client
 part, a `.cxb` that `cinnabar-cxb build --experience` makes from the Experience's
 `experience.toml`, over PR #34's unchanged handshake and typed channels
 ([server-experiences.md](server-experiences.md)). On the client a failed client part callback
@@ -488,7 +488,7 @@ dirty, and on shutdown. **Crash window:** a crash loses up to one flush interval
 The world and the store are saved independently, so after a crash a block can exist without its
 latest data.
 
-The adapter binds each loaded world to a stable `WorldInstanceID`. The three existing worlds use
+The adapter binds each loaded world to a stable `cinnabarext.WorldID`. The three existing worlds use
 `OverworldInstance`, `NetherInstance` and `EndInstance`; additional worlds use their own IDs, even
 when they share a dimension type. IDs must remain stable across restarts. A `WorldHandle` also
 contains an opening generation. Unbinding an instance invalidates its handles, queued block callbacks
@@ -548,13 +548,17 @@ session dimension handling. Failed admission restores the source with the newer 
 if the caller cancels after detach. A player disconnected while detached loses authority rather
 than being restored. Cancellation after admission leaves the destination authoritative.
 
-`Host.SetWorldChangeNotifier` connects the extension helper's correlated `WorldChanged` fence.
-The notice identity includes the instance opening and player epoch. The helper holds extension
-traffic until the matching client acknowledgment. A notification failure leaves one authoritative
-destination with its callbacks fenced. The older local-server extension helper has no such
-notifier: transfers with client parts enabled fail before detach until that helper is integrated.
-Destination preparation and extension acknowledgment do not certify that the client has rendered
-terrain. Live client-part transfer qualification remains open.
+The existing extension helper prepares a pinned connection before departure, drains previously
+admitted application callbacks and fences both message directions. Failed admission aborts that
+preparation and restores the earlier fence. Admission publishes through the helper's correlated
+world-change notice; its acknowledgment opens client traffic and requests fresh state. Ordinary
+players without client parts need no notice. An active wire-v1 client part cannot follow this
+fence, so its transfer fails before departure. Notification failure leaves one authoritative
+destination with its callbacks fenced. Destination preparation and acknowledgment do not certify
+that the client has rendered terrain; live client-part transfer qualification remains open.
+
+Go integrations now use `cinnabarext.WorldID` as the shared stable instance-ID type. JSON storage
+keeps the same string identities.
 
 `on_player` receives ordered join, leave, world-change (before/after), and move observations.
 The host samples committed positions once per host tick, independently of pauseable world clocks;

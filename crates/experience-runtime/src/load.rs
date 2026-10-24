@@ -140,6 +140,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     let pre = link(engine, &module, api)
         .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
     let registration = register(engine, &pre, &manifest.id)?;
+    let (blocks, items) = validate_registration(dir, &manifest, registration)?;
     let worlds = if let Pre::V0_7(component) = &pre {
         let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
         let declared = component
@@ -150,7 +151,6 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     } else {
         None
     };
-    let (blocks, items) = validate_registration(dir, &manifest, registration)?;
     let catalog = Catalog {
         blocks: blocks
             .iter()

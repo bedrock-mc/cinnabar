@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"os"
 	"path/filepath"
 	"slices"
@@ -53,7 +54,7 @@ func (h *Host) ConfigureWorlds(ctx context.Context, root string) error {
 	}
 	definitions := make(map[WorldDefinitionID]WorldDefinition)
 	var startup []WorldInstance
-	seen := map[WorldInstanceID]bool{}
+	seen := map[cinnabarext.WorldID]bool{}
 	for id, d := range h.dispatchers {
 		if d.sup.registered.Worlds == nil {
 			continue
@@ -200,7 +201,7 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 }
 
 // handle returns the current opening for a stable instance ID.
-func (b *worldBindings) handle(id WorldInstanceID) (WorldHandle, bool) {
+func (b *worldBindings) handle(id cinnabarext.WorldID) (WorldHandle, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	w := b.byID[id]
