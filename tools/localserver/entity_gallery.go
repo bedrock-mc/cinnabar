@@ -25,19 +25,22 @@ const entityGalleryPageSize = 16
 
 // entityAppearance holds typed wire values rather than untyped JSON metadata numbers.
 type entityAppearance struct {
-	Identifier string                 `json:"identifier"`
-	Name       string                 `json:"name"`
-	Variant    int32                  `json:"variant"`
-	Mark       int32                  `json:"mark_variant"`
-	Color      uint8                  `json:"color"`
-	Color2     uint8                  `json:"color2"`
-	Value      int32                  `json:"value"`
-	Flags      []uint8                `json:"flags"`
-	Scale      *float32               `json:"scale"`
-	Width      float32                `json:"width"`
-	Height     float32                `json:"height"`
-	Painting   string                 `json:"painting"`
-	Item       *protocol.ItemInstance `json:"item"`
+	Identifier string                     `json:"identifier"`
+	Name       string                     `json:"name"`
+	Variant    int32                      `json:"variant"`
+	Mark       int32                      `json:"mark_variant"`
+	Color      uint8                      `json:"color"`
+	Color2     uint8                      `json:"color2"`
+	Value      int32                      `json:"value"`
+	Flags      []uint8                    `json:"flags"`
+	Scale      *float32                   `json:"scale"`
+	Width      float32                    `json:"width"`
+	Height     float32                    `json:"height"`
+	Painting   string                     `json:"painting"`
+	Item       *protocol.ItemInstance     `json:"item"`
+	Attributes []protocol.AttributeValue  `json:"attributes"`
+	Properties protocol.EntityProperties  `json:"properties"`
+	Armour     *packet.MobArmourEquipment `json:"armour"`
 }
 
 // loadEntityGallery derives default cases from the registry and rejects stale appearance identities.
@@ -243,7 +246,7 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 		columns := min(4, len(page))
 		position := origin.Add(mgl32.Vec3{(float32(i%4) - float32(columns-1)/2) * 5, -1.62, 7 + float32(i/4)*7})
 		metadata := appearance.metadata()
-		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position, Yaw: 180, HeadYaw: 180, BodyYaw: 180, EntityMetadata: metadata}
+		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position, Yaw: 180, HeadYaw: 180, BodyYaw: 180, EntityMetadata: metadata, Attributes: appearance.Attributes, EntityProperties: appearance.Properties}
 		if appearance.Identifier == "minecraft:painting" {
 			title := appearance.Painting
 			if title == "" {
@@ -266,6 +269,11 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 		label.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagShowName)
 		label.SetFlag(protocol.EntityDataKeyFlags, protocol.EntityDataFlagAlwaysShowName)
 		packets = append(packets, actor, &packet.AddActor{EntityUniqueID: id + 1, EntityRuntimeID: uint64(id + 1), EntityType: "minecraft:armor_stand", Position: position.Add(mgl32.Vec3{0, 3, 0}), EntityMetadata: label})
+		if appearance.Armour != nil {
+			armour := *appearance.Armour
+			armour.EntityRuntimeID = uint64(id)
+			packets = append(packets, &armour)
+		}
 	}
 	return packets
 }

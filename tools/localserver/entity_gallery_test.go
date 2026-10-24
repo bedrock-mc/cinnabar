@@ -85,6 +85,12 @@ func TestEntityGalleryPreservesWireTypesAndSpecialSpawns(t *testing.T) {
 	if centered.Position[0] != 20 {
 		t.Fatal("single-actor page is outside the viewer's center")
 	}
+	page[0].Attributes = []protocol.AttributeValue{{Name: "minecraft:health", Value: 8, Max: 8}}
+	page[0].Armour = &packet.MobArmourEquipment{EntityRuntimeID: 123}
+	packets = entityGalleryPackets(page[:1], mgl32.Vec3{})
+	if packets[0].(*packet.AddActor).Attributes[0].Value != 8 || packets[2].(*packet.MobArmourEquipment).EntityRuntimeID != entityGalleryFirstID {
+		t.Fatal("attribute or equipment case addressed the wrong actor")
+	}
 }
 
 func TestEntityGalleryRejectsStaleAppearancesAndFiltersBeforePaging(t *testing.T) {
