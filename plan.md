@@ -387,6 +387,11 @@ and rendered qualification remain incomplete.
   Shulkers publish their peek and attach-face variables and keep a zero body yaw;
   attach-position snapping, peek-dependent collision bounds and a rendered comparison
   against the vanilla client remain incomplete.
+  definitions across pack files resolve as one. Conflicting animation definitions retain
+  drawable geometry in an explicit rest-pose fallback, including server-selected clips
+  and implicit animated-face controllers.
+  Turtle animation and duplicate-definition precedence remain incomplete; the fallback does not
+  establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
