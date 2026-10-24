@@ -192,7 +192,9 @@ fn unit_block_box(block: [i32; 3]) -> Aabb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MovementInput, MovementMode, PlayerState, SimulationError, Simulator};
+    use crate::{
+        MovementInput, MovementMode, PlayerState, SimulationError, Simulator, SneakProfile,
+    };
 
     /// Builds an air registry and one authoritative column beside absent terrain.
     fn terrain() -> (ChunkStore, CollisionRegistry) {
@@ -269,7 +271,13 @@ mod tests {
                 ));
                 assert_eq!(state, anchor);
                 assert_eq!(
-                    simulator.movement_environment(position, mode, false, &world),
+                    simulator.movement_environment(
+                        position,
+                        mode,
+                        false,
+                        SneakProfile::Current,
+                        &world
+                    ),
                     Err(WorldQueryError::UnloadedChunk(chunk))
                 );
                 store.mark_chunk_loaded(chunk).unwrap();

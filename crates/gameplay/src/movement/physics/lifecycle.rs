@@ -6,7 +6,7 @@ impl LocalPhysicsController {
     /// Clears session-owned prediction, accepted sync state and pending corrections.
     pub fn deactivate(&mut self) {
         self.prediction_sync.clear();
-        self.sync_state = Default::default();
+        self.sync_state.reset();
         self.sync_pending.clear();
         self.state = None;
         self.eye_offset = eye::LocalEyeOffset::default();

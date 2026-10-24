@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{MovementEffects, MovementMode, SimulationError, VerticalPhysics};
+use super::{MovementEffects, MovementMode, SimulationError, SneakProfile, VerticalPhysics};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,6 +21,9 @@ pub struct MovementInput {
     pub jump_pressed: bool,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// Level sneaking dimensions, retained with each tick for deterministic replay.
+    #[serde(default, skip_serializing_if = "SneakProfile::is_current")]
+    pub sneak_profile: SneakProfile,
     /// Tick-captured authority that disables travel without discarding device input.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub immobile: bool,

@@ -105,7 +105,7 @@ fn explicit_sneak_size_follows_the_accepted_bit_in_both_directions() {
             let height = if matching {
                 0.7
             } else {
-                sim::MovementMode::Walking.hitbox_height(local) as f32
+                sim::MovementMode::Walking.hitbox_height(local, sim::SneakProfile::Current) as f32
             };
             for _ in 0..2 {
                 tick_sneak(&mut physics, local);
@@ -187,7 +187,7 @@ fn matching_sneak_keeps_horizontal_transitions_independent() {
         [
             1.0,
             WIDTH,
-            sim::MovementMode::Walking.hitbox_height(true) as f32
+            sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32
         ]
     );
 }
@@ -341,7 +341,9 @@ fn replacement_size_uses_its_later_accepted_sneak() {
                     [
                         1.0,
                         WIDTH,
-                        sim::MovementMode::Walking.hitbox_height(!server_sneak) as f32
+                        sim::MovementMode::Walking
+                            .hitbox_height(!server_sneak, sim::SneakProfile::Current)
+                            as f32
                     ]
                 );
             }
@@ -381,7 +383,7 @@ fn replacement_resets_horizontal_pose_before_new_server_writes() {
         [
             1.0,
             WIDTH,
-            sim::MovementMode::Walking.hitbox_height(true) as f32
+            sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32
         ]
     );
 }
@@ -458,4 +460,41 @@ fn replacement_sneak_and_dimensions_survive_replay() {
             [1.0, WIDTH, STANDING_HEIGHT]
         );
     }
+}
+
+/// Replacement and matching input retain explicit width under the level's legacy profile.
+#[test]
+fn legacy_replacement_preserves_explicit_sneak_and_the_level_profile() {
+    let mut world = local_actor_authority();
+    let mut physics = due_physics();
+    physics.set_base_game_version(protocol::BaseGameVersion::parse("1.19.80"));
+    world.take_committed_controls();
+    tick_sneak(&mut physics, true);
+    write_dimensions(&mut world, &mut physics, 2, &[(ActorDataKey::Height, 0.7)]);
+    write_flags(
+        &mut world,
+        &mut physics,
+        3,
+        1 << ActorFlag::Sneaking.wire_value(),
+    );
+    tick_sneak(&mut physics, true);
+    assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, 0.7]);
+    replace_with_width(&mut world, &mut physics, 4);
+    write_flags(
+        &mut world,
+        &mut physics,
+        5,
+        1 << ActorFlag::Sneaking.wire_value(),
+    );
+    tick_sneak(&mut physics, true);
+    assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [1.0, 0.8, STANDING_HEIGHT]
+    );
+    tick_sneak(&mut physics, false);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [1.0, WIDTH, STANDING_HEIGHT]
+    );
 }

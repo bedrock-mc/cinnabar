@@ -408,6 +408,92 @@ fn hidden_entities_keep_lids_rings_and_map_requests() {
     );
 }
 
+#[test]
+fn framed_filled_maps_wait_for_pixels_without_drawing_the_inventory_icon() {
+    for glow in [false, true] {
+        for map_id in [None, Some(77)] {
+            let mut fixture = Fixture::new();
+            let template = Template::ItemFrame {
+                model: ItemFrameModel {
+                    glow,
+                    outward: 2,
+                    full_face: true,
+                    map: None,
+                },
+                item: Some(HeldItem {
+                    identifier: assets::facts::FILLED_MAP_IDENTIFIER.into(),
+                    metadata: 0,
+                }),
+                rotation_degrees: 90.0,
+                map_id,
+            };
+            let Some(BlockEntityKind::ItemFrame(model)) =
+                fixture.resolve(&template, [0, 64, 0], (0.0, 0.0), false)
+            else {
+                panic!("the frame remains visible while waiting for map data");
+            };
+            assert!(model.map.is_none());
+            assert!(fixture.held.is_empty(), "a missing map has no item sprite");
+            assert_eq!(
+                fixture.runtime.missing_maps,
+                map_id.into_iter().collect::<Vec<_>>()
+            );
+
+            let Some(map_id) = map_id else { continue };
+            fixture
+                .stream
+                .submit(
+                    1,
+                    WorldEvent::MapData(protocol::MapDataEvent {
+                        map_id,
+                        initialized_ids: Default::default(),
+                        start_x: 0,
+                        start_y: 0,
+                        width: 1,
+                        height: 1,
+                        pixels: Arc::from([0xff123456]),
+                    }),
+                )
+                .unwrap();
+            let Some(BlockEntityKind::ItemFrame(model)) =
+                fixture.resolve(&template, [0, 64, 0], (0.1, 0.1), false)
+            else {
+                panic!("a received map keeps its frame");
+            };
+            let map = model.map.expect("received pixels select the map plane");
+            assert_eq!(map.rotation_degrees, 90.0);
+            assert!(fixture.held.is_empty());
+        }
+    }
+}
+
+#[test]
+fn framed_ordinary_items_keep_their_icon_without_map_data() {
+    for identifier in ["minecraft:empty_map", "minecraft:stone"] {
+        let mut fixture = Fixture::new();
+        let template = Template::ItemFrame {
+            model: ItemFrameModel {
+                glow: false,
+                outward: 2,
+                full_face: false,
+                map: None,
+            },
+            item: Some(HeldItem {
+                identifier: identifier.into(),
+                metadata: 0,
+            }),
+            rotation_degrees: 0.0,
+            map_id: None,
+        };
+        assert!(matches!(
+            fixture.resolve(&template, [0, 64, 0], (0.0, 0.0), false),
+            Some(BlockEntityKind::ItemFrame(_))
+        ));
+        assert_eq!(fixture.held.len(), 1);
+        assert_eq!(fixture.held[0].identifier.as_ref(), identifier);
+    }
+}
+
 /// A sign hidden from its first frame shows its text on the frame it is revealed.
 #[test]
 fn signs_hidden_from_their_first_frame_reveal_with_resident_text() {

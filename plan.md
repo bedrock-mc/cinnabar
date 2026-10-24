@@ -170,6 +170,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
   faults from geometry; do not mask them with speculative renderer changes.
+  Slab templates reverse north/east U and underside V while preserving height crops
+  and boundary culling. Their registry-wide geometry guard does not close visual acceptance.
 - [ ] Close vine attachment-mask, neighbour, connectivity and texture/UV acceptance.
   Adjudicate glow lichen and sculk vein separately rather than assuming identical rules.
 - [ ] Close the exhaustive residual-family inventory for the pinned target. Every
@@ -318,8 +320,8 @@ coordinate/query recovery and broader custom geometry remain inherited incomplet
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
 independently of simulation admission. Unsupported attribute models leave reporting
-with the actor's current value. A completed local pose tick replaces earlier accepted
-pose writes. Retained corrections arm its idle countdown; bare snaps do not.
+with the actor's current value. Retained corrections arm its idle countdown;
+bare snaps do not. A completed local pose tick replaces earlier accepted pose writes.
 Sparse dimension writes preserve the untouched accepted component, including local
 pose sizes. Dimensions enter gameplay with ordered metadata controls, and correction
 replay retains their order alongside flag writes. Network and synthetic local actors
@@ -334,12 +336,17 @@ defer controller selection until their arrival order can be resolved.
 Server-driven gameplay pose and item-use starts, riptide flag
 lifetimes, custom collision definitions, legacy sneak height,
 transition-tick packet ordering and broader live-server qualification remain incomplete.
+Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
+block-climber flags, custom collision definitions, transition-tick packet ordering
+and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
+Sneaking box height, pose fit and crouch eye follow StartGame's base game version
+(standing height before 1.20.10), including server resizes after prediction resets.
 Near-contact collision fixes do not establish complete collision-engine parity.
 Remote player presentation interpolates received positions along straight segments,
 which can cross a block corner between clear endpoints. Teleports discard that
@@ -409,6 +416,7 @@ and rendered qualification remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
   Received map data remains available for the session; missing map data leaves only
   the arms visible while the shared request is pending.
+  Framed filled maps wait for image data without displaying their inventory icon.
   Native pixel comparisons, custom-paper transparency, narrow-aspect placement, decorations, explorer overlays,
   nondefault inventory icon variants and third-person map presentation remain incomplete.
   inventory fitting and resource-pack geometry acceptance remain incomplete. Inventory head
@@ -419,6 +427,7 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
+  Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand; their dropped presentation remains incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
@@ -494,6 +503,11 @@ label height. Tag eligibility uses always-show metadata or the shared crosshair 
 Camera distance controls server render limits and score range; passenger mounts keep
 their name without a score line. Depth testing honors sneaking and the nameplate flag.
 Matched rendered-frame qualification remains open.
+
+Modern lingering effect clouds draw the potion emitter for non-dragon profiles and
+carry their packed effect color into its RGBA variables. Potion clouds emit every two
+ticks; dragon breath retains its five-tick emitter. Legacy emission and matched
+rendered-frame qualification remain open.
 
 Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
 lights by it; otherwise alpha rounds at 0.5. The pinned samples name vanilla entity

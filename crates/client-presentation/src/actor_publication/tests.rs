@@ -115,6 +115,11 @@ impl crate::observations::PhysicsObservation for JumpPhysics {
         self.1
     }
 
+    /// The fixture uses the current sneaking dimensions.
+    fn sneak_profile(&self) -> sim::SneakProfile {
+        sim::SneakProfile::Current
+    }
+
     fn fall_fly_ticks(&self) -> u32 {
         0
     }
