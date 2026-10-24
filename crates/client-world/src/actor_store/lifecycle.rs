@@ -7,6 +7,15 @@ mod equipment;
 mod interpolation;
 
 impl ActorStore {
+    /// Allocates a nonzero render lifetime without changing authority arrival ordering.
+    pub(super) fn allocate_render_revision(&mut self) -> NonZeroU64 {
+        self.render_spawn_revision = self
+            .render_spawn_revision
+            .checked_add(1)
+            .expect("actor render lifetime counter exhausted");
+        NonZeroU64::new(self.render_spawn_revision).expect("render lifetimes start at one")
+    }
+
     pub(crate) fn set_server_animation_compiler(
         &mut self,
         compiler: actor_animation::ServerAnimationCompiler,
@@ -113,6 +122,7 @@ impl ActorStore {
             pending_local_health: None,
             pending_local_actor: None,
             local_actor_revision: 0,
+            render_spawn_revision: 0,
             local_server_swings: Vec::new(),
             pending_local_damage: None,
             local_health_skips: 0,
@@ -274,7 +284,11 @@ impl ActorStore {
         let mut actor = ActorSnapshot::local_player(
             unique_id,
             runtime_id,
-            (self.local_actor_revision, revision),
+            (
+                self.local_actor_revision,
+                revision,
+                self.allocate_render_revision(),
+            ),
             uuid,
             username,
             feed,

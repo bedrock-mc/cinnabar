@@ -35,6 +35,7 @@ impl ActorStore {
                     links: [].into(),
                 },
                 self.local_actor_revision,
+                self.allocate_render_revision(),
                 EntityFacts::pinned().player(),
                 &mut self.hitbox_budget,
             )

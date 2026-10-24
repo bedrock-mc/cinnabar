@@ -306,7 +306,8 @@ pose writes. Retained corrections arm its idle countdown; bare snaps do not.
 Sparse dimension writes preserve the untouched accepted component, including local
 pose sizes. Dimensions enter gameplay with ordered metadata controls, and correction
 replay retains their order alongside flag writes. Network and synthetic local actors
-share arrival-ordered lifetimes.
+share arrival-ordered authority lifetimes. Rendering uses a separate nonzero lifetime,
+including for the initial synthetic local body and first-person hand.
 Received local spawns, removals and dimension resets publish complete replacement
 authority through the same ordered controls. Synthetic creation keeps that lifetime
 and its already accepted updates and effects. Replacement retires cached flags, pose

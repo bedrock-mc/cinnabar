@@ -20,7 +20,7 @@ impl State {
             body.identity.session_id,
             body.identity.dimension,
             body.identity.runtime_id,
-            body.identity.spawn_revision,
+            body.identity.spawn_revision.get(),
         );
         if self.lifetime != Some(lifetime) {
             *self = Self {

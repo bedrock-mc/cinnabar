@@ -10,6 +10,8 @@ use bevy::math::Mat4;
 use render_model::{ActorRigSubmission, HandItemAtlas, HandRigLight};
 
 #[cfg(test)]
+mod bootstrap_tests;
+#[cfg(test)]
 mod item_switch_tests;
 #[cfg(test)]
 mod lighting_tests;

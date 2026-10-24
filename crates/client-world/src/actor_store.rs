@@ -2,6 +2,7 @@ use assets::facts::entity::{EntityFact, EntityFacts, NativeEntityClass};
 use hashbrown::HashMap as FastHashMap;
 use protocol_ids::{ActorDataKey, ActorFlag, PlayerFlag};
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU64;
 
 #[cfg(test)]
 use protocol::ITEM_ACTOR_NETWORK_OFFSET;
@@ -127,6 +128,8 @@ pub struct ActorSnapshot {
     /// Spawn arrival, or the boundary that started a synthetic local actor's lifetime.
     /// Zero identifies the initial local lifetime created by session setup.
     pub spawn_revision: u64,
+    /// Independently allocated render lifetime, including before a local spawn arrives.
+    pub render_spawn_revision: NonZeroU64,
     pub movement_revision: u64,
     pub kind: ActorKind,
     /// Native facts copied at actor admission from its declared constructor.
@@ -242,6 +245,7 @@ impl ActorSnapshot {
     fn from_spawn(
         spawn: ActorSpawnEvent,
         spawn_revision: u64,
+        render_spawn_revision: NonZeroU64,
         entity_fact: EntityFact,
         hitbox_budget: &mut hitbox::Budget,
     ) -> Self {
@@ -263,6 +267,7 @@ impl ActorSnapshot {
             unique_id: spawn.unique_id,
             runtime_id: spawn.runtime_id,
             spawn_revision,
+            render_spawn_revision,
             movement_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
@@ -314,7 +319,7 @@ impl ActorSnapshot {
     fn local_player(
         unique_id: i64,
         runtime_id: u64,
-        (spawn_revision, movement_revision): (u64, u64),
+        (spawn_revision, movement_revision, render_spawn_revision): (u64, u64, NonZeroU64),
         uuid: [u8; 16],
         username: std::sync::Arc<str>,
         feed: &LocalPlayerFeed,
@@ -332,6 +337,7 @@ impl ActorSnapshot {
             unique_id,
             runtime_id,
             spawn_revision,
+            render_spawn_revision,
             movement_revision,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player {
@@ -370,6 +376,7 @@ impl ActorSnapshot {
         snapshot.unique_id = unique_id;
         snapshot.runtime_id = runtime_id;
         snapshot.spawn_revision = spawn_revision;
+        snapshot.render_spawn_revision = render_spawn_revision;
         snapshot.explicit_dimensions.spawn_revision = Some(spawn_revision);
         snapshot.movement_revision = movement_revision;
         snapshot.kind = ActorKind::Player { uuid, username };
@@ -753,6 +760,8 @@ pub(crate) struct ActorStore {
     pending_local_health: Option<ActorAttribute>,
     pending_local_actor: Option<ActorSnapshot>,
     local_actor_revision: u64,
+    /// Last allocated render lifetime; authority arrivals use a separate sequence.
+    render_spawn_revision: u64,
     /// Arm swings the server sent for the local player, waiting for its swing tracker.
     local_server_swings: Vec<Option<std::sync::Arc<str>>>,
     pending_local_damage: Option<local_health::PendingLocalDamage>,

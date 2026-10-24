@@ -157,7 +157,7 @@ fn render_owned(runtime_id: u64, skin: u8) -> ActorRigPresentation {
                     session_id: 7,
                     dimension: 0,
                     runtime_id,
-                    spawn_revision: 3,
+                    spawn_revision: std::num::NonZeroU64::new(3).unwrap(),
                     ingress_sequence: 3,
                     source_tick: None,
                     movement_revision: 0,
