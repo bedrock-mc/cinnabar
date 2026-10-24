@@ -102,6 +102,71 @@ pub fn load_runtime_assets_observed(
     })
 }
 
+/// Loads the menu's required atmosphere and font without touching world-only carriers.
+pub fn load_menu_assets(
+    path: &Path,
+    observer: &impl CarrierLoadObserver,
+) -> Result<super::MenuAssets, AssetStartupError> {
+    let (atmosphere, fonts) = std::thread::scope(|scope| {
+        let fonts = scope.spawn(|| observer.observe("font", || load_font_assets(path)));
+        (
+            observer.observe("atmosphere", || load_atmosphere_assets(path)),
+            join(fonts),
+        )
+    });
+    Ok(super::MenuAssets {
+        atmosphere: atmosphere?,
+        fonts: fonts?,
+    })
+}
+
+/// Loads world-only carriers after admission, reusing the menu's already validated artwork.
+pub fn load_world_assets_observed(
+    selection: AssetSelection,
+    menu: super::MenuAssets,
+    observer: &impl CarrierLoadObserver,
+) -> Result<LoadedAssets, AssetStartupError> {
+    let path = selection.path.as_path();
+    let (world, entities, item_facts) = std::thread::scope(|scope| {
+        let entities = scope.spawn(|| observer.observe("entity", || load_entity_assets(path)));
+        let item_facts =
+            scope.spawn(|| observer.observe("item-facts", || super::require_item_facts(path)));
+        (
+            observer.observe("world", || load_world_carrier(path)),
+            join(entities),
+            join(item_facts),
+        )
+    });
+    let world = world?;
+    let entities = entities?;
+    observer.observe("entity facts", || require_entity_facts(path))?;
+    let source = serde_json::from_str(VANILLA_SOURCE_JSON)?;
+    let Some(world) = world else {
+        return Ok(diagnostic_assets(
+            selection,
+            source,
+            menu.atmosphere,
+            entities,
+            menu.fonts,
+            item_facts?,
+        ));
+    };
+    let metrics = runtime_metrics(&world.runtime, source, world.blob_sha256);
+    Ok(LoadedAssets {
+        runtime: world.runtime,
+        item_facts: item_facts?,
+        material_keys: world.material_keys,
+        vanilla_entity_refs: world.vanilla_entity_refs,
+        atmosphere: menu.atmosphere,
+        entities,
+        fonts: menu.fonts,
+        metrics,
+        selected_path: selection.path,
+        kind: LoadedAssetKind::CompiledBlob,
+        notice: None,
+    })
+}
+
 /// The decoded world carrier, identity and optional pack sidecars.
 struct LoadedWorldAssets {
     runtime: Arc<RuntimeAssets>,
@@ -264,6 +329,30 @@ mod tests {
             self.0.lock().unwrap().push(carrier);
             load()
         }
+    }
+
+    #[test]
+    fn menu_loading_never_opens_world_entity_or_physics_carriers() {
+        let directory = tempfile::tempdir().unwrap();
+        let world = directory.path().join(crate::carriers::WORLD.output);
+        std::fs::write(atmosphere_asset_path(&world), synthetic_atmosphere_blob()).unwrap();
+        // Corrupt world-only siblings must remain unread until world admission.
+        std::fs::write(&world, b"not a world carrier").unwrap();
+        std::fs::write(entity_asset_path(&world), b"not an entity carrier").unwrap();
+        let observer = Loads::default();
+        let loaded = load_menu_assets(&world, &observer).unwrap();
+        assert!(loaded.fonts.is_diagnostic());
+        let mut loads = observer.0.into_inner().unwrap();
+        loads.sort_unstable();
+        assert_eq!(loads, ["atmosphere", "font"]);
+        assert!(
+            load_world_assets_observed(
+                super::super::select_asset_path(Some(&world), None),
+                loaded,
+                &()
+            )
+            .is_err()
+        );
     }
 
     #[test]

@@ -84,7 +84,7 @@ fn actor_render_source_uses_only_remote_actor_pose_and_roster_skin() {
     let source = actor_render_source(&actor, Some(&profile));
     assert_eq!(source.runtime_id, 77);
     assert_eq!(source.unique_id, 9);
-    assert_eq!(source.spawn_revision, 19);
+    assert_eq!(source.spawn_revision, actor.render_spawn_revision);
     assert_eq!(source.movement_revision, 23);
     assert_eq!(source.previous_position, [8.0, 64.0, -3.0]);
     assert_eq!(source.previous_yaw_degrees, 40.0);

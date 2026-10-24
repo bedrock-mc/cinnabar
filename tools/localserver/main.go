@@ -21,6 +21,7 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
@@ -44,6 +45,12 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) > 0 && args[0] == "list-mod-clients" {
+		return listModClients(args[1:], stdout)
+	}
+	if len(args) > 0 && args[0] == "export-mod-pack" {
+		return exportModPack(args[1:])
+	}
 	standby := len(args) == 1 && args[0] == standbyFlag
 	if standby {
 		started, rest, ok, err := awaitStandbyStart(stdin)
@@ -56,8 +63,18 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if err := cfg.loadMods(); err != nil {
+		return err
+	}
 	if cfg.terrainFixtureGenerate {
 		return generateTerrainFixture(cfg, stdout)
+	}
+	var gallery []entityAppearance
+	if cfg.entityGallery != "" {
+		gallery, err = loadEntityGallery(cfg.entityGallery, cfg.entityGalleryAppearances)
+		if err != nil {
+			return fmt.Errorf("prepare entity gallery: %w", err)
+		}
 	}
 	if cfg.luckyBlock {
 		registerLuckyBlock()
@@ -80,7 +97,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return err
 	}
 	var exps *experiences
-	if cfg.experiences != "" {
+	if cfg.experiences != "" || len(cfg.modArtifacts) > 0 {
 		if exps, err = startExperiences(cfg, logger); err != nil {
 			return err
 		}
@@ -144,17 +161,42 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = actorBurstListener(listen, cfg.actorBurstArtwork)
 		}
 	}
+	if cfg.entityGallery != "" {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = entityGalleryListener(listen, gallery)
+		}
+	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
+	if err := cfg.configureBlockGallery(&conf); err != nil {
+		if exps != nil {
+			err = errors.Join(err, exps.closeSupervisors())
+		}
+		return fmt.Errorf("prepare block gallery: %w", err)
+	}
 	if cfg.holograms {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = hologramListener(listen)
 		}
 	}
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
+	configureChunkSending(&conf)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	cfg.configureLocalPlayers(&conf)
+	var host *experience.Host
+	if exps != nil {
+		var channels experience.ClientChannels
+		if ext != nil {
+			channels = ext
+		}
+		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		provider, err := host.PlayerProvider(conf.PlayerProvider, filepath.Join(cfg.dir, "player-worlds"))
+		if err != nil {
+			return errors.Join(err, conf.PlayerProvider.Close(), host.Close())
+		}
+		conf.PlayerProvider = provider
+	}
 	var srv *server.Server
 	for i, listen := range conf.Listeners {
 		conf.Listeners[i] = flySpeedListener(listen, func(id uuid.UUID) (*world.EntityHandle, bool) {
@@ -169,17 +211,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		pauses.WorldOpened(w)
 	}
 	cmds := commands{pause: pauses.request}
-	var host *experience.Host
 	var running sync.WaitGroup
 	runCtx, stopRunning := context.WithCancel(context.Background())
 	defer stopRunning()
 	if exps != nil {
-		// Without client parts every staged client message is dropped and counted.
-		var channels experience.ClientChannels
-		if ext != nil {
-			channels = ext
-		}
-		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
 		if err := host.BindDefaultWorlds(worlds...); err != nil {
 			return errors.Join(err, closeUnstarted(), host.Close())
 		}
@@ -225,10 +260,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	fmt.Fprintln(stdout, "ready")
 
 	serveCommands(ctx, stdin, cmds)
-	closeErr := srv.Close()
+	var closeErr error
+	if host != nil {
+		drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		closeErr = host.Drain(drainCtx)
+		cancel()
+		stopRunning()
+	}
+	closeErr = errors.Join(closeErr, srv.Close())
 	<-accepting
 	if host != nil {
-		// The worlds have stopped, so no hook changes the store once the Host flushes it.
+		// Callbacks have drained and player saves completed before guest worlds close.
 		if err := host.Close(); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("close experiences: %w", err))
 		}
@@ -251,9 +293,13 @@ type experiences struct {
 // provided, then registers the blocks before server.Config.New and records their IDs together.
 // On error no helper is left running.
 func startExperiences(cfg settings, log *slog.Logger) (_ *experiences, err error) {
-	dirs, err := discoverArtifacts(cfg.experiences)
-	if err != nil {
-		return nil, err
+	dirs := slices.Clone(cfg.modArtifacts)
+	if cfg.experiences != "" {
+		found, err := discoverArtifacts(cfg.experiences)
+		if err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, found...)
 	}
 	store, err := experience.OpenStore(filepath.Join(cfg.dir, experienceDataDir))
 	if err != nil {

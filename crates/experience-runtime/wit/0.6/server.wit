@@ -131,6 +131,10 @@ interface world-access {
         /// Stages `payload` for `player`'s client part on `channel`, revision `schema`. It is sent
         /// after the callback commits, if that player's client part declares the channel.
         send-client: func(player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, world-error>;
+        /// Stages a negotiation or acknowledgment reply through retained control delivery.
+        /// A newer reply on the same route replaces any pending one. Pending replies expire
+        /// with the connection or world epoch; ordinary data should use send-client.
+        send-control: func(player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, world-error>;
         /// The block that a `client-message` or `epoch` callback got as its player's focus: the
         /// block of this Experience that the player last used. Its snapshot is the one
         /// `on-interact` gets, the block and its neighbors, and it is read and written the same

@@ -30,7 +30,8 @@ impl StatuePose {
         }
     }
 
-    const fn index(self) -> usize {
+    /// The shared geometry slot for this pose.
+    pub(super) const fn index(self) -> usize {
         match self {
             Self::Standing => 0,
             Self::Sitting => 1,
@@ -40,7 +41,7 @@ impl StatuePose {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Oxidation {
     Unaffected,
     Exposed,
@@ -65,7 +66,7 @@ impl Oxidation {
     }
 
     /// Selects the registry-owned oxidation domain for shared statue artwork.
-    const fn age(self) -> assets::facts::CopperAge {
+    pub(super) const fn age(self) -> assets::facts::CopperAge {
         use assets::facts::CopperAge;
         match self {
             Self::Unaffected => CopperAge::Unaffected,

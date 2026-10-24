@@ -3,6 +3,7 @@
 //! A frame is a 4-byte little-endian length followed by that many bytes of JSON. Bytes inside
 //! messages are lowercase hex (see [`crate::hex`]).
 
+use experience_sdk::artifact::MAX_STACK_SIZE;
 use std::io::{self, ErrorKind, Read, Write};
 
 use serde::de::DeserializeOwned;
@@ -14,8 +15,8 @@ use crate::limits::{
     MAX_FLIPBOOK_FRAMES, MAX_FRAME_BYTES, MAX_GEOMETRY_BYTES, MAX_ITEM_DATA_BYTES, MAX_ITEMS,
     MAX_MATERIALS, MAX_NAME_BYTES, MAX_NETWORK_BLOCKS, MAX_NETWORK_DATA_BYTES, MAX_PERMUTATIONS,
     MAX_REASON_BYTES, MAX_RECIPE_INPUT_ITEMS, MAX_RECIPES, MAX_SCHEDULE_TICKS,
-    MAX_SCHEDULED_UPDATES, MAX_SERVER_ITEMS, MAX_STACK_SIZE, MAX_STAGED_OPS, MAX_STATE_BITS,
-    MAX_STATE_VALUES, MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
+    MAX_SCHEDULED_UPDATES, MAX_SERVER_ITEMS, MAX_STAGED_OPS, MAX_STATE_BITS, MAX_STATE_VALUES,
+    MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
 
 mod simulation;
@@ -44,9 +45,10 @@ pub use visuals::{
 /// 2 added the `client_message` call and the `send_client` op; 3 the `epoch` call and list and
 /// record values; 4 the `focus` of those calls and of `loaded`; 5 server WIT 0.5's block states
 /// and visuals, items, the actor's inventory, the network scope and their ops; 6 server WIT 0.6's
-/// recipes in `load`, the `scheduled_update` call and the `schedule_update` op; 7 worlds,
-/// players and scoped state; 8 instance simulation and scheduled callbacks.
-pub const PROTOCOL_VERSION: u32 = 8;
+/// recipes in `load`, the `scheduled_update` call and the `schedule_update` op; 7 adds retained
+/// control delivery to `send_client`; 8 adds world lifecycle, player observations and scoped state;
+/// 9 adds instance simulation ticks and cancellable timers.
+pub const PROTOCOL_VERSION: u32 = 9;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -305,6 +307,9 @@ pub enum Op {
         text: String,
     },
     SendClient {
+        /// Retains negotiation replies after transport budget refusal.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        control: bool,
         player: String,
         channel: String,
         schema: u16,

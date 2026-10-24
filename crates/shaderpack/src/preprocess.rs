@@ -6,7 +6,7 @@ use crate::options::{OptionValues, PackOption, rewrite_option_line};
 use crate::source::{MAX_TEXT_FILE_BYTES, PackSource, normalize_newlines};
 use crate::token::{Tok, TokKind, punct};
 use pp_rs::pp::Preprocessor;
-use pp_rs::token::TokenValue;
+use pp_rs::token::{PreprocessorError, TokenValue};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -582,19 +582,36 @@ fn preprocess_limited(
         consts: Vec::new(),
     };
     let mut active = String::new();
+    // Line of an `#endif` without an open block: JCPP, which Iris runs, reports it, skips the
+    // rest of that line and carries on, so packs whose includes close one block too many load.
+    let mut unmatched_endif = None;
     while let Some(item) = pp.next_text() {
-        let token = item.map_err(|(error, location)| {
-            Diagnostic::new(
-                Phase::Preprocess,
-                if pp.work_remaining() == 0 {
-                    "GLSL preprocessing exceeds work limit".into()
-                } else {
-                    format!("{error:?}")
-                },
-            )
-            .at(expanded.map.locate(line_of(location.start)))
-        })?;
+        let token = match item {
+            Ok(token) => token,
+            Err((PreprocessorError::EndifOutsideOfBlock, location)) => {
+                unmatched_endif = Some(line_of(location.start));
+                continue;
+            }
+            Err((error, location)) => {
+                return Err(Diagnostic::new(
+                    Phase::Preprocess,
+                    if pp.work_remaining() == 0 {
+                        "GLSL preprocessing exceeds work limit".into()
+                    } else {
+                        format!("{error:?}")
+                    },
+                )
+                .at(expanded.map.locate(line_of(location.start))));
+            }
+        };
         let line = line_of(token.source_offset);
+        if unmatched_endif == Some(line) {
+            if token.value.is_some() {
+                continue;
+            }
+        } else {
+            unmatched_endif = None;
+        }
         retained = retained
             .checked_sub(token.text.len())
             .ok_or_else(|| storage_limit().at(expanded.map.locate(line)))?;

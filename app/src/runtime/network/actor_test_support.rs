@@ -22,7 +22,7 @@ pub(crate) fn actor_render_source(
     ActorRenderSource {
         runtime_id: actor.runtime_id,
         unique_id: actor.unique_id,
-        spawn_revision: actor.spawn_revision,
+        spawn_revision: actor.render_spawn_revision,
         movement_revision: actor.movement_revision,
         previous_position: actor.previous_pose.position,
         previous_pitch_degrees: actor.previous_pose.pitch,
@@ -56,7 +56,7 @@ pub(crate) fn update_actor_render_scene<'a>(
         ActorRenderSource {
             runtime_id: local.runtime_id(),
             unique_id: i64::try_from(local.runtime_id()).unwrap_or(i64::MAX),
-            spawn_revision: local.session_generation().get(),
+            spawn_revision: std::num::NonZeroU64::new(local.session_generation().get()).unwrap(),
             movement_revision: local.pose_generation().get(),
             previous_position: position.to_array(),
             previous_pitch_degrees: pitch_degrees,

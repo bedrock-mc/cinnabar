@@ -125,6 +125,10 @@ impl AnimatedActor for TestActor {
             ActorKind::Entity { identifier } => facts.get(identifier),
         }
     }
+    fn unique_id(&self) -> i64 {
+        self.unique_id
+    }
+
     fn runtime_id(&self) -> u64 {
         self.runtime_id
     }

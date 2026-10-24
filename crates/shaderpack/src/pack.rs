@@ -1,8 +1,9 @@
 //! A loaded shader pack, its configuration metadata and whole-pack translation.
 
-use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
+use crate::buffers::{BufferDirectives, BufferFormat};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
+use crate::flips::{program_releases, samples_released_override};
 use crate::ids::{BLOCK_FILE, ENTITY_FILE, ITEM_FILE, IdMaps};
 use crate::lang::PackLang;
 use crate::option_menu::OptionMenu;
@@ -12,7 +13,6 @@ use crate::options::{
 use crate::programs::{ProgramGroup, ProgramSource, enumerate_programs};
 use crate::properties::ShaderProperties;
 use crate::reflect::output_buffer;
-use crate::reflection::SamplerClass;
 use crate::source::{PackError, PackSource};
 use crate::transform::SamplerClasses;
 use crate::translate::{Context, ProgramTranslation, forcing, translate_program};
@@ -202,13 +202,44 @@ impl ShaderPack {
                     return None;
                 }
                 let translated =
-                    self.translate_one(program, config, &properties, &profile_disabled);
+                    self.translate_one(program, config, &properties, &profile_disabled, 0);
                 let mut done = completed.lock().unwrap_or_else(|error| error.into_inner());
                 *done += 1;
                 progress(*done, programs.len());
                 Some(translated)
             })
             .collect::<Option<Vec<_>>>()?;
+        if cancelled() {
+            return None;
+        }
+        // Iris releases a stage's `colortexN` binding once an earlier pass of the stage
+        // flipped the buffer; programs reading it then sample the buffer through its class.
+        let releases = program_releases(&programs, &properties.flips);
+        let stale: Vec<usize> = (0..programs.len())
+            .filter(|&i| samples_released_override(&programs[i], releases[i], &properties))
+            .collect();
+        let retranslated = stale
+            .par_iter()
+            .map(|&i| {
+                (!cancelled()).then(|| {
+                    let program = &programs[i].program;
+                    let translated = self.translate_one(
+                        program,
+                        config,
+                        &properties,
+                        &profile_disabled,
+                        releases[i],
+                    );
+                    (i, translated)
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        for (i, translated) in retranslated {
+            programs[i] = translated;
+        }
+        for (program, released) in programs.iter_mut().zip(releases) {
+            program.released_overrides = released;
+        }
         if cancelled() {
             return None;
         }
@@ -250,13 +281,15 @@ impl ShaderPack {
     }
 
     /// Translates one program, honouring its enable rule from the folder it came from and
-    /// the current profile's disabled programs.
+    /// the current profile's disabled programs. Colour buffers in `released` read through
+    /// their own class rather than their stage binding's.
     fn translate_one(
         &self,
         program: &ProgramSource,
         config: &TranslateConfig,
         properties: &ShaderProperties,
         profile_disabled: &[String],
+        released: u32,
     ) -> ProgramTranslation {
         let defines = self.defines(&config.environment, &config.options);
         let rule = properties.program_rule(&program.folder, &program.name);
@@ -282,6 +315,7 @@ impl ShaderPack {
                     reflection: None,
                     draw_buffers: vec![0],
                     consts: vec![],
+                    released_overrides: 0,
                 };
             }
             let flips = rule
@@ -313,26 +347,30 @@ impl ShaderPack {
             .collect();
         // Custom images clamp and filter linearly; custom textures follow their `.mcmeta`
         // for samplers of their shape, a stage's own binding winning over `texture.noise`.
-        let mut sampler_classes: SamplerClasses = properties
-            .images
-            .iter()
-            .map(|i| {
-                (
-                    (canonical_sampler_name(&i.sampler), None),
-                    SamplerClass::ClampLinear,
-                )
-            })
-            .collect();
+        let mut sampler_classes = SamplerClasses::default();
+        for image in &properties.images {
+            sampler_classes
+                .images
+                .insert(image.sampler.clone(), image.sampler_binding_name());
+        }
         for noise in [true, false] {
             for t in &properties.custom_textures {
-                if t.applies_to(program.group) && (t.stage == "noise") == noise {
-                    sampler_classes.insert(
-                        (
-                            canonical_sampler_name(t.uniform()),
-                            Some(t.source.dimension()),
-                        ),
-                        t.sampler_class(&self.source),
-                    );
+                if t.applies_to(program.group)
+                    && (t.stage == "noise") == noise
+                    && !t.released_by(released)
+                {
+                    let dimension = t.source.dimension();
+                    let class = t.sampler_class(&self.source);
+                    if t.is_unit_override() {
+                        sampler_classes
+                            .units
+                            .insert((t.binding_name(), dimension), class);
+                    } else {
+                        sampler_classes.named.insert(
+                            (t.uniform().to_string(), dimension),
+                            (t.binding_name(), class),
+                        );
+                    }
                 }
             }
         }

@@ -70,6 +70,19 @@ func (c *fakeChannels) SendRecord(player uuid.UUID, exp, channel string, schema 
 	return c.active
 }
 
+// SendControl records a control send using the same active-recipient fixture.
+func (c *fakeChannels) SendControl(player uuid.UUID, message cinnabarext.Message) error {
+	payload, err := message.Encode()
+	if err != nil {
+		return err
+	}
+	route := message.Route()
+	if !c.SendRecord(player, route.Bundle, route.Channel, route.Schema, payload) {
+		return fmt.Errorf("control recipient unavailable")
+	}
+	return nil
+}
+
 // all returns every Send so far.
 func (c *fakeChannels) all() []sentMessage {
 	c.mu.Lock()
@@ -356,5 +369,5 @@ func TestClientMessageSenderMustStay(t *testing.T) {
 	}
 }
 
-// PrepareWorldChange leaves transport mechanics to the real helper's tests.
-func (*fakeChannels) PrepareWorldChange(uuid.UUID) (*cinnabarext.WorldChange, error) { return nil, nil }
+// PlayerSession leaves transport mechanics to the real helper's tests.
+func (*fakeChannels) PlayerSession(uuid.UUID) cinnabarext.PlayerSession { return nil }

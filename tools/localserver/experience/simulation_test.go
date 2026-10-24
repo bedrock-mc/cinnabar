@@ -1,6 +1,7 @@
 package experience
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -167,5 +168,69 @@ func TestSimulationTimerCommittedBeforeFirstTickSurvivesClockStart(t *testing.T)
 	ev = simulationEvent(t, f, string(handle.World.ID))
 	if ev.call.Timer == nil || ev.call.Timer.Handle != handle {
 		t.Fatal("clock initialization discarded committed timer")
+	}
+}
+
+func TestSimulationUnloadStopsAdmissionBeforeRelease(t *testing.T) {
+	f := simulationFixture(t)
+	f.h.AdmitSimulationTick()
+	ev := simulationEvent(t, f, "probe:one")
+	handle := ScheduleHandle{World: ev.instance.handle, Sequence: 1}
+	f.h.simulation.timers[simulationKey{f.d.id, handle.World}] = map[ScheduleHandle]simulationTimer{handle: {due: 2}}
+	f.h.manager.afterUnbind = func() {
+		f.h.AdmitSimulationTick()
+		if f.h.simulation.ticks[handle.World.ID] != 1 || f.h.timerCurrent(f.d.id, handle) {
+			t.Fatal("unloaded opening retained simulation authority before release")
+		}
+		if len(f.h.simulation.timers[simulationKey{f.d.id, handle.World}]) != 0 {
+			t.Fatal("unload left timers alive until release")
+		}
+	}
+	if err := f.h.unloadWorld(t.Context(), f.d.id, handle.World); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSimulationCancelledDispatchRetainsQueuedTimer(t *testing.T) {
+	f := simulationFixture(t)
+	f.h.AdmitSimulationTick()
+	ev := simulationEvent(t, f, "probe:one")
+	handle := ScheduleHandle{World: ev.instance.handle, Sequence: 1}
+	f.h.simulation.timers[simulationKey{f.d.id, handle.World}] = map[ScheduleHandle]simulationTimer{handle: {pending: true}}
+	ev.call = Call{Timer: &TimerCall{handle, ev.call.Tick.Step}}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := f.h.dispatch(ctx, f.d, ev); !errors.Is(err, context.Canceled) {
+		t.Fatalf("dispatch = %v", err)
+	}
+	if !f.h.timerCurrent(f.d.id, handle) {
+		t.Fatal("interrupted callback lost its retained timer")
+	}
+}
+
+func TestSimulationTimerAcrossTransferKeepsInstanceAuthority(t *testing.T) {
+	f := simulationFixture(t)
+	if err := f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatal(err)
+	}
+	f.h.AdmitSimulationTick()
+	ev := simulationEvent(t, f, "probe:one")
+	var handle ScheduleHandle
+	applySimulation(t, f, ev, func(s snapshot) []Op {
+		handle = ScheduleHandle{World: ev.instance.handle, Sequence: s.req.Info.Simulation.Sequence}
+		return []Op{{Schedule: &ScheduleOp{handle, 1, 0}}}
+	})
+	f.h.AdmitSimulationTick()
+	simulationEvent(t, f, "probe:one")
+	timer := simulationEvent(t, f, "probe:one")
+	if err := f.travel(t.Context(), "probe:two"); err != nil {
+		t.Fatal(err)
+	}
+	snap := applySimulation(t, f, timer, func(snapshot) []Op { return []Op{{CancelSchedule: &CancelScheduleOp{handle}}} })
+	if snap.req.Actor != nil || snap.req.Info.Context.Player != nil || snap.req.Info.Context.Current != handle.World {
+		t.Fatal("timer inherited the transferred player's destination authority")
+	}
+	if f.h.timerCurrent(f.d.id, handle) {
+		t.Fatal("timer cancellation failed after transfer")
 	}
 }

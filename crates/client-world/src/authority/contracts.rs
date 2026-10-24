@@ -106,20 +106,26 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
-    /// Movement flags from one local-player SetActorData.
+    /// Movement flags and dimensions from local metadata or an accepted spawn.
     LocalMovementFlags {
         sequence: u64,
         /// Local input tick the server stamped; zero when unstamped.
         tick: u64,
         flags: crate::MovementFlagUpdate,
+        /// Clears the preceding actor lifetime before applying this complete state.
+        replacement: bool,
+        /// Accepted sparse size writes, or the dimensions of a replacement actor.
+        dimensions: Option<crate::ExplicitDimensions>,
     },
-    /// Movement, underwater and lava speed attribute currents from one local
-    /// attribute update, as one control; an absent attribute is `None`.
+    /// Attribute authority from a local update or an accepted actor spawn.
+    /// Unsupported or absent spawn movement attributes still carry arrival.
     LocalMovementSpeed {
         sequence: u64,
         dimension: i32,
         /// Effective `minecraft:movement` current and its sprint recalculation facts.
         movement: Option<MovementSpeedAttribute>,
+        /// Movement state arrived or was replaced, even when no prediction model is available.
+        movement_received: bool,
         underwater: Option<f64>,
         lava: Option<f64>,
         /// Finite `minecraft:air_drag_modifier` current.

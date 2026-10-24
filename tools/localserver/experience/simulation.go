@@ -75,6 +75,13 @@ func (h *Host) AdmitSimulationTick() {
 	slices.SortFunc(instances, func(a, b worldInstance) int { return strings.Compare(string(a.handle.ID), string(b.handle.ID)) })
 	h.simulation.mu.Lock()
 	defer h.simulation.mu.Unlock()
+	h.admission.RLock()
+	defer h.admission.RUnlock()
+	if h.closed.Load() {
+		return
+	}
+	h.worlds.mu.RLock()
+	defer h.worlds.mu.RUnlock()
 	if h.simulation.ticks == nil {
 		h.simulation.ticks = make(map[cinnabarext.WorldID]uint64)
 	}
@@ -82,8 +89,8 @@ func (h *Host) AdmitSimulationTick() {
 		h.simulation.timers = make(map[simulationKey]map[ScheduleHandle]simulationTimer)
 	}
 	for _, instance := range instances {
-		w, err := h.worlds.resolve(instance.handle)
-		if err != nil {
+		w := h.worlds.byID[instance.handle.ID]
+		if w == nil || h.worlds.byWorld[w].handle != instance.handle {
 			continue
 		}
 		id := instance.handle.ID
@@ -98,7 +105,11 @@ func (h *Host) AdmitSimulationTick() {
 			if !d.sup.registered.Simulation || d.sup.Quarantined() {
 				continue
 			}
-			h.enqueue(owner, event{w: w, instance: instance, call: Call{Tick: &TickCall{step}}})
+			select {
+			case d.events <- event{w: w, instance: instance, call: Call{Tick: &TickCall{step}}}:
+			default:
+				h.drop(d)
+			}
 			timers := h.simulation.timers[simulationKey{owner, instance.handle}]
 			handles := make([]ScheduleHandle, 0, len(timers))
 			for handle, timer := range timers {

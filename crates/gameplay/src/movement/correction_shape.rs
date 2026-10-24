@@ -327,10 +327,14 @@ pub fn reconcile_physics_anchor(
         // remains authoritative in each case, so discard speculative history
         // and continue from a current-tick snap instead of silently restoring
         // free-camera movement.
+        let rewind_due = result.as_ref().err().is_some_and(rewind_was_due);
         result = apply_candidate(
             physics.replay_fallback_anchor(anchor),
             PhysicsCorrectionMode::Snap,
         );
+        if rewind_due && let Ok((_, candidate_physics, _)) = &mut result {
+            candidate_physics.prediction_sync.arm();
+        }
     }
 
     match result {
@@ -347,6 +351,13 @@ pub fn reconcile_physics_anchor(
     }
 }
 
+/// Whether a failed replay still stood for a vanilla rewind: the frame was
+/// retained and only Cinnabar's local re-simulation failed, so the sync it
+/// schedules survives the fallback.
+fn rewind_was_due(fault: &PhysicsAuthorityFault) -> bool {
+    !matches!(fault, PhysicsAuthorityFault::CorrectionNotRetained { .. })
+}
+
 /// Replays retained prediction after an authoritative timeline edit at `tick`.
 ///
 /// Failure commits nothing; the caller keeps the edit's live effect.
@@ -361,26 +372,44 @@ pub fn reconcile_timeline_rewind(
     }
     let mut candidate_physics = physics.clone();
     let mut candidate_ticker = ticker.clone();
-    if let Some(tick) = candidate_ticker.unconfirmed_riptide_release_tick() {
-        candidate_physics
-            .discard_riptide_release_after(tick, world)
-            .map_err(|_| PhysicsAuthorityFault::CorrectionReplayFailed)?;
+    if let Some(release_tick) = candidate_ticker.unconfirmed_riptide_release_tick()
+        && candidate_physics
+            .discard_riptide_release_after(release_tick, world)
+            .is_err()
+    {
+        // The edit's rewind was still due; only Cinnabar's preparatory replay failed.
+        if physics.retains_tick(tick) {
+            physics.prediction_sync.arm();
+        }
+        return Err(PhysicsAuthorityFault::CorrectionReplayFailed);
     }
-    let plan = candidate_physics
-        .replay_retained_from(tick, world)
-        .map_err(|error| match error {
-            physics::PhysicsCorrectionError::NotRetained { tick } => {
-                PhysicsAuthorityFault::CorrectionNotRetained { tick }
+    let plan = match candidate_physics.replay_retained_from(tick, world) {
+        Ok(plan) => plan,
+        Err(error) => {
+            let fault = match error {
+                physics::PhysicsCorrectionError::NotRetained { tick } => {
+                    PhysicsAuthorityFault::CorrectionNotRetained { tick }
+                }
+                physics::PhysicsCorrectionError::WorldIdentityMismatch { tick } => {
+                    PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
+                }
+                physics::PhysicsCorrectionError::InvalidAnchor
+                | physics::PhysicsCorrectionError::ReplayFailed => {
+                    PhysicsAuthorityFault::CorrectionReplayFailed
+                }
+            };
+            if rewind_was_due(&fault) {
+                physics.prediction_sync.arm();
             }
-            physics::PhysicsCorrectionError::WorldIdentityMismatch { tick } => {
-                PhysicsAuthorityFault::ReplayWorldIdentityMismatch { tick }
-            }
-            physics::PhysicsCorrectionError::InvalidAnchor
-            | physics::PhysicsCorrectionError::ReplayFailed => {
-                PhysicsAuthorityFault::CorrectionReplayFailed
-            }
-        })?;
-    candidate_ticker.apply_correction_plan(&plan)?;
+            return Err(fault);
+        }
+    };
+    if let Err(fault) = candidate_ticker.apply_correction_plan(&plan) {
+        // The replay succeeded, so vanilla's rewind happened even though the
+        // queued samples could not adopt it.
+        physics.prediction_sync.arm();
+        return Err(fault);
+    }
     *physics = candidate_physics;
     *ticker = candidate_ticker;
     Ok(plan.outcome)

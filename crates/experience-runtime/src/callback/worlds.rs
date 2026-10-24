@@ -1,4 +1,4 @@
-//! Snapshot reads and staged lifecycle/state operations for server WIT 0.7.
+//! Snapshot reads and staged lifecycle/state operations for server WIT 0.8.
 use super::*;
 use crate::protocol::{
     PlayerEvent, PlayerLocation, Position, StoreKey, StoreScope, WorldHandle, WorldOp,

@@ -22,7 +22,7 @@ use winit::{
     dpi::LogicalSize,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    window::{Window, WindowId, WindowLevel},
+    window::{Window, WindowAttributes, WindowId},
 };
 
 struct Screen {
@@ -183,19 +183,21 @@ fn artwork_scale(
     preferences.rem(physical) * ui::oreui_theme::BODY.size / appearance().layout.label_size
 }
 
+/// The loading window stacks like any other window, so players can bring the game or other
+/// apps in front of it while the game initializes.
+fn loading_window_attributes(size: LogicalSize<f64>) -> WindowAttributes {
+    crate::window::attributes(size)
+}
+
 impl ApplicationHandler<Option<Message>> for Screen {
-    /// Creates one independent native window, kept above the initializing game until ready.
+    /// Creates one independent native window for feedback until the game is ready.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() || self.model.finished() {
             return;
         }
         let opened = (|| -> Result<_> {
-            let window = Arc::new(
-                event_loop.create_window(
-                    crate::window::attributes(self.initial_size)
-                        .with_window_level(WindowLevel::AlwaysOnTop),
-                )?,
-            );
+            let window =
+                Arc::new(event_loop.create_window(loading_window_attributes(self.initial_size))?);
             let faces = crate::built_in_faces().context("decode loading artwork")?;
             let gpu = Gpu::new(window.clone(), &faces)?;
             Ok((window, gpu))
@@ -315,5 +317,11 @@ mod tests {
                 appearance().layout.label_size * artwork_scale(size, density, &preferences);
             assert_eq!(actual, expected);
         }
+    }
+
+    #[test]
+    fn loading_window_does_not_stay_above_other_windows() {
+        let attributes = loading_window_attributes(LogicalSize::new(1280.0, 720.0));
+        assert_eq!(attributes.window_level, winit::window::WindowLevel::Normal);
     }
 }

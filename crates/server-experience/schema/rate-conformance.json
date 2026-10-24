@@ -1,0 +1,278 @@
+[
+  {
+    "name": "hello/to_client/matching=False",
+    "control": "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}",
+    "direction": "to_client",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "hello/to_client/matching=True",
+    "control": "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}",
+    "direction": "to_client",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "hello/to_server/matching=False",
+    "control": "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}",
+    "direction": "to_server",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "hello/to_server/matching=True",
+    "control": "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}",
+    "direction": "to_server",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"hello\",\"body\":{\"version\":1,\"api\":1,\"capabilities\":[],\"offer_digest\":\"d\",\"client_challenge\":\"c\",\"connection\":\"n\",\"subclient\":0}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "accept/to_client/matching=False",
+    "control": "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}",
+    "direction": "to_client",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "accept/to_client/matching=True",
+    "control": "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}",
+    "direction": "to_client",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "accept/to_server/matching=False",
+    "control": "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}",
+    "direction": "to_server",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "accept/to_server/matching=True",
+    "control": "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}",
+    "direction": "to_server",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"accept\",\"body\":{\"payload\":\"{}\",\"signature\":\"s\"}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "ready/to_client/matching=False",
+    "control": "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}",
+    "direction": "to_client",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "ready/to_client/matching=True",
+    "control": "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}",
+    "direction": "to_client",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "ready/to_server/matching=False",
+    "control": "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}",
+    "direction": "to_server",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "ready/to_server/matching=True",
+    "control": "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}",
+    "direction": "to_server",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"ready\",\"body\":{\"session\":\"s\",\"packages\":[],\"generation\":1,\"permissions\":{},\"world_epoch\":1}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "epoch/to_client/matching=False",
+    "control": "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}",
+    "direction": "to_client",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "epoch/to_client/matching=True",
+    "control": "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}",
+    "direction": "to_client",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "epoch/to_server/matching=False",
+    "control": "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}",
+    "direction": "to_server",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}"
+    ],
+    "messages": 1,
+    "bytes": 55
+  },
+  {
+    "name": "epoch/to_server/matching=True",
+    "control": "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}",
+    "direction": "to_server",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"epoch\",\"body\":{\"session\":\"s\",\"world_epoch\":2}}"
+    ],
+    "messages": 1,
+    "bytes": 55
+  },
+  {
+    "name": "world_ack/to_client/matching=False",
+    "control": "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}",
+    "direction": "to_client",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}"
+    ],
+    "messages": 1,
+    "bytes": 79
+  },
+  {
+    "name": "world_ack/to_client/matching=True",
+    "control": "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}",
+    "direction": "to_client",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}"
+    ],
+    "messages": 1,
+    "bytes": 79
+  },
+  {
+    "name": "world_ack/to_server/matching=False",
+    "control": "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}",
+    "direction": "to_server",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}"
+    ],
+    "messages": 1,
+    "bytes": 79
+  },
+  {
+    "name": "world_ack/to_server/matching=True",
+    "control": "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}",
+    "direction": "to_server",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"world_ack\",\"body\":{\"session\":\"s\",\"world_epoch\":2,\"requested_epoch\":2}}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "disabled/to_client/matching=False",
+    "control": "{\"kind\":\"disabled\"}",
+    "direction": "to_client",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"disabled\"}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "disabled/to_client/matching=True",
+    "control": "{\"kind\":\"disabled\"}",
+    "direction": "to_client",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"disabled\"}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "disabled/to_server/matching=False",
+    "control": "{\"kind\":\"disabled\"}",
+    "direction": "to_server",
+    "matching_notice": false,
+    "carriers": [
+      "{\"kind\":\"disabled\"}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "disabled/to_server/matching=True",
+    "control": "{\"kind\":\"disabled\"}",
+    "direction": "to_server",
+    "matching_notice": true,
+    "carriers": [
+      "{\"kind\":\"disabled\"}"
+    ],
+    "messages": 0,
+    "bytes": 0
+  },
+  {
+    "name": "fragmented data with escapes and UTF-8",
+    "control": null,
+    "direction": "to_client",
+    "matching_notice": false,
+    "carriers": [
+      "{\"fragment\":{\"data\":\"\\\\\\\"\"}}",
+      "{\"fragment\":{\"data\":\"é😀\"}}"
+    ],
+    "messages": 2,
+    "bytes": 58
+  }
+]

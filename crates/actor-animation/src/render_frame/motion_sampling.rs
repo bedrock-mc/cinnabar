@@ -451,11 +451,11 @@ fn ops(assets: &RuntimeEntityAssets, expression: u32) -> &[MolangOp] {
     &assets.molang_ops()[first..first + usize::from(expression.op_count)]
 }
 
+/// Swelling reads the same interpolated actor input as the frame's motion endpoints.
 fn is_swell(assets: &RuntimeEntityAssets, symbol: u32) -> bool {
     assets
-        .molang_symbols()
-        .get(symbol as usize)
-        .is_some_and(|symbol| symbol.identifier.as_ref() == "query.swell_amount")
+        .molang_query_binding(symbol)
+        .is_some_and(|query| query.descriptor().sampling == assets::MolangQuerySampling::Swell)
 }
 
 /// Fresh presentation inputs share the authored dependency closure.

@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"math"
-	"slices"
 
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
@@ -56,10 +55,11 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 	if !ownedWorldName(string(destination.ID), owner) {
 		return errors.New("destination authority denied")
 	}
-	w, err := h.ResolveWorld(destination)
+	reservation, w, err := h.worlds.reserve(destination)
 	if err != nil {
 		return err
 	}
+	defer reservation.Release()
 	for _, coordinate := range []float64{pos.X, pos.Y, pos.Z} {
 		if math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
 			return errors.New("nonfinite destination")
@@ -72,117 +72,62 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 	})); err != nil {
 		return err
 	}
-	h.players.mu.Lock()
-	state := h.players.items[ev.actor]
-	h.players.mu.Unlock()
-	if state == nil {
-		return errStale
-	}
-	state.sends.Lock()
-	defer state.sends.Unlock()
-	var prepared *cinnabarext.WorldChange
-	if h.channels != nil {
-		prepared, err = h.channels.PrepareWorldChange(ev.actor.UUID())
-		if err != nil {
-			return err
-		}
-	}
-	defer prepared.Abort()
-	var before PlayerLocation
-	detached := false
-	var result error
-	err = await(ctx, ev.w.Do(func(tx *world.Tx) {
-		actor, currentErr := h.current(tx, owner, ev, snap)
-		if currentErr != nil {
-			result = currentErr
-			return
-		}
-		if actor == nil {
-			result = errStale
-			return
-		}
-		h.players.mu.Lock()
-		defer h.players.mu.Unlock()
-		state := h.players.items[ev.actor]
-		if state == nil || state.transferring || state.location.Epoch == math.MaxUint64 {
-			result = errStale
-			return
-		}
-		before = state.location
-		before.Position = positionOf(actor.Position())
-		state.location.Epoch++
-		state.transferring = true
-		h.flushFocus(ev.actor.UUID())
-		tx.RemoveEntity(actor)
-		detached = true
-	}))
-	if !detached {
-		return errors.Join(err, result)
-	}
-	if err != nil || ctx.Err() != nil {
-		return h.restorePlayer(ev, before, errors.Join(err, ctx.Err()))
-	}
-	if h.manager.admit != nil {
-		if err := h.manager.admit(); err != nil {
-			return h.restorePlayer(ev, before, err)
-		}
-	}
-	admitted := false
-	err = await(ctx, w.Do(func(tx *world.Tx) {
-		if ev.actor.Closed() {
-			result = world.ErrEntityClosed
-			return
-		}
-		actor := tx.AddEntityAt(ev.actor, pos.vec())
-		admitted = true
-
-		h.players.mu.Lock()
-		state := h.players.items[ev.actor]
-		after := PlayerLocation{World: destination, Epoch: state.location.Epoch, Position: pos}
-		state.location, state.w, state.publishing = after, w, true
-		h.players.mu.Unlock()
-		// Publish through the bridge without holding a registry lock across external code.
-		notified := prepared.Commit(destination.ID)
-		if h.worldChanged != nil {
-			notified = h.worldChanged(ev.actor.UUID(), destination, after.Epoch) && notified
-		}
-		h.players.mu.Lock()
-		state.transferring, state.publishing = !notified, false
-		pending := slices.Sorted(maps.Keys(state.pendingEpochs))
-		state.pendingEpochs = nil
-		instance, _ := h.worlds.of(w)
-		h.observeLocked(actor.(*player.Player), instance, PlayerEvent{Type: "world_change", Before: &before, After: &after})
-		h.players.mu.Unlock()
-		if notified {
-			for _, exp := range pending {
-				h.DeliverEpoch(ev.actor, exp)
-			}
-		} else {
-			result = errors.New("destination admitted, client-part world notice failed; callbacks remain fenced")
-		}
-
-	}))
-	if !admitted {
-		return h.restorePlayer(ev, before, errors.Join(err, result))
-	}
-	// Cancellation after admission cannot roll a committed location back or move it twice.
-	return result
-}
-
-// restorePlayer completes a failed detached transfer even after its caller cancels.
-func (h *Host) restorePlayer(ev event, before PlayerLocation, cause error) error {
-	if !ev.actor.Closed() {
-		err := await(context.Background(), ev.w.Do(func(tx *world.Tx) {
-			if ev.actor.Closed() {
+	return h.changeWorld(ev.actor, cinnabarext.CoordinatedChange, func(admit func(*player.Player), before *PlayerLocation) error {
+		detached := false
+		var result error
+		err := await(ctx, ev.w.Do(func(tx *world.Tx) {
+			// The admission fence is ours; validate the captured callback without reopening it.
+			h.players.mu.Lock()
+			state := h.players.items[ev.actor]
+			current := state != nil && state.location.Epoch == ev.epoch && !h.closed.Load()
+			h.players.mu.Unlock()
+			if !current {
+				result = errStale
 				return
 			}
-			tx.AddEntityAt(ev.actor, before.Position.vec())
-			h.players.mu.Lock()
-			defer h.players.mu.Unlock()
-			if state := h.players.items[ev.actor]; state != nil {
-				// Keep the new epoch so old callbacks remain stale after restoration.
-				before.Epoch = state.location.Epoch
-				state.location, state.w, state.transferring = before, ev.w, false
+			actor, currentErr := h.currentWorld(tx, owner, ev, snap)
+			if currentErr != nil || actor == nil {
+				result = errors.Join(errStale, currentErr)
+				return
+			}
+			before.Position = positionOf(actor.Position())
+			tx.RemoveEntity(actor)
+			detached = true
+		}))
+		if !detached {
+			return errors.Join(err, result)
+		}
+		if err != nil || ctx.Err() != nil {
+			return h.restorePlayer(ev, *before, admit, errors.Join(err, ctx.Err()))
+		}
+		if h.manager.admit != nil {
+			if err := h.manager.admit(); err != nil {
+				return h.restorePlayer(ev, *before, admit, err)
+			}
+		}
+		admitted := false
+		err = await(ctx, w.Do(func(tx *world.Tx) {
+			if ev.actor.Closed() {
+				result = world.ErrEntityClosed
+				return
+			}
+			actor := tx.AddEntityAt(ev.actor, pos.vec()).(*player.Player)
+			admitted = true
+			admit(actor)
+		}))
+		if !admitted {
+			return h.restorePlayer(ev, *before, admit, errors.Join(err, result))
+		}
+		return nil
+	})
+}
+
+// restorePlayer completes source admission after a detached failure, even if the caller canceled.
+func (h *Host) restorePlayer(ev event, before PlayerLocation, admit func(*player.Player), cause error) error {
+	if !ev.actor.Closed() {
+		err := await(context.Background(), ev.w.Do(func(tx *world.Tx) {
+			if !ev.actor.Closed() {
+				admit(tx.AddEntityAt(ev.actor, before.Position.vec()).(*player.Player))
 			}
 		}))
 		if err == nil && !ev.actor.Closed() {
@@ -194,7 +139,14 @@ func (h *Host) restorePlayer(ev event, before PlayerLocation, cause error) error
 		}
 	}
 	h.players.mu.Lock()
+	state := h.players.items[ev.actor]
 	delete(h.players.items, ev.actor)
 	h.players.mu.Unlock()
+	if state != nil {
+		state.reservation.Release()
+	}
+	if state != nil && state.connection != nil {
+		state.connection.Retire()
+	}
 	return errors.Join(cause, world.ErrEntityClosed)
 }

@@ -198,6 +198,7 @@ mod tests {
                 sound: None,
                 name: Arc::from("test:roof"),
                 tags: Default::default(),
+                tags_complete: true,
                 state_count: 2,
                 collides: true,
                 collision_boxes: None,

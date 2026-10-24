@@ -43,6 +43,20 @@ impl ToolKind {
     }
 }
 
+impl ToolKind {
+    /// The native block tag the generated table's effective-tool column records for this family.
+    /// Sword and shears effectiveness also folds in older evidence, so it identifies no tag.
+    pub const fn native_destructible_tag(self) -> Option<&'static str> {
+        match self {
+            Self::Pickaxe => Some("minecraft:is_pickaxe_item_destructible"),
+            Self::Axe => Some("minecraft:is_axe_item_destructible"),
+            Self::Shovel => Some("minecraft:is_shovel_item_destructible"),
+            Self::Hoe => Some("minecraft:is_hoe_item_destructible"),
+            Self::Sword | Self::Shears => None,
+        }
+    }
+}
+
 /// Every carrier bit defined by the supported tool family enum.
 const TOOL_MASK: u8 = ToolKind::Shears.bit() * 2 - 1;
 
@@ -175,6 +189,26 @@ impl BlockDestroyFacts {
 }
 
 /// Produces one consistently bounded carrier error for invalid destroy facts.
+impl BlockDestroyFacts {
+    /// Reads the carried native tool tags, preserving unknown tags and unresolved facts.
+    pub fn native_tool_tag(self, tag: &str) -> Option<bool> {
+        let Self::Provisional(facts) = self else {
+            return None;
+        };
+        [
+            ToolKind::Pickaxe,
+            ToolKind::Axe,
+            ToolKind::Shovel,
+            ToolKind::Hoe,
+        ]
+        .into_iter()
+        .find_map(|kind| {
+            (kind.native_destructible_tag() == Some(tag))
+                .then_some(facts.effective_tools & kind.bit() != 0)
+        })
+    }
+}
+
 fn invalid() -> crate::AssetError {
     crate::AssetError::InvalidCompiledAssets {
         detail: "invalid compiled destroy facts".into(),
@@ -298,5 +332,31 @@ mod tests {
         bytes[..4].copy_from_slice(&f32::NAN.to_bits().to_le_bytes());
         assert!(BlockDestroyFacts::read(&bytes).is_err());
         assert!(BlockDestroyFacts::read(&[3; 12]).is_err());
+    }
+
+    #[test]
+    fn native_tool_tags_follow_the_effective_tool_column() {
+        let concrete = builtin_destroy_facts("minecraft:red_concrete");
+        assert_eq!(
+            concrete.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            Some(true)
+        );
+        assert_eq!(
+            concrete.native_tool_tag("minecraft:is_shovel_item_destructible"),
+            Some(false)
+        );
+        let dirt = builtin_destroy_facts("minecraft:dirt");
+        assert_eq!(
+            dirt.native_tool_tag("minecraft:is_shovel_item_destructible"),
+            Some(true)
+        );
+        assert_eq!(
+            dirt.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            Some(false)
+        );
+        assert_eq!(
+            BlockDestroyFacts::Unresolved.native_tool_tag("minecraft:is_pickaxe_item_destructible"),
+            None
+        );
     }
 }

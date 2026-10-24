@@ -28,6 +28,7 @@ type runtimeFixture struct {
 // newRuntimeFixture opens one default world and two guest-owned destination definitions.
 func newRuntimeFixture(t *testing.T, lifecycle ...WorldLifecycle) *runtimeFixture {
 	t.Helper()
+	registered(t)
 	registration := &WorldRegistration{Definitions: []WorldDefinition{
 		{ID: "probe:plain", Settings: WorldSettings{Generator: GeneratorEmpty, Dimension: DimensionOverworld}},
 		{ID: "probe:hot", Settings: WorldSettings{Generator: GeneratorFlat, Dimension: DimensionNether}},
@@ -265,20 +266,20 @@ func TestPlayerObservationsAreOrderedAndCoalesced(t *testing.T) {
 	}
 }
 
-// TestClientFenceFailureKeepsOneDestination blocks new callbacks after a failed world notice.
+// TestClientFenceFailureKeepsOneDestination preserves gameplay after an optional world-notice failure.
 func TestClientFenceFailureKeepsOneDestination(t *testing.T) {
 	f := newRuntimeFixture(t)
-	f.h.channels = runtimeChannels{}
+	f.setRuntimeChannels(runtimeChannels{})
 	f.h.worldChanged = (func(uuid.UUID, WorldHandle, uint64) bool { return false })
-	if err := f.travel(t.Context(), "probe:one"); err == nil {
-		t.Fatal("failed notice reported success")
+	if err := f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatalf("optional notice failure rejected placement: %v", err)
 	}
 	if f.countLocations() != 1 {
 		t.Fatal("failed notice lost authoritative destination")
 	}
 	ev := event{actor: f.actor, epoch: f.h.epoch(f.actor)}
-	if f.h.playerCurrent(ev) {
-		t.Fatal("failed notice released callback fence")
+	if !f.h.playerCurrent(ev) {
+		t.Fatal("optional notice failure blocked ordinary gameplay")
 	}
 }
 
@@ -348,7 +349,7 @@ func TestDeferredSendsAndDetachedInputRespectEpochs(t *testing.T) {
 		t.Fatal(err)
 	}
 	sent := 0
-	f.h.channels = runtimeChannels{sent: &sent}
+	f.setRuntimeChannels(runtimeChannels{sent: &sent})
 	op := &SendClientOp{Player: f.actor.UUID().String(), Channel: "probe.test", Schema: 1}
 	f.h.sendCurrent(f.d, old, op)
 	if sent != 0 {
@@ -416,7 +417,7 @@ func TestPersistentInstanceReopensTerrainAndState(t *testing.T) {
 // TestSynchronousEpochAcknowledgmentFollowsWorldEvent supports reentrant extension bridges.
 func TestSynchronousEpochAcknowledgmentFollowsWorldEvent(t *testing.T) {
 	f := newRuntimeFixture(t)
-	f.h.channels = runtimeChannels{}
+	f.setRuntimeChannels(runtimeChannels{})
 	f.h.worldChanged = (func(id uuid.UUID, handle WorldHandle, epoch uint64) bool {
 		if f.h.epoch(f.actor) != epoch || id != f.actor.UUID() || handle.ID != "probe:one" {
 			t.Fatal("notice preceded server epoch publication")
@@ -466,11 +467,11 @@ func TestSendBridgeMayReadCurrentEpoch(t *testing.T) {
 	f := newRuntimeFixture(t)
 	ev, _ := f.request()
 	sent := 0
-	f.h.channels = runtimeChannels{sent: &sent, observe: func() {
+	f.setRuntimeChannels(runtimeChannels{sent: &sent, observe: func() {
 		if f.h.epoch(f.actor) != ev.epoch {
 			t.Fatal("send read another epoch")
 		}
-	}}
+	}})
 	f.h.sendCurrent(f.d, ev, &SendClientOp{Player: f.actor.UUID().String(), Channel: "probe.test", Schema: 1})
 	if sent != 1 {
 		t.Fatal("current send failed")
@@ -507,23 +508,82 @@ func TestLeaveRetainsPrivatePlayerScope(t *testing.T) {
 	}
 }
 
-// PrepareWorldChange gives fixtures without a network a no-op transport fence.
-func (c runtimeChannels) PrepareWorldChange(uuid.UUID) (*cinnabarext.WorldChange, error) {
+// PlayerSession exposes the fake transport as one login's connection.
+func (c runtimeChannels) PlayerSession(uuid.UUID) cinnabarext.PlayerSession { return c }
+
+// PrepareWorldChange injects deterministic transport admission results.
+func (c runtimeChannels) PrepareWorldChange(cinnabarext.WorldChangeKind) (*cinnabarext.WorldChange, error) {
 	if c.prepare != nil {
 		return c.prepare()
 	}
 	return nil, nil
 }
 
+// SendRecordAt preserves the fixture's observer without a live protocol transport.
+func (c runtimeChannels) SendRecordAt(_ uint64, exp, channel string, schema uint16, payload []cinnabarext.Scalar) bool {
+	return c.SendRecord(uuid.Nil, exp, channel, schema, payload)
+}
+
+// SendControl records a typed reply using the fixture's ordinary delivery observer.
+func (c runtimeChannels) SendControl(_ uuid.UUID, message cinnabarext.Message) error {
+	return c.SendControlAt(0, message)
+}
+
+// SendControlAt adapts a typed reply without a live protocol transport.
+func (c runtimeChannels) SendControlAt(_ uint64, message cinnabarext.Message) error {
+	payload, err := message.Encode()
+	if err != nil {
+		return err
+	}
+	route := message.Route()
+	if !c.SendRecord(uuid.Nil, route.Bundle, route.Channel, route.Schema, payload) {
+		return errors.New("control recipient unavailable")
+	}
+	return nil
+}
+
+// Retire has no external resources in the fake transport.
+func (runtimeChannels) Retire() {}
+
+// setRuntimeChannels installs a test transport into an already-created player session.
+func (f *runtimeFixture) setRuntimeChannels(c runtimeChannels) {
+	f.h.channels = c
+	f.h.players.items[f.actor].connection = c
+}
+
 // TestTransportPreparationFailureKeepsSource refuses unsupported sessions before departure.
 func TestTransportPreparationFailureKeepsSource(t *testing.T) {
 	f := newRuntimeFixture(t)
 	epoch := f.h.epoch(f.actor)
-	f.h.channels = runtimeChannels{prepare: func() (*cinnabarext.WorldChange, error) { return nil, errors.New("unsupported client part") }}
+	f.setRuntimeChannels(runtimeChannels{prepare: func() (*cinnabarext.WorldChange, error) { return nil, errors.New("unsupported client part") }})
 	if err := f.travel(t.Context(), "probe:one"); err == nil {
 		t.Fatal("unsupported session moved")
 	}
 	if f.countLocations() != 1 || f.h.epoch(f.actor) != epoch {
 		t.Fatal("preparation failure changed location authority")
+	}
+}
+
+// TestPreparedTransferReservesBothWorlds protects the source recovery and empty destination.
+func TestPreparedTransferReservesBothWorlds(t *testing.T) {
+	f := newRuntimeFixture(t)
+	if err := f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatal(err)
+	}
+	source, _ := f.h.worlds.handle("probe:one")
+	destination, _ := f.h.worlds.handle("probe:two")
+	f.h.manager.admit = func() error {
+		for _, handle := range []WorldHandle{source, destination} {
+			if err := f.h.unloadWorld(t.Context(), "probe", handle); err == nil {
+				t.Fatal("unloaded a world held by a prepared transfer")
+			}
+		}
+		return nil
+	}
+	if err := f.travel(t.Context(), "probe:two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.h.unloadWorld(t.Context(), "probe", source); err != nil {
+		t.Fatalf("source reservation survived committed transfer: %v", err)
 	}
 }

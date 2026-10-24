@@ -652,3 +652,23 @@ fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
         .unwrap();
     assert_eq!(caption.properties["text"], "Hello @Alex");
 }
+
+#[test]
+fn chat_mentions_follow_display_name_changes_without_rewriting_messages() {
+    let mut fixture = Fixture::default();
+    fixture.chat("@Alex @Steve @here", 0);
+    fixture
+        .runtime
+        .set_chat_identity(Arc::from("LoginName"), Arc::from(""));
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    for name in ["Alex", "Steve", ""] {
+        fixture
+            .runtime
+            .set_local_player_display_name(Arc::from(name));
+        assert!(fixture.check(&mut cache).chat);
+        assert_eq!(cache.model.chat_local_player.as_ref(), name);
+        assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
+        assert!(!fixture.check(&mut cache).chat);
+    }
+}

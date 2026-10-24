@@ -115,7 +115,7 @@ fn answer_loaded(
     worlds: Option<crate::protocol::WorldRegistration>,
 ) -> io::Result<bool> {
     let response = Response::Loaded {
-        simulation: manifest.api == crate::host::Api::V0_8.api(),
+        simulation: manifest.api == crate::host::Api::V0_9.api(),
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),
         version: manifest.version.clone(),

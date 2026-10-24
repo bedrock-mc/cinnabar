@@ -121,6 +121,10 @@ declarations with one name, a channel outside the namespace and a template that 
 
 ### Building and packaging
 
+For a Rust client part with a Go server, [mod projects](mod-projects.md) generate
+the scaffold, messages, assets and signed bundle with `devtool mod new/build`.
+The steps below remain available for existing Experience artifacts.
+
 1. Write `experience.toml` without `[files]`.
 2. Write the server half: a `cdylib` crate that depends on `crates/experience-sdk` with the
    `server` feature and takes `experience.toml`'s declarations. `examples/experiences/probe` is a
@@ -144,7 +148,7 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.8.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.9.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
 `on-break`, `on-interact` and `on-neighbor-changed`, `client-message`, `epoch` and
 `on-scheduled-update`. Every world
@@ -495,7 +499,7 @@ contains an opening generation. Unbinding an instance invalidates its handles, q
 and already-read results before the world closes; reopening it preserves storage but assigns a new generation.
 Unbound worlds do not admit Experience hooks. Player focus belongs to that live instance opening.
 Opening generations are reserved in `_worlds.json` before publication, so handles saved by an
-older server process cannot regain authority after restart. Server WIT 0.7 exposes these identities
+older server process cannot regain authority after restart. Server WIT 0.8 exposes these identities
 through `callback.world` and `resolve-world`; legacy `callback.info` metadata keeps its old meaning.
 
 Data-file schema 3 retains schema 2's instance-keyed blocks and adds scoped state records.
@@ -517,11 +521,10 @@ risking unreadable saved chunks.
 
 ## Guest worlds, players and private state
 
-Server WIT 0.7 adds `Experience::world_definitions` and `Experience::on_player`. Existing
-Older artifacts keep their ABIs; rebuilding with the current SDK uses the version in
-[Version matrix](#version-matrix).
+Server WIT 0.8 adds `Experience::world_definitions` and `Experience::on_player`.
+Older artifacts keep their ABIs; rebuilding with the current SDK requires `api = "0.9"`.
 The SDK supplies empty/default implementations for the new exports. The helper and adapter
-must both speak the same IPC version from that matrix. Reloads must retain the same world declarations.
+must both speak IPC protocol 9. Reloads must retain the same world declarations.
 
 `world_definitions` registers immutable, mod-namespaced definition IDs and optional startup
 instances before players join. A definition selects an empty or flat generator, a built-in
@@ -549,14 +552,27 @@ session dimension handling. Failed admission restores the source with the newer 
 if the caller cancels after detach. A player disconnected while detached loses authority rather
 than being restored. Cancellation after admission leaves the destination authoritative.
 
-The existing extension helper prepares a pinned connection before departure, drains previously
-admitted application callbacks and fences both message directions. Failed admission aborts that
+The existing extension helper reserves a player fence before departure, drains previously
+admitted application callbacks and fences both message directions. A client part that activates
+during preparation joins that fence; one that activates after commit receives a destination notice. Failed admission aborts that
 preparation and restores the earlier fence. Admission publishes through the helper's correlated
 world-change notice; its acknowledgment opens client traffic and requests fresh state. Ordinary
 players without client parts need no notice. An active wire-v1 client part cannot follow this
-fence, so its transfer fails before departure. Notification failure leaves one authoritative
-destination with its callbacks fenced. Destination preparation and acknowledgment do not certify
+fence, so its transfer fails before departure. Notification failure ends only the optional client
+part; the destination remains authoritative and ordinary teleports, respawn placement and later
+transfers continue. Relocation state clears on every exit, separately from the client part's
+acknowledgment fence. Destination preparation and acknowledgment do not certify
 that the client has rendered terrain; live client-part transfer qualification remains open.
+
+Player saves keep stable instance identity and position together in `<world>/player-worlds/`,
+alongside Dragonfly's ordinary player data. Reconnect uses the current opening of that instance.
+If it is closed, or an older save has no instance metadata, the player starts at the default
+Overworld spawn. Saved coordinates from another instance never carry over to that fallback.
+
+Shutdown stops event admission, queues leave for each admitted session and drains callbacks with
+a ten-second deadline before flushing stores and closing the server and worlds. Final leaves
+wait outside world transactions for callback queue space, so a full queue does not drop them. A missed deadline
+is reported as a shutdown error. Leave commits retain scoped revision checks and need no live world.
 
 Go integrations now use `cinnabarext.WorldID` as the shared stable instance-ID type. JSON storage
 keeps the same string identities.
@@ -581,7 +597,11 @@ uses the block-data size ceiling; snapshots contain only the three authorized sc
 block writes commit together after every operation validates, and quota checks count their net
 change. Deleted records keep revisions so stale results cannot mistake a deletion for untouched
 state. The existing flush crash window applies; transfers do not promise crash-atomic saves
-across two terrain providers and private state.
+across two terrain providers and private state. Opening fresh temporary terrain removes that
+instance’s old block records and refunds their quota, including after an abrupt exit. Scoped
+records retain their independent lifetimes. Unloading an instance finishes resource release
+once it is unbound, even if the caller cancels. Durable records use synced atomic replacement,
+and reopening an instance leaves matching world metadata untouched.
 
 ## Strikes, quarantine and reload
 
@@ -611,8 +631,8 @@ These axes are versioned separately. Before 1.0, a breaking change bumps the min
 
 | Axis | Version | Source |
 |---|---|---|
-| Server WIT | 0.8; 0.7, 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
-| IPC protocol | 8 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
+| Server WIT | 0.9; 0.8, 0.6, 0.5, 0.4, 0.3, 0.2 and 0.1 still accepted | `crates/experience-sdk/wit/server/server.wit`; older ones in `crates/experience-runtime/wit/<version>/server.wit` |
+| IPC protocol | 9 | `PROTOCOL_VERSION` in `crates/experience-runtime/src/protocol.rs` |
 | Server manifest | `api`, `data-schema`; `[client]` is ignored | `crates/experience-runtime/src/manifest.rs` |
 | Client WIT | `cinnabar:server-experience@1.1.0`; 1.0 components still link | `crates/experience-sdk/wit/client/deps/server-experience/capabilities.wit`, world `server-bundle` in `crates/experience-sdk/wit/client/client.wit` |
 | Client wire protocol | 2, negotiated in Hello and Accept; 1 still accepted | `WIRE_VERSION`, `MAX_WIRE_VERSION` in `crates/server-experience/src/policy.rs` |
@@ -651,7 +671,7 @@ and the Go adapter's tests.
 
 ## Simulation callbacks
 
-Server WIT 0.8 adds `Experience::on_tick` and `Experience::on_timer`. Each bound world
+Server WIT 0.9 adds `Experience::on_tick` and `Experience::on_timer`. Each bound world
 instance advances on the host's fixed tick edge, even without viewers. `SimulationStep`
 contains its counter and fixed duration in nanoseconds. Unloading pauses the counter;
 reopening resumes it with a new world generation. Host pause also pauses admission.
@@ -672,7 +692,7 @@ most one queued occurrence; missed periods are counted and skipped, without catc
 Callbacks receive their admitted tick, even if execution happens later. Scheduling inside a
 late callback remains relative to commit, rather than replaying elapsed simulation.
 
-Migration: rebuild SDK guests with `api = "0.8"` and deploy the matching IPC protocol 8
-adapter and helper. Frozen server WIT 0.1–0.7 artifacts retain their earlier exports and do
-not receive simulation callbacks. Existing 0.7 world and private-state APIs are unchanged.
+Migration: rebuild SDK guests with `api = "0.9"` and deploy the matching IPC protocol 9
+adapter and helper. Frozen server WIT 0.1–0.6 and 0.8 artifacts retain their earlier exports and do
+not receive simulation callbacks. Existing 0.8 world and private-state APIs are unchanged.
 The probe's `probe:clock` conformance instance shows scheduling and self-cancellation.
