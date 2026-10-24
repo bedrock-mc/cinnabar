@@ -41,6 +41,9 @@ func (s *Server) SendControl(player uuid.UUID, message Message) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	result := c.sendLocked(route.Bundle, route.Channel, route.Schema, payload)
+	if result == controlRejected {
+		return false
+	}
 	delete(c.controls, route)
 	if result != controlDeferred {
 		return result == controlSent

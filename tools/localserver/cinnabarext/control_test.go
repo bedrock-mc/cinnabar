@@ -36,6 +36,11 @@ func TestControlRetriesReplaceAndExpire(t *testing.T) {
 					if !f.s.SendControl(f.player, message) {
 						t.Fatal("replacement not retained")
 					}
+					invalid := message
+					invalid.number = -1
+					if f.s.SendControl(f.player, invalid) {
+						t.Fatal("invalid replacement accepted")
+					}
 					synctest.Wait()
 					switch retirement {
 					case "epoch":
