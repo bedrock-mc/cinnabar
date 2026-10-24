@@ -6,6 +6,7 @@ use crate::movement::physics::ClimberFlags;
 mod climber_writes;
 
 mod authority_writes;
+mod lifetimes;
 mod progress;
 mod server_writes;
 mod size_edges;
