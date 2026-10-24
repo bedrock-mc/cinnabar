@@ -826,10 +826,10 @@ offers no NetherNet route, so the join fails with an explanation instead of conn
 Startup logs report milestone elapsed times and child-process CPU time when available.
 Native and translated BDS startup overlaps host-profile loading and confirms any changed
 operator grant before reporting running; container servers still resolve it before launch.
-Translated BDS starts the most recently played world in the background once the menu is up.
-A left world's server keeps running for five minutes; both stay hidden until opened, and other
-opens, edits, deletes and exits stop them first. Emulator APK acceptance of the hidden start,
-physical-phone battery cost, startup profiling and the ten-second join target remain open.
+Saved BDS worlds start only on an explicit open. Leaving requests a save and stop immediately;
+reopening waits for the previous server's save and cleanup. Android setup still prepares reusable
+startup code in an isolated temporary world. Full APK and physical-phone lifecycle acceptance,
+battery cost, startup profiling and the ten-second join target remain open.
 
 See [local worlds](docs/local-worlds.md).
 
