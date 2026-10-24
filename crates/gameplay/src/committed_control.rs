@@ -182,6 +182,7 @@ impl CommittedGameplayState<'_> {
             if !self.movement.physics_is_authorized() {
                 return ControlDisposition::Handled;
             }
+            let previous = self.physics.network_position();
             let Some(seat) = self
                 .physics
                 .correct_vehicle(&movement::vehicle::VehicleCorrection {
@@ -197,11 +198,12 @@ impl CommittedGameplayState<'_> {
             else {
                 return ControlDisposition::Handled;
             };
+            let position = [seat[0], seat[1] + protocol::PLAYER_NETWORK_OFFSET, seat[2]];
             return match movement::reconcile_physics_anchor(
                 self.movement,
                 self.physics,
                 movement::PhysicsAnchor {
-                    network_position: [seat[0], seat[1] + protocol::PLAYER_NETWORK_OFFSET, seat[2]],
+                    network_position: position,
                     tick: correction.tick,
                     on_ground: false,
                     velocity: Some([0.0; 3]),
@@ -209,7 +211,14 @@ impl CommittedGameplayState<'_> {
                 movement::PhysicsCorrectionMode::Snap,
                 world,
             ) {
-                Ok(_) => ControlDisposition::Spatial(SpatialReset::Correction),
+                Ok(outcome) => {
+                    observe(ControlObservation::Correction {
+                        outcome,
+                        previous: previous.unwrap_or(position),
+                        position,
+                    });
+                    ControlDisposition::Spatial(SpatialReset::Correction)
+                }
                 Err(fault) => {
                     warn!(
                         ?fault,

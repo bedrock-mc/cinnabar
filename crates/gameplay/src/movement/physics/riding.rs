@@ -5,8 +5,17 @@ use sim::{CollisionWorld, MovementInput, PlayerState, Vec3, WorldQueryError};
 use crate::movement::ModeIntent;
 use crate::movement::vehicle::{VehicleCorrection, VehiclePrediction};
 
+/// Where seating moved the rider this tick.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Seated {
+    /// The rider's exact position before this tick seated it, which a failed tick restores.
+    pub from: Vec3,
+    /// The displacement the seat applied, as the tick's movement reports it.
+    pub delta: [f32; 3],
+}
+
 /// Seats the rider on the boat it steers, predicting the boat's tick, or else on the
-/// mount's streamed seat. Returns the displacement the seat applied. A steered boat whose
+/// mount's streamed seat. Returns where seating moved the rider. A steered boat whose
 /// terrain is unavailable fails the tick through `tick_error` rather than seating the rider
 /// elsewhere.
 pub(super) fn seat_rider(
@@ -16,7 +25,7 @@ pub(super) fn seat_rider(
     intent: &mut ModeIntent,
     world: &impl CollisionWorld,
     tick_error: &mut Option<WorldQueryError>,
-) -> Option<[f32; 3]> {
+) -> Option<Seated> {
     let [strafe, forward] = input.processed_controls().move_vector;
     let seat = match vehicle.step(intent.vehicle, [strafe as f32, forward as f32], world) {
         // The tick retains the predicted seat, so a player replay seats the rider there.
@@ -35,8 +44,8 @@ pub(super) fn seat_rider(
             (seat.y - state.position.y) as f32,
             (seat.z - state.position.z) as f32,
         ];
-        state.position = seat;
-        delta
+        let from = std::mem::replace(&mut state.position, seat);
+        Seated { from, delta }
     })
 }
 
@@ -45,31 +54,23 @@ pub(super) fn seat_rider(
 /// at its seat.
 pub(super) fn unseated(
     position: Vec3,
-    ride_delta: Option<[f32; 3]>,
+    seated: Option<Seated>,
     vehicle: &VehiclePrediction,
 ) -> Vec3 {
-    if vehicle.stepped() {
-        lifted(position, ride_delta)
-    } else {
-        position
+    match seated {
+        Some(seated) if vehicle.stepped() => seated.from,
+        _ => position,
     }
-}
-
-fn lifted(position: Vec3, ride_delta: Option<[f32; 3]>) -> Vec3 {
-    ride_delta.map_or(position, |[x, y, z]| {
-        position - Vec3::new(f64::from(x), f64::from(y), f64::from(z))
-    })
 }
 
 /// Where the rider renders from this tick. On a boat the client goes on predicting, that is
 /// where it was before this tick seated it, so it eases along with the boat. On a streamed
 /// mount, or a boat whose prediction restarted at a new pose such as a teleport, it is the
 /// seat itself.
-pub(super) fn before_seat(position: Vec3, ride_delta: Option<[f32; 3]>, eased: bool) -> Vec3 {
-    if eased {
-        lifted(position, ride_delta)
-    } else {
-        position
+pub(super) fn before_seat(position: Vec3, seated: Option<Seated>, eased: bool) -> Vec3 {
+    match seated {
+        Some(seated) if eased => seated.from,
+        _ => position,
     }
 }
 
@@ -162,8 +163,6 @@ mod tests {
         }
     }
 
-    /// When the boat's step succeeds but the rider's tick fails, the rider stays where the
-    /// committed state left it rather than on the discarded seat.
     /// A replacement StartGame ends the previous session's boat prediction.
     #[test]
     fn start_game_ends_the_previous_session_s_boat_prediction() {
@@ -195,6 +194,8 @@ mod tests {
         assert_eq!(physics.predicted_vehicle_feed(), None);
     }
 
+    /// When the boat's step succeeds but the rider's tick fails, the rider stays where the
+    /// committed state left it rather than on the discarded seat.
     #[test]
     fn a_failed_tick_leaves_the_rider_off_the_uncommitted_seat() {
         let mut physics = super::super::LocalPhysicsController::default();
@@ -228,6 +229,62 @@ mod tests {
         );
         assert!(frame.blocked.is_some());
         assert_eq!(physics.network_position().unwrap()[0], 99.95);
+    }
+
+    /// [`Ground`] whose terrain past x = 10,000,000.5 is unloaded.
+    struct FarEdgeGround;
+
+    impl CollisionWorld for FarEdgeGround {
+        fn ensure_movement_origin(&self, feet: Vec3) -> Result<(), WorldQueryError> {
+            if feet.x > 10_000_000.5 {
+                return EdgeGround.ensure_movement_origin(feet);
+            }
+            Ok(())
+        }
+
+        fn collision_boxes(
+            &self,
+            query: Aabb,
+        ) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Ground.collision_boxes(query)
+        }
+    }
+
+    /// A failed tick after a boat teleported far away leaves the rider exactly where it was,
+    /// although the seat's displacement does not survive narrowing to `f32`.
+    #[test]
+    fn a_failed_tick_after_a_far_boat_teleport_keeps_the_exact_rider_position() {
+        let mut physics = super::super::LocalPhysicsController::default();
+        physics.reanchor_network_position([0.5, protocol::PLAYER_NETWORK_OFFSET, 0.5], 100, true);
+        let ride = crate::movement::PhysicsSampleContext {
+            mode_intent: ModeIntent {
+                ride: Some(crate::movement::RideKind::Boat),
+                vehicle: Some(SteeredVehicle {
+                    runtime_id: 7,
+                    unique_id: -7,
+                    body: sim::BoatBody {
+                        width: 1.4,
+                        height: 0.455,
+                        height_offset: 0.375,
+                    },
+                    position: [10_000_000.0, 0.375, 0.5],
+                    yaw: 0.0,
+                    velocity: [0.6, 0.0, 0.0],
+                    seat: [0.0, 0.0, 0.0],
+                    revision: client_world::VehicleRevision { pose: 1, motion: 0 },
+                }),
+                ..ModeIntent::default()
+            },
+            ..Default::default()
+        };
+        let frame = physics.advance_with_context(
+            std::time::Duration::from_millis(50),
+            MovementInput::default(),
+            ride,
+            &FarEdgeGround,
+        );
+        assert!(frame.blocked.is_some());
+        assert_eq!(physics.network_position().unwrap()[0], 0.5);
     }
 
     /// A frame blocked on unloaded terrain shows the boat at its committed state, where the

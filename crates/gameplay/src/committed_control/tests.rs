@@ -467,11 +467,12 @@ fn speed_effect_updates_refresh_current_while_sprint_is_held() {
     }
 }
 
-/// A vehicle correction that snaps the rider resets presentation like any correction; one
-/// already applied changes nothing.
+/// A vehicle correction that snaps the rider resets presentation and reports the snap like
+/// any correction; one already applied changes nothing.
 #[test]
 fn an_applied_vehicle_correction_resets_presentation() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
+    let mut observations = Vec::new();
     physics.steer_completed(
         crate::movement::vehicle::SteeredVehicle {
             runtime_id: 7,
@@ -514,11 +515,31 @@ fn an_applied_vehicle_correction_resets_presentation() {
             dimension: 0,
             dimension_transfer_active: false,
         }
-        .apply(control, &NoQueries, |_| {})
+        .apply(control, &NoQueries, |observed| observations.push(observed))
     };
     assert_eq!(
         apply(),
         ControlDisposition::Spatial(SpatialReset::Correction)
     );
     assert_eq!(apply(), ControlDisposition::Handled);
+    // The applied snap reaches movement evidence once, from the rider's place to its seat.
+    let [
+        ControlObservation::Correction {
+            outcome: PhysicsCorrectionOutcome::Snapped { .. },
+            previous,
+            position,
+        },
+    ] = observations.as_slice()
+    else {
+        panic!("{observations:?}");
+    };
+    assert_eq!(*previous, [0.5, 2.620_01, 0.5]);
+    let seat = [
+        4.5,
+        2.0 - 0.375 - 0.2 + protocol::PLAYER_NETWORK_OFFSET,
+        0.5,
+    ];
+    for (axis, expected) in position.iter().zip(seat) {
+        assert!((axis - expected).abs() < 1.0e-5, "{position:?}");
+    }
 }

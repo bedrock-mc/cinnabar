@@ -658,7 +658,7 @@ impl LocalPhysicsController {
             }
             self.modes.record_controls(input, context.input.sneak_down);
             // A rider's position is its seat on the mount, not a simulated result.
-            let ride_delta = if input.mode == sim::MovementMode::Riding {
+            let seated = if input.mode == sim::MovementMode::Riding {
                 riding::seat_rider(
                     &mut self.vehicle,
                     state,
@@ -684,7 +684,7 @@ impl LocalPhysicsController {
             {
                 state.velocity = overlay.velocity;
             }
-            let before = riding::before_seat(state.position, ride_delta, self.vehicle.continued());
+            let before = riding::before_seat(state.position, seated, self.vehicle.continued());
             // The liquid probe uses the prior tick's pose-adjusted eye anchor.
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
@@ -751,7 +751,7 @@ impl LocalPhysicsController {
                         flight_request,
                         grounded_before_tick,
                         jump_repeated,
-                        ride_delta,
+                        ride_delta: seated.map(|seated| seated.delta),
                         actor_position: self.actor_position_pending.take(),
                         input,
                         modes: self.modes,
@@ -832,8 +832,8 @@ impl LocalPhysicsController {
                         processed,
                         world_identity,
                     });
-                    if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
-                        sample.movement = delta;
+                    if let (Some(seated), Some(sample)) = (seated, frame.samples.last_mut()) {
+                        sample.movement = seated.delta;
                     }
                     while self.sample_history.len() >= self.history_capacity {
                         self.sample_history.pop_front();
@@ -867,7 +867,7 @@ impl LocalPhysicsController {
                 }
                 Err(error) => {
                     self.modes = previous_modes;
-                    state.position = riding::unseated(state.position, ride_delta, &self.vehicle);
+                    state.position = riding::unseated(state.position, seated, &self.vehicle);
                     self.vehicle.discard_pending();
                     let retryable_collision_blocked = matches!(
                         &error,
