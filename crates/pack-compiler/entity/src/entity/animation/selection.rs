@@ -267,8 +267,6 @@ pub(super) fn split_index(text: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use BTreeMap;
-
     use super::*;
 
     fn selector(resolve: &dyn Fn(&str) -> Option<u32>) -> Selector<'_, u32> {
