@@ -742,3 +742,28 @@ fn passengers_ride_the_predicted_boat_between_ticks() {
     store.sync_local_vehicle(Some(feed(11.5)));
     assert!((seated(&store) - before - 0.5).abs() < 1.0e-4);
 }
+
+/// A ride restored on join links the local driver before its actor exists; a remote player
+/// linked after it does not take its seat when the local actor appears.
+#[test]
+fn a_restored_ride_keeps_the_local_driver_ahead_of_later_riders() {
+    let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(PLAYER as u64);
+    store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
+    store.apply(1, 2, spawn(OTHER_PLAYER, player("Other"), Vec::new()));
+    let mut sequence = 2;
+    board(
+        &mut store,
+        &mut sequence,
+        &[
+            (PLAYER, ActorLinkType::Rider),
+            (OTHER_PLAYER, ActorLinkType::Passenger),
+        ],
+    );
+    store.sync_local_player(
+        PLAYER as u64,
+        PLAYER,
+        &super::local_tests::local_feed(0.0, 0.0),
+    );
+    assert_eq!(store.controlling_passenger(BOAT), Some(PLAYER));
+}

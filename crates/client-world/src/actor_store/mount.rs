@@ -45,41 +45,52 @@ impl super::ActorStore {
             .copied()
     }
 
-    /// Boards queued riders, in link arrival order, whose rider and vehicle actors both
-    /// exist, as vanilla adds a queued link's passenger once both are present. A player
-    /// boarding a vehicle fronted by a non-player takes the front seat; anyone else boards
-    /// at the back.
+    /// Boards linked riders whose rider and vehicle actors both exist, as vanilla adds a
+    /// queued link's passenger once both are present. Seats follow link arrival order, so a
+    /// rider whose actor appears late, such as the local player on a ride restored at join,
+    /// keeps its place ahead of riders linked after it. A player boarding a vehicle fronted by
+    /// a non-player takes the front seat.
     pub(super) fn board_linked_riders(&mut self) {
-        let mut queued = std::mem::take(&mut self.queued_riders);
-        queued.retain(|&rider| {
-            let Some(&vehicle) = self.rider_to_ridden.get(&rider) else {
-                return false;
-            };
-            if self.snapshot_by_unique(rider).is_none()
-                || self.snapshot_by_unique(vehicle).is_none()
-            {
-                return true;
-            }
+        let mut waiting: Vec<(u64, i64, i64)> = self
+            .link_arrivals
+            .iter()
+            .filter_map(|(&rider, &arrival)| {
+                let vehicle = *self.rider_to_ridden.get(&rider)?;
+                let seated = self
+                    .passengers
+                    .get(&vehicle)
+                    .is_some_and(|seats| seats.contains(&rider));
+                (!seated
+                    && self.snapshot_by_unique(rider).is_some()
+                    && self.snapshot_by_unique(vehicle).is_some())
+                .then_some((arrival, rider, vehicle))
+            })
+            .collect();
+        waiting.sort_unstable();
+        for (arrival, rider, vehicle) in waiting {
             let rider_is_player = self.is_player_unique(rider);
-            let front_is_mob = self
-                .passengers
-                .get(&vehicle)
-                .and_then(|seats| seats.first())
+            let seats = self.passengers.get(&vehicle).map_or(&[][..], Vec::as_slice);
+            let front_is_mob = seats
+                .first()
                 .is_some_and(|front| !self.is_player_unique(*front));
-            let seats = self.passengers.entry(vehicle).or_default();
-            if rider_is_player && front_is_mob {
-                seats.insert(0, rider);
+            let index = if rider_is_player && front_is_mob {
+                0
             } else {
-                seats.push(rider);
-            }
-            false
-        });
-        self.queued_riders = queued;
+                seats
+                    .iter()
+                    .position(|seated| self.link_arrivals.get(seated) > Some(&arrival))
+                    .unwrap_or(seats.len())
+            };
+            self.passengers
+                .entry(vehicle)
+                .or_default()
+                .insert(index, rider);
+        }
     }
 
-    /// Takes a rider off its vehicle's seats and out of the boarding queue.
+    /// Takes a rider off its vehicle's seats and out of the boarding order.
     fn unseat(&mut self, rider: i64, vehicle: i64) {
-        self.queued_riders.retain(|&queued| queued != rider);
+        self.link_arrivals.remove(&rider);
         if let Some(seats) = self.passengers.get_mut(&vehicle) {
             seats.retain(|&seated| seated != rider);
             if seats.is_empty() {
@@ -117,7 +128,8 @@ impl super::ActorStore {
                         self.unseat(rider, previous);
                     }
                     self.rider_to_ridden.insert(rider, vehicle);
-                    self.queued_riders.push(rider);
+                    self.links_received = self.links_received.wrapping_add(1);
+                    self.link_arrivals.insert(rider, self.links_received);
                     self.board_linked_riders();
                 }
                 ActorApplyResult::Updated
@@ -134,13 +146,13 @@ impl super::ActorStore {
         self.rider_to_ridden
             .retain(|_, ridden_unique_id| *ridden_unique_id != unique_id);
         let riders = &self.rider_to_ridden;
-        self.queued_riders
-            .retain(|rider| riders.contains_key(rider));
+        self.link_arrivals
+            .retain(|rider, _| riders.contains_key(rider));
     }
 
     pub(super) fn clear_links(&mut self) {
         self.rider_to_ridden.clear();
         self.passengers.clear();
-        self.queued_riders.clear();
+        self.link_arrivals.clear();
     }
 }

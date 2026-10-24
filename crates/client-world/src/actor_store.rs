@@ -821,8 +821,10 @@ pub(crate) struct ActorStore {
     animation_view: Option<actor_animation::ActorAnimationView>,
     /// Each vehicle's boarded riders in seat order.
     passengers: FastHashMap<i64, Vec<i64>>,
-    /// Linked riders waiting for their rider or vehicle actor, in link arrival order.
-    queued_riders: Vec<i64>,
+    /// Each linked rider's place in link arrival order, which orders boarding and seats
+    /// whenever its rider and vehicle actors appear.
+    link_arrivals: FastHashMap<i64, u64>,
+    links_received: u64,
     /// Seat descriptor per mount, for riders that stream no seat offset.
     seat_bindings: FastHashMap<u64, Option<u32>>,
     seat_bases: HashMap<std::sync::Arc<str>, Option<u32>>,
