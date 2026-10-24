@@ -313,10 +313,12 @@ Correction sync retains individual accepted flag writes, cached passenger moveme
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
 independently of simulation admission. Unsupported attribute models leave reporting
 with the actor's current value. Retained corrections arm its idle countdown;
-bare snaps do not. A completed local pose tick replaces earlier accepted pose writes.
+bare snaps do not. Pose triggers refresh their independent bits after each local tick.
 Sparse dimension writes preserve the untouched accepted component, including local
 pose sizes. Dimensions enter gameplay with ordered metadata controls, and correction
-replay retains their order alongside flag writes. Network and synthetic local actors
+replay retains their order alongside flag writes. Accepted pose corrections resize
+before replayed local rules can end the pose within the same tick.
+Network and synthetic local actors
 share arrival-ordered authority lifetimes. Rendering uses a separate nonzero lifetime,
 including for the initial synthetic local body and first-person hand.
 Received local spawns, removals and dimension resets publish complete replacement
@@ -325,15 +327,31 @@ and its already accepted updates and effects. Replacement retires cached flags, 
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
-Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
-block-climber flags, custom collision definitions, transition-tick packet ordering
-and broader live-server qualification remain incomplete.
+Server-driven item-use gameplay starts, block-climber flags, custom collision
+definitions, transition-tick packet ordering and broader live-server qualification
+remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
-and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
+and replay. Server glide/swim/crawl and Riptide spin flags start or end the local state
+without start/stop actions. Each retained frame captures the flag word it starts with; a
+stamped write becomes a correction of the following frame where it differs from that
+capture and requests replay when that following frame is retained. Current stamps
+wait for the next frame; a future stamp joins the current frame without immediate replay.
+Replay keeps the starting frame's capture, refreshes later ones and copies the replayed
+word back to the live state, keeping the live spin and glide counters, swim blend and
+camera eye blend. Glide, swim and crawl retain independent bits beside flight;
+their own trigger transitions produce actions, and their combined state feeds
+the compact body, swim blend and eye offset. Replay preserves the pending swim-blend
+input across immobile pose transitions; only changed swim or crawl corrections replace it.
+Still incomplete: reconciling server `UsingItem` writes with local-use gameplay;
+the Riptide spin's entity-hit end, which
+needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
+player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
+live-server evidence for these adoptions.
+Live-server pickup and remote-player stance acceptance remains outstanding.
 Sneaking box height, pose fit and crouch eye follow StartGame's base game version
 (standing height before 1.20.10), including server resizes after prediction resets.
 Near-contact collision fixes do not establish complete collision-engine parity.
@@ -384,6 +402,14 @@ and rendered qualification remain incomplete.
   Geometry with matching resolved inheritance chains and identical animation or controller
   definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
   controllers) still reject the rig: native file load order is unverified.
+  Shulkers publish their peek and attach-face variables and keep a zero body yaw;
+  attach-position snapping, peek-dependent collision bounds and a rendered comparison
+  against the vanilla client remain incomplete.
+  definitions across pack files resolve as one. Conflicting animation definitions retain
+  drawable geometry in an explicit rest-pose fallback, including server-selected clips
+  and implicit animated-face controllers.
+  Turtle animation and duplicate-definition precedence remain incomplete; the fallback does not
+  establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
@@ -1189,7 +1215,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 - Runtime pack compatibility still includes custom texture inheritance/tints, authored
   geometry and block/item component behavior beyond the currently supported cases.
 
-See [Android](docs/android.md), [mods](docs/modding-spike.md),
+See [Android](docs/android.md), [mods](docs/mods/README.md),
 [server experiences](docs/server-experiences.md) and
 [experience runtime](docs/experience-runtime.md) for existing implementation contracts.
 

@@ -4,6 +4,55 @@
 //! Jumping bit follows held processed input; StartJumping follows initiation.
 //! Other provisional state rules remain subject to native comparison.
 
+/// Independent horizontal pose flags, separate from the selected travel mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PoseFlags {
+    pub gliding: bool,
+    pub swimming: bool,
+    pub crawling: bool,
+}
+
+impl PoseFlags {
+    /// Builds the single pose represented by an older movement sample.
+    pub(crate) fn from_mode(mode: sim::MovementMode) -> Self {
+        let mut flags = Self::default();
+        flags.set(mode, true);
+        flags
+    }
+
+    /// Reads one pose; ordinary travel modes have no pose flag.
+    pub(crate) fn has(self, mode: sim::MovementMode) -> bool {
+        match mode {
+            sim::MovementMode::Gliding => self.gliding,
+            sim::MovementMode::Swimming => self.swimming,
+            sim::MovementMode::Crawling => self.crawling,
+            sim::MovementMode::Walking | sim::MovementMode::Flying | sim::MovementMode::Riding => {
+                false
+            }
+        }
+    }
+
+    /// Changes one pose without replacing the other pose flags.
+    pub(crate) fn set(&mut self, mode: sim::MovementMode, value: bool) {
+        match mode {
+            sim::MovementMode::Gliding => self.gliding = value,
+            sim::MovementMode::Swimming => self.swimming = value,
+            sim::MovementMode::Crawling => self.crawling = value,
+            sim::MovementMode::Walking | sim::MovementMode::Flying | sim::MovementMode::Riding => {}
+        }
+    }
+
+    /// Whether any flag requests the compact horizontal body.
+    pub(crate) fn horizontal(self) -> bool {
+        self.gliding || self.swimming || self.crawling
+    }
+
+    /// Whether the swim blend should advance on the next tick.
+    pub(crate) fn swim_pose(self) -> bool {
+        self.swimming || self.crawling
+    }
+}
+
 /// Movement facts produced by one completed simulation tick.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProcessedMovementState {
@@ -28,6 +77,8 @@ pub struct ProcessedMovementState {
     pub sprinting: bool,
     /// Locomotion mode the simulator ran this tick; drives the mode start/stop edges.
     pub mode: sim::MovementMode,
+    /// Completed pose flags; absent in older externally constructed samples.
+    pub pose_flags: Option<PoseFlags>,
     /// A low ceiling holds the sneak pose although the button is up.
     pub forced_sneak: bool,
     /// The ridden mount class while `mode` is `Riding`.
@@ -60,6 +111,7 @@ impl ProcessedMovementState {
             sneaking,
             sprinting,
             mode: sim::MovementMode::Walking,
+            pose_flags: None,
             forced_sneak: false,
             ride: None,
             flight_request: None,

@@ -75,7 +75,7 @@ pub use physics::{
 pub use prediction_sync::send_movement_prediction_sync;
 use sim::WorldCollisionIdentity;
 pub use speed_authority::LocalMovementSpeedAuthority;
-pub use state::ProcessedMovementState;
+pub use state::{PoseFlags, ProcessedMovementState};
 pub use teleport_ack::ServerTeleportKind;
 use tokio::sync::watch;
 pub use trace::note_click_drop;

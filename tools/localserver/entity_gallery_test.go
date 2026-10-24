@@ -412,3 +412,32 @@ func TestEntityGalleryPreservesPlayerPropertiesAndAttributes(t *testing.T) {
 		t.Fatal("player spawn or configured attribute update missing")
 	}
 }
+
+func TestEntityGalleryShulkerAppearanceAndPeekUpdates(t *testing.T) {
+	face, peek, yaw := uint8(1), int32(30), float32(45)
+	page := []entityAppearance{{Identifier: "minecraft:shulker", Name: "ceiling", AttachFace: &face, Peek: &peek, Yaw: &yaw}}
+	actor := entityGalleryPackets(page, mgl32.Vec3{})[0].(*packet.AddActor)
+	if actor.EntityMetadata[protocol.EntityDataKeyAttachFace] != uint8(1) || actor.EntityMetadata[protocol.EntityDataKeyPeekID] != int32(30) || actor.Yaw != 45 || actor.BodyYaw != 45 {
+		t.Fatal("shulker appearance lost its attach face, peek or yaw")
+	}
+	ordinary := &packet.CommandRequest{CommandLine: "/give stone"}
+	inner := &cameraFixtureConn{read: []packet.Packet{&packet.CommandRequest{CommandLine: "/entitygallery peek 100"}, ordinary}}
+	conn := &entityGalleryPacketConn{Conn: inner, count: 2}
+	if got, err := conn.ReadPacket(); err != nil || got != ordinary {
+		t.Fatal("peek command was not consumed")
+	}
+	if len(inner.written) != 2 {
+		t.Fatalf("peek updated %d actors, want 2", len(inner.written))
+	}
+	for i, pk := range inner.written {
+		update := pk.(*packet.SetActorData)
+		if update.EntityRuntimeID != uint64(entityGalleryFirstID+i*2) || update.EntityMetadata[protocol.EntityDataKeyPeekID] != int32(100) {
+			t.Fatal("peek update addressed a label or lost its value")
+		}
+	}
+	for _, command := range []string{"/entitygallery peek", "/entitygallery peek open", "/entitygallery peek 1 2"} {
+		if _, ok := entityGalleryPeek(command); ok {
+			t.Fatalf("invalid peek command accepted: %s", command)
+		}
+	}
+}

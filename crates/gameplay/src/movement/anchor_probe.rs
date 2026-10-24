@@ -196,9 +196,11 @@ impl AnchorProbeState {
         {
             let _ = preview.select(intent, *observed, world);
         }
-        if let BeforeTick::Adjust(feet) =
-            self.before_tick(world, observed.feet, preview.contact_height())
-        {
+        if let BeforeTick::Adjust(feet) = self.before_tick(
+            world,
+            observed.feet,
+            preview.spin_aware_contact_height(observed.spinning),
+        ) {
             observed.feet = feet;
         }
     }

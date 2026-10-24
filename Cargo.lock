@@ -2412,6 +2412,7 @@ name = "cinnabar-cxb"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-runtime",
  "experience-sdk",
  "mod-host",
  "protocol",
@@ -3068,6 +3069,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cosmic-mod"
+version = "0.1.0"
+dependencies = [
+ "experience-sdk",
 ]
 
 [[package]]
