@@ -830,6 +830,7 @@ fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
         client_world::MovementFlagUpdate {
             gliding: Some(true),
             spinning: Some(true),
+            using_item: Some(true),
             ..Default::default()
         },
         client_world::ExplicitDimensions::for_spawn(1),
@@ -841,9 +842,11 @@ fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
             swimming: Some(false),
             crawling: Some(false),
             spinning: Some(false),
+            using_item: Some(true),
             ..Default::default()
         },
     );
+    assert!(physics.live_using_item());
     let flags = physics.prediction_sync_flags();
     let size = physics.prediction_sync_size();
     assert_eq!(flags.gliding, Some(false));
@@ -853,4 +856,5 @@ fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
         .unwrap();
     assert_eq!(physics.prediction_sync_flags(), flags);
     assert_eq!(physics.prediction_sync_size(), size);
+    assert!(physics.live_using_item());
 }

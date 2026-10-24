@@ -519,7 +519,7 @@ impl LocalPhysicsController {
             posture::replay_actor_modes(&self.sync_pending, &mut modes);
         }
         self.modes = modes;
-        if let Some(using) = replayed_using {
+        if !keep_live_flags && let Some(using) = replayed_using {
             self.adopt_replayed_using_item(using);
         }
         // Vanilla's replay ticks the eye offset only on its temporary replay
