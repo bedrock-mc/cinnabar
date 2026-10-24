@@ -3,5 +3,8 @@
   "$cinnabar_status_row_y": -39,
   "$cinnabar_chat_top": false,
   "$cinnabar_chat_width": 320,
-  "$cinnabar_chat_history_bottom": -40
+  "$cinnabar_chat_history_bottom": -40,
+  // The Video setting that raises the bottom HUD and chat by vanilla desktop's hotbar clearance.
+  "$cinnabar_bedrock_hotbar": false,
+  "$cinnabar_bedrock_hotbar_lift": -1.5
 }

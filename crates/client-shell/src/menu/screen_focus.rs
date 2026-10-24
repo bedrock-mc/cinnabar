@@ -5,7 +5,7 @@ use semantic_input::InputMode;
 
 use super::{MenuRuntime, settings_options::control_bindings};
 use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use launcher::menu::settings_options::BindingId;
+use launcher::menu::settings_options::{BindingId, SettingId};
 
 /// Samples the current screen stack after shell and UI changes become authoritative.
 pub fn publish_screen_focus(
@@ -60,6 +60,9 @@ pub fn publish_gameplay_screen_controls(
         spyglass_gamepad_damping: menu
             .as_deref()
             .map_or(0.0, |menu| menu.spyglass_damping(InputMode::GamePad)),
+        hide_hud: menu
+            .as_deref()
+            .is_some_and(|menu| menu.settings_snapshot().0.value(SettingId::HideHud) != 0),
     };
 }
 

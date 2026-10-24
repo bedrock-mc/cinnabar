@@ -110,7 +110,7 @@ fn a_picked_zip_is_copied_in_listed_and_toasted_with_a_bounded_picker() {
         Arc::new(move |filter: &Filter| {
             assert_eq!(filter.extensions, shaderpack::PACK_ARCHIVE_EXTENSIONS);
             assert_eq!(filter.max_bytes, Some(shaderpack::MAX_ARCHIVE_BYTES as u64));
-            Ok(vec![picked.clone()])
+            Ok(vec![picked.clone().into()])
         }),
     );
     press_import(&mut app);
@@ -164,13 +164,13 @@ fn a_failed_pick_toasts_the_error_without_installing_a_pack() {
 
 #[test]
 fn a_cancelled_or_failed_pick_accepts_the_next_press() {
-    for answer in [Ok(Vec::new()), Err("no picker".to_owned())] {
+    for answer in [Ok(()), Err("no picker".to_owned())] {
         let root = tempfile::tempdir().unwrap();
         let packs = root.path().join("shaderpacks");
         let mut app = app_picking(
             &packs,
             SettingSection::Shaders,
-            Arc::new(move |_: &Filter| answer.clone()),
+            Arc::new(move |_: &Filter| answer.clone().map(|()| Vec::new())),
         );
         press_import(&mut app);
         assert!(importing(&app));

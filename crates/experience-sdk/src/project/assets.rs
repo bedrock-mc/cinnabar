@@ -65,9 +65,15 @@ pub fn generate(files: &[(String, PathBuf)]) -> Result<String> {
         "/// Compile-checked package files, named from their complete relative path.\npub mod assets {\n",
     );
     for (path, file) in files {
+        let server = path.starts_with("server/");
         writeln!(
             out,
-            "/// Package asset `{path}`.\npub const {}: ::experience_sdk::message::Asset = ::experience_sdk::message::Asset {{ path: {path:?}, bytes: ::core::include_bytes!({:?}) }};",
+            "{}/// Package asset `{path}`.\npub const {}: ::experience_sdk::message::Asset = ::experience_sdk::message::Asset {{ path: {path:?}, bytes: ::core::include_bytes!({:?}) }};",
+            if server {
+                "#[cfg(feature = \"server\")]\n"
+            } else {
+                ""
+            },
             constant(path),
             file.to_str().context("asset path is not UTF-8")?
         )?;
@@ -77,7 +83,7 @@ pub fn generate(files: &[(String, PathBuf)]) -> Result<String> {
 }
 
 /// Uses the whole path so two directories may contain files with the same basename.
-fn constant(path: &str) -> String {
+pub(super) fn constant(path: &str) -> String {
     let name: String = path
         .chars()
         .map(|c| {

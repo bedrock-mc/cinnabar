@@ -1,0 +1,27 @@
+{
+  "type": "loaded",
+  "protocol": 9,
+  "id": "probe",
+  "version": "0.1.0",
+  "blocks": [],
+  "items": [],
+  "focus": true,
+  "worlds": {
+    "definitions": [
+      {
+        "id": "probe:plain",
+        "settings": {
+          "generator": "flat",
+          "dimension": "overworld",
+          "persistent": true
+        }
+      }
+    ],
+    "startup": [
+      {
+        "id": "probe:one",
+        "definition": "probe:plain"
+      }
+    ]
+  }
+}

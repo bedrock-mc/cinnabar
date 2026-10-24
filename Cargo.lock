@@ -2412,6 +2412,7 @@ name = "cinnabar-cxb"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-runtime",
  "experience-sdk",
  "mod-host",
  "protocol",
@@ -3068,6 +3069,13 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cosmic-mod"
+version = "0.1.0"
+dependencies = [
+ "experience-sdk",
 ]
 
 [[package]]
@@ -3959,6 +3967,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-macros"
+version = "0.1.28"
+dependencies = [
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "experience-probe"
 version = "0.1.28"
 dependencies = [
@@ -3970,6 +3986,7 @@ name = "experience-runtime"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-sdk",
  "serde",
  "serde_json",
  "sha2",
@@ -3986,6 +4003,7 @@ name = "experience-sdk"
 version = "0.1.28"
 dependencies = [
  "anyhow",
+ "experience-macros",
  "quote",
  "serde",
  "serde_json",

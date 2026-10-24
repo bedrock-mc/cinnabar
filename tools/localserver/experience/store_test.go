@@ -3,6 +3,7 @@ package experience
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -416,7 +417,7 @@ func TestStoreCorruptFileFailsOpenNamingFile(t *testing.T) {
 	emptyData := `{"schema":1,"next_generation":1,"entries":[]}`
 	for name, content := range map[string]string{
 		"syntax.json":     `{"schema":1,"next_generation":`,
-		"schema.json":     `{"schema":3,"next_generation":1,"entries":[]}`,
+		"schema.json":     fmt.Sprintf(`{"schema":%d,"next_generation":1,"entries":[]}`, storeSchema+1),
 		"hex.json":        `{"schema":1,"next_generation":2,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":"zz"}]}`,
 		"dup.json":        `{"schema":1,"next_generation":3,"entries":[{"dim":0,"x":0,"y":0,"z":0,"generation":1,"revision":0,"data":null},{"dim":0,"x":0,"y":0,"z":0,"generation":2,"revision":0,"data":null}]}`,
 		"_installed.json": `{"schema":1,"ids":`,

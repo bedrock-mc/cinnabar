@@ -1,3 +1,4 @@
+use experience_sdk::artifact::{ASSETS_DIR, DATA_SCHEMA, MAX_STACK_SIZE, SERVER_WASM};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -9,9 +10,9 @@ use super::{axes, engine, validate_blocks, validate_registration, wit};
 use crate::host::{Api, HostState};
 use crate::limits::{
     MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_BONES, MAX_CONDITION_TESTS, MAX_DISPLAY_NAME_BYTES,
-    MAX_ITEMS, MAX_PERMUTATIONS, MAX_STACK_SIZE, MAX_STATE_VALUES,
+    MAX_ITEMS, MAX_PERMUTATIONS, MAX_STATE_VALUES,
 };
-use crate::manifest::{ASSETS_DIR, DATA_SCHEMA, Manifest, SERVER_WASM};
+use crate::manifest::Manifest;
 use crate::protocol::{ItemDef, PlacementState, StateDef, StateValues};
 
 #[test]

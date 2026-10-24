@@ -5702,6 +5702,16 @@
       }
     },
     {
+      "id": "class-Shulker",
+      "status": "provisional",
+      "members": [
+        "minecraft:shulker"
+      ],
+      "facts": {
+        "native_class": "Shulker"
+      }
+    },
+    {
       "id": "class-DragonFireball",
       "status": "provisional",
       "members": [

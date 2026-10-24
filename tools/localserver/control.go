@@ -79,24 +79,41 @@ func reloadID(line string) (string, bool) {
 	return fields[2], true
 }
 
-// setPaused suspends every dimension's simulation; connected players stay connected.
-func setPaused(worlds []*world.World, paused bool) {
-	for _, w := range worlds {
-		w.SetPaused(paused)
-	}
-}
-
-// pauseState serialises pause and resume requests for all dimensions.
+// pauseState applies the selected settings and serialises simulation ownership for all worlds.
 type pauseState struct {
-	mu     sync.Mutex
-	worlds []*world.World
+	mu       sync.Mutex
+	worlds   map[*world.World]struct{}
+	paused   bool
+	settings settings
 }
 
-// request applies the launcher's pause or resume to every dimension.
+// WorldOpened applies gameplay settings and inherits the current pause before admission.
+func (p *pauseState) WorldOpened(w *world.World) {
+	p.settings.applyTo(w)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.worlds == nil {
+		p.worlds = make(map[*world.World]struct{})
+	}
+	w.SetPaused(p.paused)
+	p.worlds[w] = struct{}{}
+}
+
+// WorldClosed releases a world before its simulation and provider close.
+func (p *pauseState) WorldClosed(w *world.World) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.worlds, w)
+}
+
+// request applies the launcher's pause or resume to every registered world.
 func (p *pauseState) request(paused bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	setPaused(p.worlds, paused)
+	p.paused = paused
+	for w := range p.worlds {
+		w.SetPaused(paused)
+	}
 }
 
 // standbyFlag starts a server with no world that waits for a standbyStart line.

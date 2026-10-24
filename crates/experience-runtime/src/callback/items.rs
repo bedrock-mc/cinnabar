@@ -1,11 +1,12 @@
 //! The actor's inventory and the stacks a guest makes: `inventory`, `set-slot` and `drop-item`.
 
 use anyhow::Result;
+use experience_sdk::artifact::MAX_STACK_SIZE;
 
 use super::{CallbackRes, Reach, stage};
 use crate::hex;
 use crate::host::cinnabar::experience_server::types::{self as wit, WorldError};
-use crate::limits::{MAX_ITEM_DATA_BYTES, MAX_STACK_SIZE};
+use crate::limits::MAX_ITEM_DATA_BYTES;
 use crate::load::Catalog;
 use crate::protocol::{
     BlockPos, HOTBAR_SLOTS, INVENTORY_SLOTS, Inventory, ItemStack, NewStack, Op,

@@ -46,6 +46,7 @@ pub(super) struct PendingState {
 
 pub(super) struct ControllerInputs<'a> {
     pub symbol_indices: &'a BTreeMap<(EntityAssetKind, &'a str, u32), u32>,
+    pub controller_symbols: &'a BTreeMap<Box<str>, Option<u32>>,
     pub clip_indices: &'a ClipIndices,
     pub environments: &'a [EntityEnvironment],
     pub geometry_selections: &'a GeometrySelections,
@@ -68,6 +69,7 @@ pub(super) fn compile_pending_controllers(
 ) -> Result<PendingControllers, AssetError> {
     let ControllerInputs {
         symbol_indices,
+        controller_symbols,
         clip_indices,
         environments,
         geometry_selections,
@@ -82,6 +84,13 @@ pub(super) fn compile_pending_controllers(
         let source_index = super::SourceIndex::source_path_index(source, sources)?;
         let value = read_json(root, payloads, source)?;
         for (identifier, definition) in required_object(value, "animation_controllers")? {
+            // Implicit skin controllers also use this catalog, without a rig binding.
+            if controller_symbols
+                .get(identifier.as_str())
+                .is_some_and(Option::is_none)
+            {
+                continue;
+            }
             let symbol = *symbol_indices
                 .get(&(
                     EntityAssetKind::AnimationController,

@@ -18,7 +18,7 @@ when automatic checks are off. It is available from the home menu while no check
 Installation on quit is off by default. The in-game pause menu only shows a small ready badge;
 update actions remain in the launcher.
 
-Mods may independently opt into [GitHub release notifications](modding-spike.md#optional-github-update-checks).
+Mods may independently opt into [GitHub release notifications](mods/personal.md#optional-github-update-checks).
 These launch-time checks have a separate **Check for mod updates** setting. A mod
 update uses the same corner card and links to its GitHub release for manual installation.
 

@@ -443,3 +443,27 @@ fn pending_messages(live: &Live<FakeWorker>, bundle: &str) -> usize {
         .filter(|entry| matches!(entry.event, Event::Message { .. }))
         .count()
 }
+
+/// A registry failure is visible immediately and discards all waiting authored callbacks.
+#[test]
+fn registry_mismatch_stops_waiting_callbacks_with_a_visible_diagnostic() {
+    let mut live = negotiating(1);
+    enqueue(&mut live, 1, 1, "bundle0.events0", "queued");
+    assert!(live.press("bundle0.pick", None));
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    assert!(!instance.queue.entries.is_empty());
+    instance.helper.as_mut().unwrap().failure = Some(CallFailure {
+        bundle: instance.owner.bundle.clone(),
+        callback: "dispatch".into(),
+        kind: FailureKind::RegistryMismatch,
+        reason: experience_sdk::REGISTRY_MISMATCH.into(),
+        fuel: Some(0),
+    });
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    let instance = &live.instances["bundle0"];
+    assert!(instance.helper.is_none());
+    assert!(instance.waiting_for.is_none());
+    assert!(instance.queue.entries.is_empty());
+    assert!(instance.strikes.is_empty());
+    assert!(live.text().contains(experience_sdk::REGISTRY_MISMATCH));
+}
