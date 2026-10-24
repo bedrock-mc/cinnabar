@@ -33,7 +33,19 @@ const GRADE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) * 
 
 /// Builds standalone custom renderers with an output format different from their scene pipelines.
 fn app() -> App {
+    app_with_admission(
+        render_scene::startup_work::WorldWorkAdmission::default(),
+        false,
+    )
+}
+
+/// Builds the same renderer with an explicit menu admission boundary.
+fn app_with_admission(
+    admission: render_scene::startup_work::WorldWorkAdmission,
+    world_owners: bool,
+) -> App {
     let mut app = App::new();
+    app.insert_resource(admission);
     app.add_plugins(MinimalPlugins)
         .add_plugins(WindowPlugin {
             primary_window: None,
@@ -46,6 +58,7 @@ fn app() -> App {
             MeshPlugin,
             CameraPlugin,
             CorePipelinePlugin,
+            crate::ClientPostProcessPlugin,
         ))
         .add_plugins((
             AtmospherePlugin,
@@ -53,7 +66,25 @@ fn app() -> App {
             AimAssistHighlightPlugin,
             UiRenderPlugin,
             ModRenderPlugin,
+            crate::startup_presentation::StartupPresentationPlugin,
         ));
+    if world_owners {
+        app.add_plugins((
+            crate::ChunkRenderPlugin::default(),
+            crate::ActorRenderPlugin,
+            crate::HandRigRenderPlugin,
+            crate::ViewmodelRenderPlugin,
+            crate::DroppedItemRenderPlugin,
+            crate::ScreenOverlayRenderPlugin,
+            crate::ParticleRenderPlugin,
+            crate::BlockEntityRenderPlugin,
+            crate::EntityShadowRenderPlugin,
+            crate::DepthSmaaPlugin,
+            crate::motion_blur::CameraMotionBlurPlugin,
+            crate::FarTerrainRenderPlugin,
+            crate::PrimitiveShapesRenderPlugin,
+        ));
+    }
     // A window surface's format, distinct from the main texture, so the output composite counts.
     let image = app
         .world_mut()
@@ -241,4 +272,82 @@ fn first_use_after_readiness_creates_no_pipelines() {
         app.update();
     }
     assert_eq!(created(&app), warmed);
+}
+
+#[test]
+fn menu_pipeline_set_contains_only_the_drawn_menu_variants() {
+    let admission = render_scene::startup_work::WorldWorkAdmission::after_menu();
+    let mut app = app_with_admission(admission.clone(), true);
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
+    let mut input = ui();
+    let mut avatar = input.batches[0];
+    avatar.depth_test = 1;
+    avatar.depth_write = 1;
+    avatar.isolated_depth_scope = Some(1);
+    avatar.first_index = input.indices.len() as u32;
+    input.indices = input.indices.iter().copied().cycle().take(12).collect();
+    input.batches = std::sync::Arc::from([input.batches[0], avatar]);
+    app.world_mut()
+        .resource_mut::<UiRenderSceneResource>()
+        .publish(input, &stats)
+        .unwrap();
+    app.world_mut()
+        .resource_mut::<PanoramaScene>()
+        .show(Some(PanoramaView {
+            yaw_radians: 0.0,
+            pitch_radians: 0.0,
+            vertical_fov_radians: 1.0,
+            aspect: 1.0,
+            tint: [0.0; 4],
+        }));
+    for _ in 0..4 {
+        app.update();
+    }
+    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
+    let mut labels: Vec<_> = cache
+        .pipelines()
+        .map(|pipeline| match &pipeline.descriptor {
+            bevy::render::render_resource::PipelineDescriptor::RenderPipelineDescriptor(
+                descriptor,
+            ) => descriptor
+                .label
+                .as_deref()
+                .unwrap_or("unlabeled")
+                .to_owned(),
+            bevy::render::render_resource::PipelineDescriptor::ComputePipelineDescriptor(
+                descriptor,
+            ) => format!(
+                "compute: {}",
+                descriptor.label.as_deref().unwrap_or("unlabeled")
+            ),
+            _ => "unexpected mesh pipeline".to_owned(),
+        })
+        .collect();
+    labels.sort();
+    assert_eq!(
+        labels,
+        [
+            "blit pipeline",
+            "gamma-space UI composite",
+            "gamma-space UI composite",
+            "menu panorama pipeline",
+            "retained UI damage clear",
+            "shared retained UI overlay pipeline",
+            "shared retained UI overlay pipeline",
+            "tonemapping pipeline",
+        ]
+    );
+    let before = labels.len();
+    admission.admit();
+    for _ in 0..4 {
+        app.update();
+    }
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<PipelineCache>()
+            .pipelines()
+            .count()
+            > before
+    );
 }

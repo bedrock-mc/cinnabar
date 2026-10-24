@@ -72,8 +72,10 @@ pub(crate) enum Effect {
     /// Bedrock's additive particles, through the translucent particle program.
     ParticlesAdditive,
     Clouds,
-    /// Rain and snow.
-    Weather,
+    /// Rain columns, over the rain sheet (Java's `rain.png` draw).
+    Rain,
+    /// Snow streaks, over the weather sheet (Java's `snow.png` draw).
+    Snow,
 }
 
 /// Java's `BlendFunction.OVERLAY` of the sun, moon and stars: `SRC_ALPHA ONE ONE ZERO`.
@@ -111,12 +113,12 @@ impl Effect {
             Self::ParticlesTranslucent => coverage.particles_translucent,
             Self::ParticlesAdditive => coverage.particles_additive,
             Self::Clouds => coverage.clouds,
-            Self::Weather => coverage.weather,
+            Self::Rain | Self::Snow => coverage.weather,
         }
     }
 
     #[cfg(test)]
-    pub(crate) const ALL: [Effect; 11] = [
+    pub(crate) const ALL: [Effect; 12] = [
         Effect::Sun,
         Effect::Moon,
         Effect::Stars,
@@ -127,7 +129,8 @@ impl Effect {
         Effect::ParticlesTranslucent,
         Effect::ParticlesAdditive,
         Effect::Clouds,
-        Effect::Weather,
+        Effect::Rain,
+        Effect::Snow,
     ];
 
     /// The Iris program this effect asks for first (`IrisPipelines`' shader keys).
@@ -143,7 +146,7 @@ impl Effect {
                 "gbuffers_particles_translucent"
             }
             Effect::Clouds => "gbuffers_clouds",
-            Effect::Weather => "gbuffers_weather",
+            Effect::Rain | Effect::Snow => "gbuffers_weather",
         }
     }
 
@@ -159,7 +162,7 @@ impl Effect {
                 render_stage::PARTICLES
             }
             Effect::Clouds => render_stage::CLOUDS,
-            Effect::Weather => render_stage::RAIN_SNOW,
+            Effect::Rain | Effect::Snow => render_stage::RAIN_SNOW,
         }
     }
 
@@ -177,7 +180,7 @@ impl Effect {
             | Effect::Stars
             | Effect::DamagedBlock
             | Effect::ParticlesAdditive => false,
-            Effect::Weather => rain_depth,
+            Effect::Rain | Effect::Snow => rain_depth,
             _ => true,
         }
     }
@@ -196,7 +199,8 @@ impl Effect {
                 | Effect::ParticlesTranslucent
                 | Effect::ParticlesAdditive
                 | Effect::Clouds
-                | Effect::Weather
+                | Effect::Rain
+                | Effect::Snow
         )
         .then_some(ONE_TENTH_ALPHA)
     }
@@ -208,9 +212,11 @@ impl Effect {
             Effect::Lightning | Effect::ParticlesAdditive => ADDITIVE_BLEND,
             Effect::DamagedBlock => CRUMBLING_BLEND,
             Effect::Particles => BlendMode::Off,
-            Effect::Outline | Effect::ParticlesTranslucent | Effect::Clouds | Effect::Weather => {
-                TRANSLUCENT_BLEND
-            }
+            Effect::Outline
+            | Effect::ParticlesTranslucent
+            | Effect::Clouds
+            | Effect::Rain
+            | Effect::Snow => TRANSLUCENT_BLEND,
         }
     }
 }

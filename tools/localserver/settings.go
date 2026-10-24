@@ -16,6 +16,16 @@ import (
 
 const defaultChunkWorkers = 4
 
+// localChunkLoadsPerTick and localChunkTransactions replace Dragonfly's per-player chunk send
+// budget of 4 chunk requests per tick and 8 blob cache transactions awaiting the client's
+// ClientCacheBlobStatus. The loopback client acknowledges blobs within milliseconds, so the
+// defaults only throttle join and fly-in streaming. Pending blob memory stays bounded by
+// Dragonfly's per-session cap of 4,096 unacknowledged blobs.
+const (
+	localChunkLoadsPerTick = 32
+	localChunkTransactions = 64
+)
+
 const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
 
 // settings are the per-world options the core passes on the command line.
@@ -25,7 +35,10 @@ type settings struct {
 	containerTitleTest                      bool
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
+	entityGallery, entityGalleryAppearances string
 	terrainFixtureRadius                    int
+	blockGallery                            bool
+	blockGalleryFilter                      string
 	opaqueOverdraw                          bool
 	holograms                               bool
 	luckyBlock                              bool
@@ -48,6 +61,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags := flag.NewFlagSet("bedrock-local-server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.BoolVar(&s.terrainFixture, "terrain-fixture", false, "serve deterministic synthetic hills, caves, trees and water")
+	flags.BoolVar(&s.blockGallery, "block-gallery", false, "serve every selected palette state in a labelled rendering gallery")
+	flags.StringVar(&s.blockGalleryFilter, "block-gallery-filter", "*", "comma-separated block identifier globs, for example *stairs,*glass*")
 	flags.BoolVar(&s.terrainFixtureGenerate, "terrain-fixture-generate", false, "generate a new synthetic terrain database and exit")
 	flags.IntVar(&s.terrainFixtureRadius, "terrain-fixture-radius", terrainDefaultRadius, "synthetic pregeneration radius in chunks")
 	flags.BoolVar(&s.primitiveShapes, "primitive-shapes", false, "emit a debug-shape gallery; /shapes, /shapes update, /shapes clear")
@@ -64,6 +79,8 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.BoolVar(&s.totemTexture, "totem-texture", false, "offer an original totem icon replacement for activation testing")
 	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")
 	flags.BoolVar(&s.actorBurst, "actor-burst", false, "enable /actorburst N shared|skins|geometry|swing|strafe and /actorburst clear")
+	flags.StringVar(&s.entityGallery, "entity-gallery", "", "actor registry file; enable /entitygallery [filter] [page] and /entitygallery clear")
+	flags.StringVar(&s.entityGalleryAppearances, "entity-gallery-appearances", "", "optional JSON appearance cases for the entity gallery")
 	flags.BoolVar(&s.luckyBlock, "lucky-block", false, "register a server-defined lucky block; /lucky places three ahead")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.BoolVar(&s.holograms, "holograms", false, fmt.Sprintf("spawn %d formatted floating labels; /holograms, /holograms freeze, /holograms clear", hologramCount))
@@ -76,6 +93,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.extensionMediaAddr, "extension-media-addr", extension.DefaultMediaAddr, "IPv4 loopback ip:port of the -extension-media server")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
+	}
+	if s.entityGalleryAppearances != "" && s.entityGallery == "" {
+		return settings{}, errors.New("-entity-gallery-appearances requires -entity-gallery")
 	}
 	if s.actorBurstArtwork < 0 || s.actorBurstArtwork > actorBurstLimit {
 		return settings{}, fmt.Errorf("actor burst artwork must be 0..%d", actorBurstLimit)
@@ -94,6 +114,9 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	}
 	if s.opaqueOverdraw && (s.terrainFixture || s.terrainFixtureGenerate) {
 		return settings{}, errors.New("-opaque-overdraw and -terrain-fixture select different generators")
+	}
+	if s.blockGallery && (s.opaqueOverdraw || s.terrainFixture || s.terrainFixtureGenerate) {
+		return settings{}, errors.New("-block-gallery cannot be combined with another fixture generator")
 	}
 	if s.experiences != "" && s.runtime == "" {
 		return settings{}, errors.New("-experience-runtime is required with -experiences")
@@ -181,7 +204,7 @@ func (s settings) userConfig() server.UserConfig {
 	uc.Players.MaxCount = maxPlayers
 	uc.Players.MaximumChunkRadius = 255
 	uc.Resources.Folder = s.resourcesDir()
-	if s.opaqueOverdraw {
+	if s.opaqueOverdraw || s.blockGallery {
 		uc.World.SaveData = false
 		uc.Players.SaveData = false
 	}
@@ -191,6 +214,12 @@ func (s settings) userConfig() server.UserConfig {
 // resourcesDir is the directory of the resource packs Dragonfly loads.
 func (s settings) resourcesDir() string {
 	return filepath.Join(s.dir, "resources")
+}
+
+// configureChunkSending sets the per-player chunk send budget for the loopback client.
+func configureChunkSending(conf *server.Config) {
+	conf.ChunkLoadsPerTick = localChunkLoadsPerTick
+	conf.MaxChunkTransactions = localChunkTransactions
 }
 
 // applyTo sets the world's gameplay defaults; they are re-applied on every start so the stored settings win over level.dat.
@@ -205,6 +234,12 @@ func (s settings) applyTo(worlds ...*world.World) {
 		}
 		if s.opaqueOverdraw {
 			freezeOpaqueOverdrawWorld(w)
+		}
+		if s.blockGallery {
+			freezeTerrainFixture(w)
+			if w.Dimension() == world.Overworld {
+				w.SetSpawn((&blockGallery{}).DefaultSpawn(w.Dimension()))
+			}
 		}
 	}
 }

@@ -89,9 +89,9 @@ pub(super) fn presentation(base: &Arc<RuntimeEquipmentCatalog>) -> UiPresentatio
             .unwrap();
     }
     let (pages, textures) = atlas.finish().unwrap();
-    presentation.gui_models.required_pages = pages.len();
-    presentation.gui_models.pages = pages;
-    presentation.gui_models.textures = textures;
+    presentation.gui_models.sources.required_pages = pages.len();
+    presentation.gui_models.sources.pages = pages;
+    presentation.gui_models.sources.textures = textures;
     presentation.gui_models.enabled = true;
     presentation.set_equipment_catalog(Some(Arc::clone(base)));
     presentation.set_player_preview_skin(None, Default::default());

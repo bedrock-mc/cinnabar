@@ -376,6 +376,7 @@ fn paint_keep_out(
             HudInput {
                 crosshair: false,
                 capture_keep_out: true,
+                renderers_unchanged: false,
                 catalog: engine.catalog(),
                 context: &json_ui::Context::desktop(),
                 data: Arc::new(data),

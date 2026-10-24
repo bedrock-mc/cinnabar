@@ -83,8 +83,10 @@ mod tests {
     fn low_poses_only_visit_their_actual_body_height_and_negative_cells() {
         let feet = Vec3::new(-0.1, 0.0, -0.1);
         let standing = Aabb::player_at(feet);
-        let swimming =
-            Aabb::player_with_height_at(feet, MovementMode::Swimming.hitbox_height(false));
+        let swimming = Aabb::player_with_height_at(
+            feet,
+            MovementMode::Swimming.hitbox_height(false, sim::SneakProfile::Current),
+        );
         assert!(touches(standing, [-1, 1, -1]));
         assert!(!touches(swimming, [-1, 1, -1]));
         assert!(touches(swimming, [-1, 0, -1]));

@@ -61,9 +61,16 @@ func (c *Conn) activateWorldFence(epoch uint64) error {
 // publishWorldNotices writes committed notices in admission order without data credits.
 // The caller holds c.mu; the machine has already established every corresponding fence.
 func (c *Conn) publishWorldNotices(notices []worldfence.Notice) error {
+	if len(notices) != 0 {
+		clear(c.controls)
+	}
 	for _, notice := range notices {
-		data, err := Encode(Control{Epoch: &Epoch{Session: c.session, WorldEpoch: notice.RequestedEpoch}})
+		control := Control{Epoch: &Epoch{Session: c.session, WorldEpoch: notice.RequestedEpoch}}
+		data, err := Encode(control)
 		if err != nil {
+			return err
+		}
+		if err := c.egress.ChargeClass(control.RateClass(ToClient, false), []int{len(data)}, uint64(c.s.now().UnixMilli())); err != nil {
 			return err
 		}
 		if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {

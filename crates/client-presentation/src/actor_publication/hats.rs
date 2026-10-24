@@ -434,7 +434,7 @@ impl HatState {
                 placements.push(CosmeticEmitterPlacement {
                     key: CosmeticEmitterKey {
                         runtime_id: submission.input.identity.runtime_id,
-                        spawn_revision: submission.input.identity.spawn_revision,
+                        spawn_revision: submission.input.identity.spawn_revision.get(),
                         item,
                         emitter: emitter as u8,
                     },

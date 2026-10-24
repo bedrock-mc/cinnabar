@@ -21,8 +21,9 @@ pub(crate) mod validation;
 
 pub(crate) use commands::normalize_available_commands;
 pub use commands::{
-    ChatAutocompleteCatalog, ChatAutocompleteCatalogError, ChatAutocompleteCompletion,
-    CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent, CompletionContext,
+    ALL_PLAYERS_MENTION, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
+    ChatAutocompleteCompletion, CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent,
+    CompletionContext, quote_chat_player_name,
 };
 pub(crate) use ddui::{normalize_close_screen, normalize_data_store, normalize_show_screen};
 pub(crate) use death::normalize_death_info;

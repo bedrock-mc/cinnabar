@@ -159,6 +159,11 @@ impl ItemTagMolang {
 
     /// Evaluates the filter against the caller's admitted item tag membership.
     pub fn evaluate(&self, has_tag: &dyn Fn(&str) -> bool) -> Option<bool> {
+        self.evaluate_partial(&|tag| Some(has_tag(tag)))
+    }
+
+    /// Keeps unknown tag membership unresolved, including inside a negated query.
+    pub fn evaluate_partial(&self, has_tag: &dyn Fn(&str) -> Option<bool>) -> Option<bool> {
         let value = block_value(
             &self.0,
             &|name, arguments| {
@@ -170,16 +175,26 @@ impl ItemTagMolang {
                     "query.all_tags" => true,
                     _ => return None,
                 };
-                let matches = arguments.iter().try_fold(all, |result, argument| {
+                let mut matches = all;
+                let mut unknown = false;
+                for argument in arguments {
                     let Expr::String(tag) = argument else {
                         return None;
                     };
-                    Some(if all {
-                        result && has_tag(tag)
-                    } else {
-                        result || has_tag(tag)
-                    })
-                })?;
+                    match has_tag(tag) {
+                        Some(value) => {
+                            matches = if all {
+                                matches && value
+                            } else {
+                                matches || value
+                            }
+                        }
+                        None => unknown = true,
+                    }
+                }
+                if unknown && matches == all {
+                    return None;
+                }
                 Some(BlockStateValue::Number(f32::from(u8::from(matches))))
             },
             &|_, _| None,
@@ -325,6 +340,24 @@ impl MolangCompiler {
             }),
             Program::Complex(_) => None,
         }
+    }
+
+    /// Evaluates an interned condition with one query supplied by a regression fixture.
+    #[cfg(test)]
+    pub fn evaluate_query(&self, index: u32, query: &str, value: f32) -> Option<f32> {
+        let source = self
+            .interned
+            .iter()
+            .find(|(_, candidate)| **candidate == index)?
+            .0;
+        let Program::Simple(expression) = parse(source).ok()? else {
+            return None;
+        };
+        fold_with(&expression, &|read| match read {
+            Expr::Query(name, None) if name.as_ref() == query => Some(value),
+            Expr::Query(..) | Expr::Variable(..) => Some(0.0),
+            _ => None,
+        })
     }
 
     pub fn add_name(&mut self, name: &str) -> Result<(), AssetError> {

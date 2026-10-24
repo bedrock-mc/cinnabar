@@ -535,6 +535,7 @@ fn overlay_cache_reuses_the_previous_session_compile() {
             sound: None,
             name: "cache:test".into(),
             tags: Default::default(),
+            tags_complete: true,
             state_count: 1,
             collides: true,
             collision_boxes: None,

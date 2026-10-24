@@ -60,7 +60,7 @@ func TestWorldNoticesAndAcknowledgmentsBypassExhaustedDataBudgets(t *testing.T) 
 			conn := f.conn.(*Conn)
 			count, size := MaxMessagesPerSecond, 0
 			if budget == "bytes" {
-				count, size = 1, MaxBytesPerSecond
+				count, size = 3, MaxBurstBytes/3
 			}
 			for range count {
 				for _, rate := range []*RateLimit{&conn.egress, &conn.ingress.rate} {
@@ -113,6 +113,47 @@ func TestWorldControlsPreserveDataCredits(t *testing.T) {
 	}
 }
 
+// TestQueuedWorldAcknowledgmentsUseFenceCredits covers older notices and cumulative retirement.
+func TestQueuedWorldAcknowledgmentsUseFenceCredits(t *testing.T) {
+	for _, budget := range []string{"messages", "bytes"} {
+		t.Run(budget, func(t *testing.T) {
+			f, _ := readyFixture(t)
+			c := f.conn.(*Conn)
+			for _, rate := range []*RateLimit{&c.egress, &c.ingress.rate} {
+				if budget == "messages" {
+					rate.messages = 0
+				} else {
+					rate.bytes = 0
+				}
+			}
+			var notices []Control
+			for _, world := range []WorldID{"sample:first", "sample:second", "sample:third"} {
+				before := len(f.carrier())
+				if !f.s.WorldChanged(f.player, world) || len(f.carrier()) != before+1 {
+					t.Fatal("queued notice spent exhausted data credit")
+				}
+				notices = append(notices, f.lastWorldNotice())
+			}
+			first, last := notices[0], notices[len(notices)-1]
+			f.deliver(f.encode(worldAcknowledgment(first, first.Epoch.WorldEpoch)))
+			if c.phase != active || c.fence.AllowsTraffic() {
+				t.Fatal("older outstanding acknowledgment failed or opened a later fence")
+			}
+			f.deliver(f.encode(worldAcknowledgment(last, last.Epoch.WorldEpoch)))
+			if c.phase != active || !c.fence.AllowsTraffic() {
+				t.Fatal("latest outstanding acknowledgment did not retire the queued notices")
+			}
+			if f.sendToClient(1) {
+				t.Fatal("world controls refilled exhausted outbound data credit")
+			}
+			f.deliver(f.encode(worldAcknowledgment(first, first.Epoch.WorldEpoch)))
+			if c.phase != fallenBack {
+				t.Fatal("retired acknowledgment bypassed exhausted inbound data credit")
+			}
+		})
+	}
+}
+
 func TestReplayedWorldAcknowledgmentsConsumeDataBudgets(t *testing.T) {
 	for _, outstanding := range []bool{false, true} {
 		for _, budget := range []string{"messages", "bytes"} {
@@ -128,7 +169,7 @@ func TestReplayedWorldAcknowledgmentsConsumeDataBudgets(t *testing.T) {
 				count := MaxMessagesPerSecond
 				if budget == "bytes" {
 					ack = append(ack, bytes.Repeat([]byte(" "), MaxEnvelopeBytes-len(ack))...)
-					count = MaxBytesPerSecond / len(ack)
+					count = MaxBurstBytes / len(ack)
 				}
 				for range count {
 					f.deliver(ack)

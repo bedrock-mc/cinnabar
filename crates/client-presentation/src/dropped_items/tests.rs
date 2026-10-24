@@ -178,7 +178,7 @@ fn retained_items_and_falling_blocks_resolve_the_current_session_palette() {
     for internal in [7, 6] {
         let stream = stream(false, internal);
         assert_eq!(
-            item_block_id(&stream, visual),
+            item_block_id(&stream, visual, None, None),
             Some((NetworkIdMode::Sequential, internal))
         );
         assert_eq!(
@@ -211,7 +211,9 @@ fn retained_items_and_falling_blocks_preserve_high_bit_hashes() {
             &stream,
             ItemVisualRoute::RetainedBlock {
                 block_runtime_id: raw
-            }
+            },
+            None,
+            None,
         ),
         Some((NetworkIdMode::Hashed, hash)),
     );
@@ -231,12 +233,318 @@ fn compiled_block_item_and_tnt_visuals_are_already_internal() {
     let stream = stream(false, 7);
     let visual = ItemVisualRoute::BlockItem(assets::BlockVisualId(1));
     assert_eq!(
-        item_block_id(&stream, visual),
+        item_block_id(&stream, visual, None, None),
         Some((NetworkIdMode::Sequential, 1))
     );
     assert_eq!(
         entity_block_id(&stream, &BlockEntityKind::PrimedTnt { visual }),
         Some((NetworkIdMode::Sequential, 1, 1.0)),
+    );
+}
+
+#[test]
+fn dropped_crossed_plants_use_sprites_while_falling_blocks_keep_their_model() {
+    let cross = assets::BlockVisual {
+        faces: [0; 6],
+        flags: assets::BlockFlags::empty(),
+        kind: VisualKind::Cross,
+        support: assets::VisualSupport::Exact,
+        contributor_role: assets::ContributorRole::Primary,
+        model_template: 0,
+        animation: assets::NO_ANIMATION,
+        variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
+    };
+    let quad = assets::ModelQuad {
+        positions: [[0, 256, 0], [256, 256, 256], [256, 0, 256], [0, 0, 0]],
+        uvs: [[0, 0], [4096, 0], [4096, 4096], [0, 4096]],
+        material: 0,
+        flags: assets::MODEL_QUAD_FLAG_TWO_SIDED,
+    };
+    let overlay = assets::BlockOverlay {
+        visuals: vec![
+            cross,
+            assets::BlockVisual {
+                kind: VisualKind::Cube,
+                flags: assets::BlockFlags::CUBE_GEOMETRY,
+                model_template: assets::NO_MODEL_TEMPLATE,
+                ..cross
+            },
+        ],
+        light_properties: vec![assets::LightProperties::default(); 2],
+        materials: vec![assets::Material::unvaried()],
+        model_templates: vec![assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        model_quads: vec![quad],
+        ..Default::default()
+    };
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &overlay)
+        .unwrap();
+    let stream = stream(false, 1);
+    for visual in [
+        ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 1,
+        },
+    ] {
+        assert_eq!(item_block_id(&stream, visual, None, Some(&assets)), None);
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(2)),
+            None,
+            Some(&assets),
+        ),
+        Some((NetworkIdMode::Sequential, 2)),
+    );
+    assert!(block_template(&assets, NetworkIdMode::Sequential, 1).is_some());
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1,
+            },
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0)),
+    );
+}
+
+#[test]
+fn dropped_lantern_and_chain_variants_use_sprites_without_changing_other_block_routes() {
+    let stream = stream(false, 1);
+    let visuals = [
+        ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 1,
+        },
+    ];
+    let registry = protocol::vanilla_item_registry();
+    let sprites: Vec<_> = registry
+        .iter()
+        .filter(|entry| {
+            matches!(
+                assets::facts::block_render_fact(&entry.identifier).kind,
+                assets::facts::BlockRenderKind::Lantern | assets::facts::BlockRenderKind::Chain
+            )
+        })
+        .collect();
+    for family in [
+        assets::facts::BlockRenderKind::Lantern,
+        assets::facts::BlockRenderKind::Chain,
+    ] {
+        assert!(
+            sprites
+                .iter()
+                .any(|entry| assets::facts::block_render_fact(&entry.identifier).kind == family)
+        );
+    }
+    for entry in sprites {
+        for visual in visuals {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(&entry.identifier), None),
+                None,
+                "{} must use its carried sprite",
+                entry.identifier,
+            );
+        }
+    }
+    for identifier in [
+        "minecraft:sea_lantern",
+        "minecraft:stone",
+        "cinnabar:lantern",
+        "cinnabar:chain",
+    ] {
+        for visual in visuals {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                Some((NetworkIdMode::Sequential, 1)),
+                "{identifier} must keep its block route",
+            );
+        }
+    }
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1,
+            },
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0)),
+    );
+}
+
+#[test]
+fn dropped_carried_sprite_families_do_not_use_their_placed_models() {
+    let stream = stream(false, 1);
+    let registry = protocol::vanilla_item_registry();
+    let entries: Vec<_> = registry
+        .iter()
+        .filter(|entry| {
+            matches!(
+                assets::facts::block_render_fact(&entry.identifier).kind,
+                assets::facts::BlockRenderKind::Bamboo
+                    | assets::facts::BlockRenderKind::CoralFan
+                    | assets::facts::BlockRenderKind::DefaultRail
+                    | assets::facts::BlockRenderKind::LeafLitter
+                    | assets::facts::BlockRenderKind::ResinClump
+                    | assets::facts::BlockRenderKind::TripwireHook
+            )
+        })
+        .collect();
+    assert!(!entries.is_empty());
+    for entry in entries {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(&entry.identifier), None),
+                None,
+                "{}",
+                entry.identifier
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1))
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}
+
+#[test]
+fn dropped_flat_block_families_keep_their_carried_sprite_routes() {
+    let stream = stream(false, 1);
+    let registry = protocol::vanilla_item_registry();
+    let entries: Vec<_> = registry
+        .iter()
+        .filter(|entry| {
+            matches!(
+                assets::facts::block_render_fact(&entry.identifier).kind,
+                assets::facts::BlockRenderKind::Ladder
+                    | assets::facts::BlockRenderKind::LilyPad
+                    | assets::facts::BlockRenderKind::SeaPickle
+            )
+        })
+        .collect();
+    assert!(!entries.is_empty());
+    for entry in entries {
+        assert!(
+            assets::facts::block_render_fact(&entry.identifier).flat_icon,
+            "{} must declare its carried presentation",
+            entry.identifier
+        );
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(&entry.identifier), None),
+                None,
+                "{}",
+                entry.identifier
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1))
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}
+
+#[test]
+fn dropped_torches_use_sprites_and_keep_the_identity_guard_current() {
+    let registry = protocol::vanilla_item_registry();
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let torches: std::collections::BTreeSet<_> = registry
+        .iter()
+        .filter(|entry| {
+            records.iter().any(|record| {
+                record.name.as_ref() == entry.identifier.as_ref()
+                    && record.model_family == assets::ModelFamily::Torch
+            })
+        })
+        .map(|entry| entry.identifier.as_ref())
+        .collect();
+    assert_eq!(
+        assets::facts::TORCH_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        torches
+    );
+    let stream = stream(false, 1);
+    for identifier in torches {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier}"
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1)),
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
     );
 }
 
@@ -430,4 +738,65 @@ fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
         assert_eq!(material.texture, group.texture);
         assert_eq!(material.variation_weight, weight.to_bits());
     }
+}
+
+#[test]
+fn dropped_powered_rails_use_sprites_and_keep_the_identity_guard_current() {
+    let registry = protocol::vanilla_item_registry();
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let rails: std::collections::BTreeSet<_> = registry
+        .iter()
+        .filter(|entry| {
+            records.iter().any(|record| {
+                record.name.as_ref() == entry.identifier.as_ref()
+                    && record.model_family == assets::ModelFamily::Rail
+                    && assets::facts::block_render_fact(&record.name).kind
+                        != assets::facts::BlockRenderKind::DefaultRail
+            })
+        })
+        .map(|entry| entry.identifier.as_ref())
+        .collect();
+    assert_eq!(
+        assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        rails
+    );
+    let stream = stream(false, 1);
+    for identifier in rails {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier}"
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1)),
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
 }

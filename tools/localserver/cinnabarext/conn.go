@@ -101,6 +101,11 @@ type Conn struct {
 	sequence uint64
 	// deliveryMu keeps preparation behind callbacks already admitted on the old world.
 	deliveryMu sync.Mutex
+	// controls retains the newest reply per route in this connection and epoch.
+	controls         map[Route]Record
+	retryingControls bool
+	// rejectedControls counts controls that cannot fit the maximum encoded burst.
+	rejectedControls uint64
 }
 
 // ReadPacket returns the next packet that is not on the carrier, handling carrier messages on the
@@ -207,12 +212,13 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 		envelope, err = c.ingress.Receive(data, nowMs, c.fence.Epoch(), c.grant)
 	} else {
 		msg, controlErr := control(data)
-		// Only acknowledgments of queued published notices bypass data credits.
-		if ack := msg.WorldAck; controlErr == nil && ack != nil &&
-			c.fence.Outstanding(ack.RequestedEpoch) && ack.Session == c.session {
-			return nil, c.changeEpoch(msg)
+		matchingNotice := controlErr == nil && msg.WorldAck != nil &&
+			c.fence.Outstanding(msg.WorldAck.RequestedEpoch) && msg.WorldAck.Session == c.session
+		class := RateData
+		if controlErr == nil {
+			class = msg.RateClass(ToServer, matchingNotice)
 		}
-		if err = c.ingress.charge(len(data), nowMs); err == nil {
+		if err = c.ingress.chargeClass(class, len(data), nowMs); err == nil {
 			if controlErr == nil {
 				return nil, c.changeEpoch(msg)
 			}
@@ -246,7 +252,14 @@ func (c *Conn) changeEpoch(msg Control) error {
 		if c.fence.Outstanding(ack.RequestedEpoch) && c.ingress.open() {
 			return errors.New("epoch inside a fragmented message")
 		}
-		return c.fence.Acknowledge(ack.RequestedEpoch, ack.WorldEpoch)
+		before := c.fence.Epoch()
+		if err := c.fence.Acknowledge(ack.RequestedEpoch, ack.WorldEpoch); err != nil {
+			return err
+		}
+		if c.fence.Epoch() != before {
+			clear(c.controls)
+		}
+		return nil
 	}
 	e := msg.Epoch
 	switch {
@@ -257,7 +270,11 @@ func (c *Conn) changeEpoch(msg Control) error {
 	case c.ingress.open():
 		return errors.New("epoch inside a fragmented message")
 	}
-	return c.fence.Advance(e.WorldEpoch)
+	if err := c.fence.Advance(e.WorldEpoch); err != nil {
+		return err
+	}
+	clear(c.controls)
+	return nil
 }
 
 // control decodes a handshake message of at most a carrier message's size.
@@ -355,7 +372,7 @@ func selectWire(h *Hello) (Wire, error) {
 	case WireVersion:
 		return v1Wire, nil
 	}
-	limits := HostLimits.lowest(h.Wire.Limits)
+	limits := HostLimits.lowest(h.Wire.Limits).fitRate()
 	if !limits.ordered() {
 		return Wire{}, fmt.Errorf("unusable wire limits %+v", h.Wire.Limits)
 	}
@@ -424,21 +441,35 @@ func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
 func (c *Conn) SendRecordAt(epoch uint64, exp, channel string, schema uint16, payload []Scalar) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.retired || epoch != 0 && epoch != c.hostEpoch || c.phase != active || !c.fence.AllowsTraffic() {
+	if c.retired || epoch != 0 && epoch != c.hostEpoch {
 		return false
+	}
+	if len(c.controls) != 0 && !c.retryControlTick() {
+		return false
+	}
+	return c.sendLocked(exp, channel, schema, payload) == nil
+}
+
+// sendLocked validates and sends while the caller holds c.mu, distinguishing rate refusal.
+func (c *Conn) sendLocked(exp, channel string, schema uint16, payload []Scalar) error {
+	if c.retired || c.phase != active || !c.fence.AllowsTraffic() {
+		return errors.New("control recipient unavailable")
 	}
 	now := c.s.now()
 	if uint64(now.Unix()) >= c.expires {
 		c.fallBack(errors.New("the grant expired"))
-		return false
+		return errors.New("the grant expired")
 	}
 	recipient, ok := c.grant.Recipients[exp]
 	if !ok || !recipient.Permissions.Has(PermissionMessaging) || c.sequence == ^uint64(0) {
-		return false
+		return errors.New("control route unavailable")
 	}
 	i := slices.IndexFunc(recipient.Channels, func(ch Channel) bool { return ch.ID == channel && ch.Schema == schema })
-	if i < 0 || recipient.Channels[i].Validate(payload, ToClient, int(c.wire.Limits.MaxMessageBytes)) != nil {
-		return false
+	if i < 0 {
+		return errors.New("undeclared channel")
+	}
+	if err := recipient.Channels[i].Validate(payload, ToClient, int(c.wire.Limits.MaxMessageBytes)); err != nil {
+		return err
 	}
 	messages, err := EncodeEnvelope(Envelope{
 		Version:    c.wire.Version,
@@ -454,23 +485,23 @@ func (c *Conn) SendRecordAt(epoch uint64, exp, channel string, schema uint16, pa
 		Payload:    payload,
 	}, c.wire)
 	if err != nil {
-		return false
+		return err
 	}
 	sizes := make([]int, len(messages))
 	for i, data := range messages {
 		sizes[i] = len(data)
 	}
-	if c.egress.ChargeAll(sizes, uint64(now.UnixMilli())) != nil {
-		return false
+	if err := c.egress.ChargeAll(sizes, uint64(now.UnixMilli())); err != nil {
+		return err
 	}
 	for _, data := range messages {
 		if err := c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data}); err != nil {
 			c.fallBack(err)
-			return false
+			return err
 		}
 	}
 	c.sequence++
-	return true
+	return nil
 }
 
 // Retire discards every transfer and grant owned by this connection, even before Hello.
@@ -505,6 +536,7 @@ func (c *Conn) fallBack(reason error) {
 	if c.phase == fallenBack {
 		return
 	}
+	clear(c.controls)
 	c.phase = fallenBack
 	c.fence.Disable()
 	c.grant, c.ingress = nil, nil

@@ -70,7 +70,9 @@ fn stopping_swim_keeps_old_low_box_liquid_contact_for_first_standing_tick() {
                 &mut state,
                 MovementInput {
                     jumping: true,
-                    liquid_contact_height: Some(MovementMode::Swimming.hitbox_height(false)),
+                    liquid_contact_height: Some(
+                        MovementMode::Swimming.hitbox_height(false, sim::SneakProfile::Current),
+                    ),
                     ..MovementInput::default()
                 },
                 &world,
@@ -107,7 +109,9 @@ fn entering_swim_senses_old_standing_box_and_moves_with_the_new_low_box() {
                 mode: MovementMode::Swimming,
                 jumping: true,
                 liquid_attach_height: Some(1.5),
-                liquid_contact_height: Some(MovementMode::Walking.hitbox_height(false)),
+                liquid_contact_height: Some(
+                    MovementMode::Walking.hitbox_height(false, sim::SneakProfile::Current),
+                ),
                 ..MovementInput::default()
             },
             &world,
@@ -132,7 +136,9 @@ fn old_box_only_queries_remain_bounded_and_transactional() {
             &mut state,
             MovementInput {
                 mode: MovementMode::Swimming,
-                liquid_contact_height: Some(MovementMode::Walking.hitbox_height(false)),
+                liquid_contact_height: Some(
+                    MovementMode::Walking.hitbox_height(false, sim::SneakProfile::Current),
+                ),
                 ..MovementInput::default()
             },
             &world,
@@ -168,7 +174,9 @@ fn captured_contact_height_survives_prediction_replay_and_rejects_invalid_values
             &mut state,
             MovementInput {
                 jumping: true,
-                liquid_contact_height: Some(MovementMode::Swimming.hitbox_height(false)),
+                liquid_contact_height: Some(
+                    MovementMode::Swimming.hitbox_height(false, sim::SneakProfile::Current),
+                ),
                 ..MovementInput::default()
             },
             &simulator,

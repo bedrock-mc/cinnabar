@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 from constraints import render as render_constraints
+from rate import render as render_rate
 
 ROOT = Path(__file__).resolve().parents[3]
 SCHEMA = Path(__file__).with_name('extension.json')
@@ -202,6 +203,9 @@ def outputs(schema):
     rules_rust,rules_go=render_constraints(schema)
     for module,text in rules_rust.items(): rust.setdefault(module,[]).append(text)
     for module,text in rules_go.items(): go.setdefault(module,[]).append(text)
+    rate_rust, rate_go = render_rate(schema)
+    rust.setdefault('rate_limit', []).append(rate_rust)
+    go.setdefault('rate', []).append(rate_go)
     constants=[]
     for c in schema['constants']:
         if c['module']: rust.setdefault(c['module'],[]).append(f"pub const {c['name']}: {c['type']} = {c['value']};\n")
@@ -212,6 +216,10 @@ def outputs(schema):
                 value=re.search(r'pub const '+c['external']['name']+r': [^=]+ = ([^;]+);',source).group(1)
             if value.startswith('b"'): value=value[1:]
             value=value.replace('\\0','\\x00')
+            value=re.sub(r' as (u64|usize)', '', value)
+            for dependency in schema['constants']:
+                if dependency.get('name') and dependency.get('go'):
+                    value=re.sub(r'\b'+dependency['name']+r'\b', dependency['go'], value)
             constants.append(f"{c['go']} = {value}")
     result={Path('tools/localserver/cinnabarext/limits.go'):HEADER+'package cinnabarext\nconst(\n'+'\n'.join(constants)+f"\nmaxDepth={schema['json']['recursion_limit']}\n)\n"}
     for module,parts in rust.items():
@@ -227,7 +235,7 @@ def outputs(schema):
             before,after=source.split(f'include!("contract/{module}.rs");\n',1)
         result[path]=before+begin+generated+end+after
     for module,parts in go.items():
-        imports={'manifest':['fmt','slices','strings'], 'negotiation':[], 'crypto':[], 'session':['fmt'], 'wire':['errors','fmt','slices','strconv']}[module]
+        imports={'manifest':['fmt','slices','strings'], 'negotiation':[], 'crypto':[], 'session':['fmt'], 'wire':['errors','fmt','slices','strconv'], 'rate':['errors']}[module]
         result[Path(f'tools/localserver/cinnabarext/contract_{module}_generated.go')]=HEADER+'package cinnabarext\n'+('import('+''.join(json.dumps(i)+'\n' for i in imports)+')\n' if imports else '')+'\n'.join(parts)
     control = next(enum for enum in schema['enums'] if enum['name'] == 'Control')
     notices = dict(control, name='ExperienceControl', derive='Clone, Debug, Deserialize, Serialize, PartialEq, Eq',

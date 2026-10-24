@@ -8,12 +8,12 @@ use server_experience::{
     manifest::{Manifest, Permission, developer_permissions},
     negotiation::Grant,
     policy::*,
-    rate_limit::RateLimit,
+    rate_limit::{RateClass, RateExceeded, RateLimit},
     runtime::{Budget, CALLBACK_INTERVAL_MS, Capabilities, Command, Contributions, Principal},
     screen::{self, GuiSize},
     session::Control,
     session_data::{SessionData, SessionItems},
-    wire::{self, Envelope, Ingress},
+    wire::{self, Direction, Envelope, Ingress},
 };
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -22,6 +22,8 @@ use std::{
 };
 
 mod modal;
+mod scheduling;
+use scheduling::CallbackQueue;
 
 struct Instance<H> {
     helper: Option<H>,
@@ -30,12 +32,16 @@ struct Instance<H> {
     owner: Principal,
     contributions: Contributions,
     busy: bool,
+    /// The caller-owned event awaiting an acknowledgement from this helper.
+    pending: Option<u64>,
+    /// While set, only registry confirmation may run guest code.
+    waiting_for: Option<String>,
     /// The bundle's verified templates and textures, shared with the modal presenter.
     files: Arc<screen::Files>,
     /// When its modal last opened, so the most recent one draws on top.
     opened: u64,
-    /// Host callbacks (modal actions) waiting for the helper, oldest first.
-    events: VecDeque<Event>,
+    /// All callbacks retained for this recipient until acknowledged.
+    queue: CallbackQueue,
     /// The world epoch of its pending callback, which that callback's transaction carries.
     epoch: u64,
     /// When its recent callbacks failed, in milliseconds, oldest first.
@@ -59,6 +65,7 @@ impl<H: Worker> Instance<H> {
         event: Event,
         epoch: u64,
         gui: Option<GuiSize>,
+        pending: u64,
     ) -> Result<()> {
         let Some(helper) = &mut self.helper else {
             return Ok(());
@@ -82,6 +89,7 @@ impl<H: Worker> Instance<H> {
         })?;
         self.items_sent = revision.or(self.items_sent);
         self.busy = true;
+        self.pending = Some(pending);
         self.epoch = epoch;
         Ok(())
     }
@@ -103,13 +111,16 @@ impl<H> Instance<H> {
     }
 
     /// Ends the client part for `why`: its helper, its contributions and its waiting events go,
-    /// and so does its budget.
-    fn stop(&mut self, budget: &mut Budget, why: &'static str) {
+    /// and so does its budget. Invalidates the cached scene when contributions are cleared.
+    fn stop(&mut self, budget: &mut Budget, scene_revision: &mut u64, why: &'static str) {
         self.helper = None;
         self.component = None;
         self.busy = false;
-        self.events.clear();
+        self.pending = None;
+        self.waiting_for = None;
+        self.queue.clear();
         self.contributions = Contributions::default();
+        *scene_revision += 1;
         budget.quarantine(&self.owner);
         self.stopped = Some(why);
     }
@@ -119,6 +130,10 @@ impl<H> Instance<H> {
 const STOPPED_AFTER_ERRORS: &str = "after repeated errors";
 /// What the trusted status says of a client part that failed to start.
 const STOPPED_AT_START: &str = "because it failed to start";
+/// What the trusted status says when a helper cannot continue.
+const STOPPED_AT_HELPER_FAILURE: &str = "because its helper failed";
+/// What the trusted status says when reliable callback retention cannot continue.
+const STOPPED_AT_OVERFLOW: &str = "because its callback queue overflowed";
 
 pub(super) struct Live<H = Helper> {
     grant: Grant,
@@ -128,8 +143,10 @@ pub(super) struct Live<H = Helper> {
     screens_built: Option<(u64, u64)>,
     scene_revision: u64,
     instances: BTreeMap<String, Instance<H>>,
+    /// The last dispatched recipient, so the next slice starts with its successor.
+    last_recipient: Option<String>,
     executable: PathBuf,
-    pending_sends: VecDeque<Vec<u8>>,
+    pending_sends: VecDeque<Vec<Vec<u8>>>,
     pending_send_bytes: usize,
     budget: Budget,
     ingress: Ingress,
@@ -138,6 +155,8 @@ pub(super) struct Live<H = Helper> {
     slice_ms: u64,
     ready: bool,
     epoch: u64,
+    /// The latest epoch notification, retained until its encoded cost is admitted.
+    pending_control: Option<Control>,
     /// Counts modal openings across bundles.
     modal_order: u64,
     /// Last native world epoch, tracked separately from server-requested logical epochs.
@@ -198,9 +217,11 @@ impl<H: Worker> Live<H> {
                     owner,
                     contributions: Contributions::default(),
                     busy,
+                    pending: None,
+                    waiting_for: None,
                     files: Arc::new(files),
                     opened: 0,
-                    events: VecDeque::new(),
+                    queue: CallbackQueue::default(),
                     epoch,
                     strikes: VecDeque::new(),
                     stopped: None,
@@ -217,6 +238,7 @@ impl<H: Worker> Live<H> {
             screens_built: None,
             scene_revision: 0,
             instances,
+            last_recipient: None,
             executable: executable.to_owned(),
             pending_sends: VecDeque::new(),
             pending_send_bytes: 0,
@@ -227,6 +249,7 @@ impl<H: Worker> Live<H> {
             slice_ms: now_ms,
             ready: false,
             epoch,
+            pending_control: None,
             modal_order: 0,
             native_epoch: epoch,
             requested_epoch: None,
@@ -240,21 +263,20 @@ impl<H: Worker> Live<H> {
     /// Publishes complete transactions only; failure revokes every contribution in this preview.
     pub(super) fn poll(&mut self, epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
         let mut packets = Vec::new();
-        let requested = self.requested_epoch.take();
-        if epoch != self.native_epoch || requested.is_some() {
-            let next = self
-                .epoch
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("world epoch exhausted"))?;
-            self.change_epoch(
-                next.max(requested.unwrap_or(next)),
-                requested,
-                now_ms,
-                &mut packets,
-            )?;
-            self.native_epoch = epoch;
+        self.set_epoch(epoch)?;
+        if let Some(control) = &self.pending_control {
+            let bytes = serde_json::to_vec(control)?;
+            // Every locally produced acknowledgment names the admitted outstanding notice.
+            let class = control.rate_class(Direction::ToServer, true);
+            if let Err(error) = self.egress.charge_class(class, bytes.len(), now_ms) {
+                if error.is::<RateExceeded>() {
+                    return Ok(packets);
+                }
+                return Err(error);
+            }
+            self.pending_control = None;
+            packets.push(bytes);
         }
-        let epoch = self.epoch;
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
             self.budget.begin_slice();
@@ -273,8 +295,18 @@ impl<H: Worker> Live<H> {
                 continue;
             };
             instance.busy = false;
+            if !matches!(&result, Ok(Reply::NotReady { .. })) {
+                if let Some(id) = instance.pending.take() {
+                    instance.queue.acknowledge(id);
+                }
+            } else {
+                instance.pending = None;
+            }
             let transaction = match result {
                 Ok(Reply::Committed { transaction, fuel }) => {
+                    if instance.waiting_for.take().is_some() {
+                        instance.queue.replay();
+                    }
                     bevy::log::debug!(
                         bundle = %instance.owner.bundle,
                         callback = instance.callback,
@@ -283,15 +315,47 @@ impl<H: Worker> Live<H> {
                     );
                     transaction
                 }
+                Ok(Reply::NotReady {
+                    transaction,
+                    confirmation,
+                }) => {
+                    instance.waiting_for = Some(confirmation);
+                    transaction
+                }
                 Ok(Reply::Failed(failure)) => {
-                    failed(instance, &mut self.budget, &failure, now_ms);
-                    self.scene_revision += 1;
+                    failed(
+                        instance,
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &failure,
+                        now_ms,
+                    );
                     continue;
                 }
+                Ok(Reply::Recovered {
+                    failure,
+                    transaction,
+                    confirmation,
+                }) => {
+                    instance.waiting_for = confirmation;
+                    failed(
+                        instance,
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &failure,
+                        now_ms,
+                    );
+                    if instance.stopped.is_some() {
+                        continue;
+                    }
+                    transaction
+                }
                 Err(error) => {
-                    self.budget.quarantine(&instance.owner);
-                    instance.contributions = Contributions::default();
-                    self.scene_revision += 1;
+                    instance.stop(
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        STOPPED_AT_HELPER_FAILURE,
+                    );
                     return Err(error);
                 }
             };
@@ -333,15 +397,16 @@ impl<H: Worker> Live<H> {
                         world_epoch: instance.epoch,
                         payload: record,
                     };
-                    for bytes in wire::encode(&send, &self.grant.wire)? {
-                        ensure!(
-                            self.pending_sends.len() < MAX_QUEUE_MESSAGES
-                                && bytes.len() <= MAX_QUEUE_BYTES - self.pending_send_bytes,
-                            "outbound initialization queue overflow"
-                        );
-                        self.pending_send_bytes += bytes.len();
-                        self.pending_sends.push_back(bytes);
-                    }
+                    let messages = wire::encode(&send, &self.grant.wire)?;
+                    let cost = RateClass::Data.cost(messages.iter().map(Vec::len))?;
+                    let queued: usize = self.pending_sends.iter().map(Vec::len).sum();
+                    ensure!(
+                        messages.len() <= MAX_QUEUE_MESSAGES.saturating_sub(queued)
+                            && cost.bytes as usize <= MAX_QUEUE_BYTES - self.pending_send_bytes,
+                        "outbound initialization queue overflow"
+                    );
+                    self.pending_send_bytes += cost.bytes as usize;
+                    self.pending_sends.push_back(messages);
                     self.sequence = self
                         .sequence
                         .checked_add(1)
@@ -351,6 +416,7 @@ impl<H: Worker> Live<H> {
         }
         if !self.ready && self.instances.values().all(|instance| !instance.busy) {
             self.ready = true;
+            self.pending_control = None;
             packets.push(serde_json::to_vec(&Control::Ready {
                 session: self.grant.session.clone(),
                 packages: self
@@ -373,66 +439,37 @@ impl<H: Worker> Live<H> {
             })?);
         }
         if self.ready {
-            while let Some(bytes) = self.pending_sends.pop_front() {
-                self.pending_send_bytes -= bytes.len();
-                self.egress.charge(bytes.len(), now_ms)?;
-                packets.push(bytes);
+            while let Some(messages) = self.pending_sends.front() {
+                if let Err(error) = self
+                    .egress
+                    .charge_all(messages.iter().map(Vec::len), now_ms)
+                {
+                    if error.is::<RateExceeded>() {
+                        break;
+                    }
+                    return Err(error);
+                }
+                let messages = self.pending_sends.pop_front().expect("front checked");
+                self.pending_send_bytes -= messages.iter().map(Vec::len).sum::<usize>();
+                packets.extend(messages);
             }
-            self.deliver_events(epoch)?;
-            while let Some((bundle, record)) = self.media.next_event() {
-                let Some(instance) = self.instances.get_mut(&bundle) else {
-                    continue;
-                };
-                if instance.stopped.is_some() {
-                    continue;
-                }
-                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                    self.media.defer_event((bundle, record));
-                    break;
-                }
-                self.budget.dispatch(&instance.owner)?;
-                let event = Event::Message {
-                    channel: super::media::EVENT_CHANNEL.into(),
-                    record,
-                };
-                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
-            }
-            while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
-                let instance = self
-                    .instances
-                    .get_mut(&message.bundle)
-                    .ok_or_else(|| anyhow::anyhow!("unknown bundle"))?;
-                if instance.stopped.is_some() {
-                    self.ingress.pop(u64::MAX, epoch);
-                    continue;
-                }
-                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                    break;
-                }
-                let message = self.ingress.pop(u64::MAX, epoch).expect("front checked");
-                self.budget.dispatch(&instance.owner)?;
-                let event = Event::Message {
-                    channel: message.channel,
-                    record: serde_json::to_vec(&message.payload)?,
-                };
-                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
-            }
+            self.schedule()?;
         }
         Ok(packets)
     }
 
-    /// Keeps a wire v2 runtime through a world epoch change: once Ready has named the old epoch,
-    /// an `epoch` update or a notice-specific `world_ack` names the new one ahead of every later
-    /// send, and each guest is called back to resend its state. A v1 session cannot continue.
-    fn change_epoch(
-        &mut self,
-        epoch: u64,
-        requested: Option<u64>,
-        now_ms: u64,
-        packets: &mut Vec<Vec<u8>>,
-    ) -> Result<()> {
+    /// Applies native world changes and coalesced server notices before admitting callbacks.
+    pub(super) fn set_epoch(&mut self, native_epoch: u64) -> Result<()> {
+        let requested = self.requested_epoch.take();
+        if native_epoch == self.native_epoch && requested.is_none() {
+            return Ok(());
+        }
+        let epoch = self
+            .epoch
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("world epoch exhausted"))?
+            .max(requested.unwrap_or(0));
+        self.native_epoch = native_epoch;
         ensure!(
             self.grant.wire.version != WIRE_VERSION,
             "world epoch changed; extension snapshot required"
@@ -440,7 +477,13 @@ impl<H: Worker> Live<H> {
         self.epoch = epoch;
         if self.ready {
             let session = self.grant.session.clone();
-            let control = serde_json::to_vec(&match requested {
+            let acknowledgment = requested.or(match &self.pending_control {
+                Some(Control::WorldAck {
+                    requested_epoch, ..
+                }) => Some(*requested_epoch),
+                _ => None,
+            });
+            self.pending_control = Some(match acknowledgment {
                 Some(requested_epoch) => Control::WorldAck {
                     session,
                     world_epoch: epoch,
@@ -450,22 +493,23 @@ impl<H: Worker> Live<H> {
                     session,
                     world_epoch: epoch,
                 },
-            })?;
-            if requested.is_none() {
-                self.egress.charge(control.len(), now_ms)?;
-            }
-            packets.push(control);
+            });
         }
-        for instance in self.instances.values_mut() {
-            let guest = instance.helper.is_some() || instance.component.is_some();
-            if guest
-                && !instance
-                    .events
-                    .iter()
-                    .any(|event| matches!(event, Event::Epoch))
-            {
-                instance.events.push_back(Event::Epoch);
-            }
+        self.gui = None;
+        let recipients: Vec<_> = self
+            .instances
+            .iter()
+            .filter(|(_, instance)| instance.helper.is_some() || instance.component.is_some())
+            .map(|(bundle, _)| bundle.clone())
+            .collect();
+        for bundle in recipients {
+            let instance = self.instances.get_mut(&bundle).unwrap();
+            instance.shift = None;
+            self.ingress.stale = self
+                .ingress
+                .stale
+                .saturating_add(instance.queue.filter_epoch(epoch, instance.pending));
+            self.enqueue(&bundle, Event::Epoch, epoch);
         }
         Ok(())
     }
@@ -496,17 +540,43 @@ impl<H: Worker> Live<H> {
         &mut self,
         message: &protocol::ExperienceMessage,
         now_ms: u64,
+        epoch: u64,
     ) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
-        if let Some(epoch) = self.ingress.receive_epoch_request(message, &self.grant)? {
-            self.requested_epoch = Some(self.requested_epoch.unwrap_or(0).max(epoch));
+        if let Some(requested) = self
+            .ingress
+            .receive_epoch_request(message, &self.grant, now_ms)?
+        {
+            self.requested_epoch = Some(self.requested_epoch.unwrap_or(0).max(requested));
             return Ok(());
         }
+        self.set_epoch(epoch)?;
+        let bytes = message.as_bytes();
         let instances = &self.instances;
-        self.ingress
-            .receive(message.as_bytes(), now_ms, 0, &self.grant, |id| {
-                instances.get(id).map(|instance| &instance.capabilities)
-            })
+        let result = self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
+            instances.get(id).map(|instance| &instance.capabilities)
+        });
+        if let Err(error) = &result
+            && let Some(overflow) = error.downcast_ref::<wire::QueueOverflow>()
+        {
+            if let Some(instance) = self.instances.get_mut(&overflow.bundle) {
+                instance.stop(
+                    &mut self.budget,
+                    &mut self.scene_revision,
+                    STOPPED_AT_OVERFLOW,
+                );
+            }
+            return Ok(());
+        }
+        result?;
+        while let Some(message) = self.ingress.take_committed(u64::MAX) {
+            let event = Event::Message {
+                channel: message.channel,
+                record: serde_json::to_vec(&message.payload)?,
+            };
+            self.enqueue(&message.bundle, event, message.world_epoch);
+        }
+        Ok(())
     }
 
     /// Whether a guest may read the session's items, which [`Live::set_session`] then supplies.
@@ -601,8 +671,14 @@ impl<H: Worker> Live<H> {
 }
 
 /// Drops the failed callback's transaction and logs why; a failed start, or the strike that
-/// reaches the limit, stops the client part.
-fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFailure, now_ms: u64) {
+/// reaches the limit stops the client part.
+fn failed<H>(
+    instance: &mut Instance<H>,
+    budget: &mut Budget,
+    scene_revision: &mut u64,
+    failure: &CallFailure,
+    now_ms: u64,
+) {
     bevy::log::warn!(
         bundle = %failure.bundle,
         callback = %failure.callback,
@@ -617,14 +693,19 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
         STOPPED_AFTER_ERRORS
     } else {
         // A restarted guest must refresh retained UI even when Shift is released.
-        instance.shift = instance.events.iter().find_map(|event| match event {
-            Event::Shift { held } => Some(*held),
-            _ => None,
-        });
+        instance.shift = instance
+            .queue
+            .entries
+            .iter()
+            .rev()
+            .find_map(|entry| match &entry.event {
+                Event::Shift { held } => Some(*held),
+                _ => None,
+            });
         return;
     };
     bevy::log::warn!(bundle = %instance.owner.bundle, "client part stopped {why}");
-    instance.stop(budget, why);
+    instance.stop(budget, scene_revision, why);
 }
 
 /// What the guest of `manifest` may do in this session: the offer's scope narrowed to the

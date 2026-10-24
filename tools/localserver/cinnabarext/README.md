@@ -103,16 +103,18 @@ fence opens.
 
 The fence takes effect before the notice is written. Notices and their correlated
 acknowledgments bypass the data rate budget, so exhausted data credits cannot delay
-a transfer. One state machine per connection queues every committed admission and
-publishes its notices in order when the client part activates, even during a later
-preparation. Acknowledging a notice retires it and all earlier admissions. Aborting
-discards only the preparation; it never removes a committed notice. Initial login
-placement needs no travel notice. The fence stays closed until there is no
-preparation or unacknowledged notice. Retired and repeated acknowledgments leave that fence unchanged but consume the normal data
-budget; exceeding it ends the optional session. There are no
-retry timers. A write failure ends the optional client part while ordinary play
-continues. `WorldChanged` returns false when there is no usable v2 session or the
-world ID is empty.
+a transfer. Native epoch updates consume ordinary credit on both sides. The shared
+extension schema defines the traffic classes and encoded carrier costs. One state
+machine per connection queues every committed admission and publishes its notices
+in order when the client part activates, even during a later preparation.
+Acknowledging a notice retires it and all earlier admissions. Aborting discards
+only the preparation; it never removes a committed notice. Initial login placement
+needs no travel notice. The fence stays closed until there is no preparation or
+unacknowledged notice. Retired and repeated acknowledgments leave that fence
+unchanged but consume the normal data budget; exceeding it ends the optional
+session. World notices have no retry timers. A write failure ends the optional
+client part while ordinary play continues. `WorldChanged` returns false when
+there is no usable v2 session or the world ID is empty.
 
 Native dimension changes and explicit notices both advance the logical epoch.
 Logical epochs are independent of the native dimension counter. The client never

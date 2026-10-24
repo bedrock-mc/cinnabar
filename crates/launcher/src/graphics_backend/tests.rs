@@ -14,24 +14,15 @@ fn adapter(vendor: u32, integrated: bool) -> Adapter {
 }
 
 #[test]
-fn vendor_defaults_follow_the_render_adapter() {
-    for integrated in [false, true] {
-        let intel = adapter(INTEL_PCI_VENDOR, integrated);
-        assert_eq!(
-            default_order(Platform::Windows, &intel),
-            [Backend::Dx12, Backend::Vulkan]
-        );
-        for platform in [Platform::Linux, Platform::Android] {
-            assert_eq!(default_order(platform, &intel), [Backend::Vulkan]);
-        }
-        assert_eq!(default_order(Platform::Macos, &intel), [Backend::Metal]);
+fn windows_defaults_to_dx12_then_vulkan() {
+    assert_eq!(
+        Platform::Windows.backends(),
+        [Backend::Dx12, Backend::Vulkan]
+    );
+    for platform in [Platform::Linux, Platform::Android] {
+        assert_eq!(platform.backends(), [Backend::Vulkan]);
     }
-    for vendor in [0x10de, 0x1002] {
-        assert_eq!(
-            default_order(Platform::Windows, &adapter(vendor, false)),
-            [Backend::Vulkan, Backend::Dx12]
-        );
-    }
+    assert_eq!(Platform::Macos.backends(), [Backend::Metal]);
 }
 
 #[test]
@@ -39,8 +30,8 @@ fn precedence_respects_overrides_defaults_and_sentinel() {
     let defaults = Platform::Windows.backends();
     assert_eq!(candidates(defaults, defaults, None, None, &[]), defaults);
     assert_eq!(
-        candidates(defaults, defaults, None, None, &[Backend::Vulkan]),
-        [Backend::Dx12]
+        candidates(defaults, defaults, None, None, &[Backend::Dx12]),
+        [Backend::Vulkan]
     );
     assert_eq!(
         candidates(

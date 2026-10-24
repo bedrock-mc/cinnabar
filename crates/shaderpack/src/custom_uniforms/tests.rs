@@ -56,6 +56,32 @@ fn no_builtins(_: &str) -> Option<UniformValue> {
     None
 }
 
+#[test]
+fn float_aliases_follow_forward_references_and_preserve_conversions() {
+    let mut uniforms = compile_ok(&[
+        "uniform.float.focus = depth",
+        "variable.float.depth = centerDepthSmooth",
+        "uniform.float.direct = centerDepthSmooth",
+        "uniform.int.rounded = depth",
+        "uniform.float.converted = rounded",
+        "uniform.float.computed = 1.0 - depth",
+        "uniform.float.unrelated = frameTime",
+        "uniform.vec2.vector = vec2(depth, depth)",
+    ]);
+    let aliases = uniforms.float_aliases("centerDepthSmooth");
+    assert_eq!(aliases.len(), 2);
+    assert!(aliases.contains(&"focus"));
+    assert!(aliases.contains(&"direct"));
+    assert!(uniforms.float_aliases("unknown").is_empty());
+    let results = uniforms.evaluate(
+        &builtins(&[("centerDepthSmooth", UniformValue::Float(0.625))]),
+        0.0,
+    );
+    for name in ["focus", "direct"] {
+        assert_eq!(get(results, name), UniformValue::Float(0.625));
+    }
+}
+
 /// Returns the named result or fails the test.
 fn get(results: &[(String, UniformValue)], name: &str) -> UniformValue {
     results

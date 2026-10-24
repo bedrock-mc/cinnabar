@@ -81,6 +81,7 @@ fn chat(
     let suggestions: Vec<_> = suggestions.iter().map(|text| Arc::from(*text)).collect();
     let data = chat_data(
         &ChatInput {
+            local_player: "Alex",
             editor: &editor,
             messages: &VecDeque::new(),
             suggestions: &suggestions,
