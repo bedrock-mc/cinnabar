@@ -46,8 +46,6 @@ pub(super) struct ControllerFrame {
     pub environment: sim::MovementEnvironment,
     /// Climber flags captured before this tick consumes local input.
     pub entry_climber: Option<ClimberFlags>,
-    /// Accepted per-bit server edits consumed before this tick's input.
-    pub climber_write: climber_authority::ClimberWrite,
     /// Block-climber flags reported by the prediction sync after this tick.
     pub climber: Option<ClimberFlags>,
 }

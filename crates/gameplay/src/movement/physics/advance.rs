@@ -220,6 +220,7 @@ impl LocalPhysicsController {
                     let previous = self.live_climber;
                     let climber = ClimberFlags::after_tick(&input, &result.environment, previous);
                     self.live_climber = climber;
+                    self.pending_climber = Default::default();
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
@@ -252,7 +253,6 @@ impl LocalPhysicsController {
                         modes: self.modes,
                         environment: result.environment,
                         entry_climber: previous,
-                        climber_write: std::mem::take(&mut self.pending_climber),
                         climber,
                     };
                     controller.finish_eye(&mut self.eye_offset, state);
