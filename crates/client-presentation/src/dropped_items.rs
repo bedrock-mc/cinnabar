@@ -129,7 +129,8 @@ fn item_block_id(
                 | assets::facts::BlockRenderKind::Ladder
                 | assets::facts::BlockRenderKind::LilyPad
                 | assets::facts::BlockRenderKind::SeaPickle
-        )
+        ) || assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
     }

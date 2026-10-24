@@ -244,10 +244,6 @@ pub(super) fn apply_style_and_visibility(
             || crate::presentation::skin_layers::is_skin_layer(identity.layer)
             || identity.layer >= crate::presentation::entity_layers::ACTOR_LAYER_TEXTURE_BASE)
             && actor.is_some_and(|actor| actor.is_invisible())
-            && !submission
-                .material
-                .state
-                .is_some_and(|state| state.alpha_test && state.emissive && state.only_emissive)
         {
             submission.route = render_model::ActorRigRoute::NoDraw;
         }

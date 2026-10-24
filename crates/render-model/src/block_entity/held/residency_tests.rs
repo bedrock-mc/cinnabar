@@ -17,6 +17,10 @@ fn texture_names(kind: HeldBlockEntity) -> Vec<String> {
         HeldBlockEntity::Statue(oxidation) => {
             geometry::heads::statue_textures(oxidation.age()).into()
         }
+        HeldBlockEntity::Lectern => geometry::LECTERN_TEXTURES
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         HeldBlockEntity::Skull(kind) => vec![head_texture(kind).to_owned()],
     }
 }
@@ -227,4 +231,25 @@ fn held_head_geometry_changes_invalidate_prepared_identity() {
         &first.raster().unwrap().rgba8,
         &second.raster().unwrap().rgba8
     ));
+}
+
+#[test]
+fn held_lectern_reuses_the_stand_with_volume_and_a_sloped_board() {
+    let kind = HeldBlockEntity::from_item("minecraft:lectern")
+        .expect("lectern items need their stand model");
+    assert_eq!(kind, HeldBlockEntity::Lectern);
+    let atlas = atlas_with_textures(texture_names(kind).into_iter());
+    let model = held_block_entity_model(EntityRigId(1), &atlas, kind).unwrap();
+    let vertices = &model.geometry.vertices;
+    let first = vertices.first().unwrap();
+    let origin = glam::Vec3::from(first.position);
+    let normal = glam::Vec3::from(first.normal);
+    assert!(vertices.iter().any(|vertex| {
+        normal.dot(glam::Vec3::from(vertex.position) - origin).abs() > f32::EPSILON
+    }));
+    assert!(
+        vertices
+            .iter()
+            .any(|vertex| { vertex.normal[1].abs() > 0.1 && vertex.normal[2].abs() > 0.1 })
+    );
 }

@@ -1,8 +1,8 @@
-//! Block-entity items held in hand: chests, shulker boxes, decorated pots, conduits and heads drawn
-//! as their placed models, closed and at rest, centred in the unit block the held cube uses.
+//! Block-entity items held in hand as their placed models, closed and at rest, centred in
+//! the unit block the held cube uses.
 //!
 //! Provisional: the native item renderer's pose for these models (front facing and lid state)
-//! is unmeasured; they face south like placed blocks with default facing.
+//! is unmeasured; each model keeps its placed rest state.
 
 use std::sync::Arc;
 
@@ -39,6 +39,8 @@ pub enum HeldBlockEntity {
     Conduit,
     /// The standing statue with its oxidation artwork.
     Statue(Oxidation),
+    /// The lectern stand without a book.
+    Lectern,
     Skull(SkullKind),
 }
 
@@ -103,6 +105,7 @@ impl HeldBlockEntity {
             BlockEntityRenderer::DecoratedPot => Some(Self::DecoratedPot),
             BlockEntityRenderer::Conduit => Some(Self::Conduit),
             BlockEntityRenderer::Statue => Oxidation::from_block_name(identifier).map(Self::Statue),
+            BlockEntityRenderer::Lectern => Some(Self::Lectern),
             _ => None,
         }
     }
@@ -116,6 +119,7 @@ impl HeldBlockEntity {
             Self::Chest(ChestVariantKey::Ender),
             Self::DecoratedPot,
             Self::Conduit,
+            Self::Lectern,
         ];
         all.extend((0..4).map(|age| Self::Chest(ChestVariantKey::Copper(age))));
         all.extend(
@@ -202,6 +206,7 @@ impl HeldBlockEntity {
                     },
                 );
             }
+            Self::Lectern => super::book::emit_lectern(builder, atlas, block, 0.0, false),
             Self::Skull(kind) => skull::emit(
                 builder,
                 atlas,
@@ -629,6 +634,7 @@ mod tests {
             "minecraft:oxidized_copper_chest",
             "minecraft:decorated_pot",
             "minecraft:conduit",
+            "minecraft:lectern",
         ]
         .into_iter()
         .map(String::from)
