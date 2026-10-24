@@ -4,8 +4,8 @@ use super::{
     ATMOSPHERE_COMPILE_COMMAND, AssetStartupError, ENTITY_ASSETS_COMPILE_COMMAND,
     FONT_ASSETS_COMPILE_COMMAND, FONT_SOURCE_JSON, LOCAL_FONT_ASSETS_COMPILE_COMMAND,
     LoadedAtmosphereAssets, LoadedEntityAssets, LoadedFontAssets, MAX_ATMOSPHERE_BLOB_BYTES,
-    MAX_ENTITY_ASSET_BLOB_BYTES, MAX_FONT_ASSET_BLOB_BYTES, VANILLA_SOURCE_JSON,
-    atmosphere_asset_path, canonical_source_manifest_sha256, entity_asset_path, font_asset_path,
+    MAX_FONT_ASSET_BLOB_BYTES, VANILLA_SOURCE_JSON, atmosphere_asset_path,
+    canonical_source_manifest_sha256, entity_asset_path, font_asset_path,
     font_fallback::diagnostic_font_assets, format_sha256, local_font_asset_path, world_provenance,
 };
 use crate::{RuntimeAtmosphereAssets, RuntimeEntityAssets, RuntimeFontCatalog};
@@ -65,6 +65,8 @@ pub(super) fn load_entity_assets(
     world_asset_path: &Path,
 ) -> Result<LoadedEntityAssets, AssetStartupError> {
     let path = entity_asset_path(world_asset_path);
+    // Any carrier the encoder accepts must load; a separate startup cap would go stale.
+    let limit = crate::MAX_ENTITY_CARRIER_BYTES as u64;
     let file = File::open(&path).map_err(|source| AssetStartupError::EntityAssetsRead {
         path: path.clone(),
         source,
@@ -78,25 +80,25 @@ pub(super) fn load_entity_assets(
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         })?
         .len();
-    if length > MAX_ENTITY_ASSET_BLOB_BYTES {
+    if length > limit {
         return Err(AssetStartupError::EntityAssetsTooLarge {
             path,
-            max_bytes: MAX_ENTITY_ASSET_BLOB_BYTES,
+            max_bytes: limit,
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         });
     }
     let mut bytes = Vec::with_capacity(length as usize);
-    file.take(MAX_ENTITY_ASSET_BLOB_BYTES + 1)
+    file.take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|source| AssetStartupError::EntityAssetsRead {
             path: path.clone(),
             source,
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         })?;
-    if bytes.len() as u64 > MAX_ENTITY_ASSET_BLOB_BYTES {
+    if bytes.len() as u64 > limit {
         return Err(AssetStartupError::EntityAssetsTooLarge {
             path,
-            max_bytes: MAX_ENTITY_ASSET_BLOB_BYTES,
+            max_bytes: limit,
             rebuild_command: ENTITY_ASSETS_COMPILE_COMMAND,
         });
     }
@@ -287,12 +289,12 @@ pub(super) fn load_atmosphere_assets(
     })
 }
 
-#[cfg(all(test, not(windows)))]
-mod review_tests {
+#[cfg(test)]
+mod entity_tests {
     use super::*;
 
     #[test]
-    fn entity_startup_accepts_large_valid_catalogs() {
+    fn entity_startup_accepts_every_catalog_the_encoder_emits() {
         let mut compiled = super::super::test_carriers::synthetic_entity_assets(1);
         let dependencies = (0..crate::MAX_ENTITY_DEPENDENCIES)
             .map(|index| crate::EntityDependency {
@@ -322,15 +324,21 @@ mod review_tests {
             .unwrap_or_else(|error| panic!("load valid catalog: {error}"));
         assert_eq!(loaded.runtime().symbols().len(), expected_symbols);
 
+        // The bound covers the header and hash around a maximal catalog payload.
         let file = std::fs::File::create(entity_asset_path(&world)).unwrap();
-        file.set_len(crate::MAX_ENTITY_CATALOG_BYTES as u64 + 1)
+        file.set_len(crate::MAX_ENTITY_CARRIER_BYTES as u64 + 1)
             .unwrap();
         assert!(matches!(
             load_entity_assets(&world),
             Err(AssetStartupError::EntityAssetsTooLarge { max_bytes, .. })
-                if max_bytes == crate::MAX_ENTITY_CATALOG_BYTES as u64
+                if max_bytes == crate::MAX_ENTITY_CARRIER_BYTES as u64
         ));
     }
+}
+
+#[cfg(all(test, not(windows)))]
+mod review_tests {
+    use super::*;
 
     #[test]
     fn review_rebuild_paths_cannot_expand_make_shell_functions() {

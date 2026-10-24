@@ -101,6 +101,8 @@ const MAX_ENTITY_GEOMETRY_INHERITANCE_DEPTH: usize = 64;
 
 const HEADER_BYTES: usize = 80;
 const HASH_BYTES: usize = 32;
+/// Largest entity carrier the encoder can emit, and therefore the startup read bound.
+pub const MAX_ENTITY_CARRIER_BYTES: usize = HEADER_BYTES + MAX_ENTITY_CATALOG_BYTES + HASH_BYTES;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[repr(u8)]
