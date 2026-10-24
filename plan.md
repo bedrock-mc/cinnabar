@@ -226,7 +226,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   same publication limits and poll deadline. Staged worker completions receive a bounded
   share first, so fresh removals cannot starve staged empty or geometry results. Geometry
   preparation waits for worker and result capacity while urgent reserves and independent
-  removals retain service.
+  removals retain service. Eviction skips a second removal for settled air with an
+  acknowledged GPU publication; dirty or unfinished sections still publish removals.
   Late blob replies for retired transactions no longer discard valid, still-needed
   blobs in the same response. Sustained high-speed hardware qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream
