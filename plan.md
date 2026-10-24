@@ -306,10 +306,11 @@ client-predicted vehicle behavior. Riding alone does not establish that capabili
 The block climber rewrites its contact flags after each movement tick; the descent
 action reads the retained contact before movement. Prediction sync reports those values
 with newer accepted server flag edits, which retained corrections also apply before input
-on replay. Unconsumed per-bit climber edits survive unrelated replays until a local tick
-consumes them. Powder snow uses the mover's contextual query, including step and sneak-edge
-checks: snow-standing wearers get the full block, and falls over 2.5 blocks get the 0.9
-fall-into shape. Replay refreshes historical fall distance while preserving the live value
+on replay. Per-bit climber edits survive unrelated replays before and after a local tick
+consumes them, including unstamped edits. Powder snow uses the mover's contextual query,
+including step and sneak-edge checks: snow-standing wearers get the full block, and falls
+over 2.5 blocks get the 0.9 fall-into shape. Replay refreshes historical fall distance
+while preserving the live value
 through spatial copy-back and snaps. No-move ticks preserve it unless an action or contact
 clears it. Flight toggles, bubble columns, honey sliding and water entry clear it at their
 movement phases; lava halves the retained distance before the current drop, and slow glide

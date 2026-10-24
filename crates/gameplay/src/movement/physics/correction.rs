@@ -278,7 +278,7 @@ impl LocalPhysicsController {
                             .iter()
                             .any(|write| matches!(write, posture::ServerWrite::Replacement(..)))
                     {
-                        frame.entry_climber = climber;
+                        frame.entry_climber = frame.climber_write.apply_flags(climber);
                     }
                     if let Some(climber) = frame.entry_climber {
                         climber.apply(state, ClimberFlags::mask());
