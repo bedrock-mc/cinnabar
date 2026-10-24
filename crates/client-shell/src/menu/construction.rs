@@ -169,6 +169,9 @@ impl MenuRuntime {
             auth_restart_requested: false,
             account_core: None,
             layout,
+            default_player_skin: player_skin
+                .default_fallback
+                .then(|| player_skin.standard_skin()),
             player_skin,
             dressing_room: initial.dressing_room,
             dressing_room_worker: None,

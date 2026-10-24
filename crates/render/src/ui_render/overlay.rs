@@ -213,6 +213,10 @@ pub(super) fn queue_ui_overlay(
     if gpu.batches.is_empty() || gpu.vertex_buffer.is_none() || gpu.index_buffer.is_none() {
         return;
     }
+    let needs_invert = gpu
+        .batches
+        .iter()
+        .any(|batch| batch.blend_mode == UI_BLEND_INVERT);
     let needs_models = gpu
         .batches
         .iter()
@@ -240,12 +244,17 @@ pub(super) fn queue_ui_overlay(
             gpu.view_pipelines.remove(&view_entity);
             continue;
         };
-        let Ok(invert_pipeline_id) = pipeline
-            .variants
-            .specialize(&pipeline_cache, hud_invert_pipeline_key(camera.hdr))
-        else {
-            gpu.view_pipelines.remove(&view_entity);
-            continue;
+        let invert_pipeline_id = if needs_invert {
+            let Ok(id) = pipeline
+                .variants
+                .specialize(&pipeline_cache, hud_invert_pipeline_key(camera.hdr))
+            else {
+                gpu.view_pipelines.remove(&view_entity);
+                continue;
+            };
+            id
+        } else {
+            pipeline_id
         };
         cache_view_pipeline_pair(
             &mut gpu.view_pipelines,
@@ -271,6 +280,13 @@ pub(super) fn queue_ui_overlay(
             for (depth_test, depth_write) in
                 [(false, false), (true, false), (false, true), (true, true)]
             {
+                if !gpu.batches.iter().any(|batch| {
+                    batch.isolated_depth_scope.is_some()
+                        && (batch.depth_test != 0, batch.depth_write != 0)
+                            == (depth_test, depth_write)
+                }) {
+                    continue;
+                }
                 let key = UiPipelineKey {
                     msaa: *msaa,
                     hdr: camera.hdr,
@@ -281,10 +297,19 @@ pub(super) fn queue_ui_overlay(
                     isolated_depth: true,
                     attached_depth: false,
                 };
+                let invert = gpu.batches.iter().any(|batch| {
+                    batch.isolated_depth_scope.is_some()
+                        && batch.blend_mode == UI_BLEND_INVERT
+                        && (batch.depth_test != 0, batch.depth_write != 0)
+                            == (depth_test, depth_write)
+                });
                 let pair = pipeline
                     .variants
                     .specialize(&pipeline_cache, key)
                     .and_then(|alpha| {
+                        if !invert {
+                            return Ok((alpha, alpha));
+                        }
                         pipeline
                             .variants
                             .specialize(

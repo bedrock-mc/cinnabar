@@ -64,6 +64,9 @@ pub(crate) struct BlockUseContext<'w, 's> {
 
 /// Drains physical interactions before physics, then advances held placement once.
 pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
+    if !world.contains_resource::<PhysicsCollisionRegistries>() {
+        return;
+    }
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
@@ -242,3 +245,13 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
 mod published_tests;
+
+#[cfg(test)]
+mod startup_tests {
+    #[test]
+    fn input_maintenance_waits_for_deferred_world_resources() {
+        let mut world = bevy::prelude::World::new();
+        super::produce_block_use(&mut world);
+        assert!(!world.contains_resource::<crate::ordered_interactions::InteractionRuntime>());
+    }
+}

@@ -146,6 +146,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
+	if err := cfg.configureBlockGallery(&conf); err != nil {
+		if exps != nil {
+			err = errors.Join(err, exps.closeSupervisors())
+		}
+		return fmt.Errorf("prepare block gallery: %w", err)
+	}
 	if cfg.holograms {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = hologramListener(listen)

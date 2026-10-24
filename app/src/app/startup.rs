@@ -1,5 +1,8 @@
 //! Startup carrier loading and required registry verification.
+mod menu;
 mod timing;
+pub(crate) mod world;
+pub(super) use menu::begin;
 pub(super) use timing::install_first_frame_log;
 use timing::{LoadTimes, join};
 
@@ -91,14 +94,14 @@ pub(super) struct AudioCarriers {
 }
 
 /// Startup carriers loaded before `run`, with the paths they were read from.
-struct Preloaded {
+struct Preloaded<T> {
     world: PathBuf,
     physics_registry: PathBuf,
-    carriers: StartupCarriers,
+    carriers: T,
 }
 
 /// The latest preload, until `run` takes or setup discards it.
-static PRELOADED: Mutex<Option<Preloaded>> = Mutex::new(None);
+static PRELOADED: Mutex<Option<Preloaded<menu::MenuBoot>>> = Mutex::new(None);
 
 /// Loads the default startup carriers for the next `run`. A preload of the same files is kept
 /// unless `rewritten` says setup has since rewritten them.
@@ -109,18 +112,18 @@ pub(crate) fn preload(layout: &InstallLayout, rewritten: bool) {
         selection,
         &layout.physics_registry,
         rewritten,
-        load_startup_carriers,
+        menu::load,
     );
 }
 
 /// Fills `slot` with `load`'s carriers unless it already holds a current preload of the same
 /// files. A stale preload is released before loading, so two sets are never held at once.
-fn preload_into(
-    slot: &Mutex<Option<Preloaded>>,
+fn preload_into<T>(
+    slot: &Mutex<Option<Preloaded<T>>>,
     selection: AssetSelection,
     physics_registry: &Path,
     rewritten: bool,
-    load: impl FnOnce(AssetSelection, &Path) -> StartupCarriers,
+    load: impl FnOnce(AssetSelection, &Path) -> T,
 ) {
     {
         let mut held = slot.lock().unwrap_or_else(PoisonError::into_inner);
@@ -150,26 +153,12 @@ pub(crate) fn discard_preloaded() {
         .take();
 }
 
-/// Returns the preloaded carriers when they were read from these paths, otherwise loads them,
-/// then publishes their process-wide catalogs for this run.
-pub(super) fn take_or_load_startup_carriers(
-    selection: AssetSelection,
-    physics_registry: &Path,
-) -> StartupCarriers {
-    let mut carriers = take_preloaded(&PRELOADED, &selection.path, physics_registry)
-        .unwrap_or_else(|| load_startup_carriers(selection, physics_registry));
-    if let Ok(core) = &mut carriers.core {
-        core.publish();
-    }
-    carriers
-}
-
 /// Empties `slot`, returning its carriers only when they were read from these paths.
-fn take_preloaded(
-    slot: &Mutex<Option<Preloaded>>,
+fn take_preloaded<T>(
+    slot: &Mutex<Option<Preloaded<T>>>,
     world: &Path,
     physics_registry: &Path,
-) -> Option<StartupCarriers> {
+) -> Option<T> {
     let preloaded = slot.lock().unwrap_or_else(PoisonError::into_inner).take()?;
     (preloaded.world == world && preloaded.physics_registry == physics_registry)
         .then_some(preloaded.carriers)
@@ -179,7 +168,9 @@ fn take_preloaded(
 fn load_startup_carriers(selection: AssetSelection, physics_registry: &Path) -> StartupCarriers {
     let start = Instant::now();
     let times = LoadTimes::default();
-    let carriers = load_with(selection, physics_registry, &times);
+    let carriers = render_scene::startup_timing::measure("carriers", || {
+        load_with(selection, physics_registry, &times)
+    });
     bevy::log::info!("{}", times.summary(start.elapsed()));
     carriers
 }
@@ -254,6 +245,11 @@ fn load_core(
     times: &LoadTimes,
 ) -> Result<CoreCarriers, AssetStartupError> {
     let assets = asset_startup::load_runtime_assets_observed(selection, times)?;
+    finish_core(assets, times)
+}
+
+/// Binds actor and equipment artwork to one admitted entity catalog.
+fn finish_core(assets: LoadedAssets, times: &LoadTimes) -> Result<CoreCarriers, AssetStartupError> {
     let authored_texture_loading =
         crate::render_mode::authored_textures::AuthoredTextureLoading::new(
             Arc::clone(&assets.runtime),
@@ -476,7 +472,7 @@ mod carrier_tests {
         let directory = Directory::new("preload");
         let physics = directory.0.join("absent-physics.bin");
         let slot = Mutex::new(None);
-        let preload = |slot: &Mutex<Option<Preloaded>>| {
+        let preload = |slot: &Mutex<Option<Preloaded<StartupCarriers>>>| {
             *slot.lock().unwrap() = Some(Preloaded {
                 world: directory.world(),
                 physics_registry: physics.clone(),
