@@ -1,4 +1,5 @@
 //! Import buttons open the platform file picker on their worker thread.
+#[cfg(any(not(any(windows, target_os = "android")), test))]
 use std::path::PathBuf;
 mod picked;
 pub use picked::PickedFile;
