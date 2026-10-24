@@ -395,7 +395,8 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
-  Dropped crossed plants, lanterns and chains use their carried sprites; falling blocks retain their world models.
+  Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps
+  and hooks use their carried sprites; falling blocks retain their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
@@ -412,7 +413,8 @@ and rendered qualification remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
-  Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand; their dropped presentation remains incomplete.
+  Hooks, eyeblossoms and pitcher plants use carried sprites in slots and either hand;
+  dropped eyeblossoms and pitcher plants remain incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
