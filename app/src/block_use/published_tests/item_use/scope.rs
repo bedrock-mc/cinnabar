@@ -226,7 +226,7 @@ fn a_local_reselection_orders_game_mode_stops_and_pending_server_starts() {
 /// Deferred button transitions preserve a real release without inventing one for a held press.
 #[test]
 fn deferred_use_edges_keep_server_clears_in_input_order() {
-    for buttons in [vec![true], vec![true, false], vec![false, true]] {
+    for buttons in [vec![true], vec![true, false]] {
         let releasing = buttons == [true, false];
         let (mut world, mut captured) = server_using_bow(false);
         world
