@@ -367,7 +367,15 @@ fn recovery_output_and_failure_fit_one_reply() {
             failure,
             transaction,
             confirmation: None,
-            references: Vec::new(),
+            references: vec![
+                mod_render::retained::EntityKey {
+                    session: u64::MAX,
+                    dimension: i32::MIN,
+                    runtime_id: u64::MAX,
+                    spawn_revision: u64::MAX,
+                };
+                mod_api::MAX_DRAW_ENTITIES
+            ],
         },
         "fixture",
         "dispatch",

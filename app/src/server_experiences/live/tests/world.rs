@@ -265,3 +265,46 @@ fn world_notices_require_the_live_session_and_wire_v2() {
         assert_eq!(live.epoch, 1);
     }
 }
+
+/// Server world notices bind drawing to the logical epoch even when native travel has not run.
+#[test]
+fn a_server_world_notice_rebinds_drawing_before_the_epoch_callback() {
+    let mut live = fixture_v2(1);
+    complete(&mut live, "bundle0");
+    live.poll_ready(1, 0).unwrap();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::WorldDraw);
+    instance.helper.as_mut().unwrap().observe_epoch = true;
+    let notice = serde_json::to_vec(&Control::Epoch {
+        session: live.grant.session.clone(),
+        world_epoch: 9,
+    })
+    .unwrap();
+    live.receive(&ExperienceMessage::new(notice), 1, 1).unwrap();
+    live.poll_ready(1, CALLBACK_INTERVAL_MS).unwrap();
+    assert_eq!(live.native_epoch, 1);
+    assert_eq!(live.epoch, 9);
+    let helper = live.instances["bundle0"].helper.as_ref().unwrap();
+    assert_eq!(helper.dispatched, [Event::Epoch]);
+    assert_eq!(helper.contexts.last().unwrap().epoch, 9);
+    assert_eq!(live.drawing_fence.unwrap().1, 9);
+    live.poll_ready(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert!(live.instances["bundle0"].stopped.is_none());
+    live.poll_ready(2, 3 * CALLBACK_INTERVAL_MS).unwrap();
+    assert_eq!(live.epoch, 10);
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .contexts
+            .last()
+            .unwrap()
+            .epoch,
+        10
+    );
+}

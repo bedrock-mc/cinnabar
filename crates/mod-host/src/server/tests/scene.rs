@@ -53,7 +53,8 @@ fn legacy_only_snapshots_keep_their_objects_while_new_callbacks_change_the_scene
     host.store.data_mut().commit_scene().unwrap();
     assert!(host.take_presentation(4096).unwrap().is_none());
     host.dispatch(&Event::Epoch, 2, &drawing_context(2))
-        .unwrap();
+        .unwrap()
+        .into_transaction();
     let rebound = host.take_presentation(4096).unwrap().unwrap();
     let output: crate::presentation::Output = serde_json::from_slice(&rebound.bytes).unwrap();
     assert!(output.scene.is_empty());

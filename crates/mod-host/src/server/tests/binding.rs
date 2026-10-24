@@ -111,7 +111,8 @@ fn dispatch_refuses_unbound_stale_or_foreign_drawing_contexts() {
         );
     }
     host.dispatch(&Event::Frame, 1, &drawing_context(1))
-        .unwrap();
+        .unwrap()
+        .into_transaction();
 }
 
 /// Creates a canonical drawing instance through a real bundle host's shared imports.

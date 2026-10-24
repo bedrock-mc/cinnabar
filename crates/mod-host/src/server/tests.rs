@@ -3,7 +3,7 @@ use server_experience::manifest::{Permission, Scope};
 use std::collections::BTreeSet;
 
 /// Supplies an empty, bound native context for guests that do not observe actors.
-fn drawing_context(epoch: u64) -> crate::presentation::Context {
+pub(super) fn drawing_context(epoch: u64) -> crate::presentation::Context {
     crate::presentation::Context {
         connection: 1,
         epoch,

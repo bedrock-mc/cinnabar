@@ -72,7 +72,8 @@ Per-session budgets prevent multiplying allowances by adding bundles. Initializa
 also consumes the aggregate budget; Ready waits for all initializers.
 
 A failed callback restarts its guest and counts a strike. Repeated failures stop
-that part; other parts continue. Unusable helper output stops its producer; malformed session framing ends the extension.
+that part; other parts continue. Unusable helper output stops its producer; malformed
+session framing ends the extension.
 No WASI, arbitrary network, filesystem, account tokens or raw packets are imported.
 
 ## Callbacks and registry confirmation

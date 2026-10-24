@@ -210,6 +210,7 @@ impl<H: Worker> Live<H> {
         let mut instances = BTreeMap::new();
         let mut media = super::media::Media::new(grant.clone(), epoch, media_helper.to_owned());
         let mut channels = 0;
+        let mut scene_revision = 0;
         for mut bundle in bundles {
             let owner = Principal {
                 session: grant.session.clone(),
@@ -280,7 +281,13 @@ impl<H: Worker> Live<H> {
             };
             if let Err(error) = admission {
                 let failure = CallFailure::startup(&instance.owner.bundle, &error);
-                failed(&mut instance, &mut budget, &mut 0, &failure, now_ms);
+                failed(
+                    &mut instance,
+                    &mut budget,
+                    &mut scene_revision,
+                    &failure,
+                    now_ms,
+                );
             }
             instances.insert(instance.owner.bundle.clone(), instance);
         }
@@ -289,7 +296,7 @@ impl<H: Worker> Live<H> {
             media,
             screens: Vec::new(),
             screens_built: None,
-            scene_revision: 0,
+            scene_revision,
             instances,
             last_recipient: None,
             executable: executable.to_owned(),
