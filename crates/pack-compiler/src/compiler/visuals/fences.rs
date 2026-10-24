@@ -2,6 +2,7 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
+use super::geometry::{UvRect, is_horizontal, stretch_uvs};
 use {super::super::*, assets::BlockFace};
 
 pub(in crate::compiler) fn compile_rule(
@@ -152,9 +153,6 @@ fn connected_arm_quads(
     quads
 }
 
-/// A texture region in 1/4096 tile units: `[u0, u1, v0, v1]`.
-type UvRect = [u16; 4];
-
 /// Native `_setBambooFencePostTexture` regions: the top reads u 0.25–0.499 and v 0–0.25,
 /// every side u 0–0.249 over the full height. The bottom flips the top vertically, which
 /// lands on the same orientation as the top in this carrier's down-face convention.
@@ -187,34 +185,6 @@ fn bamboo_fence_arm_quads(material: u32, mask: u32) -> Vec<ModelQuad> {
             stretch_uvs(quad, BAMBOO_SLAT_SIDE, false)
         }
     })
-}
-
-/// Whether a cuboid face is its top or bottom.
-fn is_horizontal(quad: &ModelQuad) -> bool {
-    quad.positions
-        .iter()
-        .all(|position| position[1] == quad.positions[0][1])
-}
-
-/// Replaces a cuboid face's position-derived UVs with `rect`, keeping which corner reads
-/// each end of the region. `quarter_turn` maps the face's v axis onto u and its reversed u
-/// axis onto v.
-fn stretch_uvs(mut quad: ModelQuad, [u0, u1, v0, v1]: UvRect, quarter_turn: bool) -> ModelQuad {
-    let max_u = quad.uvs.iter().map(|uv| uv[0]).max().unwrap_or(0);
-    let max_v = quad.uvs.iter().map(|uv| uv[1]).max().unwrap_or(0);
-    for uv in &mut quad.uvs {
-        let (at_max_u, at_max_v) = (uv[0] == max_u, uv[1] == max_v);
-        let (at_max_u, at_max_v) = if quarter_turn {
-            (at_max_v, !at_max_u)
-        } else {
-            (at_max_u, at_max_v)
-        };
-        *uv = [
-            if at_max_u { u1 } else { u0 },
-            if at_max_v { v1 } else { v0 },
-        ];
-    }
-    quad
 }
 
 #[cfg(test)]
