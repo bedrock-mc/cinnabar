@@ -574,6 +574,13 @@ func await(ctx context.Context, task *world.Task) error {
 // height, loaded or not, with the data of the owned ones, then the members of the anchor's
 // network; nothing for an unanchored call.
 func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
+	snap := h.readFixed(tx, d, ev)
+	h.network(tx, d, ev, &snap)
+	return snap
+}
+
+// readFixed builds every non-truncatable callback field before the network gets its frame budget.
+func (h *Host) readFixed(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	r := tx.Range()
 	snap := snapshot{
 		req: CallbackRequest{
@@ -624,7 +631,6 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	if d.sup != nil && d.sup.registered.Simulation {
 		snap.req.Info.Simulation = h.simulationContext(d.id, ev, d.seq)
 	}
-	h.network(tx, d, ev, &snap)
 	if d.sup != nil && d.sup.registered.Worlds != nil {
 		snap.req.Info.Context = h.worldContext(tx, d, ev, snap.req.Actor)
 	}

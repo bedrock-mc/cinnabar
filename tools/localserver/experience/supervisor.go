@@ -86,8 +86,9 @@ func startSupervisor(binary, dir string, log *slog.Logger, opts startOptions) (*
 
 // Call runs one callback and returns its outcome; it assigns req.Seq itself. Calls run one at a
 // time, each within resultDeadline. A Failed outcome is a strike. A helper fault is a strike too:
-// the helper is killed, reaped and restarted, and Call returns errHelperFault. A quarantined
-// Experience returns errQuarantined without IPC.
+// the helper is killed, reaped and restarted, and Call returns errHelperFault. An encoding
+// failure is counted without IPC or a restart. A quarantined Experience returns errQuarantined
+// without IPC.
 func (s *Supervisor) Call(req CallbackRequest) (Outcome, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -101,6 +102,8 @@ func (s *Supervisor) Call(req CallbackRequest) (Outcome, error) {
 	req.Seq = s.seq
 	body, err := encodeFrame(Request{Callback: &req})
 	if err != nil {
+		s.logger().Warn("callback encoding failed", "seq", req.Seq, "error", err)
+		s.strike()
 		return Outcome{}, fmt.Errorf("encoding callback %d: %w", req.Seq, err)
 	}
 	if s.proc == nil {
