@@ -285,10 +285,13 @@ fn deferred_use_edges_keep_server_clears_in_input_order() {
                 .count(),
             usize::from(releasing)
         );
-        assert!(
-            !transactions
+        assert_eq!(
+            transactions
                 .iter()
-                .any(|transaction| transaction.item_use().is_some())
+                .filter(|transaction| transaction.item_use().is_some())
+                .count(),
+            usize::from(!releasing),
+            "a fresh press may attempt use only after the server cleared the old use: {buttons:?}",
         );
     }
 }
