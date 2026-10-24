@@ -1,6 +1,9 @@
 //! Pure placement invariants shared by world equipment and UI previews.
 
-use super::{ItemDisplay, attach_to_bone, held_block_display, held_sprite_display};
+use super::{
+    ItemDisplay, SpriteGrip, attach_to_bone, held_block_display, held_sprite_display,
+    held_sprite_display_for_hand, held_sprite_grip_display,
+};
 use crate::RenderBoneTransform;
 use glam::{Quat, Vec3};
 
@@ -123,6 +126,32 @@ fn third_person_sword_points_forward_and_up_from_a_hanging_arm() {
     let tip = icon_point(sword, 15.0, 1.0);
     let blade = tip - handle;
     assert!(blade.z < -0.5 && blade.y > 0.0, "{blade}");
+}
+
+#[test]
+fn third_person_rod_points_forward_with_its_line_side_hanging_down() {
+    let rod = held_sprite_grip_display(SpriteGrip::Rod, false);
+    let handle = icon_point(rod, 1.0, 15.0);
+    let tip = icon_point(rod, 15.0, 1.0);
+    let shaft = tip - handle;
+    assert!(shaft.z < -0.5 && shaft.y > 0.0, "{shaft}");
+    // The line hangs from the tip along the art's right edge, below the rod.
+    let line_side = icon_point(rod, 15.0, 15.0) - icon_point(rod, 1.0, 1.0);
+    assert!(line_side.y < -0.5, "{line_side}");
+    let sword = held_sprite_display(true);
+    let sword_side = icon_point(sword, 15.0, 15.0) - icon_point(sword, 1.0, 1.0);
+    assert!(sword_side.y > 0.5, "{sword_side}");
+}
+
+#[test]
+fn off_hand_rod_keeps_the_hand_equipped_grip() {
+    assert_eq!(
+        held_sprite_grip_display(SpriteGrip::Rod, true),
+        held_sprite_display_for_hand(true, true)
+    );
+    assert_eq!(SpriteGrip::new(false, true), SpriteGrip::Rod);
+    assert_eq!(SpriteGrip::new(true, false), SpriteGrip::HandEquipped);
+    assert_eq!(SpriteGrip::new(false, false), SpriteGrip::Flat);
 }
 
 #[test]

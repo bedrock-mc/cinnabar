@@ -14,7 +14,9 @@ use super::frame_raster::{HEIGHT, Image, Target, WIDTH, bone_mat, draw_mesh, row
 use crate::presentation::actors::{actor_rig_presentation, rig_world_from_actor};
 use {
     super::display::{FirstPersonHand, FirstPersonShape, first_person_display, view_bone},
-    render_model::equipment::{attach_to_bone, held_block_display, held_sprite_display},
+    render_model::equipment::{
+        SpriteGrip, attach_to_bone, held_block_display, held_sprite_grip_display,
+    },
 };
 
 const REST: FirstPersonHand = FirstPersonHand {
@@ -211,10 +213,10 @@ fn render_first_person_held_item_frames() {
                 )
                 .unwrap();
                 let display = if third {
-                    held_sprite_display(
-                        assets::item::grip::builtin_item_grip(identifier)
-                            .upright()
-                            .unwrap_or(false),
+                    let grip = assets::item::grip::builtin_item_grip(identifier);
+                    held_sprite_grip_display(
+                        SpriteGrip::new(grip.upright().unwrap_or(false), grip.mirrored_art()),
+                        false,
                     )
                 } else {
                     first_person_display(

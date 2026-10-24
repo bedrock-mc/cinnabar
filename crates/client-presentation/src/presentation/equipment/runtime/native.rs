@@ -2,7 +2,7 @@
 
 use actor_animation::AttachableAnimationInput;
 use assets::{EntityAssetKind, EquipmentBinding};
-use render_model::equipment::{ItemDisplay, attach_to_bone, held_sprite_display_for_hand};
+use render_model::equipment::{ItemDisplay, attach_to_bone, held_sprite_grip_display};
 
 use super::*;
 
@@ -487,7 +487,7 @@ impl EquipmentRuntime {
                 render_model::java_animation::JavaItemMesh::Sprite,
             ))
         } else {
-            held_sprite_display_for_hand(item.grip.upright().unwrap_or(false), input.off_hand)
+            held_sprite_grip_display(item.sprite_grip(), input.off_hand)
         };
         display.scale *= input.main_hand_scale();
         let (Some(previous), Some(current)) = (

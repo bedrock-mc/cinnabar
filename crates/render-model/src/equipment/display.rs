@@ -34,9 +34,35 @@ fn rig_from_reference_bone() -> Mat4 {
     Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0))
 }
 
+/// How a flat sprite item sits in a third-person hand.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SpriteGrip {
+    /// Ordinary items, carried flat.
+    #[default]
+    Flat,
+    /// Hand-equipped items (tools, weapons) held upright like a sword.
+    HandEquipped,
+    /// Rods on a stick (the mirrored-art items). In the main hand vanilla turns their art over
+    /// so the line hangs below the rod; the off hand keeps the hand-equipped grip.
+    Rod,
+}
+
+impl SpriteGrip {
+    /// Chooses the grip from an item's upright flag and mirrored-art (rod) flag.
+    pub const fn new(hand_equipped: bool, rod: bool) -> Self {
+        if rod {
+            Self::Rod
+        } else if hand_equipped {
+            Self::HandEquipped
+        } else {
+            Self::Flat
+        }
+    }
+}
+
 /// Third-person main-hand placement of a flat sprite item on the `rightItem` bone, from the
 /// 26.30 reference's held-item and default item transforms. `hand_equipped` items (tools,
-/// weapons, rods) are held upright like a sword.
+/// weapons) are held upright like a sword.
 pub fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
     held_sprite_display_for_hand(hand_equipped, false)
 }
@@ -44,18 +70,33 @@ pub fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
 /// Vanilla's off-hand item has its own bone-frame offset and
 /// hand-equipped X translation, rather than reflecting the main-hand grip.
 pub fn held_sprite_display_for_hand(hand_equipped: bool, off_hand: bool) -> ItemDisplay {
-    let grip = if hand_equipped {
-        Mat4::from_rotation_y(degrees(180.0))
-            * Mat4::from_translation(Vec3::new(if off_hand { 0.0 } else { 0.1 }, 0.265, 0.0))
-            * Mat4::from_scale(Vec3::splat(0.625))
-            * Mat4::from_rotation_x(degrees(80.0))
-            * Mat4::from_rotation_y(degrees(45.0))
-    } else {
-        Mat4::from_translation(Vec3::new(0.3125, 0.1875, -0.1875))
-            * Mat4::from_scale(Vec3::splat(0.375))
-            * Mat4::from_rotation_z(degrees(60.0))
-            * Mat4::from_rotation_x(degrees(-90.0))
-            * Mat4::from_rotation_z(degrees(20.0))
+    held_sprite_grip_display(SpriteGrip::new(hand_equipped, false), off_hand)
+}
+
+/// Third-person placement of a flat sprite held with `grip` in either hand.
+pub fn held_sprite_grip_display(grip: SpriteGrip, off_hand: bool) -> ItemDisplay {
+    let grip = match grip {
+        SpriteGrip::Rod if !off_hand => {
+            Mat4::from_rotation_x(degrees(165.0))
+                * Mat4::from_translation(Vec3::new(0.1, 0.065, -0.0625))
+                * Mat4::from_scale(Vec3::splat(0.625))
+                * Mat4::from_rotation_x(degrees(80.0))
+                * Mat4::from_rotation_y(degrees(45.0))
+        }
+        SpriteGrip::HandEquipped | SpriteGrip::Rod => {
+            Mat4::from_rotation_y(degrees(180.0))
+                * Mat4::from_translation(Vec3::new(if off_hand { 0.0 } else { 0.1 }, 0.265, 0.0))
+                * Mat4::from_scale(Vec3::splat(0.625))
+                * Mat4::from_rotation_x(degrees(80.0))
+                * Mat4::from_rotation_y(degrees(45.0))
+        }
+        SpriteGrip::Flat => {
+            Mat4::from_translation(Vec3::new(0.3125, 0.1875, -0.1875))
+                * Mat4::from_scale(Vec3::splat(0.375))
+                * Mat4::from_rotation_z(degrees(60.0))
+                * Mat4::from_rotation_x(degrees(-90.0))
+                * Mat4::from_rotation_z(degrees(20.0))
+        }
     };
     let hand_offset = if off_hand {
         Mat4::from_translation(Vec3::new(-0.125, 0.0, 0.0))

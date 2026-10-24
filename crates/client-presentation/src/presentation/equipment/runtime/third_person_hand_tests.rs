@@ -110,3 +110,45 @@ fn native_and_icon_fallback_sprites_keep_the_offhand_grip() {
         }
     }
 }
+
+#[test]
+fn third_person_rods_take_the_rod_grip_in_the_main_hand_only() {
+    use render_model::equipment::{SpriteGrip, held_sprite_grip_display};
+    let (mut runtime, body, mut item) = two_hand_fixture(HeldKind::Sprite, true);
+    item.grip = assets::item::grip::ItemGrip::Session {
+        upright: true,
+        mirrored_art: true,
+    };
+    let layers = runtime.layers_for(
+        &body,
+        &ActorEquipmentInput {
+            main: Some(item.clone()),
+            off: Some(item),
+            ..Default::default()
+        },
+        None,
+    );
+    assert_eq!(layers.len(), 2);
+    for (layer, off_hand) in [(LAYER_MAIN_HAND, false), (LAYER_OFF_HAND, true)] {
+        let expected = attach_to_bone(
+            body.input.current_bones[0],
+            held_sprite_grip_display(SpriteGrip::Rod, off_hand),
+        )
+        .unwrap();
+        let actual = layers
+            .iter()
+            .find(|draw| draw.submission.input.identity.layer == layer)
+            .unwrap();
+        assert_eq!(&*actual.submission.input.current_bones, &[expected]);
+    }
+    let sword = attach_to_bone(
+        body.input.current_bones[0],
+        held_sprite_display_for_hand(true, false),
+    )
+    .unwrap();
+    let main = layers
+        .iter()
+        .find(|draw| draw.submission.input.identity.layer == LAYER_MAIN_HAND)
+        .unwrap();
+    assert_ne!(&*main.submission.input.current_bones, &[sword]);
+}

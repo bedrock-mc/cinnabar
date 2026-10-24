@@ -424,6 +424,9 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
+  Main-hand rods on a stick (the mirrored-art items) take the 26.30 reference's rod grip, so
+  the line side hangs below the rod; offhand rods keep the upright grip. Inventory player
+  previews still hold rods upright, and the grip awaits 1.26.50 and rendered confirmation.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
   sprites; falling blocks retain their world models.

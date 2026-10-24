@@ -4,7 +4,7 @@ use {
     super::*,
     render_model::equipment::{
         BoneChannels, ItemDisplay, attach_to_bone, held_block_display_for_hand,
-        held_sprite_display_for_hand,
+        held_sprite_grip_display,
     },
 };
 
@@ -93,10 +93,7 @@ impl EquipmentRuntime {
         let Some((mesh, location, span)) = self.held_icon_mesh(item) else {
             return;
         };
-        let mut display = held_sprite_display_for_hand(
-            item.grip.upright().unwrap_or(false),
-            layer == LAYER_OFF_HAND,
-        );
+        let mut display = held_sprite_grip_display(item.sprite_grip(), layer == LAYER_OFF_HAND);
         display.scale *= scale;
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
@@ -317,10 +314,7 @@ impl EquipmentRuntime {
             if block {
                 held_block_display_for_hand(layer == LAYER_OFF_HAND)
             } else {
-                held_sprite_display_for_hand(
-                    item.grip.upright().unwrap_or(false),
-                    layer == LAYER_OFF_HAND,
-                )
+                held_sprite_grip_display(item.sprite_grip(), layer == LAYER_OFF_HAND)
             }
         });
         display.scale *= scale;

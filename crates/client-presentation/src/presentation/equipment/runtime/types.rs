@@ -46,6 +46,14 @@ impl WornItem {
     pub fn has_glint(&self) -> bool {
         self.enchanted || self.glint.enabled().unwrap_or(false)
     }
+
+    /// Third-person sprite grip from the admitted upright and mirrored-art (rod) facts.
+    pub fn sprite_grip(&self) -> render_model::equipment::SpriteGrip {
+        render_model::equipment::SpriteGrip::new(
+            self.grip.upright().unwrap_or(false),
+            self.grip.mirrored_art(),
+        )
+    }
 }
 
 /// How a held stack is drawn.
