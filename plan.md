@@ -923,8 +923,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
   tombstone shows a driver shader compiler abort. Mali Vulkan devices create one pipeline at a
   time because a Mali-G57 tombstone shows the driver compiler faulting while two threads compile
-  pipelines. The driver faults are not isolated, so these vendor workarounds and target-device
-  visual acceptance stay incomplete. Terrain has a four-storage-buffer layout for constrained
+  pipelines. A later Mali-G57 r49p1 tombstone shows the same fault with serialized creation and
+  one compiling thread, a few seconds into a world after menu-only startup pipelines, so the
+  confirmed gap is a world render pipeline the r49p1 Mali-G52/G57 compiler cannot build, not a
+  compile race. The driver faults are not isolated, so these vendor workarounds and
+  target-device visual acceptance stay incomplete. Terrain has a four-storage-buffer layout for constrained
   devices, with CPU culling and shared actor and hand bone endpoints. Unsupported graphics devices return a
   startup error through the desktop dialog or Android activity. Shader packs report a load error and
   keep native rendering when their helper kernels exceed the device's per-stage storage budget.
