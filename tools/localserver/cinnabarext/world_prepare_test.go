@@ -281,3 +281,38 @@ func TestInitialPlacementKeepsV1Handshake(t *testing.T) {
 		})
 	}
 }
+
+// TestPendingAdmissionRequiresLatestRevision keeps two placements into one instance distinct.
+func TestPendingAdmissionRequiresLatestRevision(t *testing.T) {
+	f, accept := readyFixture(t)
+	epochs := 0
+	f.s.OnEpoch(func(uuid.UUID, PlayerSession, string) { epochs++ })
+	for _, id := range []WorldID{"sample:destination", "sample:destination"} {
+		change, err := f.s.PrepareWorldChange(f.player)
+		if err != nil || !change.Commit(id) {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+	first := f.lastWorldNotice()
+	ack := f.encode(worldAcknowledgment(first, first.Epoch.WorldEpoch))
+	f.deliver(ack)
+	if epochs != 0 || f.sendToClient(1) {
+		t.Fatal("earlier admission acknowledgment opened the latest placement")
+	}
+	f.deliver(f.envelope(accept, 1, func(e *Envelope) { e.WorldEpoch = first.Epoch.WorldEpoch }))
+	if len(f.messages()) != 0 {
+		t.Fatal("intermediate placement input acquired latest admission authority")
+	}
+	latest := f.lastWorldNotice()
+	if latest.Epoch.WorldEpoch <= first.Epoch.WorldEpoch {
+		t.Fatal("latest admission did not receive a fresh notice")
+	}
+	f.deliver(ack)
+	if epochs != 0 || f.sendToClient(1) {
+		t.Fatal("replayed acknowledgment opened latest admission")
+	}
+	f.deliver(f.encode(worldAcknowledgment(latest, latest.Epoch.WorldEpoch)))
+	if epochs != 1 || !f.sendToClient(1) {
+		t.Fatal("latest admission acknowledgment did not restore traffic")
+	}
+}

@@ -2,6 +2,7 @@ package cinnabarext
 
 import (
 	"errors"
+	"math"
 
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -12,7 +13,7 @@ type WorldID string
 
 // WorldChanged requests a fresh client epoch after a committed world transfer, including
 // transfers between worlds of the same dimension type. Duplicate world IDs are idempotent.
-// While a notice is outstanding, further transfers coalesce to the latest world ID.
+// While a notice is outstanding, further transfers coalesce to the latest admission revision.
 // Sends remain unavailable until OnEpoch reports the client's acknowledgment. Call from
 // the destination world transaction after moving the player. Notices bypass data credits.
 // False means there is no usable v2 session or the world ID is empty.
@@ -35,6 +36,9 @@ func (s *Server) WorldChanged(player uuid.UUID, worldID WorldID) bool {
 	if conn.worldID == worldID {
 		return true
 	}
+	if !conn.advanceAdmission() {
+		return false
+	}
 	conn.worldID = worldID
 	if conn.worldNoticePending {
 		return true
@@ -54,10 +58,21 @@ func (c *Conn) requestWorldEpoch() error {
 		return errors.New("world epoch exhausted")
 	}
 	// Establish the fence before writing; acknowledgments take the same connection lock.
-	c.requestedEpoch, c.requestedWorld, c.worldNoticePending = next, c.worldID, true
+	c.requestedEpoch, c.requestedRevision, c.worldNoticePending = next, c.admissionRevision, true
 	data, err := Encode(Control{Epoch: &Epoch{Session: c.session, WorldEpoch: next}})
 	if err != nil {
 		return err
 	}
 	return c.Conn.WritePacket(&packet.ScriptMessage{Identifier: Carrier, Data: data})
+}
+
+// advanceAdmission gives every committed placement a distinct acknowledgment requirement.
+// The caller holds c.mu; exhaustion ends optional authority instead of reusing a revision.
+func (c *Conn) advanceAdmission() bool {
+	if c.admissionRevision == math.MaxUint64 {
+		c.fallBack(errors.New("admission revisions exhausted"))
+		return false
+	}
+	c.admissionRevision++
+	return true
 }

@@ -219,7 +219,7 @@ func TestWorldChangesCoalesceUntilTheOutstandingNoticeIsAcknowledged(t *testing.
 			firstAck := worldAcknowledgment(first, epoch)
 			f.deliver(f.encode(firstAck))
 			latest := first
-			if desired != test.worlds[0] {
+			if len(test.worlds) > 1 {
 				if len(f.carrier()) != before+2 || len(notified) != 0 || f.sendToClient(2) {
 					t.Fatal("first acknowledgment did not keep the latest world fenced")
 				}
@@ -237,8 +237,6 @@ func TestWorldChangesCoalesceUntilTheOutstandingNoticeIsAcknowledged(t *testing.
 				}
 				epoch = latest.Epoch.WorldEpoch
 				f.deliver(f.encode(worldAcknowledgment(latest, epoch)))
-			} else if len(f.carrier()) != before+1 {
-				t.Fatal("returning to the noticed world sent a redundant notice")
 			}
 			if len(notified) != 1 || notified[0] != desired || !f.sendToClient(4) {
 				t.Fatal("latest-world acknowledgment did not resume application messages")
@@ -249,7 +247,7 @@ func TestWorldChangesCoalesceUntilTheOutstandingNoticeIsAcknowledged(t *testing.
 				t.Fatalf("outbound world epoch = %d, want %d: %v", sent.WorldEpoch, epoch, err)
 			}
 			sequence := uint64(3)
-			if desired == test.worlds[0] {
+			if len(test.worlds) == 1 {
 				sequence = 2
 			}
 			f.deliver(f.envelope(accept, sequence, func(e *Envelope) { e.WorldEpoch = epoch }))

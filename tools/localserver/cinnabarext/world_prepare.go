@@ -108,6 +108,9 @@ func (w *WorldChange) CommitAt(id WorldID, epoch uint64) bool {
 		c.prepared, c.worldID = nil, id
 		return id != ""
 	}
+	if !c.advanceAdmission() {
+		return false
+	}
 	c.committedWorld = id
 	if c.prepared != w {
 		return id != ""
