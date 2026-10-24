@@ -55,6 +55,11 @@ type Info struct {
 	EventSequence uint64        `json:"event_sequence"`
 }
 
+// newInfo builds callback metadata with an explicit world tick and event sequence.
+func newInfo(worldID, dimensionID string, tick, eventSequence uint64) Info {
+	return Info{WorldID: worldID, DimensionID: dimensionID, Tick: tick, EventSequence: eventSequence}
+}
+
 // Cell is one snapshot cell. ID is empty when the cell is not loaded; Data is lowercase hex.
 // States are an owned block's state values.
 type Cell struct {

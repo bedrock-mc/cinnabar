@@ -66,6 +66,7 @@ func newLifecycleMatrix(t *testing.T) *lifecycleMatrix {
 	f := newRuntimeFixture(t)
 	sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
 	sup.registered.Worlds = f.d.sup.registered.Worlds
+	rescript(t, sup, "leave_write", sup.registered)
 	f.d.sup = sup
 	base, err := playerdb.NewProvider(filepath.Join(t.TempDir(), "players"))
 	if err != nil {

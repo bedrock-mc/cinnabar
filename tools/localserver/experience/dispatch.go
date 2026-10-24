@@ -77,6 +77,10 @@ type dispatcher struct {
 	id     string
 	sup    *Supervisor
 	events chan event
+	// pending retains interrupted work until Drain takes ownership after the worker stops.
+	pending []event
+	// deliveryErr records final leaves explicitly abandoned after a callback or commit failure.
+	deliveryErr error
 	// seq numbers the events that the worker runs. Only the worker uses it.
 	seq uint64
 	// dropped counts the events dropped for a full queue or the neighbor cap.
@@ -109,6 +113,7 @@ type neighborTick struct {
 type event struct {
 	barrier  chan struct{}
 	epoch    uint64
+	tick     uint64
 	w        *world.World
 	instance worldInstance
 	// anchor is the block the callback is for. It bounds the snapshot and the writes.
@@ -433,23 +438,29 @@ func (h *Host) work(ctx context.Context, d *dispatcher) {
 				close(ev.barrier)
 				continue
 			}
-			h.dispatch(ctx, d, ev)
+			if err := h.dispatch(ctx, d, ev); err != nil {
+				if ctx.Err() != nil {
+					d.pending = append(d.pending, ev)
+					return
+				}
+				if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
+					d.deliveryErr = errors.Join(d.deliveryErr, fmt.Errorf("undelivered leave: %w", err))
+				}
+			}
 		}
 	}
 }
 
 // dispatch runs one event: its snapshot, its callback and, for a committed outcome, its commit.
-// A failed or rejected callback or an error publishes nothing; the supervisor has counted a
-// failure already.
-func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
+// Errors let the owner retain interrupted work and report undelivered final leaves.
+func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) error {
 	// A cancelled worker takes no more events, though select may still pick one.
 	if ctx.Err() != nil || !h.resumed(ctx) {
-		return
+		return ctx.Err()
 	}
-	// A quarantined Experience's events are dropped before they cost a world task.
 	if d.sup.Quarantined() {
 		h.log.Debug("event of a quarantined experience dropped", "experience", d.id)
-		return
+		return errQuarantined
 	}
 	d.seq++
 	snap, err := h.snapshot(ctx, d, &ev)
@@ -457,31 +468,33 @@ func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
 		if ctx.Err() == nil {
 			h.log.Warn("snapshot failed", "experience", d.id, "error", err)
 		}
-		return
+		return err
 	}
 	if ev.call.Interact != nil {
 		d.recordFocus(ev, snap)
 	}
 	outcome, err := d.sup.call(ctx, snap.req)
-	switch {
-	case errors.Is(err, errQuarantined):
-		// Quarantined between the check above and the call.
-		h.log.Debug("event of a quarantined experience dropped", "experience", d.id)
-		return
-	case err != nil:
+	if err != nil {
 		h.log.Warn("callback error", "experience", d.id, "error", err)
-		return
+		return err
 	}
 	if h.afterCall != nil {
 		h.afterCall()
 	}
 	if r := outcome.Rejected; r != nil {
 		h.log.Debug("callback rejected", "experience", d.id, "reason", r.Reason)
+		return nil
 	}
-	if outcome.Committed == nil || d.sup.Quarantined() || !h.resumed(ctx) {
-		return
+	if failed := outcome.Failed; failed != nil {
+		return fmt.Errorf("callback failed: %s", failed.Reason)
 	}
-	h.commit(ctx, d, ev, snap, outcome.Committed.Ops)
+	if d.sup.Quarantined() {
+		return errQuarantined
+	}
+	if !h.resumed(ctx) || ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return h.commit(ctx, d, ev, snap, outcome.Committed.Ops)
 }
 
 // snapshot is what a worker read of the world for an event: the callback request and the state
@@ -591,10 +604,7 @@ func (h *Host) readFixed(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	r := tx.Range()
 	snap := snapshot{
 		req: CallbackRequest{
-			Info: Info{
-				WorldID: h.worldID, DimensionID: ev.instance.id, Tick: uint64(tx.CurrentTick()),
-				EventSequence: d.seq,
-			},
+			Info:       newInfo(h.worldID, ev.instance.id, uint64(tx.CurrentTick()), d.seq),
 			WorldMinY:  int32(r.Min()),
 			WorldMaxY:  int32(r.Max()),
 			DataBudget: h.store.Budget(d.id),

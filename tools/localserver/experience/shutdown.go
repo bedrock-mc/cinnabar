@@ -49,9 +49,15 @@ func (h *Host) Drain(ctx context.Context) error {
 	}
 	h.stopWorkers()
 	for _, d := range h.dispatchers {
-		if err := h.drainDispatcher(ctx, d, leaves); err != nil {
+		// Preserve FIFO order: interrupted callback, admitted queue, then shutdown leaves.
+		for len(d.events) != 0 {
+			d.pending = append(d.pending, <-d.events)
+		}
+		if d.sup.registered.Worlds != nil {
+			d.pending = append(d.pending, leaves...)
+		}
+		if err := h.drainDispatcher(ctx, d); err != nil {
 			errs = append(errs, err)
-			break
 		}
 	}
 	errs = append(errs, ctx.Err())
@@ -79,24 +85,25 @@ func (h *Host) stopWorkers() {
 }
 
 // drainDispatcher drains a stopped worker's queue and commits retained final leaves on the caller.
-func (h *Host) drainDispatcher(ctx context.Context, d *dispatcher, leaves []event) error {
-	for len(d.events) != 0 && ctx.Err() == nil {
-		ev := <-d.events
+func (h *Host) drainDispatcher(ctx context.Context, d *dispatcher) error {
+	for len(d.pending) != 0 {
+		if err := ctx.Err(); err != nil {
+			return errors.Join(d.deliveryErr, err)
+		}
+		ev := d.pending[0]
 		if ev.barrier != nil {
 			close(ev.barrier)
-		} else {
-			h.dispatch(ctx, d, ev)
-		}
-	}
-	if d.sup.registered.Worlds != nil {
-		for _, leave := range leaves {
-			if err := ctx.Err(); err != nil {
-				return err
+		} else if err := h.dispatch(ctx, d, ev); err != nil {
+			// Failed final writes stay owned for a later drain, and cannot report success.
+			if ctx.Err() != nil || ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
+				return errors.Join(d.deliveryErr, err)
 			}
-			h.dispatch(ctx, d, leave)
 		}
+		d.pending[0] = event{}
+		d.pending = d.pending[1:]
 	}
-	return ctx.Err()
+	d.pending = nil
+	return errors.Join(d.deliveryErr, ctx.Err())
 }
 
 // waitDispatcher waits for admitted callbacks or yields ownership when Run's workers stop.

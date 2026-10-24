@@ -876,7 +876,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   instance identities with a default-spawn fallback. Pending logins reserve their destinations
   through the handshake and revalidate before spawn; completion or failure releases only that
   login’s reservation. Unload also respects connected players and prepared transfers.
-  Shutdown drains leave callbacks before store flush and world closure, including after worker cancellation; leave writes need no live world.
+  Shutdown drains leave callbacks before store flush and world closure, including after worker cancellation;
+  interrupted callbacks stay owned for drain retries, and undelivered final leaves fail the drain.
+  Leave writes need no live world. Player callbacks retain the world tick captured with each observation.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and

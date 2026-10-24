@@ -44,29 +44,36 @@ func (messageTeller) tell(p world.Entity, text string) {
 // commit applies ops, the committed result of ev's callback on snap, in a fresh task of the
 // event's world, unless the snapshot went stale or an op is invalid; then it applies nothing.
 // Once the result has applied, its client messages go out to the actor's client part.
-func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) {
+// Cancellation returns an error only when the transaction did not run.
+func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) error {
 	if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
-		if err := h.commitLeave(d.id, ev, snap, ops); err != nil {
+		err := h.commitLeave(d.id, ev, snap, ops)
+		if err != nil {
 			h.log.Warn("leave commit refused", "experience", d.id, "error", err)
 		}
-		return
+		return err
 	}
 	for _, op := range ops {
 		if op.World != nil {
-			if err := h.commitLifecycle(ctx, d, ev, snap, ops); err != nil {
+			err := h.commitLifecycle(ctx, d, ev, snap, ops)
+			if err != nil {
 				h.log.Warn("world operation refused", "experience", d.id, "error", err)
 			}
-			return
+			return err
 		}
 	}
 	var sends []*SendClientOp
 	var result error
-	task := ev.w.Do(func(tx *world.Tx) { sends, result = h.apply(tx, d.id, ev, snap, ops) })
-	if err := await(ctx, task); err != nil {
+	applied := false
+	task := ev.w.Do(func(tx *world.Tx) {
+		sends, result = h.apply(tx, d.id, ev, snap, ops)
+		applied = true
+	})
+	if err := await(ctx, task); err != nil && !applied {
 		if ctx.Err() == nil {
 			h.log.Warn("commit failed", "experience", d.id, "error", err)
 		}
-		return
+		return err
 	}
 	switch {
 	case errors.Is(result, errStale):
@@ -78,6 +85,8 @@ func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapsho
 			h.sendCurrent(d, ev, send)
 		}
 	}
+	// A completed transaction must not replay merely because its caller was cancelled.
+	return nil
 }
 
 // apply checks snap against the world in tx and validates every op before it applies any. Then

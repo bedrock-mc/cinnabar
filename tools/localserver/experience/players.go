@@ -148,7 +148,7 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 	if loc == nil {
 		loc = observation.After
 	}
-	ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
+	ev := event{w: w, instance: instance, tick: uint64(p.Tx().CurrentTick()), epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
 	if observation.Type == "leave" {
 		ev.actor = nil
 		if h.closed.Load() {
@@ -281,7 +281,9 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 		copy := *loc
 		context.Player = &copy
 	}
-	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context}, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory}, slots: ev.slots}
+	info := newInfo(h.worldID, ev.instance.id, ev.tick, d.seq)
+	info.Context = context
+	return snapshot{req: CallbackRequest{Info: info, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory}, slots: ev.slots}
 }
 
 // storePrincipal retains an observed player's private record after its live actor leaves.
