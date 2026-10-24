@@ -412,3 +412,14 @@ func TestUnrepresentableMountRejectsWholeEntityBatch(t *testing.T) {
 		t.Fatal("refused mount changed private state")
 	}
 }
+
+func TestRenamedEntitiesKeepTheirOwnNamespace(t *testing.T) {
+	original := Loaded{ID: "probe", Entities: []EntityDefinition{entityDefinition()}}
+	other := renamed(original, "other")
+	if other.Entities[0].ID != "other:ship" || other.Entities[0].Properties[0].ID != "other:throttle" {
+		t.Fatal("renamed experience retained foreign entity identities")
+	}
+	if original.Entities[0].ID != "probe:ship" || original.Entities[0].Properties[0].ID != "probe:throttle" {
+		t.Fatal("renaming mutated the original registration")
+	}
+}
