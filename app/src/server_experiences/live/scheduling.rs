@@ -73,13 +73,17 @@ impl<H: Worker> Live<H> {
     pub(super) fn deliver_messages(&mut self, epoch: u64) -> Result<()> {
         loop {
             let instances = &self.instances;
+            let budget = &self.budget;
             let Some(message) = self.ingress.peek_matching(u64::MAX, epoch, |message| {
                 instances.get(&message.bundle).is_none_or(|instance| {
                     instance.stopped.is_some()
-                        || instance
-                            .waiting_for
-                            .as_ref()
-                            .is_none_or(|confirmation| confirmation == &message.channel)
+                        || (!instance.busy
+                            && instance.helper.is_some()
+                            && budget.can_dispatch(&instance.owner)
+                            && instance
+                                .waiting_for
+                                .as_ref()
+                                .is_none_or(|confirmation| confirmation == &message.channel))
                 })
             }) else {
                 break;
@@ -92,9 +96,6 @@ impl<H: Worker> Live<H> {
                 let sequence = message.sequence;
                 self.ingress.acknowledge(sequence);
                 continue;
-            }
-            if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                break;
             }
             self.budget.dispatch(&instance.owner)?;
             let pending = Pending::Message(message.sequence);

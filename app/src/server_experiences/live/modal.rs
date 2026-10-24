@@ -100,7 +100,11 @@ impl<H: Worker> Live<H> {
             .events
             .retain(|event| !matches!(event, Event::Resized { .. }));
         if instance.events.len() >= MAX_PENDING_EVENTS {
-            instance.stop(&mut self.budget, STOPPED_AT_OVERFLOW);
+            instance.stop(
+                &mut self.budget,
+                &mut self.scene_revision,
+                STOPPED_AT_OVERFLOW,
+            );
         } else {
             instance.events.push_back(Event::Resized { size });
         }

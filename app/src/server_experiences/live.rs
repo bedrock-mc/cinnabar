@@ -111,8 +111,8 @@ impl<H> Instance<H> {
     }
 
     /// Ends the client part for `why`: its helper, its contributions and its waiting events go,
-    /// and so does its budget.
-    fn stop(&mut self, budget: &mut Budget, why: &'static str) {
+    /// and so does its budget. Invalidates the cached scene when contributions are cleared.
+    fn stop(&mut self, budget: &mut Budget, scene_revision: &mut u64, why: &'static str) {
         self.helper = None;
         self.component = None;
         self.busy = false;
@@ -120,6 +120,7 @@ impl<H> Instance<H> {
         self.waiting_for = None;
         self.events.clear();
         self.contributions = Contributions::default();
+        *scene_revision += 1;
         budget.quarantine(&self.owner);
         self.stopped = Some(why);
     }
@@ -129,6 +130,8 @@ impl<H> Instance<H> {
 const STOPPED_AFTER_ERRORS: &str = "after repeated errors";
 /// What the trusted status says of a client part that failed to start.
 const STOPPED_AT_START: &str = "because it failed to start";
+/// What the trusted status says when a helper cannot continue.
+const STOPPED_AT_HELPER_FAILURE: &str = "because its helper failed";
 /// What the trusted status says when reliable callback retention cannot continue.
 const STOPPED_AT_OVERFLOW: &str = "because its callback queue overflowed";
 
@@ -293,8 +296,13 @@ impl<H: Worker> Live<H> {
                     transaction
                 }
                 Ok(Reply::Failed(failure)) => {
-                    failed(instance, &mut self.budget, &failure, now_ms);
-                    self.scene_revision += 1;
+                    failed(
+                        instance,
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &failure,
+                        now_ms,
+                    );
                     continue;
                 }
                 Ok(Reply::Recovered {
@@ -303,17 +311,24 @@ impl<H: Worker> Live<H> {
                     confirmation,
                 }) => {
                     instance.waiting_for = confirmation;
-                    failed(instance, &mut self.budget, &failure, now_ms);
+                    failed(
+                        instance,
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        &failure,
+                        now_ms,
+                    );
                     if instance.stopped.is_some() {
-                        self.scene_revision += 1;
                         continue;
                     }
                     transaction
                 }
                 Err(error) => {
-                    self.budget.quarantine(&instance.owner);
-                    instance.contributions = Contributions::default();
-                    self.scene_revision += 1;
+                    instance.stop(
+                        &mut self.budget,
+                        &mut self.scene_revision,
+                        STOPPED_AT_HELPER_FAILURE,
+                    );
                     return Err(error);
                 }
             };
@@ -470,8 +485,11 @@ impl<H: Worker> Live<H> {
             && let Some(overflow) = error.downcast_ref::<wire::QueueOverflow>()
         {
             if let Some(instance) = self.instances.get_mut(&overflow.bundle) {
-                instance.stop(&mut self.budget, STOPPED_AT_OVERFLOW);
-                self.scene_revision += 1;
+                instance.stop(
+                    &mut self.budget,
+                    &mut self.scene_revision,
+                    STOPPED_AT_OVERFLOW,
+                );
             }
             return Ok(());
         }
@@ -571,7 +589,13 @@ impl<H: Worker> Live<H> {
 
 /// Drops the failed callback's transaction and logs why; a failed start, or the strike that
 /// reaches the limit stops the client part.
-fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFailure, now_ms: u64) {
+fn failed<H>(
+    instance: &mut Instance<H>,
+    budget: &mut Budget,
+    scene_revision: &mut u64,
+    failure: &CallFailure,
+    now_ms: u64,
+) {
     bevy::log::warn!(
         bundle = %failure.bundle,
         callback = %failure.callback,
@@ -593,7 +617,7 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
         return;
     };
     bevy::log::warn!(bundle = %instance.owner.bundle, "client part stopped {why}");
-    instance.stop(budget, why);
+    instance.stop(budget, scene_revision, why);
 }
 
 /// What the guest of `manifest` may do in this session: the offer's scope narrowed to the

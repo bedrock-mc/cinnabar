@@ -215,6 +215,130 @@ fn modal_state_overflow_stops_the_part() {
     assert!(instance.strikes.is_empty());
 }
 
+#[test]
+fn resize_overflow_removes_cached_media_screen() {
+    let mut live = negotiating(1);
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .contributions
+        .scene
+        .insert(1, media_quad(5.0));
+    live.media_mut().set_frame(
+        "bundle0",
+        INTRO,
+        Some(render_scene::MediaFrame {
+            serial: 3,
+            width: 2,
+            height: 2,
+            rgba: Arc::from(vec![255u8; 16]),
+        }),
+    );
+    assert_eq!(live.changed_screens().map(<[_]>::len), Some(1));
+    assert!(live.changed_screens().is_none());
+    while live.press("bundle0.pick", None) {}
+    live.set_modal_size(Some(size(320.0)));
+    assert_eq!(live.instances["bundle0"].stopped, Some(STOPPED_AT_OVERFLOW));
+    assert_eq!(live.changed_screens().map(<[_]>::len), Some(0));
+    assert!(live.changed_screens().is_none());
+}
+
+#[test]
+fn idle_recipients_dispatch_in_one_poll() {
+    let mut live = fixture(2);
+    complete(&mut live, "bundle0");
+    complete(&mut live, "bundle1");
+    live.poll(1, 0).unwrap();
+    receive(&mut live, "bundle0", 1);
+    receive(&mut live, "bundle1", 2);
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    for bundle in ["bundle0", "bundle1"] {
+        assert!(matches!(
+            live.instances[bundle].helper.as_ref().unwrap().dispatched.as_slice(),
+            [Event::Message { channel, .. }] if channel == &format!("{bundle}.events0")
+        ));
+    }
+    // Dispatch alone must not acknowledge either message.
+    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 1);
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert!(live.ingress.peek(u64::MAX, 1).is_none());
+}
+
+#[test]
+fn busy_recipient_retains_order_without_blocking_another_helper() {
+    let mut live = fixture(2);
+    complete(&mut live, "bundle0");
+    complete(&mut live, "bundle1");
+    live.poll(1, 0).unwrap();
+    receive(&mut live, "bundle0", 1);
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    // Hold its first callback open while later messages arrive for both recipients.
+    let response = live
+        .instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .response
+        .take();
+    receive(&mut live, "bundle0", 2);
+    receive(&mut live, "bundle0", 3);
+    receive(&mut live, "bundle1", 4);
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched
+            .len(),
+        1
+    );
+    assert_eq!(
+        live.instances["bundle1"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched
+            .len(),
+        1
+    );
+    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 1);
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .response = response;
+    for slice in 3..=5 {
+        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+    }
+    let records: Vec<Vec<Scalar>> = live.instances["bundle0"]
+        .helper
+        .as_ref()
+        .unwrap()
+        .dispatched
+        .iter()
+        .map(|event| {
+            let Event::Message { record, .. } = event else {
+                panic!("expected a message")
+            };
+            serde_json::from_slice(record).unwrap()
+        })
+        .collect();
+    assert_eq!(
+        records,
+        [
+            vec![Scalar::Bool(false)],
+            vec![Scalar::Bool(true)],
+            vec![Scalar::Bool(false)]
+        ]
+    );
+    assert!(live.ingress.peek(u64::MAX, 1).is_none());
+}
+
 /// A newer coalesced state must survive acknowledgement of the in-flight older value.
 #[test]
 fn in_flight_state_acknowledgement_keeps_a_newer_value() {
