@@ -54,7 +54,7 @@ fn has_body_route(
     {
         return false;
     }
-    let drawable = |geometry| {
+    let drawable = |geometry: usize| {
         std::iter::successors(Some(geometry), |&index| parents[index]).any(|index| {
             entities.geometries()[index]
                 .bones
