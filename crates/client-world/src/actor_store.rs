@@ -11,6 +11,7 @@ mod animated;
 mod appearance_preparation;
 mod colliders;
 mod effect_members;
+mod offered_use;
 pub use colliders::ActorCollisionBounds;
 mod death_visibility;
 mod local_presentation;
