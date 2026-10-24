@@ -29,6 +29,7 @@ use crate::token::{Tok, lex};
 pub(crate) use assemble::{UboMember, assemble, merge_uniforms};
 use body::{BodyContext, SamplerUse, convert_returns, return_type, rewrite_body, rewrite_params};
 pub(crate) use interface::ProgramInterface;
+pub(crate) use items::SHADOW_SAMPLERS;
 use items::{Item, func_params, parse_decl, split_items};
 pub(crate) use missing::vertex_outputs;
 use std::collections::{HashMap, HashSet};

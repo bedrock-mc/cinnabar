@@ -3,8 +3,11 @@
 use crate::diagnostics::{Diagnostic, Phase};
 use crate::preprocess::LineMap;
 use crate::programs::StageKind;
+use crate::transform::SHADOW_SAMPLERS;
+use naga::front::glsl::{Configuration, OpaqueType};
 use naga::valid::ModuleInfo;
 use std::collections::HashSet;
+use naga::{ImageClass, ImageDimension, ScalarKind, TypeInner};
 
 mod inputs;
 mod order;
@@ -50,6 +53,49 @@ pub(crate) fn naga_stage(stage: StageKind) -> Option<naga::ShaderStage> {
         StageKind::Fragment => Some(naga::ShaderStage::Fragment),
         StageKind::Compute => Some(naga::ShaderStage::Compute),
         _ => None,
+    }
+}
+
+/// Registers the depth texture aliases the transform emits for shadow samplers.
+fn configuration() -> Configuration {
+    let opaque_types = SHADOW_SAMPLERS
+        .iter()
+        .flat_map(|(sampler, name, shape)| {
+            let dim = match *shape {
+                "1D" | "1DArray" => ImageDimension::D1,
+                "2D" | "2DArray" => ImageDimension::D2,
+                "Cube" | "CubeArray" => ImageDimension::Cube,
+                _ => ImageDimension::D3,
+            };
+            let arrayed = shape.ends_with("Array");
+            [
+                OpaqueType {
+                    name: (*name).to_string(),
+                    logical_name: (*sampler).to_string(),
+                    inner: TypeInner::Image {
+                        dim,
+                        arrayed,
+                        class: ImageClass::Depth { multi: false },
+                    },
+                },
+                OpaqueType {
+                    name: format!("{name}_plain"),
+                    logical_name: (*sampler).to_string(),
+                    inner: TypeInner::Image {
+                        dim,
+                        arrayed,
+                        class: ImageClass::Sampled {
+                            kind: ScalarKind::Float,
+                            multi: false,
+                        },
+                    },
+                },
+            ]
+        })
+        .collect();
+    Configuration {
+        opaque_types,
+        ..Configuration::default()
     }
 }
 
@@ -132,7 +178,11 @@ fn parse_module(stage: StageKind, map: &OutputMap<'_>) -> Result<naga::Module, C
     };
     let mut frontend = naga::front::glsl::Frontend::default();
     let mut module = frontend
-        .parse(&naga::front::glsl::Options::from(naga_stage), map.glsl)
+        .parse_with_configuration(
+            &naga::front::glsl::Options::from(naga_stage),
+            map.glsl,
+            &configuration(),
+        )
         .map_err(|e| CompileFailure {
             unknown_variables: e
                 .errors

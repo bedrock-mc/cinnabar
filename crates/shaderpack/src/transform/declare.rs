@@ -619,7 +619,8 @@ fn uniforms(
 fn texture_dimension(tex_ty: &str) -> TextureDimension {
     let shape = tex_ty
         .trim_start_matches(['i', 'u'])
-        .trim_start_matches("texture");
+        .trim_start_matches("texture")
+        .trim_end_matches("Shadow");
     match shape {
         "1D" => TextureDimension::D1,
         "1DArray" => TextureDimension::D1Array,

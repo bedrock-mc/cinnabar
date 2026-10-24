@@ -175,3 +175,33 @@ fn stage_transport_rebuilds_validation_information_from_the_module() {
         "stale validation information cannot make an invalid module usable"
     );
 }
+
+#[test]
+fn ordinary_textures_compile_with_shadow_aliases_registered() {
+    fragment(
+        "#version 450
+layout(binding = 0) uniform texture2D image;
+layout(binding = 1) uniform sampler filtering;
+layout(location = 0) out vec4 color;
+void main() { color = texture(sampler2D(image, filtering), vec2(0.5)); }
+",
+    )
+    .expect("ordinary textures parse with shadow aliases registered");
+}
+
+#[test]
+fn shadow_and_sampler_functions_parse_together() {
+    fragment(
+        "#version 450
+layout(binding = 6) uniform texture2D shadowtex;
+layout(binding = 7) uniform texture2DShadow shadowtex0;
+layout(binding = 0) uniform sampler iris_sampler;
+layout(binding = 1) uniform samplerShadow iris_samplerShadow;
+layout(location = 0) out vec4 color;
+float ordinary(vec2 p) { return float((texture(sampler2D(shadowtex, iris_sampler), p).r)); }
+float shadow(vec3 p) { return float((texture(sampler2DShadow(shadowtex0, iris_samplerShadow), p))); }
+void main() { color = vec4(ordinary(vec2(0.5)) + shadow(vec3(0.5))); }
+",
+    )
+    .expect("shadow and ordinary sampling parse together");
+}

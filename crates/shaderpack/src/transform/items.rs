@@ -288,8 +288,31 @@ pub(super) fn arr_len(arr: &[Tok]) -> Option<u32> {
     None
 }
 
+/// Depth sampler aliases: source sampler, translated texture type, and image shape.
+///
+/// A shadow sampler and an ordinary sampler of the same shape have different physical naga
+/// types, so their translated types must keep distinct names for overload resolution.
+pub(crate) const SHADOW_SAMPLERS: &[(&str, &str, &str)] = &[
+    ("sampler1DShadow", "texture1DShadow", "1D"),
+    ("sampler1DArrayShadow", "texture1DArrayShadow", "1DArray"),
+    ("sampler2DShadow", "texture2DShadow", "2D"),
+    ("sampler2DArrayShadow", "texture2DArrayShadow", "2DArray"),
+    ("samplerCubeShadow", "textureCubeShadow", "Cube"),
+    (
+        "samplerCubeArrayShadow",
+        "textureCubeArrayShadow",
+        "CubeArray",
+    ),
+];
+
 /// The separate texture type for a combined sampler type, and whether it compares depth.
 pub(super) fn sampler_info(ty: &str) -> Option<(&'static str, bool)> {
+    if let Some((_, texture, _)) = SHADOW_SAMPLERS
+        .iter()
+        .find(|(sampler, _, _)| *sampler == ty)
+    {
+        return Some((*texture, true));
+    }
     Some(match ty {
         "sampler1D" => ("texture1D", false),
         "sampler2D" => ("texture2D", false),
@@ -300,9 +323,6 @@ pub(super) fn sampler_info(ty: &str) -> Option<(&'static str, bool)> {
         "samplerCubeArray" => ("textureCubeArray", false),
         "sampler2DMS" => ("texture2DMS", false),
         "sampler2DRect" => ("texture2D", false),
-        "sampler2DShadow" => ("texture2D", true),
-        "sampler2DArrayShadow" => ("texture2DArray", true),
-        "samplerCubeShadow" => ("textureCube", true),
         "isampler1D" => ("itexture1D", false),
         "usampler1D" => ("utexture1D", false),
         "isampler2D" => ("itexture2D", false),
@@ -736,7 +756,10 @@ mod tests {
 
     #[test]
     fn type_helpers_describe_samplers_and_interface_sizes() {
-        assert_eq!(sampler_info("sampler2DShadow"), Some(("texture2D", true)));
+        assert_eq!(
+            sampler_info("sampler2DShadow"),
+            Some(("texture2DShadow", true))
+        );
         assert_eq!(sampler_info("usampler2D"), Some(("utexture2D", false)));
         assert!(is_opaque("image2D") && is_opaque("sampler2D") && !is_opaque("vec4"));
         assert_eq!(mat_cols("mat3x2"), Some((3, "vec2")));

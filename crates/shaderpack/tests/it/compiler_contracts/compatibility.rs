@@ -378,3 +378,50 @@ fn compatibility_missing_variables_use_resolved_fragment_reads() {
         success(vertex, fragment);
     }
 }
+
+#[test]
+fn compatibility_sampler_and_shadow_sampler_overloads_stay_distinct() {
+    let translation = success(
+        VERTEX,
+        "#version 400 compatibility
+        uniform sampler2D shadowtex;
+        uniform sampler2DShadow shadowtex0;
+        out vec4 color;
+        float shade(sampler2D tex, vec2 p) { return texture(tex, p).r; }
+        float shade(sampler2DShadow tex, vec3 p) { return texture(tex, p); }
+        void main() { color = vec4(shade(shadowtex, vec2(0.5)) + shade(shadowtex0, vec3(0.5))); }",
+    );
+    assert!(program(&translation, "composite").is_ok());
+}
+
+#[test]
+fn compatibility_pack_with_shadow_sampler_overloads_translates() {
+    let pack = ShaderPack::new(PackSource::from_files([
+        (
+            "gbuffers_terrain.vsh",
+            "#version 330\nvoid main() { gl_Position = vec4(0.0); }",
+        ),
+        (
+            "gbuffers_terrain.fsh",
+            "#version 400 compatibility\n\
+            uniform sampler2D colortex0;\n\
+            uniform sampler2DShadow shadowtex0;\n\
+            float sample_any(sampler2D s, vec2 uv) { return texture(s, uv).r; }\n\
+            float sample_any(sampler2DShadow s, vec3 uv) { return texture(s, uv); }\n\
+            void main() {\n\
+                gl_FragData[0] = vec4(sample_any(colortex0, vec2(0.5)) + sample_any(shadowtex0, vec3(0.5)));\n\
+            }",
+        ),
+        (
+            "composite.vsh",
+            "#version 330\nvoid main() { gl_Position = vec4(0.0); }",
+        ),
+        (
+            "composite.fsh",
+            "#version 330\nout vec4 color;\nvoid main() { color = vec4(1.0); }",
+        ),
+    ]));
+    let translation = pack.translate(&TranslateConfig::default());
+    assert!(program(&translation, "gbuffers_terrain").is_ok());
+    assert!(program(&translation, "composite").is_ok());
+}

@@ -172,6 +172,41 @@ void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(
 }
 
 #[test]
+fn shadow_sampler_overloads_stay_distinct() {
+    let mut iface = ProgramInterface::default();
+    let (fragment, lines) = draft(
+        "composite.fsh",
+        "#version 400 compatibility
+uniform sampler2D shadowtex;
+uniform sampler2DShadow shadowtex0;
+out vec4 color;
+float shade(sampler2D tex, vec2 p) { return texture(tex, p).r; }
+float shade(sampler2DShadow tex, vec3 p) { return texture(tex, p); }
+void main() { color = vec4(shade(shadowtex, vec2(0.5)) + shade(shadowtex0, vec3(0.5))); }
+",
+        StageKind::Fragment,
+        &mut iface,
+    );
+    let (glsl, origins) = assemble(&fragment, &[], &iface.location_defines().unwrap());
+    if let Err(errors) = compile(
+        StageKind::Fragment,
+        &OutputMap {
+            glsl: &glsl,
+            origins: &origins,
+            lines: &lines,
+        },
+    ) {
+        let numbered: String = glsl
+            .lines()
+            .zip(&origins)
+            .enumerate()
+            .map(|(i, (line, origin))| format!("{}\t{origin}\t{line}\n", i + 1))
+            .collect();
+        panic!("shadow overloads compile: {errors:?}\n{numbered}");
+    }
+}
+
+#[test]
 fn loop_shadowing_preserves_a_valid_shader() {
     let mut iface = ProgramInterface::default();
     let (stage, lines) = draft(
