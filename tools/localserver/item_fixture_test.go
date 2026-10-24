@@ -49,6 +49,9 @@ func TestItemFixturePopulatesHandsAndHotbarAndWraps(t *testing.T) {
 		main, off = p.HeldItems()
 		assertFixtureItem(t, main, shield)
 		assertFixtureItem(t, off, shield)
+		p.SetHeldItems(main, item.NewStack(registered[1], 1))
+		_, off = p.HeldItems()
+		assertFixtureItem(t, off, shield)
 	})
 }
 
@@ -68,6 +71,9 @@ func TestInvalidItemFixtureDoesNotChangeInventory(t *testing.T) {
 // assertFixtureItem checks the complete registry identity and the fixture's single-item count.
 func assertFixtureItem(t *testing.T, stack item.Stack, want world.Item) {
 	t.Helper()
+	if stack.Empty() {
+		t.Fatal("fixture item is empty")
+	}
 	name, data := stack.Item().EncodeItem()
 	wantName, wantData := want.EncodeItem()
 	if name != wantName || data != wantData || stack.Count() != 1 {

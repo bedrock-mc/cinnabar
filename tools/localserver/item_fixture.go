@@ -39,9 +39,21 @@ func (f itemFixture) Run(src cmd.Source, out *cmd.Output, _ *world.Tx) {
 		_ = p.Inventory().SetItem(slot, item.NewStack(items[(index+slot)%len(items)], 1))
 	}
 	stack := item.NewStack(items[index], 1)
+	offhand := p.Data().OffHand
+	offhand.SlotValidatorFunc(func(item.Stack, int) bool { return true })
 	p.SetHeldItems(stack, stack)
+	offhand.SlotValidatorFunc(fixtureOffhandAllowed)
 	name, data := stack.Item().EncodeItem()
 	out.Printf("Item %d/%d: %s data=%d; next index=%d", index, len(items), name, data, (index+1)%len(items))
+}
+
+// fixtureOffhandAllowed restores ordinary offhand admission after server-driven fixture injection.
+func fixtureOffhandAllowed(stack item.Stack, _ int) bool {
+	if stack.Empty() {
+		return true
+	}
+	allowed, ok := stack.Item().(item.OffHand)
+	return ok && allowed.OffHand()
 }
 
 // fixtureItems filters registered identities and sorts by name and metadata for repeatable captures.
