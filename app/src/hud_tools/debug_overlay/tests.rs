@@ -823,3 +823,35 @@ fn changed_diagnostic_rows_warm_both_buffers_before_the_next_unchanged_tick() {
         );
     }
 }
+
+#[test]
+fn touch_menu_and_desktop_binding_toggle_the_same_overlay() {
+    let mut app = App::new();
+    app.init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<Time<Real>>()
+        .insert_resource(ClientWorld::default())
+        .init_resource::<FatalError>()
+        .insert_resource(LocalPlayerFrameCarrier::default())
+        .insert_resource(UiPresentationResource(
+            client_ui::test_support::mini_engine_presentation(),
+        ));
+    configure(&mut app);
+    app.world_mut()
+        .resource_mut::<UiPresentationResource>()
+        .request_touch_debug_toggle();
+    app.update();
+    assert!(app.world().resource::<DebugOverlayState>().visible);
+    app.update();
+    assert!(app.world().resource::<DebugOverlayState>().visible);
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::F3);
+    app.update();
+    assert!(!app.world().resource::<DebugOverlayState>().visible);
+    assert!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .debug_lines()
+            .is_none()
+    );
+}

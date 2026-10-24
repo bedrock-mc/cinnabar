@@ -63,6 +63,9 @@ impl MenuRuntime {
                 self.fullscreen_change = Some(fullscreen);
             }
             MenuAction::SettingsSection(section) => {
+                if section != self.settings.section {
+                    self.apply_global_resources_on_leave();
+                }
                 self.settings_query.set_text("");
                 self.settings.slider_selected = None;
                 self.settings.section = section;

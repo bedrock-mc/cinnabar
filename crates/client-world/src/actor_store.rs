@@ -11,6 +11,7 @@ mod animated;
 mod appearance_preparation;
 mod colliders;
 mod effect_members;
+mod offered_use;
 pub use colliders::ActorCollisionBounds;
 mod death_visibility;
 mod local_presentation;
@@ -394,9 +395,11 @@ impl ActorSnapshot {
         }
     }
 
+    /// Whether invisibility hides this actor's body after applying its rendering override.
     #[must_use]
     pub fn is_invisible(&self) -> bool {
         self.flag(ActorFlag::Invisible.wire_value())
+            && !self.flag(ActorFlag::RenderWhenInvisible.wire_value())
     }
 
     #[must_use]
@@ -767,7 +770,7 @@ pub(crate) struct ActorStore {
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
     /// Arm swings the server sent for the local player, waiting for its swing tracker.
-    local_server_swings: u8,
+    local_server_swings: Vec<Option<std::sync::Arc<str>>>,
     pending_local_damage: Option<local_health::PendingLocalDamage>,
     local_health_skips: u64,
     /// The local player's last-death data held while its actor is absent (a dimension change),
@@ -953,6 +956,9 @@ mod hitbox_tests;
 
 #[cfg(test)]
 mod movement_flags_tests;
+
+#[cfg(test)]
+mod visibility_tests;
 
 mod display;
 pub use display::{DisplayActorStore, MAX_DISPLAY_ACTORS};

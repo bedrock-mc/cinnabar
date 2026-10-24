@@ -89,7 +89,7 @@ pub(in crate::compiler) fn compile_rule(
     } else {
         let template = push_model_template(
             shelf_quads(materials, direction, front),
-            0,
+            assets::MODEL_TEMPLATE_FLAG_SHELF,
             storage.templates,
             storage.quads,
         )?;

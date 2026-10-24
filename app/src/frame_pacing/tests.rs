@@ -48,7 +48,6 @@ fn pacing_app_with(
         .add_message::<WindowOccluded>()
         .init_resource::<RuntimeSettings>()
         .init_resource::<FramePacing>()
-        .init_resource::<PowerSource>()
         .insert_resource(playing_world())
         .insert_resource(DisplayRefresh(DisplayTiming {
             refresh: FrameRate::from_hz(120),
@@ -208,28 +207,16 @@ fn leaving_a_world_caps_menus_and_hidden_runs_keep_the_requested_limit() {
 }
 
 #[test]
-fn changing_power_source_only_changes_an_untouched_gameplay_limit() {
-    for limit in [
-        FrameRateLimit::Automatic,
-        FrameRateLimit::Unlimited,
-        fixed(75),
-    ] {
-        let (mut app, _) = pacing_app((None, false), limit);
-        let mains = pacing(&app).rate;
-        app.world_mut().resource_mut::<PowerSource>().on_battery = true;
-        app.update();
-        assert_eq!(
-            pacing(&app).rate,
-            if limit == FrameRateLimit::Automatic {
-                app.world().resource::<DisplayRefresh>().0.refresh
-            } else {
-                mains
-            }
-        );
-        app.world_mut().resource_mut::<PowerSource>().on_battery = false;
-        app.update();
-        assert_eq!(pacing(&app).rate, mains);
-    }
+fn unsaved_frame_rate_settings_leave_gameplay_unlimited() {
+    let video = launcher::menu::settings_options::SettingsOptions::default()
+        .user_settings()
+        .video;
+    assert_eq!(video.frame_rate_limit, FrameRateLimit::Unlimited);
+    let (app, _) = pacing_app_with((None, false), video.frame_rate_limit, |settings| {
+        settings.vsync = render_api::VsyncMode::Off;
+        settings.vrr = render_api::VrrPreference::Off;
+    });
+    assert_eq!(pacing(&app).rate, None);
 }
 
 #[test]
@@ -359,7 +346,6 @@ fn missing_primary_display_clears_stale_vrr_and_refresh() {
             refresh: hz(120),
             vrr: VrrStatus::Active,
         }))
-        .init_resource::<PowerSource>()
         .add_systems(Update, track_display_refresh);
     app.update();
     assert_eq!(

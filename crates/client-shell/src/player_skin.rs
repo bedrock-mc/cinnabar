@@ -23,6 +23,8 @@ const SESSION_SKIN_ID_PREFIX: &str = "session:";
 pub struct LocalPlayerSkin {
     /// The selected pack and skin name sent at login and on appearance updates.
     pub skin_id: String,
+    /// The selection still uses the startup default rather than a player or catalog image.
+    pub(crate) default_fallback: bool,
     pub rgba8: render_api::SkinRgba8,
     pub width: u32,
     pub height: u32,
@@ -75,6 +77,7 @@ impl LocalPlayerSkin {
             skin.skin_id = selected_skin_id(selected);
             skin.engine_version = selected.engine_version.clone();
         }
+        skin.default_fallback = !has_asset && selected.is_some_and(|entry| entry.id == "current");
         skin.cosmetics = cosmetics::resolve(&catalog.selected_cosmetics, cosmetics::owns);
         skin
     }
@@ -82,11 +85,13 @@ impl LocalPlayerSkin {
     /// A default-skinned identity, for construction sites without a loaded PNG (e.g. tests).
     #[must_use]
     pub fn generated_default(display_name: &str) -> Self {
-        Self::from_rgba8(
+        let mut skin = Self::from_rgba8(
             render_model::default_actor_skin_rgba8(),
             render_api::CLASSIC_SKIN_SIDE,
             display_name,
-        )
+        );
+        skin.default_fallback = true;
+        skin
     }
 
     /// Keeps classic upload dimensions independent of the renderer's larger shared array.
@@ -103,6 +108,7 @@ impl LocalPlayerSkin {
         }
         Self {
             skin_id: protocol::builtin_skin_id("Custom"),
+            default_fallback: false,
             rgba8: rgba8.into(),
             width: side as u32,
             height: side as u32,
@@ -113,6 +119,17 @@ impl LocalPlayerSkin {
             cape: None,
             cosmetics: Vec::new(),
         }
+    }
+
+    /// Updates fallback pixels after carrier validation, retaining identity, capes and cosmetics.
+    pub fn refresh_default_player_skin(&mut self, skin: &render_api::StandardSkin) -> bool {
+        if !self.default_fallback || self.rgba8 == skin.rgba8 {
+            return false;
+        }
+        self.rgba8 = skin.rgba8.clone();
+        self.width = skin.width;
+        self.height = skin.height;
+        true
     }
 
     /// The per-frame render skin for the local body and HUD paperdoll.
@@ -140,6 +157,7 @@ impl LocalPlayerSkin {
         skin: &render_api::StandardSkin,
         model: launcher::dressing_room::SkinModel,
     ) {
+        self.default_fallback = false;
         self.rgba8 = skin.rgba8.clone();
         self.width = skin.width;
         self.height = skin.height;

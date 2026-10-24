@@ -338,6 +338,10 @@ fn compile_pack_sources(
             && !record_has_deferred_material(&pack, record))
             || is_model_visual(record)
             || is_liquid(record)
+            || matches!(
+                assets::facts::block_render_fact(&record.name).variant,
+                Some(assets::facts::BlockModelVariant::Chest(_))
+            )
             || assets::facts::block_render_fact(&record.name).kind
                 == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)

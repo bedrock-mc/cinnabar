@@ -7,32 +7,39 @@ use sha2::{Digest, Sha256};
 
 #[derive(Default)]
 pub(super) struct SpriteBaker {
-    by_source: BTreeMap<u32, Option<u32>>,
+    by_source: BTreeMap<(u32, Option<[u8; 3]>), Option<u32>>,
     pub(super) animation_strips: usize,
     pub(super) skipped_oversized: usize,
     pub(super) sources: BTreeMap<Box<str>, u32>,
 }
 
 impl SpriteBaker {
-    /// Decodes each source once and retains its sprite index or bounded refusal.
+    /// Bakes each source/tint pair once and retains its sprite index or bounded refusal.
     pub(super) fn bake(
         &mut self,
         root: &Path,
         compiled: &CompiledEntityAssets,
         source_index: u32,
         sprites: &mut Vec<IconSprite>,
+        tint: Option<[u8; 3]>,
     ) -> Result<Option<u32>, AssetError> {
-        if let Some(existing) = self.by_source.get(&source_index) {
+        let source = &compiled.sources[source_index as usize];
+        let tint = tint.or_else(|| {
+            assets::facts::pack::leather_sprite(&source.path).then(|| {
+                let dye = assets::DEFAULT_LEATHER_RGB;
+                [(dye >> 16) as u8, (dye >> 8) as u8, dye as u8]
+            })
+        });
+        let key = (source_index, tint);
+        if let Some(existing) = self.by_source.get(&key) {
             return Ok(*existing);
         }
-        let source = &compiled.sources[source_index as usize];
         let mut decoded = sprite_source(root, source)?;
-        let raw = assets::facts::pack::leather_sprite(&source.path)
+        let raw = tint
+            .is_some()
             .then(|| bounded_sprite(decoded.clone()).map(|(sprite, _)| sprite))
             .flatten();
-        if assets::facts::pack::leather_sprite(&source.path) {
-            let dye = assets::DEFAULT_LEATHER_RGB;
-            let tint = [(dye >> 16) as u8, (dye >> 8) as u8, dye as u8];
+        if let Some(tint) = tint {
             for pixel in decoded.rgba8.as_chunks_mut::<4>().0 {
                 let texel = [pixel[0], pixel[1], pixel[2], pixel[3]];
                 pixel.copy_from_slice(&assets::color_mask_texel(texel, tint));
@@ -40,7 +47,7 @@ impl SpriteBaker {
         }
         let Some((sprite, strip)) = bounded_sprite(decoded) else {
             self.skipped_oversized += 1;
-            self.by_source.insert(source_index, None);
+            self.by_source.insert(key, None);
             return Ok(None);
         };
         self.animation_strips += usize::from(strip);
@@ -59,7 +66,7 @@ impl SpriteBaker {
         };
         self.sources
             .insert(source.path.to_ascii_lowercase().into(), raw_index);
-        self.by_source.insert(source_index, Some(index));
+        self.by_source.insert(key, Some(index));
         Ok(Some(index))
     }
 }

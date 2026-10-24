@@ -12,6 +12,42 @@ use std::{
 };
 
 type Matrix = [[f32; 4]; 3];
+/// Shares the endpoint allocation on devices that can bind only four actor storage buffers.
+pub(super) fn gpu_buffers(
+    device: &bevy::render::renderer::RenderDevice,
+) -> Option<(
+    bevy::render::render_resource::Buffer,
+    bevy::render::render_resource::Buffer,
+    u64,
+)> {
+    use bevy::render::render_resource::{BufferDescriptor, BufferUsages};
+    let compact = device.limits().max_storage_buffers_per_shader_stage
+        < crate::device_settings::vertex_storage_buffers(
+            &super::pipeline::actor_bind_group_layout(),
+        );
+    let endpoint_bytes = (MAX_ACTOR_POSE_BONES * ACTOR_BONE_MATRIX_BYTES) as u64;
+    let allocate = |label, size| {
+        crate::gpu_allocation::buffer(
+            device,
+            &BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            },
+        )
+    };
+    let previous = allocate(
+        "bounded shared actor previous-bone arena",
+        endpoint_bytes * if compact { 2 } else { 1 },
+    )?;
+    let current = if compact {
+        previous.clone()
+    } else {
+        allocate("bounded shared actor current-bone arena", endpoint_bytes)?
+    };
+    Some((previous, current, if compact { endpoint_bytes } else { 0 }))
+}
 const _: () = assert!(std::mem::size_of::<Matrix>() == ACTOR_BONE_MATRIX_BYTES);
 type Key = (u64, i32, u64, u64, u8, EntityRigId);
 

@@ -439,6 +439,8 @@ pub fn project_nametags(
     show_players: bool,
     mut admit: impl FnMut(&mut NametagAnchor) -> bool,
 ) -> Vec<NametagAnchor> {
+    #[cfg(feature = "tracy")]
+    let _zone = tracing::info_span!("nametag.select").entered();
     let authority = stream.authority();
     for cached in cache.entries.values_mut() {
         cached.queried = false;
@@ -513,6 +515,8 @@ pub fn build_nametag_scene<'p>(
     atlas: &mut NametagAtlas,
     pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
 ) -> NametagScene {
+    #[cfg(feature = "tracy")]
+    let _zone = tracing::info_span!("nametag.scene").entered();
     let lift_scale = style.map_or(1.0, |style| style.scale);
     let text_cost = style::record_cost(style, false);
     let line_cost = text_cost + style::record_cost(style, true);

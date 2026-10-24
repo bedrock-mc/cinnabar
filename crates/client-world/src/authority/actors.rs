@@ -2,6 +2,18 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Reads the target's component proof without predicting unknown native interactions.
+    pub fn offered_throwable_use(
+        &self,
+        runtime_id: u64,
+        item: &protocol::VerifiedNetworkItemStack,
+    ) -> assets::entity::offered_use::OfferedUse {
+        self.actor(runtime_id).map_or(
+            assets::entity::offered_use::OfferedUse::Unresolved,
+            |actor| self.actors.offered_throwable_use(actor, item),
+        )
+    }
+
     /// Publishes local placement, reanchoring animation only when presentation changes.
     pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
         self.actors.set_local_presentation_position(
@@ -38,6 +50,11 @@ impl WorldAuthority {
     /// Synced actor name tag, distinct from the player's scoreboard username.
     pub fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         self.actors.actor_name_tag(unique_id)
+    }
+    /// The title an actor-backed container screen shows: its filtered name when set,
+    /// otherwise its name tag.
+    pub fn actor_container_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        self.actors.actor_container_name(unique_id)
     }
     /// Every username on the retained authoritative player list, sorted.
     pub fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {
@@ -231,10 +248,8 @@ impl WorldAuthority {
         let uuid = *uuid;
         self.actors.apply_skin_update(uuid, skin) == crate::actor_store::ActorApplyResult::Updated
     }
-    /// Arm swings the server sent for the local player since the last call. Vanilla servers
-    /// do not echo the owner's swing, but some (Dragonfly) send one when they accept a
-    /// placement the client did not predict, and the native client plays it.
-    pub fn take_local_server_swings(&mut self) -> u8 {
+    /// Ordered sources of server swings for the local player since the last call.
+    pub fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         self.actors.take_local_server_swings()
     }
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.

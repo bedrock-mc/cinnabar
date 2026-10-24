@@ -1,10 +1,9 @@
-//! One disk owner saves option snapshots without blocking the frame thread.
+//! Owns one accepted option save until its disk operation has completed.
 
 use shaderpack::{OptionValues, PackOption};
 use std::{
     io,
     path::PathBuf,
-    sync::{Mutex, mpsc},
     thread::{self, JoinHandle},
 };
 
@@ -15,68 +14,50 @@ pub(super) struct Request {
     pub values: OptionValues,
 }
 
-/// A bounded save mailbox and its completion channel.
+/// One save worker, with no idle thread after its result has been acknowledged.
 pub(super) struct Writer {
-    requests: Option<mpsc::SyncSender<Request>>,
-    results: Mutex<mpsc::Receiver<Result<(), String>>>,
-    worker: Option<JoinHandle<()>>,
+    worker: Option<JoinHandle<Result<(), String>>>,
 }
 
 impl Writer {
-    /// Starts the sole writer; the host keeps at most one unacknowledged save.
-    pub fn new() -> io::Result<Self> {
-        let (send, receive) = mpsc::sync_channel::<Request>(1);
-        let (complete, results) = mpsc::channel();
+    /// Starts one replacement; the worker exits as soon as this disk operation finishes.
+    pub fn start(request: Request) -> io::Result<Self> {
+        Self::spawn(move || {
+            shaderpack::write_option_file(&request.path, &request.options, &request.values)
+                .map_err(|error| format!("{}: {error}", request.path.display()))
+        })
+    }
+
+    /// Owns one background operation whose completion can be polled without waiting.
+    pub(super) fn spawn(
+        work: impl FnOnce() -> Result<(), String> + Send + 'static,
+    ) -> io::Result<Self> {
         let worker = thread::Builder::new()
             .name("shader-options-writer".into())
-            .spawn(move || {
-                while let Ok(request) = receive.recv() {
-                    let result = shaderpack::write_option_file(
-                        &request.path,
-                        &request.options,
-                        &request.values,
-                    )
-                    .map_err(|error| format!("{}: {error}", request.path.display()));
-                    if complete.send(result).is_err() {
-                        break;
-                    }
-                }
-            })?;
+            .spawn(work)?;
         Ok(Self {
-            requests: Some(send),
-            results: Mutex::new(results),
             worker: Some(worker),
         })
     }
 
-    /// Queues a snapshot without waiting for filesystem work.
-    pub fn submit(&self, request: Request) -> Result<(), String> {
-        self.requests
-            .as_ref()
-            .ok_or("the options writer stopped")?
-            .try_send(request)
-            .map_err(|error| error.to_string())
-    }
-
-    /// Takes a completed save, reporting a stopped worker as a retryable failure.
+    /// Takes a finished save; an unfinished operation always returns immediately.
     pub fn poll(&mut self) -> Option<Result<(), String>> {
-        match self
-            .results
-            .get_mut()
-            .unwrap_or_else(|error| error.into_inner())
-            .try_recv()
-        {
-            Ok(result) => Some(result),
-            Err(mpsc::TryRecvError::Empty) => None,
-            Err(mpsc::TryRecvError::Disconnected) => Some(Err("the options writer stopped".into())),
+        if !self.worker.as_ref()?.is_finished() {
+            return None;
         }
+        Some(
+            self.worker
+                .take()
+                .unwrap()
+                .join()
+                .unwrap_or_else(|_| Err("the options writer stopped".into())),
+        )
     }
 }
 
 impl Drop for Writer {
-    /// Flushes accepted work when the host shuts down.
+    /// Flushes accepted work at host teardown; normal polling retires it after completion.
     fn drop(&mut self) {
-        drop(self.requests.take());
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }

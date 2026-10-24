@@ -7,8 +7,8 @@ use protocol::{
     HeldItemRequest, InventoryPacketError, ItemUseTrigger, NetworkItemStack, PredictedSlotChange,
     SwingSource, VerifiedNetworkItemStack, click_air_packet, click_block_packet,
     click_block_transaction_packet, creative_destroy_block_packet, decode_batch,
-    destroy_block_packet, encode, release_item_packet, respawn_request_packet,
-    stop_sleeping_packet, swing_arm_packet, use_actor_packet,
+    deny_destroy_block_packet, destroy_block_packet, encode, release_item_packet,
+    respawn_request_packet, stop_sleeping_packet, swing_arm_packet, use_actor_packet,
 };
 use sha2::{Digest, Sha256};
 
@@ -716,6 +716,29 @@ fn creative_destroy_block_packet_uses_the_target_and_creative_action() {
     assert_eq!(action.block_position.z.0, -29);
     assert_eq!(action.result_pos, Default::default());
     assert_eq!(action.face.0, 5);
+}
+
+/// A refused destroy names the target and face with an empty result position.
+#[test]
+fn deny_destroy_block_packet_uses_the_target_and_deny_action() {
+    let encoded = encode(&deny_destroy_block_packet(7, [13, 71, -29], 2)).unwrap();
+    let decoded = decode_batch(encoded).unwrap().remove(0);
+    let packets::Packet::PlayerAction(action) = *decoded.data else {
+        panic!("player action packet");
+    };
+    assert_eq!(action.action, PlayerActionType::Denydestroyblock);
+    assert_eq!(action.action.to_raw(), 17);
+    assert_eq!(action.player_runtime_id.0, 7);
+    assert_eq!(
+        [
+            action.block_position.x.0,
+            action.block_position.y.0,
+            action.block_position.z.0
+        ],
+        [13, 71, -29]
+    );
+    assert_eq!(action.result_pos, Default::default());
+    assert_eq!(action.face.0, 2);
 }
 
 #[test]

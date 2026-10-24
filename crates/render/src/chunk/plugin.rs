@@ -13,6 +13,7 @@ use crate::chunk::{
         install_chunk_commands,
     },
 };
+use bevy::render::GpuResourceAppExt;
 use render_scene::RuntimeStageProfiler;
 use render_scene::{
     ChunkAnimationClock, ChunkBiomeTints, ChunkRenderApplySet, ChunkRenderQueue,
@@ -96,53 +97,8 @@ impl Plugin for ChunkRenderPlugin {
         install_chunk_extraction(app);
         crate::upload_staging::install_terrain(app);
 
-        crate::lighting::install(app);
         crate::upload_staging::install(app);
-        load_internal_asset!(
-            app,
-            BIOME_TINT_SHADER_HANDLE,
-            "../biome_tint.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
-                    source
-                )),
-                path
-            )
-        );
-        crate::enhanced::load_shader_imports(app);
-        load_internal_asset!(
-            app,
-            CHUNK_BINDINGS_SHADER_HANDLE,
-            "../chunk_bindings.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::source(source),
-                path
-            )
-        );
-        load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wesl", |source, path| {
-            crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
-        });
-        load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wesl", |source, path| {
-            crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
-        });
-        load_internal_asset!(
-            app,
-            LIQUID_SHADER_HANDLE,
-            "../liquid.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::source(source),
-                path
-            )
-        );
-        load_internal_asset!(
-            app,
-            TRANSPARENT_SHADER_HANDLE,
-            "../transparent_terrain.wesl",
-            |source, path| crate::shader_safety::from_wesl(
-                crate::material_shader::source(source),
-                path
-            )
-        );
+        load_shaders(app);
 
         let acknowledgements = app
             .world()
@@ -168,7 +124,8 @@ impl Plugin for ChunkRenderPlugin {
             .insert_resource(model_workload_metrics)
             .insert_resource(visibility_diagnostics)
             .insert_resource(transparent_witness_evidence)
-            .init_resource::<ChunkPipeline>()
+            .init_gpu_resource::<ChunkPipeline>()
+            .init_resource::<super::gpu::compact::CompactTerrain>()
             .init_resource::<GraphicsMetadataPublicationState>()
             .init_resource::<crate::dropped_item_render::terrain_items::TerrainItemMeshGenerations>(
             )
@@ -204,7 +161,11 @@ impl Plugin for ChunkRenderPlugin {
         render_app
             .add_systems(
                 RenderStartup,
-                (init_chunk_gpu_arena, init_chunk_gpu_animation_clock),
+                (
+                    init_chunk_gpu_arena,
+                    init_chunk_gpu_animation_clock,
+                    super::gpu::compact::install,
+                ),
             )
             .add_systems(
                 Render,
@@ -258,4 +219,72 @@ fn opaque_terrain_passes_enabled(
     diagnostics: Res<VisibilityDiagnosticsInput>,
 ) -> bool {
     diagnostics.startup_probe_enabled() || render_scene::panorama::world_passes_enabled(scene)
+}
+
+/// Registers the native terrain modules and their shared imports in the asset collection.
+pub(crate) fn load_shaders(app: &mut App) {
+    crate::lighting::install(app);
+    const TERRAIN_TABLES: bevy::asset::Handle<bevy::shader::Shader> =
+        bevy::asset::uuid_handle!("9740edc2-a972-4501-b23a-f2303206ad4a");
+    load_internal_asset!(
+        app,
+        TERRAIN_TABLES,
+        "../terrain_tables.wesl",
+        |source, path| { crate::shader_safety::from_wesl(source, path) }
+    );
+    const CHUNK_RECORDS: bevy::asset::Handle<bevy::shader::Shader> =
+        bevy::asset::uuid_handle!("15409134-b00f-453e-bd85-bd7a9536e34d");
+    load_internal_asset!(
+        app,
+        CHUNK_RECORDS,
+        "../chunk_records.wesl",
+        |source, path| {
+            crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
+        }
+    );
+    load_internal_asset!(
+        app,
+        BIOME_TINT_SHADER_HANDLE,
+        "../biome_tint.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::bind_biome_tables(&meshing::biome_lattice::shader_source(
+                source
+            )),
+            path
+        )
+    );
+    crate::enhanced::load_shader_imports(app);
+    load_internal_asset!(
+        app,
+        CHUNK_BINDINGS_SHADER_HANDLE,
+        "../chunk_bindings.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::source(source),
+            path
+        )
+    );
+    load_internal_asset!(app, CHUNK_SHADER_HANDLE, "../chunk.wesl", |source, path| {
+        crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
+    });
+    load_internal_asset!(app, MODEL_SHADER_HANDLE, "../model.wesl", |source, path| {
+        crate::shader_safety::from_wesl(crate::material_shader::source(source), path)
+    });
+    load_internal_asset!(
+        app,
+        LIQUID_SHADER_HANDLE,
+        "../liquid.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::source(source),
+            path
+        )
+    );
+    load_internal_asset!(
+        app,
+        TRANSPARENT_SHADER_HANDLE,
+        "../transparent_terrain.wesl",
+        |source, path| crate::shader_safety::from_wesl(
+            crate::material_shader::source(source),
+            path
+        )
+    );
 }

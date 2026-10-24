@@ -200,6 +200,7 @@ mod tests {
                 name: "sunPathRotation".into(),
                 value: value.into(),
             }],
+            released_overrides: 0,
         }
     }
 

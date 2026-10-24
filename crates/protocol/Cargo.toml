@@ -19,6 +19,8 @@ reads = [
 ]
 
 [features]
+# Adds on-demand metadata attribution to client Tracy captures.
+tracy = []
 # Fixture builders and semantic observations for other crates' tests.
 test-support = []
 

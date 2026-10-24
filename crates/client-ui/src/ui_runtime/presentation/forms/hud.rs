@@ -235,6 +235,7 @@ impl UiPresentationRuntime {
             self.screens.touch.hud = drawn;
         }
         if let Some(view) = preview_view.get() {
+            self.hud_preview_view = view;
             self.player_preview_view = view;
         }
         Ok(true)

@@ -125,6 +125,98 @@ fn members_pack_by_reflected_name_offset_and_type() {
 }
 
 #[test]
+fn translated_boolean_uniforms_pack_scalars_vectors_arrays_and_grid_elements() {
+    let translated = shaderpack::ShaderPack::new(shaderpack::PackSource::from_files([
+        (
+            "composite.vsh",
+            "#version 450\nvoid main() { gl_Position = vec4(0.0); }",
+        ),
+        (
+            "composite.fsh",
+            "#version 450
+            uniform bool enabled;
+            uniform bvec2 pairs[2];
+            uniform bool flags[2][2];
+            out vec4 color;
+            void main() {
+                color = vec4((enabled && pairs[1].x && flags[0][1]) ? 1.0 : 0.0);
+            }",
+        ),
+    ]))
+    .translate(&shaderpack::TranslateConfig::default());
+    let program = translated
+        .programs
+        .iter()
+        .find(|p| p.program.name == "composite")
+        .unwrap();
+    let reflected = program
+        .reflection
+        .as_ref()
+        .unwrap_or_else(|| panic!("{:?}", program.all_diagnostics().collect::<Vec<_>>()));
+    let block = reflected.uniforms.as_ref().unwrap();
+    let mut bytes = vec![];
+    let mut unknown = BTreeSet::new();
+    pack_block(
+        block,
+        &|name| match name {
+            "enabled" => Some(HostValue::from_custom(UniformValue::Bool(true))),
+            "pairs[0]" => Some(HostValue::IVec([0, 1, 0, 0], 2)),
+            "pairs[1]" => Some(HostValue::IVec([1, 0, 0, 0], 2)),
+            "flags[0][0]" | "flags[1][1]" => Some(HostValue::bool(false)),
+            "flags[0][1]" | "flags[1][0]" => Some(HostValue::bool(true)),
+            _ => None,
+        },
+        &mut bytes,
+        &mut unknown,
+    );
+    assert!(unknown.is_empty(), "{unknown:?}");
+    assert_eq!(bytes.len(), block.size as usize);
+    for (name, expected) in [
+        ("enabled", vec![vec![1]]),
+        ("pairs", vec![vec![0, 1], vec![1, 0]]),
+        ("flags[0]", vec![vec![0], vec![1]]),
+        ("flags[1]", vec![vec![1], vec![0]]),
+    ] {
+        let member = block
+            .members
+            .iter()
+            .find(|member| member.name == name)
+            .unwrap();
+        let (count, stride) = member.array.unwrap_or((1, 0));
+        assert_eq!(count as usize, expected.len());
+        let width = expected[0].len();
+        assert_eq!(
+            member.ty,
+            if width == 1 {
+                ValueType::Scalar(ScalarType::Int)
+            } else {
+                ValueType::Vector {
+                    size: width as u8,
+                    scalar: ScalarType::Int,
+                }
+            }
+        );
+        for (element, expected) in expected.iter().enumerate() {
+            let at = member.offset as usize + element * stride as usize;
+            for (component, expected) in expected.iter().enumerate() {
+                assert_eq!(
+                    read_i32(&bytes, at + component * 4),
+                    *expected,
+                    "{name}[{element}]"
+                );
+            }
+            if stride > 0 {
+                assert!(
+                    bytes[at + width * 4..at + stride as usize]
+                        .iter()
+                        .all(|byte| *byte == 0)
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn gl_projection_maps_the_planes_to_clip_depth_limits() {
     let p = gl_perspective([1.0, 1.0], 0.05, 1024.0);
     let ndc = |distance: f32| {

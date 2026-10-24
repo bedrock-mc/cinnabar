@@ -8,7 +8,7 @@ use client_runtime::network::NetworkHandle;
 #[cfg(feature = "acceptance")]
 use bevy::ecs::system::SystemParam;
 use bevy::{
-    prelude::{App, AppExit, Last, MessageReader, MessageWriter, Res, ResMut, Resource},
+    prelude::{App, AppExit, Last, Local, MessageReader, MessageWriter, Res, ResMut, Resource},
     window::WindowCloseRequested,
 };
 #[cfg(feature = "acceptance")]
@@ -47,6 +47,14 @@ impl TerminalCause {
         cause
     }
 
+    /// Keeps the first cause; later failures during teardown are consequences of it.
+    fn record(&self, cause: String) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_or_insert(cause);
+    }
+
     /// The process failure for an error exit, naming its cause when one was recorded.
     pub(crate) fn exit_message(&self) -> String {
         let cause = self.0.lock().unwrap_or_else(PoisonError::into_inner);
@@ -57,6 +65,7 @@ impl TerminalCause {
     }
 }
 
+/// Captures the first session failure before an error exit consumes the app world.
 fn capture_terminal_cause(
     mut exits: MessageReader<AppExit>,
     fatal_error: Option<Res<FatalError>>,
@@ -71,11 +80,33 @@ fn capture_terminal_cause(
     else {
         return;
     };
-    cause
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .get_or_insert(error);
+    cause.record(error);
+}
+
+/// Ends the app after a terminal GPU error so the crash window names its cause and offers
+/// a restart.
+pub(crate) fn exit_on_gpu_failure(
+    loss: Res<render::GpuFailure>,
+    cause: Res<TerminalCause>,
+    mut reported: Local<bool>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    let Some(message) = loss.message() else {
+        return;
+    };
+    if std::mem::replace(&mut *reported, true) {
+        return;
+    }
+    cause.record(gpu_failure_cause(message));
+    exit.write(AppExit::error());
+}
+
+/// Explains a terminal graphics failure in the crash window.
+fn gpu_failure_cause(driver: &str) -> String {
+    format!(
+        "the graphics device stopped working: the driver reset, the GPU was removed, or it ran \
+         out of video memory. Restart to continue. Driver report: {driver}"
+    )
 }
 
 pub(crate) fn fatal_runtime_exit(error: &str) -> Option<AppExit> {
@@ -172,6 +203,7 @@ mod tests {
     use super::*;
     use bevy::prelude::Update;
 
+    /// Builds an app that exits with a caller-provided session failure.
     fn failing_app(cause: &str, exit: AppExit) -> App {
         let mut app = App::new();
         app.insert_resource(FatalError(Some(cause.into())))
@@ -209,6 +241,59 @@ mod tests {
         });
         assert!(app.run().is_error());
         assert!(terminal.exit_message().ends_with(first));
+    }
+
+    /// A lost GPU device must end the app with the driver's reason, not a bare error exit.
+    #[test]
+    fn device_loss_exits_with_the_driver_reason() {
+        let mut app = App::new();
+        app.init_resource::<render::GpuFailure>()
+            .add_systems(Update, exit_on_gpu_failure);
+        let terminal = TerminalCause::install(&mut app);
+        app.update();
+        assert!(app.should_exit().is_none());
+
+        app.world_mut()
+            .resource_mut::<render::GpuFailure>()
+            .record("DXGI_ERROR_DEVICE_REMOVED");
+        assert!(app.run().is_error());
+        let message = terminal.exit_message();
+        assert!(
+            message.contains("graphics device stopped working"),
+            "{message}"
+        );
+        assert!(message.ends_with("DXGI_ERROR_DEVICE_REMOVED"), "{message}");
+    }
+
+    /// An uncaptured OOM follows the installed renderer policy into the restart error screen.
+    #[test]
+    fn uncaptured_out_of_memory_exits_with_a_restart_explanation() {
+        use bevy::render::error_handler::{
+            ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy,
+        };
+        let mut app = App::new();
+        render::install_error_policy(&mut app);
+        app.add_systems(Update, exit_on_gpu_failure);
+        let terminal = TerminalCause::install(&mut app);
+        let handler = app.world().resource::<RenderErrorHandler>().0;
+        let policy = handler(
+            &RenderError {
+                ty: ErrorType::OutOfMemory,
+                description: String::new(),
+                source: None,
+            },
+            app.world_mut(),
+            &mut bevy::ecs::world::World::new(),
+        );
+        assert!(matches!(policy, RenderErrorPolicy::StopRendering));
+        assert!(app.run().is_error());
+        let message = terminal.exit_message();
+        assert!(message.contains("out of video memory"), "{message}");
+        assert!(message.contains("Restart to continue"), "{message}");
+        assert!(
+            message.ends_with("uncaptured GPU out-of-memory error"),
+            "{message}"
+        );
     }
 
     #[test]

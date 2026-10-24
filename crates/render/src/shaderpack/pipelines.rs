@@ -4,7 +4,7 @@
 //! through naga_oil, so pack programs bypass it: the validated naga modules from
 //! `shaderpack` reach wgpu unchanged as `ShaderSource::Naga` (the `naga-ir` wgpu feature),
 //! and layouts come straight from each program's [`ProgramReflection`]. Pipelines are
-//! created on the load worker inside a validation error scope, so a pack the device rejects
+//! created on the load worker inside a [`RejectionScope`], so a pack the device rejects
 //! fails its load instead of raising a device error.
 
 use super::plan::{MAX_COLOR_BUFFERS, color_buffer_of};
@@ -754,6 +754,33 @@ pub(crate) fn pack_shader_module(
     desc: wgpu::ShaderModuleDescriptor<'_>,
 ) -> wgpu::ShaderModule {
     device.create_shader_module(desc)
+}
+
+/// Captures the validation and internal errors the device raises between [`Self::push`] and
+/// [`Self::pop`] on this thread. Internal errors include the backend compiler rejecting a
+/// translated program (FXC on DX12), which must fail the pack, not the device.
+pub(crate) struct RejectionScope {
+    // Pushed last, so dropped first when a scope is abandoned.
+    validation: wgpu::ErrorScopeGuard,
+    internal: wgpu::ErrorScopeGuard,
+}
+
+impl RejectionScope {
+    pub(crate) fn push(device: &Device) -> Self {
+        let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+        let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        Self {
+            validation,
+            internal,
+        }
+    }
+
+    /// The first validation error, else the first internal error.
+    pub(crate) fn pop(self) -> Option<wgpu::Error> {
+        let validation = bevy::tasks::block_on(self.validation.pop());
+        let internal = bevy::tasks::block_on(self.internal.pop());
+        validation.or(internal)
+    }
 }
 
 #[cfg(test)]

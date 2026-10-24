@@ -178,8 +178,7 @@ fn toolbar(content: &mut Content<'_, '_>, snapshot: &Snapshot) -> Result<(), Pai
             (
                 "Apply changes",
                 Variant::Primary,
-                (!snapshot.busy && snapshot.has_pending_changes())
-                    .then_some(command(Action::Apply)),
+                snapshot.can_apply().then_some(command(Action::Apply)),
             ),
         ],
     )?;

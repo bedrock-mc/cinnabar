@@ -199,7 +199,9 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     let key_domain = if file == "registry-policy.json" {
                         match path {
                             "/pack_rules/egg_aliases" | "/pack_rules/superseded_eggs" => "actor",
-                            "/pack_rules/item_visuals" => "retail_item",
+                            "/pack_rules/item_visuals" | "/pack_rules/default_item_tints" => {
+                                "retail_item"
+                            }
                             _ => domain,
                         }
                     } else {

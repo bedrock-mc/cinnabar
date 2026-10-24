@@ -26,7 +26,6 @@ pub(super) mod render_stage {
     pub(crate) const MOON: i32 = 5;
     pub(crate) const STARS: i32 = 6;
     pub(crate) const TERRAIN_SOLID: i32 = 8;
-    pub(crate) const TERRAIN_CUTOUT: i32 = 10;
     pub(crate) const ENTITIES: i32 = 11;
     pub(crate) const BLOCK_ENTITIES: i32 = 12;
     pub(crate) const DESTROY: i32 = 13;
@@ -108,7 +107,7 @@ pub(crate) const GLINT_BLEND: BlendMode = BlendMode::Factors {
 };
 
 impl DrawKind {
-    pub(crate) const ALL: [DrawKind; 32] = [
+    pub(crate) const ALL: [DrawKind; 33] = [
         DrawKind::Sky,
         DrawKind::Sunset,
         DrawKind::Effect(Effect::Sun),
@@ -124,7 +123,8 @@ impl DrawKind {
         DrawKind::Effect(Effect::ParticlesTranslucent),
         DrawKind::Effect(Effect::ParticlesAdditive),
         DrawKind::Effect(Effect::Clouds),
-        DrawKind::Effect(Effect::Weather),
+        DrawKind::Effect(Effect::Rain),
+        DrawKind::Effect(Effect::Snow),
         DrawKind::Entities,
         DrawKind::EntitiesTranslucent,
         DrawKind::SpiderEyes,
@@ -306,8 +306,12 @@ impl DrawKind {
         match self {
             DrawKind::Sky => render_stage::SKY,
             DrawKind::Sunset => render_stage::SUNSET,
-            DrawKind::TerrainSolid | DrawKind::ShadowSolid => render_stage::TERRAIN_SOLID,
-            DrawKind::TerrainCutout | DrawKind::ShadowCutout => render_stage::TERRAIN_CUTOUT,
+            // Iris draws the opaque section group (solid, cutout and cutout-mipped layers) as
+            // one `TERRAIN_SOLID` phase in both the main and shadow passes.
+            DrawKind::TerrainSolid
+            | DrawKind::ShadowSolid
+            | DrawKind::TerrainCutout
+            | DrawKind::ShadowCutout => render_stage::TERRAIN_SOLID,
             DrawKind::Translucent | DrawKind::ShadowTranslucent => {
                 render_stage::TERRAIN_TRANSLUCENT
             }
@@ -702,9 +706,9 @@ pub(crate) fn geometry_draws(
         };
         // Each draw gets its own error scope: a pipeline the device rejects drops only that
         // draw, as Iris falls back per program, instead of the pack-wide scope failing.
-        let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let scope = super::pipelines::RejectionScope::push(&gpu.device);
         let built = draw_pipeline(*kind, &inputs);
-        let rejected = bevy::tasks::block_on(scope.pop());
+        let rejected = scope.pop();
         match (built, rejected) {
             (Ok((pipeline, outputs)), None) => draws.push(GeometryDraw {
                 kind: *kind,
@@ -920,6 +924,11 @@ mod tests {
             DrawKind::BeaconBeam.alpha_test("gbuffers_beaconbeam", &[]),
             None
         );
+        // Voxelising packs (Just Colored Lighting) only record light sources whose shadow
+        // draw reports `TERRAIN_SOLID`, which includes cutout blocks such as torches.
+        for kind in [DrawKind::TerrainCutout, DrawKind::ShadowCutout] {
+            assert_eq!(kind.render_stage(), 8, "{kind:?}");
+        }
         assert_eq!(DrawKind::Entities.render_stage(), 11);
         assert_eq!(DrawKind::Block.render_stage(), 12);
         assert_eq!(DrawKind::Hand.render_stage(), 16);

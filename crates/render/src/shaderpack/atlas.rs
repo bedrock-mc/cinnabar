@@ -50,7 +50,6 @@ pub(crate) use labpbr::{NEUTRAL_NORMAL, NEUTRAL_SPECULAR};
 use super::{geometry::ShaderpackGeometrySettings, plugin::LoadedShaderPack};
 use animate::AtlasAnimations;
 use bevy::{
-    asset::load_internal_asset,
     ecs::system::SystemParam,
     math::UVec2,
     prelude::{App, Commands, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, With},
@@ -120,12 +119,6 @@ impl Plugin for ShaderpackAtlasPlugin {
         if app.get_sub_app(RenderApp).is_none() {
             return;
         }
-        load_internal_asset!(
-            app,
-            blend::BLEND_SHADER,
-            "atlas/blend.wgsl",
-            |source, path| { crate::shader_safety::from_wgsl(source, path) }
-        );
         app.sub_app_mut(RenderApp)
             .init_resource::<AtlasBuild>()
             .add_systems(
@@ -165,6 +158,7 @@ fn release_shaderpack_atlas(
     mut build: ResMut<AtlasBuild>,
     atlas: Option<Res<ShaderpackAtlas>>,
     animations: Option<Res<AtlasAnimations>>,
+    pipelines: Option<Res<blend::AtlasBlendPipelines>>,
 ) {
     if build.requested.is_some() || build.task.is_some() {
         build.requested = None;
@@ -180,6 +174,19 @@ fn release_shaderpack_atlas(
     if animations.is_some() {
         commands.remove_resource::<AtlasAnimations>();
     }
+    if pipelines.is_some() {
+        commands.remove_resource::<blend::AtlasBlendPipelines>();
+    }
+}
+
+/// Registers the atlas's trusted blend module in the shader renderer's own cache.
+pub(super) fn load_shaders(cache: &mut PipelineCache) {
+    let (id, shader) = crate::shader_asset::internal_shader_asset!(
+        blend::BLEND_SHADER,
+        "atlas/blend.wgsl",
+        crate::shader_safety::from_wgsl
+    );
+    cache.set_shader(id, shader);
 }
 
 /// A finished background build.
@@ -463,7 +470,7 @@ fn publish(built: BuiltAtlas, generation: u64) -> (ShaderpackAtlas, AtlasAnimati
 #[derive(SystemParam)]
 struct AnimationBlendResources<'w> {
     pipelines: Option<Res<'w, blend::AtlasBlendPipelines>>,
-    cache: Option<Res<'w, PipelineCache>>,
+    cache: Option<Res<'w, super::kernels::Kernels>>,
 }
 
 /// Refreshes animated display sprites for the extracted world animation clock. The refresh
@@ -479,10 +486,12 @@ fn update_shaderpack_animations(
     let (Some(mut animations), Some(clock)) = (animations, clock) else {
         return;
     };
-    let compiled = blend_resources
-        .pipelines
-        .as_deref()
-        .zip(blend_resources.cache.as_deref());
+    let compiled = blend_resources.pipelines.as_deref().zip(
+        blend_resources
+            .cache
+            .as_deref()
+            .map(|kernels| &kernels.cache),
+    );
     if animations.needs_blend_sources()
         && let Some((pipelines, cache)) = compiled
     {

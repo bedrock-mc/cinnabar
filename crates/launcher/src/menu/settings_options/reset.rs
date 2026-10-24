@@ -27,7 +27,7 @@ impl SettingsOptions {
         for option in group.options() {
             if matches!(
                 option.id,
-                SettingId::RenderDistance | SettingId::MaxFramerate
+                SettingId::RenderDistance | SettingId::RenderResolution
             ) {
                 changed |= self.values.remove(option.name).is_some();
             } else {

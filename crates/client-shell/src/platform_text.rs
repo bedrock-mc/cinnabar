@@ -45,7 +45,12 @@ pub(crate) fn show_keyboard_requests(
 pub fn bottom_obstruction_pixels() -> f32 {
     #[cfg(target_os = "android")]
     {
-        android::bottom_obstruction_pixels().unwrap_or(0) as f32
+        static WARNING: std::sync::Once = std::sync::Once::new();
+        obstruction_or_warn_once(android::bottom_obstruction_pixels(), &WARNING, |error| {
+            warn!(
+                "CinnabarActivity.bottomObstructionPixels() failed; keyboard avoidance is unavailable: {error}"
+            );
+        })
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -53,19 +58,63 @@ pub fn bottom_obstruction_pixels() -> f32 {
     }
 }
 
+/// Preserves valid geometry and reports a failed read only once before falling back to zero.
+#[cfg(any(target_os = "android", test))]
+fn obstruction_or_warn_once<E>(
+    result: Result<i32, E>,
+    warning: &std::sync::Once,
+    report: impl FnOnce(E),
+) -> f32 {
+    match result {
+        Ok(pixels) => pixels as f32,
+        Err(error) => {
+            warning.call_once(|| report(error));
+            0.0
+        }
+    }
+}
+
 #[cfg(target_os = "android")]
 mod android {
     /// Reads geometry published by the activity's UI thread without resizing the render surface.
     pub(super) fn bottom_obstruction_pixels() -> jni::errors::Result<i32> {
-        let context = ndk_context::android_context();
-        // The Android runtime owns the VM and the activity reference for this native loop.
-        let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast())? };
+        let app = bevy::android::ANDROID_APP
+            .get()
+            .ok_or(jni::errors::Error::NullPtr(
+                "Android activity is unavailable",
+            ))?;
+        // Bevy keeps the VM and this activity's global reference alive for the native loop.
+        let vm = unsafe { jni::JavaVM::from_raw(app.vm_as_ptr().cast())? };
         let mut env = vm.attach_current_thread()?;
-        let activity = unsafe { jni::objects::JObject::from_raw(context.context().cast()) };
+        let activity = unsafe { jni::objects::JObject::from_raw(app.activity_as_ptr().cast()) };
         let result = env.call_method(&activity, "bottomObstructionPixels", "()I", &[]);
         if result.is_err() && env.exception_check()? {
             env.exception_clear()?;
         }
         result?.i()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::obstruction_or_warn_once;
+
+    #[test]
+    fn failed_obstruction_reads_warn_once_and_allow_later_geometry() {
+        let warning = std::sync::Once::new();
+        let mut errors = Vec::new();
+        for (result, expected) in [
+            (Ok(280), 280.0),
+            (Err("missing activity method"), 0.0),
+            (Err("missing activity method"), 0.0),
+            (Ok(360), 360.0),
+            (Ok(0), 0.0),
+        ] {
+            assert_eq!(
+                obstruction_or_warn_once(result, &warning, |error| errors.push(error)),
+                expected,
+            );
+        }
+        assert_eq!(errors, ["missing activity method"]);
     }
 }

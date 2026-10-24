@@ -177,6 +177,7 @@ fn combined_snapshot() -> CombinedPublicationSnapshot {
             abandoned_cached_transactions: 21,
             recovery_requests: 22,
             ordinary_backpressure: 23,
+            ordinary_lane_stalls: 29,
             reconstructed_level_chunks: 2,
             reconstructed_sub_chunks: 1,
             ..Default::default()
@@ -297,6 +298,7 @@ fn publication_exposes_every_blob_cache_pressure_counter() {
         ("abandoned_cached_transactions", 21),
         ("recovery_requests", 22),
         ("ordinary_backpressure", 23),
+        ("ordinary_lane_stalls", 29),
     ];
     let mismatched = expected
         .into_iter()

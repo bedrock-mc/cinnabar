@@ -16,7 +16,7 @@ use crate::source::PackSource;
 pub const DEFAULT_LANGUAGE: &str = "en_us";
 
 /// One language's entries of a pack.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct PackLang {
     entries: HashMap<String, String>,
 }

@@ -76,6 +76,21 @@ impl ActorStore {
         (!name.is_empty()).then_some(name)
     }
 
+    /// The name a container screen shows for an actor-backed container: the synced filtered
+    /// name when it is non-empty, otherwise the synced name tag. `None` when neither is set,
+    /// so the caller supplies its own default title.
+    pub(crate) fn actor_container_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        let actor = self.snapshot_by_unique(unique_id)?;
+        [ActorDataKey::FilteredName, ActorDataKey::Name]
+            .into_iter()
+            .find_map(|key| match actor.metadata.get(&key.wire_value()) {
+                Some(ActorMetadataValue::String(name)) if !name.is_empty() => {
+                    Some(std::sync::Arc::clone(name))
+                }
+                _ => None,
+            })
+    }
+
     /// Every username on the retained authoritative player list, sorted for
     /// deterministic presentation (the `@a` selector's known answer).
     pub(crate) fn player_list_usernames(&self) -> Vec<std::sync::Arc<str>> {

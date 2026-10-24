@@ -875,6 +875,8 @@ fn normalize_properties(
 fn normalize_metadata(
     metadata: SynchedActorDataCopyableDataList,
 ) -> Result<Arc<[ActorMetadata]>, ActorPacketError> {
+    #[cfg(feature = "tracy")]
+    let _zone = tracing::info_span!("actor.metadata.normalize").entered();
     check_count("metadata", metadata.data.len(), MAX_ACTOR_METADATA_ENTRIES)?;
     // Skip individual entries the client cannot model (non-finite floats,
     // oversized payloads) rather than dropping the whole actor. The client

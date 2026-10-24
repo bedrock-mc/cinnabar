@@ -35,18 +35,29 @@ fn base_materials() -> Vec<assets::Material> {
 }
 
 /// Encodes static materials with enough base layers for every supplied reference.
-fn base(materials: Vec<assets::Material>) -> RuntimeAssets {
+pub(super) fn base(materials: Vec<assets::Material>) -> RuntimeAssets {
     let diagnostic = RuntimeAssets::diagnostic();
-    let layers = materials
+    let last_page = materials
         .iter()
-        .map(|material| material.texture.layer() + 1)
+        .map(|material| material.texture.page())
         .max()
         .unwrap();
-    let mut pages = diagnostic.texture_pages().to_vec();
-    pages[0].texture.layers = layers;
-    for mip in &mut pages[0].texture.mips {
-        mip.rgba8 = mip.rgba8.repeat(layers as usize).into();
-    }
+    let pages = (0..=last_page)
+        .map(|page| {
+            let layers = materials
+                .iter()
+                .filter(|material| material.texture.page() == page)
+                .map(|material| material.texture.layer() + 1)
+                .max()
+                .unwrap_or(1);
+            let mut texture = diagnostic.texture_array().clone();
+            texture.layers = layers;
+            for mip in &mut texture.mips {
+                mip.rgba8 = mip.rgba8.repeat(layers as usize).into();
+            }
+            assets::TexturePage::new(texture)
+        })
+        .collect::<Vec<_>>();
     let compiled = assets::CompiledAssets {
         visuals: vec![super::super::diagnostic_visual()].into(),
         light_properties: vec![assets::LightProperties::OPAQUE_DARK].into(),
@@ -75,7 +86,7 @@ fn oak_keys() -> assets::material_keys::MaterialKeys {
 }
 
 /// Base keys for both an absent raster and one shipped by the server fixture.
-fn keys() -> assets::material_keys::MaterialKeys {
+pub(super) fn keys() -> assets::material_keys::MaterialKeys {
     assets::material_keys::MaterialKeys::from_entries([(1, "oak_planks"), (2, "lucky")])
         .with_aliases([
             ("oak_planks", "textures/blocks/oak_planks"),
@@ -141,9 +152,7 @@ fn absent_pack_faces_reuse_the_base_page_after_every_overlay_shard_is_full() {
             "bones":[{"name":"floor","cubes":[{"origin":[-8,0,-8],"size":[16,1,16],"uv":[0,0]}]}]
         }]}"#,
     );
-    let mut materials = base_materials();
-    materials[1].texture = assets::TextureRef::new(0, 1).unwrap();
-    let base = base(materials);
+    let base = base(base_materials());
     let keys = keys();
     for geometry in [super::super::FULL_BLOCK, "geometry.floor"] {
         let mut floor = chair("test:floor", "oak_planks");

@@ -38,8 +38,8 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     let side = render_model::UI_MODEL_ATLAS_SIDE;
     let full =
         UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.pages = vec![full; MODEL_PAGES];
-    presentation.gui_models.required_pages = MODEL_PAGES;
+    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES];
+    presentation.gui_models.sources.required_pages = MODEL_PAGES;
     presentation.set_preview_equipment_assets(Some(base.assets), Some(pack.assets));
     presentation.set_preview_pack_equipment(pack.equipment);
     let cape_page = 100;
@@ -47,6 +47,7 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     presentation.menu_artwork.refs.insert(
         "fixture-cape".into(),
         ui::IconRef {
+            color_mask: None,
             page: cape_page,
             uv: [0, 0, 64, 32],
             glint: false,
@@ -148,6 +149,7 @@ fn preview_cape_suppression_follows_the_admitted_chest_definition() {
     presentation.menu_artwork.refs.insert(
         "fixture-cape".into(),
         ui::IconRef {
+            color_mask: None,
             page: cape_page,
             uv: [0, 0, 64, 32],
             glint: false,
@@ -361,7 +363,8 @@ fn check_preview(pack: assets::SessionEntityPack, expected: [u8; 4], dyed: bool,
         .pack_equipment
         .region(1)
         .unwrap_or_else(|| {
-            presentation.gui_models.textures[&atlas::key([armor.width, armor.height], &armor.rgba)]
+            presentation.gui_models.sources.textures
+                [&atlas::key([armor.width, armor.height], &armor.rgba)]
         });
     let page = &presentation.textures.pages()[usize::from(icon.page)];
     let offset =
@@ -512,6 +515,7 @@ fn check_stack_enchantment_selection(condition: &str) {
                     glint: assets::item::glint::ItemGlint::Session { enabled: intrinsic },
                     use_animation: assets::item_use::ItemUseAnimation::None,
                     grip: assets::item::grip::ItemGrip::Unresolved,
+                    map_id: None,
                     charged_projectile: None,
                     charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                     damage: None,

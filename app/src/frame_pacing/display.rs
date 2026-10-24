@@ -73,11 +73,8 @@ mod tests {
         use render_model::{FrameRateContext, PresentationIntent, frame_rate_target};
 
         let timing = timing_from_intervals(1.0 / 120.0, 1.0 / 48.0).unwrap();
-        let context = FrameRateContext::Gameplay { on_battery: false };
-        for intent in [
-            PresentationIntent::LowLatency,
-            PresentationIntent::AllowTearing,
-        ] {
+        let context = FrameRateContext::Gameplay;
+        for intent in [PresentationIntent::LowLatency, PresentationIntent::TearFree] {
             assert_eq!(
                 frame_rate_target(
                     intent,

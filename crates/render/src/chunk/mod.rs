@@ -105,7 +105,7 @@ pub(crate) use gpu_cull::app_tests::noop_render_plugin;
 pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling};
 
 pub(crate) mod pipeline;
-pub use pipeline::layouts::required_vertex_storage_buffers;
+pub use pipeline::layouts::{minimum_vertex_storage_buffers, required_vertex_storage_buffers};
 mod coverage;
 pub(crate) mod plugin;
 mod presentation;

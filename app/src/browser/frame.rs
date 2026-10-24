@@ -16,6 +16,7 @@ pub(super) fn configure(app: &mut App) {
     };
     crate::game_frame::configure_client_frame_schedule(app);
     crate::game_frame::configure_world(app);
+    crate::melee::server_swings::configure(app);
     app.init_resource::<CanvasCapture>();
     app.add_plugins((
         client_runtime::ClientRuntimePlugin::<network::resource_packs::PackApplication>::default(),

@@ -27,7 +27,9 @@ mod facts;
 mod shooter;
 pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
 mod icons;
+mod map;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
+pub use map::item_map_id;
 mod nbt_edit;
 mod nbt_equal;
 mod registry_properties;
@@ -852,6 +854,7 @@ pub(crate) fn normalize_actor_attack(
     normalize_animate(AnimatePacket {
         action: AnimatePacketAction::Swing,
         target_actor_runtime_id: runtime_id,
+        swing_source: Some("attack".into()),
         ..Default::default()
     })
 }

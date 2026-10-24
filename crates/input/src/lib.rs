@@ -72,6 +72,10 @@ pub mod touch {
     pub const INVENTORY: u16 = 34;
     pub const CHAT: u16 = 35;
     pub const EMOTE: u16 = 36;
+    pub const UTILITIES: u16 = 37;
+    pub const DEBUG_OVERLAY: u16 = 38;
+    pub const PLAYER_LIST: u16 = 39;
+    pub const DISMISS_UTILITIES: u16 = 40;
 }
 
 mod touch_controls;

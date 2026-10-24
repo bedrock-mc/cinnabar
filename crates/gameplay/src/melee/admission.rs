@@ -114,6 +114,17 @@ fn admit(
                 mining.carried_prediction(movement.completed_tick());
                 runtime.queue.entries.front_mut().unwrap().work = Work::Carrying { tick };
             }
+            Work::Refused { tick, payload } => {
+                if movement.unsent_sample_at(tick).is_some() {
+                    if !mining.attach_refused_press(movement, tick, *payload, frame.authority) {
+                        break;
+                    }
+                } else if tick > movement.completed_tick() {
+                    // A press between ticks rides the next tick once it completes.
+                    break;
+                }
+                runtime.queue.entries.front_mut().unwrap().work = Work::Carrying { tick };
+            }
             Work::Start {
                 tick,
                 target,

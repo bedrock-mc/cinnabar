@@ -524,6 +524,35 @@ impl SurvivalMiningRuntime {
         unsent
     }
 
+    /// Carries existing destroy cleanup before a refusal, committing both only after attachment.
+    pub(crate) fn attach_refused_press(
+        &mut self,
+        ticker: &mut MovementTicker,
+        tick: u64,
+        mut refusal: SurvivalTickPayload,
+        authority: BlockBreakingAuthority,
+    ) -> bool {
+        let Some((_, motion)) = ticker
+            .unstepped_interaction_ticks(None)
+            .into_iter()
+            .find(|(candidate, _)| *candidate == tick)
+        else {
+            return false;
+        };
+        let mut machine = self.machine.clone();
+        let mut cleanup = machine.step(DestroyInput::Released, motion, authority);
+        if cleanup.actions.append(&refusal.actions).is_err() {
+            return false;
+        }
+        refusal.actions = cleanup.actions;
+        if !ticker.attach_survival_mining(tick, refusal) {
+            return false;
+        }
+        self.machine = machine;
+        self.last_stepped_tick = Some(tick);
+        true
+    }
+
     /// Previews a queued mining start without committing work before its carrier accepts it.
     pub(crate) fn preview_press(
         &self,
@@ -667,11 +696,13 @@ pub fn blocked_mining_reason(
     }
 }
 
-/// Admitted items carrying the creative no-break trait block local destroy prediction.
+/// Admitted attack items block local creative destroy prediction.
 pub fn destroys_in_creative(fact: &assets::facts::ItemFact) -> bool {
-    !fact
-        .traits
-        .contains(assets::facts::ItemTraits::CREATIVE_NO_BREAK)
+    let traits = fact.traits;
+    !traits.contains(assets::facts::ItemTraits::CREATIVE_NO_BREAK)
+        && !traits.contains(assets::facts::ItemTraits::SWORD)
+        && !traits.contains(assets::facts::ItemTraits::TRIDENT)
+        && !traits.contains(assets::facts::ItemTraits::MACE)
 }
 
 /// Flight, not mere airborne movement, exempts the destroy-speed penalty (`PlayerDestroy`).

@@ -278,3 +278,116 @@ fn driven_screen_return_does_not_warp_the_desktop_pointer() {
         CursorGrabMode::None
     );
 }
+
+/// Checks that a pointer-owning screen retains its position without gameplay capture.
+fn assert_free_pointer(app: &App, window: Entity, position: Option<Vec2>) {
+    assert_eq!(
+        app.world().get::<Window>(window).unwrap().cursor_position(),
+        position
+    );
+    let cursor = app.world().get::<CursorOptions>(window).unwrap();
+    assert_eq!(cursor.grab_mode, CursorGrabMode::None);
+    assert!(cursor.visible);
+}
+
+/// Releasing gameplay capture leaves the backend's latest pointer position intact.
+#[test]
+fn opening_inventory_does_not_warp_the_pointer() {
+    for scale in [1.0, 2.0] {
+        let (mut app, window) = focus_app();
+        {
+            let mut win = app.world_mut().get_mut::<Window>(window).unwrap();
+            win.resolution.set_physical_resolution(1280, 720);
+            win.resolution.set_scale_factor_override(Some(scale));
+        }
+        app.update();
+        let position = Some(Vec2::new(73.0, 91.0));
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .set_cursor_position(position);
+        inventory_event(
+            &mut app,
+            1,
+            InventoryEvent::Open(ContainerOpenEvent {
+                container: ContainerIdentity::window(2),
+                window_type: protocol::WINDOW_TYPE_CONTAINER,
+                position: [0, 64, 0],
+                runtime_entity_id: -1,
+            }),
+        );
+        app.update();
+        assert_free_pointer(&app, window, position);
+    }
+}
+
+/// A replacement container and a menu layered over it retain the free pointer.
+#[test]
+fn replacing_and_covering_inventory_preserves_the_pointer() {
+    let (mut app, window) = container_app();
+    let position = Some(Vec2::new(73.0, 91.0));
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(position);
+    inventory_event(
+        &mut app,
+        2,
+        InventoryEvent::Open(ContainerOpenEvent {
+            container: ContainerIdentity::window(3),
+            window_type: protocol::WINDOW_TYPE_CONTAINER,
+            position: [1, 64, 0],
+            runtime_entity_id: -1,
+        }),
+    );
+    app.update();
+    assert_free_pointer(&app, window, position);
+    let mut menu = MenuRuntime::new(false, 2, "test".into());
+    menu.open_pause();
+    app.insert_resource(menu);
+    app.update();
+    assert_free_pointer(&app, window, position);
+    app.world_mut()
+        .resource_mut::<MenuRuntime>()
+        .set_visible(false);
+    app.update();
+    assert!(app.world().resource::<UiRuntimeResource>().inventory_open());
+    assert_free_pointer(&app, window, position);
+}
+
+/// A server form reissued while another form owns input never requests capture.
+#[test]
+fn reissued_server_form_preserves_the_pointer() {
+    use protocol::{FormKind, FormRequestEvent, ServerFormModel, TextMenuForm};
+    let (mut app, window) = focus_app();
+    for sequence in 1..=2 {
+        let position = Some(Vec2::new(73.0, 91.0));
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .set_cursor_position(position);
+        app.world_mut()
+            .resource_mut::<UiRuntimeResource>()
+            .server_forms_mut()
+            .admit(
+                FormRequestEvent {
+                    form_id: 1,
+                    kind: FormKind::Menu,
+                    title: Some("Menu".into()),
+                    json: "{}".into(),
+                    model: ServerFormModel::TextMenu(TextMenuForm {
+                        title: "Menu".into(),
+                        content: "Choose".into(),
+                        buttons: Default::default(),
+                        button_images: Default::default(),
+                        omitted_images: 0,
+                    }),
+                },
+                sequence,
+                1,
+                false,
+            );
+        app.update();
+        assert_free_pointer(&app, window, position);
+    }
+}

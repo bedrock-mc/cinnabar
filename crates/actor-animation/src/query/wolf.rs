@@ -1,7 +1,7 @@
-//! The wolf-only native tail query and dye tint; authored clips retain ownership of the final pose.
-use super::{ActorMetadataValue, AnimatedActor, actor_flag};
+//! The wolf-only native tail query; authored clips retain ownership of the final pose.
+use super::{AnimatedActor, actor_flag};
 use assets::facts::entity::NativeEntityClass;
-use protocol_ids::{ActorDataKey, ActorFlag};
+use protocol_ids::ActorFlag;
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) const WOLF_IDENTIFIER: &str = "minecraft:wolf";
@@ -33,19 +33,6 @@ pub(super) fn tail_angle(actor: &dyn AnimatedActor) -> f32 {
     };
     let angle = (health.current / health.max * HEALTH_WEIGHT + HEALTH_BASE) * std::f32::consts::PI;
     if angle.is_finite() { angle } else { WILD_ANGLE }
-}
-
-/// Supplies the wolf's tamed dye tint when its controller inherits actor color.
-/// Other actors and wild wolves retain the neutral multiplier.
-pub(crate) fn default_render_color(actor: &dyn AnimatedActor) -> [f32; 4] {
-    if !is_wolf(actor) || !actor_flag(actor, ActorFlag::Tamed.wire_value()) {
-        return [1.0; 4];
-    }
-    let index = match actor.metadata().get(&ActorDataKey::ColorIndex.wire_value()) {
-        Some(ActorMetadataValue::Byte(value)) => *value as u8,
-        _ => 0,
-    };
-    assets::dye::actor_palette_color(index)
 }
 
 fn is_wolf(actor: &dyn AnimatedActor) -> bool {

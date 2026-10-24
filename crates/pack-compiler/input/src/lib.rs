@@ -1,5 +1,6 @@
 //! Bounded pack inputs, source validation and shared texture decoding.
 
+pub mod barrel;
 pub mod geometry_key;
 pub mod image;
 pub mod json;

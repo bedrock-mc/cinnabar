@@ -149,6 +149,7 @@ jobs:
         run: cargo test --doc --workspace --locked
       - name: Save Rust build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        continue-on-error: true
         uses: ./.github/actions/build-cache
         with:
           phase: save
@@ -157,6 +158,7 @@ jobs:
           paths: ${{ steps.rust-cache.outputs.paths }}
       - name: Save Go build cache
         if: ${{ !cancelled() && github.ref == 'refs/heads/dev' }}
+        continue-on-error: true
         uses: ./.github/actions/build-cache
         with:
           phase: save
