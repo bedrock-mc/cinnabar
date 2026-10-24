@@ -470,7 +470,7 @@ impl MenuRuntime {
             *local = self.player_skin.clone();
         }
         let Some(stream) = stream else {
-            self.skin_update_pending = self.is_connecting();
+            self.skin_update_pending = self.is_connecting() && self.skin_packet_pending.is_some();
             if !self.skin_update_pending {
                 self.skin_packet_pending = None;
             }

@@ -674,7 +674,9 @@ fn deferred_default_skin_replaces_the_retained_fallback_and_late_catalog_results
         carrier.rgba8.as_ref()
     );
     outgoing.send(result).unwrap();
+    menu.show_connecting();
     menu.poll_dressing_room(Some(&mut local), None, None, 0);
+    assert!(!menu.skin_update_pending);
     assert_eq!(local.standard_skin(), carrier);
     assert_eq!(menu.dressing_room.selected_skin().unwrap().skin, carrier);
     assert_eq!(
