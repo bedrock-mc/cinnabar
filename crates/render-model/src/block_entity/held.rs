@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 mod artwork;
+mod dropped;
 pub use artwork::PreparedHeldBlockModels;
 
 use super::{
@@ -28,6 +29,7 @@ use crate::{ActorRigGeometry, ActorRigSurface, ActorRigVertex, EntityRigId};
 pub struct HeldBlockEntityModel {
     pub geometry: ActorRigGeometry,
     pub glint_span: [f32; 2],
+    dropped: Option<crate::DroppedItemBlock>,
 }
 
 /// A block-entity item with a held model.
@@ -313,6 +315,7 @@ fn model_with_heads(
     Some(HeldBlockEntityModel {
         geometry,
         glint_span,
+        dropped: dropped::model(atlas, &builder.solid, center),
     })
 }
 

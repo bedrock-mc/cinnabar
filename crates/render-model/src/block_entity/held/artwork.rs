@@ -80,4 +80,28 @@ impl PreparedHeldBlockModels {
     pub fn models(&self) -> &[(HeldBlockEntity, HeldBlockEntityModel)] {
         &self.models
     }
+
+    /// Borrows a centered item model and its exact texture tiles from this artwork generation.
+    pub fn dropped_model(
+        &self,
+        identifier: &str,
+    ) -> Option<(
+        EntityRigId,
+        crate::DroppedItemShape,
+        &crate::DroppedItemBlock,
+    )> {
+        let kind = HeldBlockEntity::from_item(identifier)?;
+        let (_, model) = self
+            .models
+            .iter()
+            .find(|(candidate, _)| *candidate == kind)?;
+        // Dedicated geometry and the outer item's pose class are independent.
+        let shape = match kind {
+            HeldBlockEntity::DecoratedPot | HeldBlockEntity::Statue(_) => {
+                crate::DroppedItemShape::Sprite
+            }
+            _ => crate::DroppedItemShape::Cube,
+        };
+        Some((model.geometry.id, shape, model.dropped.as_ref()?))
+    }
 }

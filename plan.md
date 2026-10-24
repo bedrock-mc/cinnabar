@@ -458,6 +458,11 @@ and rendered qualification remain incomplete.
   Implemented dropped sprite families use their carried artwork; falling blocks retain their world models.
   Ordinary model-class drops prefer carried geometry from matching terrain, with session
   artwork taking priority. Final transforms, tinting and animation remain incomplete.
+  Implemented dropped sprite families use their carried artwork; falling blocks retain
+  their world models. Ordinary model-class drops use carried geometry matched to their
+  terrain source. Dedicated dropped block items share prepared held geometry and texture
+  tiles. Admitted session artwork takes priority. Other drop classes, native poses,
+  lighting, tint, animation and per-stack model state remain incomplete.
   Held lecterns reuse the placed stand; their hand pose comparisons remain incomplete.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
