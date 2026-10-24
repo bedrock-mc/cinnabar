@@ -1,5 +1,63 @@
 use super::*;
 
+/// Completed column members cannot spend the next dispatch on obsolete candidates.
+#[test]
+fn completed_light_batches_do_not_block_ready_columns() {
+    for steady_backlog in [false, true] {
+        let mut stream = lit_stream(1);
+        let camera = [8.0; 3];
+        let ready = SubChunkKey::new(1, scheduler::NEAR_CAMERA_RADIUS * 8, 0, 0);
+        if steady_backlog {
+            stream.record_known_air(ready);
+            stream.mark_light_changed_sources([ready]);
+        }
+        let completed = (0..MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS as i32)
+            .map(|y| SubChunkKey::new(1, 0, y, 0))
+            .collect::<Vec<_>>();
+        for &key in &completed {
+            stream.record_known_air(key);
+        }
+        stream.mark_light_changed_sources(completed.iter().copied());
+        assert_eq!(stream.dispatch_light_jobs(camera, 1), completed.len());
+        let mut accepted = 0;
+        test_time::eventually("completed light column", || {
+            while let Ok(completion) = stream.lighting.rx.try_recv() {
+                stream.accept_light_completion(completion);
+                accepted += 1;
+            }
+            accepted == completed.len()
+        });
+        assert!(completed.iter().all(|&key| stream.light_is_current(key)));
+        assert!(stream.lighting.jobs.in_flight.is_empty());
+        assert_eq!(stream.lighting.running_jobs.load(Ordering::Acquire), 0);
+
+        if !steady_backlog {
+            stream.record_known_air(ready);
+            stream.mark_light_changed_sources([ready]);
+        }
+        crate::stream::column_set::take_visited_keys();
+
+        let dispatched = stream.dispatch_light_jobs(camera, 1);
+        let visited = crate::stream::column_set::take_visited_keys();
+
+        assert_eq!(
+            dispatched, 1,
+            "ready light stalled behind completed work after {visited} resident visits"
+        );
+        assert!(stream.lighting.jobs.in_flight.contains_key(&ready));
+        assert_eq!(visited, 1, "only the ready column needs a source scan");
+        test_time::eventually("next light column", || {
+            let Ok(completion) = stream.lighting.rx.try_recv() else {
+                return false;
+            };
+            assert_eq!(completion.key, ready);
+            stream.accept_light_completion(completion);
+            true
+        });
+        assert!(stream.light_is_current(ready));
+    }
+}
+
 #[test]
 fn batch_preparation_walks_the_ceiling_once_for_the_whole_column() {
     for height in [4, 24, MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS as i32] {

@@ -387,7 +387,7 @@ impl WorldStream {
             batch_id,
             urgent: pending.urgent,
         };
-        self.lighting.jobs.pending.remove(&key);
+        self.lighting.jobs.remove_pending(&key);
         self.lighting.priority_wakeups.remove(&key);
         self.lighting.jobs.in_flight.insert(key, identity);
         PreparedLightJob {
