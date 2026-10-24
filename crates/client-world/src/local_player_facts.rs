@@ -26,9 +26,15 @@ pub struct LocalPlayerFacts {
     server_authoritative_block_breaking: Option<bool>,
     hunger: Option<LocalPlayerStat>,
     mount_unique_id: Option<i64>,
-    immobile: bool,
+    movement: ActorMovementFacts,
     input_locks: protocol::ClientInputLocks,
-    /// Server-cleared `HasGravity`; the vanilla player spawns with it set.
+}
+
+/// Facts owned by one actor lifetime, separate from session permissions and abilities.
+#[derive(Clone, Debug, Default)]
+struct ActorMovementFacts {
+    immobile: bool,
+    /// A cleared gravity bit overrides the default player gravity.
     gravity_cleared: bool,
     uniform_air_drag: bool,
     air_drag_modifier: Option<f32>,
@@ -218,10 +224,7 @@ impl LocalPlayerFacts {
     /// Retires actor-owned movement facts while retaining session permissions and abilities.
     pub fn clear_actor_movement_authority(&mut self, session_id: u64) {
         if self.session_id == session_id {
-            self.immobile = false;
-            self.gravity_cleared = false;
-            self.uniform_air_drag = false;
-            self.air_drag_modifier = None;
+            self.movement = ActorMovementFacts::default();
         }
     }
 
@@ -235,13 +238,13 @@ impl LocalPlayerFacts {
             return false;
         }
         if let Some(immobile) = flags.immobile {
-            self.immobile = immobile;
+            self.movement.immobile = immobile;
         }
         if let Some(has_gravity) = flags.has_gravity {
-            self.gravity_cleared = !has_gravity;
+            self.movement.gravity_cleared = !has_gravity;
         }
         if let Some(uniform_air_drag) = flags.uniform_air_drag {
-            self.uniform_air_drag = uniform_air_drag;
+            self.movement.uniform_air_drag = uniform_air_drag;
         }
         true
     }
@@ -251,30 +254,30 @@ impl LocalPlayerFacts {
         if self.session_id != session_id {
             return false;
         }
-        self.air_drag_modifier = Some(current);
+        self.movement.air_drag_modifier = Some(current);
         true
     }
 
     #[must_use]
     pub const fn has_gravity(&self) -> bool {
-        !self.gravity_cleared
+        !self.movement.gravity_cleared
     }
 
     #[must_use]
     pub const fn uses_uniform_air_drag(&self) -> bool {
-        self.uniform_air_drag
+        self.movement.uniform_air_drag
     }
 
     /// Returns None until the server defines the attribute.
     #[must_use]
     pub const fn air_drag_modifier(&self) -> Option<f32> {
-        self.air_drag_modifier
+        self.movement.air_drag_modifier
     }
 
     /// Server immobility prevents travel without locking camera or raw input.
     #[must_use]
     pub const fn is_immobile(&self) -> bool {
-        self.immobile
+        self.movement.immobile
     }
 }
 
