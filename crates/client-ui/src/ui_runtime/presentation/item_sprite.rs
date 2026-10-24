@@ -19,6 +19,11 @@ impl UiPresentationRuntime {
         max_side: u32,
     ) -> Option<ItemSpritePixels> {
         let icon = self.item_icon(identifier, metadata)?;
+        self.resolved_item_sprite(icon, max_side)
+    }
+
+    /// Crops the selected artwork without resolving the item identity again.
+    pub fn resolved_item_sprite(&self, icon: IconRef, max_side: u32) -> Option<ItemSpritePixels> {
         crop_icon(self, icon, max_side)
     }
 

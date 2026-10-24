@@ -391,8 +391,9 @@ and rendered qualification remain incomplete.
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
   Framed cube items retain their authored carried faces and three-dimensional geometry.
-  Session block sheets and icon overrides precede startup artwork for framed, dropped and held items.
-  Frame pose comparisons, shaped models and special models remain incomplete.
+  Framed, dropped and held items try session block sheets, session icons, startup carried
+  geometry and startup sprites in order, continuing when construction or admission fails.
+  Cache-pressure captures, frame pose comparisons, shaped models and special models remain incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.

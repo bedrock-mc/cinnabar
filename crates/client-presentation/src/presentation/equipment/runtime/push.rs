@@ -227,38 +227,47 @@ impl EquipmentRuntime {
         item: &WornItem,
         icon_fallback: bool,
     ) -> Option<(EntityRigId, ActorArtworkLocation, bool, [f32; 2])> {
-        let session = self.session_held(&item.identifier, item.metadata);
-        if session.is_none()
-            && let Some(&(rig, location, span)) = HeldBlockEntity::from_item(&item.identifier)
-                .and_then(|kind| self.held_block_entities.models.get(&kind))
-        {
-            return Some((rig, location, true, span));
-        }
-        let (index, key, placement, location) = if let Some(held) = session {
-            held
-        } else {
-            let sheet = match item.kind {
-                HeldKind::Block(visual) => {
-                    self.block_placement(visual).map(|sheet| (visual, sheet))
+        use crate::session_artwork::{ItemArtwork, item_artwork};
+        item_artwork(self, |runtime, source| {
+            let (index, key, placement, location) = match source {
+                ItemArtwork::SessionCube => {
+                    let (index, placement, location) =
+                        runtime.session_held_block(&item.identifier)?;
+                    (index, MeshKey::SessionBlock(index), placement, location)
                 }
-                _ => None,
+                ItemArtwork::SessionSprite => {
+                    let (index, placement, location) =
+                        runtime.session_sprite(&item.identifier, item.metadata)?;
+                    (index, MeshKey::Session(index), placement, location)
+                }
+                ItemArtwork::StartupCube => {
+                    if let Some(&(rig, location, span)) =
+                        HeldBlockEntity::from_item(&item.identifier)
+                            .and_then(|kind| runtime.held_block_entities.models.get(&kind))
+                    {
+                        return Some((rig, location, true, span));
+                    }
+                    let HeldKind::Block(visual) = item.kind else {
+                        return None;
+                    };
+                    let (index, placement, location) = runtime.block_placement(visual)?;
+                    (index, MeshKey::Block(visual), placement, location)
+                }
+                ItemArtwork::StartupSprite => {
+                    match item.kind {
+                        HeldKind::Other => return None,
+                        HeldKind::Block(_) if !icon_fallback => return None,
+                        _ => {}
+                    }
+                    let (index, placement, location) = runtime.held_icon_parts(item)?;
+                    (index, MeshKey::Sprite(index), placement, location)
+                }
             };
-            if let Some((visual, (index, placement, location))) = sheet {
-                (index, MeshKey::Block(visual), placement, location)
-            } else {
-                match item.kind {
-                    HeldKind::Other => return None,
-                    HeldKind::Block(_) if !icon_fallback => return None,
-                    _ => {}
-                }
-                let (index, placement, location) = self.held_icon_parts(item)?;
-                (index, MeshKey::Sprite(index), placement, location)
-            }
-        };
-        let mesh = self.mesh_for(key, index, placement)?;
-        let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
-        let span = glint_span(placement.uv_rect(), block);
-        Some((mesh, location, block, span))
+            let mesh = runtime.mesh_for(key, index, placement)?;
+            let block = matches!(key, MeshKey::Block(_) | MeshKey::SessionBlock(_));
+            let span = glint_span(placement.uv_rect(), block);
+            Some((mesh, location, block, span))
+        })
     }
 
     /// Resolves an ordinary icon even when the item also has a block or custom model route.

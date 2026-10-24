@@ -366,3 +366,146 @@ fn dropped_session_artwork_precedes_startup_carried_cubes() {
         }
     }
 }
+
+/// Keeps unrelated models demanded so only `free` atlas layers remain for item artwork.
+fn pressured_cache(free: usize) -> ModelCache {
+    let mut cache = ModelCache::default();
+    cache.begin_frame();
+    cache.finish_demand();
+    for id in 0..(render_model::MAX_ITEM_LAYERS - 1 - free) as u32 {
+        cache
+            .model(
+                ModelKey::Block { hashed: false, id },
+                || Some(1),
+                || {
+                    Some(DroppedItemModel::Sprite(DroppedItemSprite {
+                        width: 1,
+                        height: 1,
+                        rgba8: Arc::from([255; 4]),
+                    }))
+                },
+            )
+            .unwrap();
+    }
+    cache
+}
+
+#[test]
+fn dropped_session_cube_uses_session_sprite_under_cache_pressure() {
+    let (mut icons, stream) = fixture(0);
+    install(&mut icons, Some(160), true, 0);
+    let mut views = Vec::new();
+    stream.authority().dropped_items_into(0.0, &mut views);
+    let view = &views[0];
+    let preparation = DropPreparation {
+        view,
+        native_origin: view.position,
+        camera: None,
+        frustum: None,
+    };
+    for free in 1..assets::BlockFace::ALL.len() {
+        let mut cache = pressured_cache(free);
+        let prepared =
+            DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, &preparation)
+                .expect("a refused cube must try its one-layer session sprite");
+        let mut instances = Vec::new();
+        prepared.append(view, &mut instances, |_| (0, 15));
+        assert_eq!(instances.len(), 1);
+        let DroppedItemModel::NativeSprite(sprite) = &cache.models[instances[0].model as usize]
+        else {
+            panic!("session sprite must precede startup artwork");
+        };
+        assert_eq!(sprite.rgba8.as_ref(), [160, 0, 80, 255]);
+        assert_eq!(cache.budget_fallbacks, 1);
+    }
+}
+
+#[test]
+fn framed_session_cube_uses_session_sprite_under_cache_pressure() {
+    let (mut icons, _) = fixture(0);
+    install(&mut icons, Some(160), true, 0);
+    let placement = render_model::StaticItemPlacement {
+        identifier: ITEM.into(),
+        metadata: 0,
+        potted_block: None,
+        carried_block: Some(assets::BlockVisualId(1)),
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        light: None,
+    };
+    for free in 1..assets::BlockFace::ALL.len() {
+        let mut cache = pressured_cache(free);
+        let model = DroppedItemPublisher::placement_model(
+            &mut cache,
+            &icons,
+            None,
+            &placement,
+            icons.startup_item_icon(ITEM, 0),
+        )
+        .expect("a refused framed cube must try its one-layer session sprite");
+        let DroppedItemModel::Sprite(sprite) = &cache.models[model as usize] else {
+            panic!("session sprite must precede startup artwork");
+        };
+        assert_eq!(sprite.rgba8.as_ref(), [160, 0, 80, 255]);
+        assert_eq!(cache.budget_fallbacks, 1);
+    }
+}
+
+#[test]
+fn refused_session_artwork_reuses_resident_startup_sprites() {
+    let (mut icons, stream) = fixture(0);
+    install(&mut icons, Some(160), true, 0);
+    let startup_icon = icons.startup_item_icon(ITEM, 0).unwrap();
+    assert_ne!(Some(startup_icon), icons.session_item_icon(ITEM, 0));
+    let mut views = Vec::new();
+    stream.authority().dropped_items_into(0.0, &mut views);
+    let view = &views[0];
+    let preparation = DropPreparation {
+        view,
+        native_origin: view.position,
+        camera: None,
+        frustum: None,
+    };
+    let placement = render_model::StaticItemPlacement {
+        identifier: ITEM.into(),
+        metadata: 0,
+        potted_block: None,
+        carried_block: Some(assets::BlockVisualId(1)),
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        light: None,
+    };
+    for native in [false, true] {
+        let mut cache = pressured_cache(1);
+        let startup =
+            DroppedItemPublisher::resolved_icon_model(&mut cache, startup_icon, native, || {
+                resolved_icon_sprite(&icons, startup_icon, native)
+            })
+            .unwrap();
+        let model = if native {
+            let prepared =
+                DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, &preparation)
+                    .expect("resident startup sprites must survive refused session artwork");
+            let mut instances = Vec::new();
+            prepared.append(view, &mut instances, |_| (0, 15));
+            instances[0].model
+        } else {
+            DroppedItemPublisher::placement_model(
+                &mut cache,
+                &icons,
+                None,
+                &placement,
+                Some(startup_icon),
+            )
+            .expect("resident startup sprites must survive refused session artwork")
+        };
+        assert_eq!(model, startup);
+        let (DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite)) =
+            &cache.models[model as usize]
+        else {
+            panic!("startup sprite must be retained");
+        };
+        assert_eq!(sprite.rgba8.as_ref(), [20, 30, 40, 255]);
+        assert_eq!(cache.budget_fallbacks, 1);
+        cache.begin_frame();
+        assert_eq!(cache.budget_fallbacks, 0);
+    }
+}

@@ -1,17 +1,21 @@
-//! Shared session artwork precedence for held, dropped and framed items.
+//! Shared artwork fallback order for held, dropped and framed items.
 
-/// An admitted session sheet or sprite, ahead of any startup artwork.
-pub(crate) enum SessionArtwork<B, S> {
-    Block(B),
-    Sprite(S),
+/// One artwork source to attempt, including geometry construction and admission.
+#[derive(Clone, Copy)]
+pub(crate) enum ItemArtwork {
+    SessionCube,
+    SessionSprite,
+    StartupCube,
+    StartupSprite,
 }
 
-/// Selects a compatible session sheet, then a session icon; only `None` permits startup art.
-pub(crate) fn session_artwork<B, S>(
-    block: Option<B>,
-    sprite: impl FnOnce() -> Option<S>,
-) -> Option<SessionArtwork<B, S>> {
-    block
-        .map(SessionArtwork::Block)
-        .or_else(|| sprite().map(SessionArtwork::Sprite))
+/// Tries session artwork before startup artwork, continuing after any refused attempt.
+pub(crate) fn item_artwork<C, T>(
+    context: &mut C,
+    mut attempt: impl FnMut(&mut C, ItemArtwork) -> Option<T>,
+) -> Option<T> {
+    use ItemArtwork::*;
+    [SessionCube, SessionSprite, StartupCube, StartupSprite]
+        .into_iter()
+        .find_map(|source| attempt(context, source))
 }

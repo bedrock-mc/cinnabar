@@ -533,7 +533,7 @@ fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
         light: None,
     };
-    let icon = icons.item_icon(&placement.identifier, placement.metadata);
+    let icon = icons.startup_item_icon(&placement.identifier, placement.metadata);
     assert!(icon.is_some());
     let mut cache = ModelCache::default();
     cache.begin_frame();
@@ -592,7 +592,7 @@ fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
             )
             .unwrap();
         placement.metadata = metadata;
-        let icon = icons.item_icon(&placement.identifier, metadata);
+        let icon = icons.startup_item_icon(&placement.identifier, metadata);
         let model = DroppedItemPublisher::placement_model(
             &mut cache,
             &icons,

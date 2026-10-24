@@ -62,6 +62,10 @@ pub(crate) struct ModelCache {
     pub(super) models: Vec<DroppedItemModel>,
     layers: usize,
     pixel_bytes: usize,
+    /// Admission attempts refused by layer or source-pixel capacity this frame.
+    budget_refusals: u64,
+    /// Successful artwork resolutions that recovered from a budget refusal this frame.
+    pub(super) budget_fallbacks: u64,
     pub(super) shared: Arc<[DroppedItemModel]>,
     index: HashMap<ModelKey, usize>,
     /// Bounded layer estimates and permanent block failures still demanded.
@@ -154,6 +158,8 @@ impl ModelCache {
             .frame
             .checked_add(1)
             .expect("model demand frame overflow");
+        self.budget_refusals = 0;
+        self.budget_fallbacks = 0;
         self.reclaimable.clear();
         self.available = MAX_ITEM_LAYERS - 1 - self.layers;
         self.available_pixels = assets::texture::policy::MAX_SUBSCRIBER_BYTES - self.pixel_bytes;
@@ -221,6 +227,19 @@ impl ModelCache {
         }
     }
 
+    /// Counts successful fallback chains that encountered at least one capacity refusal.
+    pub(super) fn artwork<T>(
+        &mut self,
+        attempt: impl FnMut(&mut Self, crate::session_artwork::ItemArtwork) -> Option<T>,
+    ) -> Option<T> {
+        let refusals = self.budget_refusals;
+        let result = crate::session_artwork::item_artwork(self, attempt);
+        if result.is_some() && self.budget_refusals != refusals {
+            self.budget_fallbacks = self.budget_fallbacks.saturating_add(1);
+        }
+        result
+    }
+
     /// Builds missing models that fit, skipping remembered permanent block failures.
     pub(super) fn model(
         &mut self,
@@ -272,6 +291,7 @@ impl ModelCache {
         };
         // Repeated rejections reuse the capacity summary without scans or model construction.
         if available == 0 {
+            self.budget_refusals = self.budget_refusals.saturating_add(1);
             return None;
         }
         let estimate = match self.rejected.get(&key) {
@@ -280,6 +300,7 @@ impl ModelCache {
                     .pixel_bytes
                     .is_some_and(|bytes| bytes > available_pixels)
                 {
+                    self.budget_refusals = self.budget_refusals.saturating_add(1);
                     return None;
                 }
                 entry.layers
@@ -299,6 +320,7 @@ impl ModelCache {
             return None;
         }
         if cost > available {
+            self.budget_refusals = self.budget_refusals.saturating_add(1);
             let pixel_bytes = self.rejected.get(&key).and_then(|entry| entry.pixel_bytes);
             self.remember_rejection(key, Some(cost), pixel_bytes);
             return None;
@@ -316,6 +338,7 @@ impl ModelCache {
         );
         let pixel_bytes = pixel_cost(&model);
         if pixel_bytes > available_pixels {
+            self.budget_refusals = self.budget_refusals.saturating_add(1);
             self.remember_rejection(key, Some(cost), Some(pixel_bytes));
             return None;
         }
@@ -384,6 +407,12 @@ impl ModelCache {
         policy: assets::texture::policy::TexturePolicy,
         max_array_layers: usize,
     ) {
+        if self.budget_fallbacks > 0 {
+            tracing::debug!(
+                budget_fallbacks = self.budget_fallbacks,
+                "item artwork recovered from cache pressure"
+            );
+        }
         let published = self.publication_mask(policy, max_array_layers);
         let demand_changed = self.models.iter().enumerate().any(|(slot, _)| {
             published[slot]

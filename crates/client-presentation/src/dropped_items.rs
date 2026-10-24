@@ -35,7 +35,7 @@ pub(crate) struct DroppedItemFrame<'a> {
 mod dials;
 mod lighting;
 mod preparation;
-use crate::session_artwork::{SessionArtwork, session_artwork};
+use crate::session_artwork::ItemArtwork;
 use preparation::DropPreparation;
 
 // Provisional world sizes and colours; each needs independent measurement.
@@ -81,7 +81,7 @@ pub(crate) struct PublishScratch {
     instances: Vec<DroppedItemInstance>,
     terrain_instances: Vec<TerrainItemInstance>,
     lines: Vec<ItemMeshVertex>,
-    /// The icon each static placement (by index) resolved during demand collection.
+    /// The startup icon each static placement resolved during demand collection.
     placement_icons: Vec<Option<ui::IconRef>>,
     transitions: HashMap<i64, Vec<TerrainItemTransition>>,
     /// This frame's dropped-item views, block actors and ropes from the world authority;
@@ -414,49 +414,119 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
-    /// Resolves session artwork before startup carried geometry and the ordinary icon fallback.
+    /// Tries admitted session artwork before carried geometry and the collected startup icon.
     fn placement_model(
         cache: &mut ModelCache,
         icons: &UiPresentationRuntime,
         assets: Option<&RuntimeAssets>,
         placement: &render_model::StaticItemPlacement,
-        icon: Option<ui::IconRef>,
+        startup_icon: Option<ui::IconRef>,
     ) -> Option<u32> {
         if let Some(id) = placement.potted_block {
             return assets.and_then(|assets| Self::potted_model(cache, assets, id));
         }
-        match session_artwork(
-            placement
-                .carried_block
-                .and_then(|_| icons.session_block_sheet(&placement.identifier, placement.metadata)),
-            || icons.session_item_icon(&placement.identifier, placement.metadata),
-        ) {
-            Some(SessionArtwork::Block(sheet)) => {
-                return Self::session_block_model(
+        cache.artwork(|cache, source| match source {
+            ItemArtwork::SessionCube => {
+                placement.carried_block?;
+                let sheet = icons.session_block_sheet(&placement.identifier, placement.metadata)?;
+                Self::session_block_model(
                     cache,
                     icons,
                     &placement.identifier,
                     placement.metadata,
                     sheet,
-                );
+                )
             }
-            Some(SessionArtwork::Sprite(icon)) => {
-                return Self::resolved_icon_model(cache, icon, false, || {
-                    icon_sprite(icons, &placement.identifier, placement.metadata, false)
-                });
+            ItemArtwork::SessionSprite => {
+                icons.session_item_icon(&placement.identifier, placement.metadata)?;
+                Self::icon_model(
+                    cache,
+                    icons,
+                    &placement.identifier,
+                    placement.metadata,
+                    false,
+                )
             }
-            None => {}
-        }
-        if let (Some(visual), Some(assets)) = (placement.carried_block, assets)
-            && let Some(model) =
-                Self::carried_block_model(cache, icons, assets, NetworkIdMode::Sequential, visual.0)
-        {
-            return Some(model);
-        }
-        icon.and_then(|icon| {
-            Self::resolved_icon_model(cache, icon, false, || {
-                icon_sprite(icons, &placement.identifier, placement.metadata, false)
-            })
+            ItemArtwork::StartupCube => Self::carried_block_model(
+                cache,
+                icons,
+                assets?,
+                NetworkIdMode::Sequential,
+                placement.carried_block?.0,
+            ),
+            ItemArtwork::StartupSprite => {
+                let icon = startup_icon?;
+                Self::resolved_icon_model(cache, icon, false, || {
+                    resolved_icon_sprite(icons, icon, false)
+                })
+            }
+        })
+    }
+
+    /// Admits dropped artwork before capturing the matching cube or sprite pose.
+    fn dropped_model(
+        cache: &mut ModelCache,
+        icons: &UiPresentationRuntime,
+        assets: Option<&RuntimeAssets>,
+        block_id: Option<(NetworkIdMode, u32)>,
+        preparation: &DropPreparation<'_>,
+    ) -> Option<preparation::PreparedDrop> {
+        let view = preparation.view;
+        let identifier = view.item.identifier.as_deref()?;
+        let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
+        cache.artwork(|cache, source| match source {
+            ItemArtwork::SessionCube => {
+                let sheet = icons.session_block_sheet(identifier, view.item.identity.metadata)?;
+                preparation.model(
+                    cache,
+                    &ModelKey::session_block(sheet),
+                    DroppedItemShape::Cube,
+                    |cache| {
+                        Self::session_block_model(
+                            cache,
+                            icons,
+                            identifier,
+                            view.item.identity.metadata,
+                            sheet,
+                        )
+                    },
+                )
+            }
+            ItemArtwork::SessionSprite | ItemArtwork::StartupSprite => {
+                let icon = match source {
+                    ItemArtwork::SessionSprite => icons.session_item_icon(icon_identifier, variant),
+                    _ => icons.startup_item_icon(icon_identifier, variant),
+                }?;
+                preparation.model(
+                    cache,
+                    &ModelKey::icon(icon, true),
+                    DroppedItemShape::Sprite,
+                    |cache| {
+                        Self::resolved_icon_model(cache, icon, true, || {
+                            resolved_icon_sprite(icons, icon, true)
+                        })
+                    },
+                )
+            }
+            ItemArtwork::StartupCube => {
+                let ((mode, id), assets) = block_id.zip(assets)?;
+                let hashed = mode == NetworkIdMode::Hashed;
+                preparation
+                    .model(
+                        cache,
+                        &ModelKey::CarriedBlock { hashed, id },
+                        DroppedItemShape::Cube,
+                        |cache| Self::carried_block_model(cache, icons, assets, mode, id),
+                    )
+                    .or_else(|| {
+                        preparation.model(
+                            cache,
+                            &ModelKey::Block { hashed, id },
+                            DroppedItemShape::Cube,
+                            |cache| Self::block_model(cache, assets, mode, id),
+                        )
+                    })
+            }
         })
     }
 
@@ -536,7 +606,13 @@ impl DroppedItemPublisher<'_, '_> {
             if let Some(identifier) = view.item.identifier.as_ref() {
                 dial_models.observe(icons, identifier, view.item.identity.metadata);
                 let (identifier, metadata) = dropped_icon_key(icons, identifier, &view.item);
-                if let Some(icon) = icons.item_icon(identifier, metadata) {
+                for icon in [
+                    icons.session_item_icon(identifier, metadata),
+                    icons.startup_item_icon(identifier, metadata),
+                ]
+                .into_iter()
+                .flatten()
+                {
                     cache.request(&ModelKey::icon(icon, true));
                 }
             }
@@ -559,7 +635,12 @@ impl DroppedItemPublisher<'_, '_> {
                         id: visual.0,
                     });
                 }
-                let icon = icons.item_icon(&placement.identifier, placement.metadata);
+                if let Some(icon) =
+                    icons.session_item_icon(&placement.identifier, placement.metadata)
+                {
+                    cache.request(&ModelKey::icon(icon, false));
+                }
+                let icon = icons.startup_item_icon(&placement.identifier, placement.metadata);
                 if let Some(icon) = icon {
                     cache.request(&ModelKey::icon(icon, false));
                 }
@@ -597,54 +678,7 @@ impl DroppedItemPublisher<'_, '_> {
                 camera,
                 frustum: frustum.as_ref(),
             };
-            let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
-            let sprite = |cache: &mut ModelCache| {
-                let key = ModelKey::icon(icons.item_icon(icon_identifier, variant)?, true);
-                preparation.model(cache, &key, DroppedItemShape::Sprite, |cache| {
-                    Self::icon_model(cache, icons, icon_identifier, variant, true)
-                })
-            };
-            let prepared = match session_artwork(
-                icons.session_block_sheet(identifier, view.item.identity.metadata),
-                || icons.session_item_icon(icon_identifier, variant),
-            ) {
-                Some(SessionArtwork::Block(sheet)) => preparation.model(
-                    cache,
-                    &ModelKey::session_block(sheet),
-                    DroppedItemShape::Cube,
-                    |cache| {
-                        Self::session_block_model(
-                            cache,
-                            icons,
-                            identifier,
-                            view.item.identity.metadata,
-                            sheet,
-                        )
-                    },
-                ),
-                Some(SessionArtwork::Sprite(_)) => sprite(cache),
-                None => block_id
-                    .zip(assets)
-                    .and_then(|((mode, id), assets)| {
-                        let hashed = mode == NetworkIdMode::Hashed;
-                        preparation
-                            .model(
-                                cache,
-                                &ModelKey::CarriedBlock { hashed, id },
-                                DroppedItemShape::Cube,
-                                |cache| Self::carried_block_model(cache, icons, assets, mode, id),
-                            )
-                            .or_else(|| {
-                                preparation.model(
-                                    cache,
-                                    &ModelKey::Block { hashed, id },
-                                    DroppedItemShape::Cube,
-                                    |cache| Self::block_model(cache, assets, mode, id),
-                                )
-                            })
-                    })
-                    .or_else(|| sprite(cache)),
-            };
+            let prepared = Self::dropped_model(cache, icons, assets, block_id, &preparation);
             if let Some(prepared) = prepared {
                 prepared.append(view, instances, |position| stream.light_level_at(position));
             }
@@ -809,9 +843,17 @@ fn icon_sprite(
     metadata: u32,
     native_drop: bool,
 ) -> Option<DroppedItemModel> {
-    let pixels = icons.item_sprite(
-        identifier,
-        metadata,
+    resolved_icon_sprite(icons, icons.item_icon(identifier, metadata)?, native_drop)
+}
+
+/// Builds pixels for the exact session or startup icon selected by the fallback chain.
+fn resolved_icon_sprite(
+    icons: &UiPresentationRuntime,
+    icon: ui::IconRef,
+    native_drop: bool,
+) -> Option<DroppedItemModel> {
+    let pixels = icons.resolved_item_sprite(
+        icon,
         assets::texture::policy::device_policy()
             .max_side()
             .min(MAX_ITEM_SPRITE_SIDE),

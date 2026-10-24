@@ -210,6 +210,15 @@ impl UiPresentationRuntime {
         icon
     }
 
+    /// Returns startup artwork even when the session supplies an override for this variant.
+    pub fn startup_item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
+        let sprite = self
+            .icon_catalog
+            .as_deref()?
+            .lookup_index(identifier, metadata)?;
+        self.icon_refs.as_deref()?.get(sprite).copied()
+    }
+
     /// Returns the session override for this item variant, falling back to variant zero.
     pub fn session_item_icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
         self.session_icons.icon(identifier, metadata)
