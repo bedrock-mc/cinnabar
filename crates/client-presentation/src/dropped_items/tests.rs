@@ -434,6 +434,58 @@ fn dropped_carried_sprite_families_do_not_use_their_placed_models() {
 }
 
 #[test]
+fn dropped_attachments_use_carried_sprites_without_changing_falling_blocks() {
+    use assets::facts::BlockRenderKind;
+    let stream = stream(false, 1);
+    let registry = protocol::vanilla_item_registry();
+    for family in [
+        BlockRenderKind::Lever,
+        BlockRenderKind::Vine,
+        BlockRenderKind::GlowLichen,
+        BlockRenderKind::SculkVein,
+    ] {
+        let entries: Vec<_> = registry
+            .iter()
+            .filter(|entry| assets::facts::block_render_fact(&entry.identifier).kind == family)
+            .collect();
+        assert!(!entries.is_empty(), "{family:?} must reach its items");
+        for entry in entries {
+            for visual in [
+                ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+                ItemVisualRoute::RetainedBlock {
+                    block_runtime_id: 1,
+                },
+            ] {
+                assert_eq!(
+                    item_block_id(&stream, visual, Some(&entry.identifier), None),
+                    None,
+                    "{} must use its carried sprite",
+                    entry.identifier
+                );
+            }
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1))
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}
+
+#[test]
 fn dropped_flat_block_families_keep_their_carried_sprite_routes() {
     let stream = stream(false, 1);
     let registry = protocol::vanilla_item_registry();
