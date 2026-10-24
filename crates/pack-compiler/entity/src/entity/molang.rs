@@ -342,6 +342,24 @@ impl MolangCompiler {
         }
     }
 
+    /// Evaluates an interned condition with one query supplied by a regression fixture.
+    #[cfg(test)]
+    pub fn evaluate_query(&self, index: u32, query: &str, value: f32) -> Option<f32> {
+        let source = self
+            .interned
+            .iter()
+            .find(|(_, candidate)| **candidate == index)?
+            .0;
+        let Program::Simple(expression) = parse(source).ok()? else {
+            return None;
+        };
+        fold_with(&expression, &|read| match read {
+            Expr::Query(name, None) if name.as_ref() == query => Some(value),
+            Expr::Query(..) | Expr::Variable(..) => Some(0.0),
+            _ => None,
+        })
+    }
+
     pub fn add_name(&mut self, name: &str) -> Result<(), AssetError> {
         if name.is_empty() {
             return Err(invalid("empty Molang name"));

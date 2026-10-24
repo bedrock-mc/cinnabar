@@ -1,6 +1,6 @@
 //! Bounded process protocol. OS-restricted production launch deliberately fails closed.
 
-use crate::server::BundleHost;
+use crate::server::{BundleHost, DispatchResult};
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use server_experience::{
@@ -24,14 +24,17 @@ const MAX_STARTUP_IPC: usize = MAX_COMPONENT_BYTES * 2 + MAX_HOST_OUTPUT;
 const MAX_ITEMS_IPC: usize = 8 << 20;
 // Decimal byte encoding needs up to four bytes per payload byte, plus bounded metadata.
 const MAX_DISPATCH_IPC: usize = MAX_MESSAGE_BYTES * 4 + MAX_HOST_OUTPUT + MAX_ITEMS_IPC;
-/// A reply: one callback's output, or a failure, with room for the reply's own framing.
-const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 2 * MAX_FAILURE_REASON_BYTES;
+/// A reply has room for bounded output, an escaped failure, and its framing and identifiers.
+const MAX_REPLY_IPC: usize = MAX_HOST_OUTPUT + 4 * MAX_FAILURE_REASON_BYTES;
 const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 
 /// The helper IPC protocol. A client and its helper ship together; a helper of another version
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
-/// the helper exiting; 3 the session items a dispatch carries.
-const HELPER_PROTOCOL: u32 = 3;
+/// the helper exiting; 3 the session items a dispatch carries; 4 carries initialization messages
+/// from a restarted guest alongside the failed callback's diagnostic; 5 reports terminal
+/// callback queue overflow separately from recoverable callback failures; 6 reports callbacks
+/// that must remain queued until registry confirmation.
+const HELPER_PROTOCOL: u32 = 6;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -165,9 +168,22 @@ pub enum Reply {
     /// The callback returned; its output, to publish whole, and the fuel it consumed of its
     /// `CALLBACK_FUEL`.
     Committed { transaction: Transaction, fuel: u64 },
-    /// The callback failed and published nothing. After a failed dispatch the helper runs on, on
-    /// a fresh instance of the guest; after a failed start it exits.
+    /// The event did not run. Keep it queued; only this confirmation channel may run yet.
+    NotReady {
+        transaction: Transaction,
+        confirmation: String,
+    },
+    /// The callback failed and published nothing. Recoverable dispatch failures start a fresh
+    /// guest. A failed start exits.
     Failed(CallFailure),
+    /// The callback failed, but a fresh guest initialized successfully. Publish only its
+    /// initialization messages, unless this failure stops the part.
+    Recovered {
+        failure: CallFailure,
+        transaction: Transaction,
+        /// The fresh guest's confirmation channel, if it requires registry negotiation.
+        confirmation: Option<String>,
+    },
 }
 
 /// Why one callback, or the start, failed.
@@ -419,9 +435,15 @@ pub fn serve_developer() -> Result<()> {
             return Err(error);
         }
     };
-    let init = Reply::Committed {
-        transaction: host.take_transaction(),
-        fuel: host.last_fuel_used(),
+    let init = match host.waiting_for().map(str::to_owned) {
+        Some(confirmation) => Reply::NotReady {
+            transaction: host.take_transaction(),
+            confirmation,
+        },
+        None => Reply::Committed {
+            transaction: host.take_transaction(),
+            fuel: host.last_fuel_used(),
+        },
     };
     answer(&mut output, init, &bundle, "init")?;
     loop {
@@ -432,14 +454,30 @@ pub fn serve_developer() -> Result<()> {
             host.set_session(std::sync::Arc::new(items.into()));
         }
         let reply = match host.dispatch(&request.event, request.epoch) {
-            Ok(transaction) => Reply::Committed {
+            Ok(DispatchResult::Committed(transaction)) => Reply::Committed {
                 transaction,
                 fuel: host.last_fuel_used(),
             },
-            Err(error) => Reply::Failed(CallFailure {
-                fuel: Some(host.last_fuel_used()),
-                ..CallFailure::of(&bundle, callback, &error)
-            }),
+            Ok(DispatchResult::NotReady(transaction)) => Reply::NotReady {
+                transaction,
+                confirmation: host.waiting_for().expect("negotiation pending").to_owned(),
+            },
+            Err(error) => {
+                let failure = CallFailure {
+                    fuel: Some(host.last_fuel_used()),
+                    ..CallFailure::of(&bundle, callback, &error)
+                };
+                let transaction = host.take_transaction();
+                if transaction.commands.is_empty() {
+                    Reply::Failed(failure)
+                } else {
+                    Reply::Recovered {
+                        failure,
+                        transaction,
+                        confirmation: host.waiting_for().map(str::to_owned),
+                    }
+                }
+            }
         };
         answer(&mut output, reply, &bundle, callback)?;
     }

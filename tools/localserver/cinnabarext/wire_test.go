@@ -132,8 +132,8 @@ func TestRateLimitMirrorsClient(t *testing.T) {
 	if err := rate.Charge(1, 2000); err != nil {
 		t.Fatal(err)
 	}
-	if err := rate.Charge(MaxBytesPerSecond, 2000); err == nil {
-		t.Fatal("a second of bytes passed after bytes were spent")
+	if err := rate.ChargeAll([]int{MaxBurstBytes / 3, MaxBurstBytes / 3, MaxBurstBytes / 3}, 2000); err == nil {
+		t.Fatal("a full burst passed after bytes were spent")
 	}
 
 	idle := NewRateLimit(0)

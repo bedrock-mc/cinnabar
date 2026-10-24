@@ -12,7 +12,9 @@ use anyhow::{Context, Result, bail, ensure};
 use cinnabar_cxb::{bundle, fixtures, keys, media, seed_cache};
 use server_experience::crypto;
 
-const USAGE: &str = "usage: cinnabar-cxb keygen <seed-file>
+const USAGE: &str = "usage: cinnabar-cxb mod new <name> [--sdk <experience-sdk path>]
+       cinnabar-cxb mod build [--project <directory>] [--release]
+       cinnabar-cxb keygen <seed-file>
        cinnabar-cxb build --experience <experience.toml> --component <wasm> --publisher-seed <seed-file> --out <bundle.cxb> [--assets <dir>]
        cinnabar-cxb media --webm <in.webm> --url <https url> --id <media id> --poster <bundle path> --out-webm <file> --out-descriptor <file>
        cinnabar-cxb seed-cache --cxb <bundle.cxb> --user-data <dir>
@@ -23,6 +25,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     match args.as_slice() {
+        ["mod", ..] => cinnabar_cxb::project::run(&std::env::args().skip(2).collect::<Vec<_>>())?,
         ["verify", "--stdin"] => {
             let mut bytes = Vec::new();
             io::stdin()

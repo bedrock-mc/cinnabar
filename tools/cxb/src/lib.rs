@@ -11,6 +11,7 @@ pub mod bundle;
 pub mod fixtures;
 pub mod keys;
 pub mod media;
+pub mod project;
 
 /// Publishes a bundle into a client's cache under its digest, as a finished download would.
 /// Returns the digest and the cache directory.

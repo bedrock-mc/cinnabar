@@ -126,6 +126,9 @@ fn item_block_id(
                 | assets::facts::BlockRenderKind::LeafLitter
                 | assets::facts::BlockRenderKind::ResinClump
                 | assets::facts::BlockRenderKind::TripwireHook
+                | assets::facts::BlockRenderKind::Ladder
+                | assets::facts::BlockRenderKind::LilyPad
+                | assets::facts::BlockRenderKind::SeaPickle
         )
     }) {
         return None;

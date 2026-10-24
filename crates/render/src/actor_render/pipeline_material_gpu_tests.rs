@@ -639,3 +639,105 @@ fn legacy_leather_preserves_alpha_and_uses_mask_alpha_only_for_dye() {
         }
     }
 }
+
+#[test]
+fn invisible_emissive_material_keeps_eye_texels_and_rejects_alpha_endpoints() {
+    let Some(gpu) = gpu_snapshot::Gpu::for_fixture(
+        "invisible_emissive_material_keeps_eye_texels_and_rejects_alpha_endpoints",
+    ) else {
+        return;
+    };
+    let plane = actor_raster::cube([16, 0, 16], true, false);
+    let mut material = render_model::ActorMaterial {
+        state: Some(EntityRenderMaterialState {
+            alpha_test: true,
+            cull: false,
+            emissive: true,
+            only_emissive: true,
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let clear = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[0; 4]; 2],
+        true,
+        false,
+    );
+    for alpha in [0, 255] {
+        let frame = actor_raster::raster_material_target(
+            &gpu,
+            &plane,
+            material,
+            false,
+            [[200, 120, 40, alpha]; 2],
+            true,
+            false,
+        );
+        assert_eq!(center(&frame), center(&clear), "alpha {alpha}");
+    }
+    let eyes = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[200, 120, 40, 128]; 2],
+        true,
+        false,
+    );
+    assert_ne!(center(&eyes), center(&clear));
+    material.state.as_mut().unwrap().only_emissive = false;
+    let ordinary = actor_raster::raster_material_target(
+        &gpu,
+        &plane,
+        material,
+        false,
+        [[200, 120, 40, 128]; 2],
+        true,
+        false,
+    );
+    assert_eq!(center(&eyes), center(&ordinary));
+}
+
+#[test]
+fn authored_depth_equal_and_channel_writes_reach_the_pipeline() {
+    use bevy::render::render_resource::{ColorWrites, CompareFunction};
+    for (disable_alpha_write, disable_color_write, expected) in [
+        (false, false, ColorWrites::ALL),
+        (true, false, ColorWrites::COLOR),
+        (false, true, ColorWrites::empty()),
+        (true, true, ColorWrites::empty()),
+    ] {
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    enhanced: false,
+                    material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                        depth_equal: true,
+                        disable_alpha_write,
+                        disable_color_write,
+                        ..Default::default()
+                    })),
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        assert_eq!(
+            descriptor.depth_stencil.unwrap().depth_compare,
+            Some(CompareFunction::Equal)
+        );
+        assert_eq!(
+            descriptor.fragment.unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .write_mask,
+            expected
+        );
+    }
+}

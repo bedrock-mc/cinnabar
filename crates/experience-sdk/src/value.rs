@@ -6,7 +6,7 @@
 /// `{"type":…,"value":…}` objects.
 #[derive(Clone, Debug, PartialEq)]
 #[cfg_attr(
-    feature = "client",
+    feature = "messages",
     derive(serde::Serialize, serde::Deserialize),
     serde(
         tag = "type",
