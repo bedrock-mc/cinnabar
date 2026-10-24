@@ -647,12 +647,9 @@ fn late_batches_of_an_unresolved_world_share_one_epoch() {
         cache.poll(now);
     }
     cache.sync();
-    let server = std::fs::read_dir(root.path())
-        .unwrap()
-        .flatten()
-        .next()
-        .expect("a server directory")
-        .path();
+    let server = root
+        .path()
+        .join(far_terrain::ServerKey::from_destination(SERVER).to_string());
     let overworld = std::fs::read_dir(server)
         .unwrap()
         .flatten()

@@ -15,7 +15,8 @@ use std::{
 use crossbeam_channel::{Receiver, Sender, bounded};
 
 mod admission;
-use admission::{Admission, Envelope, MAX_PENDING_OPERATIONS};
+pub(crate) use admission::MAX_PENDING_OPERATIONS;
+use admission::{Admission, Envelope};
 
 #[cfg(test)]
 mod tests;
@@ -32,6 +33,18 @@ use crate::{
 pub struct DiskBounds {
     pub server_cap_bytes: u64,
     pub global_cap_bytes: u64,
+}
+
+/// The identity decision retained while a visit waits for disk admission.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResolutionIntent {
+    /// Reuse a namespace only when its columns match the visit's probes.
+    #[default]
+    Probed,
+    /// Reserve a new epoch even when later terrain probes match an earlier map.
+    Fresh,
+    /// Move the diverged visit's published columns into its new epoch.
+    Migrate { from: NamespaceKey, since: u64 },
 }
 
 /// Results the IO thread sends back.
@@ -71,17 +84,13 @@ enum Command {
     Resolve {
         world: WorldKey,
         entry: u64,
+        intent: ResolutionIntent,
         probes: Vec<(ColumnPos, ColumnSummary)>,
-    },
-    ResolveFresh {
-        world: WorldKey,
-        entry: u64,
-        from: NamespaceKey,
-        since: u64,
     },
     ResolveWrite {
         world: WorldKey,
         entry: u64,
+        intent: ResolutionIntent,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     },
@@ -167,50 +176,36 @@ impl DiskCache {
         self.send(Command::Load { namespace, region })
     }
 
-    /// Picks the epoch of `world` whose cached columns match `probes`.
+    /// Resolves a visit once, preserving its identity decision across retries and batches.
     pub fn resolve(
         &self,
         world: WorldKey,
         entry: u64,
+        intent: ResolutionIntent,
         probes: Vec<(ColumnPos, ColumnSummary)>,
     ) -> bool {
         self.send(Command::Resolve {
             world,
             entry,
+            intent,
             probes,
         })
     }
 
-    /// Gives visit `entry` to `world` a new epoch of its own, as when its cached columns turned
-    /// out to be another map's, and moves the columns that visit already wrote to `from`
-    /// (versions from `since` on) there.
-    pub fn resolve_fresh(
-        &self,
-        world: WorldKey,
-        entry: u64,
-        from: NamespaceKey,
-        since: u64,
-    ) -> bool {
-        self.send(Command::ResolveFresh {
-            world,
-            entry,
-            from,
-            since,
-        })
-    }
-
-    /// Writes `columns` to the epoch of visit `entry` to `world`, resolving it from `probes`
-    /// first if no earlier request of that visit did, for a world left before it resolved.
+    /// Writes columns after resolving the visit's identity intent once. Empty batches can
+    /// finish a deferred migration without waiting for more terrain.
     pub fn resolve_and_write(
         &self,
         world: WorldKey,
         entry: u64,
+        intent: ResolutionIntent,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     ) -> bool {
         self.send(Command::ResolveWrite {
             world,
             entry,
+            intent,
             probes,
             columns,
         })
@@ -324,25 +319,10 @@ impl Worker {
             Command::Resolve {
                 world,
                 entry,
+                intent,
                 probes,
             } => {
-                let epoch = self.resolve_entry(world, entry, &probes);
-                Some(DiskEvent::Resolved {
-                    world,
-                    entry,
-                    epoch,
-                })
-            }
-            Command::ResolveFresh {
-                world,
-                entry,
-                from,
-                since,
-            } => {
-                let epoch = self.fresh_epoch(world);
-                self.claim(world.namespace(epoch));
-                self.visits.insert((world, entry), epoch);
-                self.move_newer(from, world.namespace(epoch), since);
+                let epoch = self.resolve_entry(world, entry, intent, &probes);
                 Some(DiskEvent::Resolved {
                     world,
                     entry,
@@ -352,10 +332,11 @@ impl Worker {
             Command::ResolveWrite {
                 world,
                 entry,
+                intent,
                 probes,
                 columns,
             } => {
-                let namespace = world.namespace(self.resolve_entry(world, entry, &probes));
+                let namespace = world.namespace(self.resolve_entry(world, entry, intent, &probes));
                 let mut regions = BTreeMap::<RegionPos, Vec<(u16, Versioned)>>::new();
                 for (pos, column) in columns {
                     regions
@@ -435,19 +416,21 @@ impl Worker {
         &mut self,
         world: WorldKey,
         entry: u64,
+        intent: ResolutionIntent,
         probes: &[(ColumnPos, ColumnSummary)],
     ) -> u32 {
         if let Some(&epoch) = self.visits.get(&(world, entry)) {
             return epoch;
         }
-        let epoch = self.resolve(world, probes);
-        self.visits.insert((world, entry), epoch);
-        epoch
-    }
-
-    fn resolve(&mut self, world: WorldKey, probes: &[(ColumnPos, ColumnSummary)]) -> u32 {
-        let epoch = self.pick_epoch(world, probes);
+        let epoch = match intent {
+            ResolutionIntent::Probed => self.pick_epoch(world, probes),
+            ResolutionIntent::Fresh | ResolutionIntent::Migrate { .. } => self.fresh_epoch(world),
+        };
         self.claim(world.namespace(epoch));
+        self.visits.insert((world, entry), epoch);
+        if let ResolutionIntent::Migrate { from, since } = intent {
+            self.move_newer(from, world.namespace(epoch), since);
+        }
         epoch
     }
 

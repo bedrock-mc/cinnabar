@@ -246,8 +246,18 @@ fn resolutions_reserve_their_epochs() {
     let world = namespace("remote:a:1").world();
     let mut hilly_probe = hilly();
     hilly_probe.cells_mut()[0].height += 9;
-    disk.resolve(world, 1, vec![(ColumnPos::new(0, 0), hilly())]);
-    disk.resolve(world, 2, vec![(ColumnPos::new(0, 0), hilly_probe)]);
+    disk.resolve(
+        world,
+        1,
+        far_terrain::ResolutionIntent::Probed,
+        vec![(ColumnPos::new(0, 0), hilly())],
+    );
+    disk.resolve(
+        world,
+        2,
+        far_terrain::ResolutionIntent::Probed,
+        vec![(ColumnPos::new(0, 0), hilly_probe)],
+    );
     disk.sync();
     let epochs: Vec<u32> = disk
         .events()

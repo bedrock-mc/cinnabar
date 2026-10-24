@@ -19,7 +19,7 @@ use crate::{
         REGION_FLUSH_COLUMNS, WORLD_DIVERGED_COLUMNS, WORLD_PROBE_COLUMNS, WORLD_PROBE_SIMILARITY,
         WORLD_PROBE_TIMEOUT, WORLD_VERIFY_COLUMNS,
     },
-    disk::{DiskBounds, DiskCache},
+    disk::{DiskBounds, DiskCache, ResolutionIntent},
     identity::surface_similarity,
     region::{REGION_SIDE, RegionPos, region_index},
 };
@@ -40,23 +40,37 @@ struct DirtyRegion {
 /// A world just left, which late summaries still reach.
 enum Retired {
     Resolved(NamespaceKey),
-    /// Left before its namespace resolved; late columns are written by resolving with its
-    /// probes on the IO thread.
+    /// Keeps the identity decision for a visit left before the worker resolved its namespace.
     Unresolved {
         world: WorldKey,
         /// Its visit, so every late batch resolves to the same epoch.
         entry: u64,
+        intent: ResolutionIntent,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     },
 }
 
 impl Retired {
-    const fn dimension(&self) -> i32 {
+    /// Accepts unkeyed late columns only while this is the most recently ended visit.
+    fn accepts_late(&self, dimension: i32, current_entry: u64) -> bool {
         match self {
-            Self::Resolved(namespace) => namespace.dimension,
-            Self::Unresolved { world, .. } => world.dimension,
+            Self::Resolved(namespace) => namespace.dimension == dimension,
+            Self::Unresolved { world, entry, .. } => {
+                world.dimension == dimension && entry.checked_add(1) == Some(current_entry)
+            }
         }
+    }
+
+    /// A deferred migration must reach the worker before another retirement can replace it.
+    fn migration_pending(&self) -> bool {
+        matches!(
+            self,
+            Self::Unresolved {
+                intent: ResolutionIntent::Migrate { .. },
+                ..
+            }
+        )
     }
 }
 
@@ -69,6 +83,7 @@ pub struct RetiringSession {
     world: WorldKey,
     /// The visit retiring, whose namespace its summaries share once resolved.
     entry: u64,
+    intent: ResolutionIntent,
     namespace: Option<NamespaceKey>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     version: u64,
@@ -109,8 +124,8 @@ pub struct FarTerrainCache {
     unresolved: Vec<(ColumnPos, Versioned)>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     resolving: bool,
-    /// A diverged visit waits for worker admission before its fresh namespace is resolved.
-    fresh_from: Option<NamespaceKey>,
+    /// Identity intent survives refused work and follows the visit into retirement.
+    intent: ResolutionIntent,
     /// When this visit's first column arrived, for [`WORLD_PROBE_TIMEOUT`].
     pending_since: Option<Instant>,
     /// Changes waiting to be written, per namespace and region.
@@ -157,7 +172,7 @@ impl FarTerrainCache {
             unresolved: Vec::new(),
             probes: Vec::new(),
             resolving: false,
-            fresh_from: None,
+            intent: ResolutionIntent::Probed,
             pending_since: None,
             dirty: BTreeMap::new(),
             writing: BTreeMap::new(),
@@ -214,8 +229,8 @@ impl FarTerrainCache {
         });
     }
 
-    /// Starts a visit without a stable world identity. Its empty probe set reserves a new
-    /// epoch before live summaries arrive, so matching lobby columns cannot enable reuse.
+    /// Starts a visit without a stable world identity. It always reserves a new epoch,
+    /// so matching lobby columns cannot enable reuse.
     pub fn begin_uncertain_visit(&mut self, destination: &str, dimension: i32) {
         self.begin_uncertain_visit_with_resources(destination, dimension, [0; 32]);
     }
@@ -228,6 +243,7 @@ impl FarTerrainCache {
         resources: [u8; 32],
     ) {
         self.begin_visit_with_resources(destination, 0, dimension, resources);
+        self.intent = ResolutionIntent::Fresh;
         self.start_resolving();
     }
 
@@ -237,8 +253,7 @@ impl FarTerrainCache {
         self.world = None;
     }
 
-    /// Writes everything the visit holds, resolving its namespace on the IO thread with the
-    /// probes it has when it never resolved.
+    /// Flushes pending writes and keeps an unresolved visit's identity decision for retirement.
     fn end_entry(&mut self) {
         if let Some(namespace) = self.namespace {
             for (pos, column) in std::mem::take(&mut self.unresolved) {
@@ -253,27 +268,25 @@ impl FarTerrainCache {
         }
         self.flush_all();
         self.flush_retired();
-        if self.namespace.is_none()
-            && let (Some(world), Some(disk)) = (self.world, &self.disk)
-            && !self.unresolved.is_empty()
-        {
-            disk.resolve_and_write(
-                world,
-                self.entry,
-                self.probes.clone(),
-                std::mem::take(&mut self.unresolved),
-            );
-        }
-        self.retired = match (self.namespace.take(), self.world) {
+        let retired = match (self.namespace.take(), self.world) {
             (Some(namespace), _) => Some(Retired::Resolved(namespace)),
             (None, Some(world)) => Some(Retired::Unresolved {
                 world,
                 entry: self.entry,
+                intent: self.intent,
                 probes: std::mem::take(&mut self.probes),
-                columns: Vec::new(),
+                columns: std::mem::take(&mut self.unresolved),
             }),
             (None, None) => None,
         };
+        if !self
+            .retired
+            .as_ref()
+            .is_some_and(Retired::migration_pending)
+        {
+            self.retired = retired;
+        }
+        self.flush_retired();
         self.entry += 1;
         self.visit_start = self.next_version + 1;
         self.compared = 0;
@@ -282,29 +295,33 @@ impl FarTerrainCache {
         self.unresolved.clear();
         self.probes.clear();
         self.resolving = false;
-        self.fresh_from = None;
+        self.intent = ResolutionIntent::Probed;
         self.pending_since = None;
         self.requested.clear();
         self.reread.clear();
     }
 
-    /// Writes late columns of a world left before its namespace resolved.
+    /// Retries retired identity work and waiting columns without blocking the frame thread.
     fn flush_retired(&mut self) {
         if let (
             Some(Retired::Unresolved {
                 world,
                 entry,
+                intent,
                 probes,
                 columns,
             }),
             Some(disk),
         ) = (&mut self.retired, &self.disk)
-            && !columns.is_empty()
+            && (!columns.is_empty() || *intent != ResolutionIntent::Probed)
         {
             // Late columns probe too, so a world left before its first summary is still
             // compared against cached maps rather than reusing the newest blindly.
             add_probes(probes, columns);
-            disk.resolve_and_write(*world, *entry, probes.clone(), std::mem::take(columns));
+            if disk.resolve_and_write(*world, *entry, *intent, probes.clone(), columns.clone()) {
+                columns.clear();
+                *intent = ResolutionIntent::Probed;
+            }
         }
     }
 
@@ -318,7 +335,7 @@ impl FarTerrainCache {
         if self
             .retired
             .as_ref()
-            .is_some_and(|retired| retired.dimension() == dimension)
+            .is_some_and(|retired| retired.accepts_late(dimension, self.entry))
             && self.world.is_none_or(|world| world.dimension != dimension)
         {
             match &mut self.retired {
@@ -389,7 +406,7 @@ impl FarTerrainCache {
     /// Applies a bounded share of completed disk columns, retaining partial events in order.
     pub fn poll_budgeted(&mut self, now: Instant, budget: &mut SummaryBudget) {
         self.apply_completions(now, budget);
-        if self.fresh_from.is_some() && self.namespace.is_none() && !self.resolving {
+        if self.intent != ResolutionIntent::Probed && self.namespace.is_none() && !self.resolving {
             self.start_resolving();
         }
         if self.namespace.is_none()
@@ -434,6 +451,7 @@ impl FarTerrainCache {
         Some(RetiringSession {
             world,
             entry: self.entry,
+            intent: self.intent,
             namespace: self.namespace,
             probes: self.probes.clone(),
             version,
@@ -455,6 +473,7 @@ impl FarTerrainCache {
         let RetiringSession {
             world,
             entry,
+            intent,
             namespace,
             mut probes,
             version,
@@ -482,7 +501,7 @@ impl FarTerrainCache {
             && !unresolved.is_empty()
         {
             add_probes(&mut probes, &unresolved);
-            disk.resolve_and_write(world, entry, probes, unresolved);
+            disk.resolve_and_write(world, entry, intent, probes, unresolved);
         }
     }
 
@@ -588,7 +607,10 @@ impl FarTerrainCache {
         }
         self.entry += 1;
         self.resolving = false;
-        self.fresh_from = Some(namespace);
+        self.intent = ResolutionIntent::Migrate {
+            from: namespace,
+            since: self.visit_start,
+        };
         self.requested.clear();
         self.reread.clear();
         self.compared = WORLD_VERIFY_COLUMNS;
@@ -615,7 +637,7 @@ impl FarTerrainCache {
             self.entry += 1;
             self.namespace = self.world.map(|world| world.namespace(0));
             self.resolving = false;
-            self.fresh_from = None;
+            self.intent = ResolutionIntent::Probed;
             self.requested.clear();
             self.reread.clear();
             self.next_version = 0;
@@ -626,14 +648,25 @@ impl FarTerrainCache {
     }
 
     fn start_resolving(&mut self) {
+        if self
+            .retired
+            .as_ref()
+            .is_some_and(Retired::migration_pending)
+        {
+            self.flush_retired();
+            if self
+                .retired
+                .as_ref()
+                .is_some_and(Retired::migration_pending)
+            {
+                return;
+            }
+        }
         let Some(world) = self.world else {
             return;
         };
         self.resolving = match &self.disk {
-            Some(disk) => match self.fresh_from {
-                Some(from) => disk.resolve_fresh(world, self.entry, from, self.visit_start),
-                None => disk.resolve(world, self.entry, self.probes.clone()),
-            },
+            Some(disk) => disk.resolve(world, self.entry, self.intent, self.probes.clone()),
             None => {
                 self.resolved(world, 0);
                 true

@@ -9,7 +9,7 @@ use super::Command;
 
 /// Disk work retained outside the resident summary store.
 pub(super) const MAX_PENDING_BYTES: usize = 32 << 20;
-pub(super) const MAX_PENDING_OPERATIONS: usize = 64;
+pub(crate) const MAX_PENDING_OPERATIONS: usize = 64;
 
 #[derive(Default)]
 pub(super) struct Admission {
@@ -94,7 +94,7 @@ impl Command {
                             })
                             .sum::<usize>()
                 }
-                Self::ResolveFresh { .. } | Self::Sync(_) => 0,
+                Self::Sync(_) => 0,
             }
     }
 }
