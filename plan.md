@@ -298,6 +298,13 @@ selection until their arrival order can be resolved.
 Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
 block-climber flags, custom collision definitions, transition-tick packet ordering
 and broader live-server qualification remain incomplete.
+pose sizes. Network and synthetic local actors share arrival-ordered lifetimes.
+Accepted local spawns retire old dimension ownership, replace accepted item-use flags,
+and refresh movement speed or use the new actor's current. Unknown passenger identities
+defer controller selection until their arrival order can be resolved.
+Server-driven gameplay pose and item-use starts, riptide flag
+lifetimes, block-climber flags, custom collision definitions, legacy sneak height,
+transition-tick packet ordering and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.

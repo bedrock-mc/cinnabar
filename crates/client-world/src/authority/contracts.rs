@@ -106,7 +106,7 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
-    /// Movement flags from one local-player SetActorData.
+    /// Movement flags from local-player metadata, or item use from an accepted spawn.
     LocalMovementFlags {
         sequence: u64,
         /// Local input tick the server stamped; zero when unstamped.

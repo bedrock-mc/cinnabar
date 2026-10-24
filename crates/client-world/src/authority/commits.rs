@@ -338,6 +338,19 @@ impl WorldAuthority {
                 if life_accepted {
                     if let Some(attributes) = local_health_attributes {
                         if local_spawn {
+                            if let Some(actor) = self.actors.get(self.local_player_runtime_id) {
+                                let using_item = actor.is_using_item();
+                                self.push_committed_control(
+                                    CommittedControlEvent::LocalMovementFlags {
+                                        sequence,
+                                        tick: 0,
+                                        flags: crate::MovementFlagUpdate {
+                                            using_item: Some(using_item),
+                                            ..Default::default()
+                                        },
+                                    },
+                                );
+                            }
                             let movement = self
                                 .actors
                                 .get(self.local_player_runtime_id)
