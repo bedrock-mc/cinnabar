@@ -53,7 +53,7 @@ func (h *Host) PlayerJoined(p *player.Player) {
 	}
 	loc := PlayerLocation{World: instance.handle, Epoch: 1, Position: positionOf(p.Position())}
 	h.players.items[p.H()] = &playerState{sends: new(sync.Mutex), location: loc, w: p.Tx().World()}
-	h.observeLocked(p.H(), instance, p.Tx().World(), PlayerEvent{Type: "join", Location: &loc})
+	h.observeLocked(p, instance, PlayerEvent{Type: "join", Location: &loc})
 }
 
 // PlayerDisconnected removes only this session; an overlapping reconnect keeps its own authority.
@@ -68,7 +68,7 @@ func (h *Host) PlayerDisconnected(p *player.Player) {
 	loc := state.location
 	loc.Position = positionOf(p.Position())
 	instance, _ := h.worlds.of(state.w)
-	h.observeLocked(p.H(), instance, state.w, PlayerEvent{Type: "leave", Location: &loc})
+	h.observeLocked(p, instance, PlayerEvent{Type: "leave", Location: &loc})
 	delete(h.players.items, p.H())
 }
 
@@ -99,8 +99,10 @@ func (h *Host) playerCurrent(ev event) bool {
 	return !state.transferring && state.location.Epoch == ev.epoch
 }
 
-// observeLocked queues immutable observations in admission order. Callers hold players.mu.
-func (h *Host) observeLocked(handle *world.EntityHandle, instance worldInstance, w *world.World, observation PlayerEvent) {
+// observeLocked captures immutable observations and inventory in the owning transaction.
+// Callers hold players.mu; leave events retain no live inventory authority.
+func (h *Host) observeLocked(p *player.Player, instance worldInstance, observation PlayerEvent) {
+	handle, w := p.H(), p.Tx().World()
 	loc := observation.Location
 	if loc == nil {
 		loc = observation.After
@@ -112,6 +114,8 @@ func (h *Host) observeLocked(handle *world.EntityHandle, instance worldInstance,
 		ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
 		if observation.Type == "leave" {
 			ev.actor = nil
+		} else {
+			ev.inventory, ev.slots = inventoryOf(d.id, p)
 		}
 		select {
 		case d.events <- ev:
@@ -159,7 +163,7 @@ func (h *Host) PollPlayers(ctx context.Context, tick uint64) error {
 				return
 			}
 			state.location, state.w = after, tx.World()
-			h.observeLocked(handle, instance, tx.World(), PlayerEvent{Type: kind, Before: &before, After: &after})
+			h.observeLocked(e.(*player.Player), instance, PlayerEvent{Type: kind, Before: &before, After: &after})
 		})); err != nil && !errors.Is(err, world.ErrEntityClosed) {
 			return err
 		}
@@ -213,7 +217,7 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 		copy := *loc
 		context.Player = &copy
 	}
-	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context}, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
+	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context}, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory}, slots: ev.slots}
 }
 
 // storePrincipal retains an observed player's private record after its live actor leaves.

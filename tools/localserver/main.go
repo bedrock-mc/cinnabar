@@ -163,8 +163,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	srv = conf.New()
 	worlds := []*world.World{srv.World(), srv.Nether(), srv.End()}
-	cfg.applyTo(worlds...)
-	pauses := &pauseState{worlds: worlds}
+	pauses := &pauseState{settings: cfg}
+	for _, w := range worlds {
+		pauses.WorldOpened(w)
+	}
 	cmds := commands{pause: pauses.request}
 	var host *experience.Host
 	var running sync.WaitGroup
@@ -180,7 +182,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		if err := host.BindDefaultWorlds(worlds...); err != nil {
 			return errors.Join(err, srv.Close(), host.Close())
 		}
-		if err := host.ConfigureWorlds(ctx, filepath.Join(cfg.dir, "experience-worlds")); err != nil {
+		if err := host.ConfigureWorlds(ctx, filepath.Join(cfg.dir, "experience-worlds"), pauses); err != nil {
 			return errors.Join(err, srv.Close(), host.Close())
 		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
