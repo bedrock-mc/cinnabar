@@ -88,7 +88,9 @@ enum Command {
     Sync(Sender<()>),
 }
 
-/// Handle to the IO thread; dropping it finishes queued writes first.
+/// Handle to the IO thread; dropping it finishes admitted writes first.
+/// Work submission returns `false` when retained commands or results fill admission;
+/// the caller may retry without waiting on the frame thread.
 pub struct DiskCache {
     tx: Option<Sender<Envelope<Command>>>,
     admission: Arc<Admission>,
@@ -718,6 +720,9 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         fs::create_dir_all(parent)?;
     }
     let temporary = path.with_extension("lod.tmp");
-    fs::write(&temporary, bytes)?;
-    fs::rename(&temporary, path)
+    let result = fs::write(&temporary, bytes).and_then(|()| fs::rename(&temporary, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }

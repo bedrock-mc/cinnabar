@@ -101,3 +101,37 @@ fn exhausted_clocks_recover_before_admission_and_new_visits() {
         cache.begin_visit("remote:cache.example:1", 2, 0);
     }
 }
+
+/// A retirement captured before recovery cannot restore the abandoned high clock afterward.
+#[test]
+fn clock_recovery_invalidates_outstanding_retirement_handles() {
+    let now = Instant::now();
+    let mut cache = FarTerrainCache::new(
+        FarTerrainConfig::default(),
+        None,
+        crate::region::MAX_VERSION - 1,
+    );
+    cache.enter_world("remote:cache.example:1", 1, 0);
+    cache.start_resolving();
+    let retired = cache.retire_session().unwrap();
+    let pos = ColumnPos::new(0, 0);
+    let live = ColumnSummary::default().encode();
+    cache.admit(0, pos, live.clone(), now);
+    let live_version = cache.store.version(pos).unwrap();
+    cache.persist(retired, [(pos, live)], now);
+    assert_eq!(cache.store.version(pos), Some(live_version));
+}
+
+/// A new retirement uses the recovered visit identity and can still publish its summaries.
+#[test]
+fn retirement_started_during_clock_recovery_remains_usable() {
+    let now = Instant::now();
+    let mut cache = FarTerrainCache::new(FarTerrainConfig::default(), None, 1);
+    cache.enter_world("remote:cache.example:1", 1, 0);
+    cache.start_resolving();
+    cache.next_version = crate::region::MAX_VERSION;
+    let session = cache.retire_session().unwrap();
+    let pos = ColumnPos::new(0, 0);
+    cache.persist(session, [(pos, ColumnSummary::default().encode())], now);
+    assert_eq!(cache.store.version(pos), Some(1));
+}

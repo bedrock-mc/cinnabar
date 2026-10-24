@@ -51,6 +51,17 @@ fn oversized_region_is_a_cache_miss() {
     assert!(read_region(&path).is_none());
 }
 
+/// A failed rename cannot strand an unindexed payload beside the region files.
+#[test]
+fn failed_publication_does_not_leave_a_temporary_region() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join(RegionPos { x: 0, z: 0 }.file_name());
+    fs::create_dir(&path).unwrap();
+    assert!(write_atomic(&path, b"region payload").is_err());
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    assert!(path.is_dir());
+}
+
 /// Completed reads retain their admission until the owner consumes the payloads.
 #[test]
 fn unconsumed_results_bound_focus_requests_and_release_admission() {

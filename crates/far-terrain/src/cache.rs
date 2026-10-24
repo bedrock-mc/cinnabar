@@ -430,12 +430,13 @@ impl FarTerrainCache {
     /// version they will carry; `None` outside a world.
     pub fn retire_session(&mut self) -> Option<RetiringSession> {
         let world = self.world?;
+        let version = self.stamp();
         Some(RetiringSession {
             world,
             entry: self.entry,
             namespace: self.namespace,
             probes: self.probes.clone(),
-            version: self.stamp(),
+            version,
         })
     }
 
@@ -610,6 +611,13 @@ impl FarTerrainCache {
             self.unresolved.clear();
             self.retired = None;
             self.pending_event = None;
+            // Outstanding retirement handles belong to the abandoned version ordering.
+            self.entry += 1;
+            self.namespace = self.world.map(|world| world.namespace(0));
+            self.resolving = false;
+            self.fresh_from = None;
+            self.requested.clear();
+            self.reread.clear();
             self.next_version = 0;
             self.visit_start = 1;
         }
