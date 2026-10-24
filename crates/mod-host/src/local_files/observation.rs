@@ -12,8 +12,6 @@ pub struct Snapshot {
 }
 
 struct Cached {
-    // Pin the old file so deletion cannot recycle its identity into an unrelated leaf.
-    _file: File,
     identity: Identity,
     snapshot: Snapshot,
     observed: bool,
@@ -74,7 +72,6 @@ impl ObservationCache {
             self.files.insert(
                 key,
                 Cached {
-                    _file: opened.file,
                     identity,
                     snapshot: snapshot.clone(),
                     observed: true,
@@ -88,6 +85,7 @@ impl ObservationCache {
 /// File identity plus content and metadata change times; access times are deliberately excluded.
 #[derive(PartialEq, Eq)]
 pub(crate) struct Identity {
+    created: Option<std::time::SystemTime>,
     #[cfg(unix)]
     values: (u64, u64, u64, i64, i64, i64, i64),
     #[cfg(windows)]
@@ -105,6 +103,7 @@ impl Identity {
                 return Ok(None);
             }
             Ok(Some(Self {
+                created: metadata.created().ok(),
                 values: (
                     metadata.dev(),
                     metadata.ino(),
@@ -148,6 +147,7 @@ impl Identity {
                 return Ok(None);
             }
             Ok(Some(Self {
+                created: file.metadata()?.created().ok(),
                 values: (
                     id.VolumeSerialNumber,
                     id.FileId.Identifier,

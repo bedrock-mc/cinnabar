@@ -4,15 +4,13 @@ use super::{Directory, Package};
 use crate::local_files::Identity;
 use anyhow::{Context, Result};
 use std::{
-    fs::File,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 struct Dependency {
     path: PathBuf,
-    // Keep the selected leaf alive so its identifier cannot be reused after deletion.
-    selected: Option<(File, Identity)>,
+    selected: Option<Identity>,
 }
 
 /// A worker-owned verified package cache, checked through a fresh directory handle each poll.
@@ -74,7 +72,7 @@ impl Observation {
             if let Some(identity) = after {
                 self.files.push(Dependency {
                     path: path.to_owned(),
-                    selected: Some((opened.file, identity)),
+                    selected: Some(identity),
                 });
             } else {
                 reusable = false;
@@ -93,7 +91,7 @@ impl Observation {
     fn unchanged(&self, root: &Directory) -> bool {
         self.files.iter().all(|dependency| {
             match (&dependency.selected, root.open_file(&dependency.path)) {
-                (Some((_, previous)), Ok(opened)) => Identity::of(&opened.file)
+                (Some(previous), Ok(opened)) => Identity::of(&opened.file)
                     .is_ok_and(|current| current.as_ref() == Some(previous)),
                 (None, Err(error)) => error.kind() == std::io::ErrorKind::NotFound,
                 _ => false,
