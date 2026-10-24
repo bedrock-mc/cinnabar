@@ -1,6 +1,8 @@
 //! Render-controller selection expressions (`A ? B : C`, `Array.name[index]`) expanded into the
 //! leaves they can select, each with the condition that selects it.
 
+use std::{collections::BTreeMap, sync::Arc};
+
 const MAX_SELECTOR_LEAVES: usize = 256;
 const MAX_DEPTH: usize = 8;
 
@@ -45,8 +47,8 @@ pub(super) struct Selector<'a, T> {
     /// Lowercase leaf prefix such as `texture.`.
     pub prefix: &'static str,
     /// Lowercased `array.name` to member expressions.
-    pub arrays: std::collections::BTreeMap<String, Vec<String>>,
-    /// Leaf for a lowercase alias; `None` skips the leaf.
+    pub arrays: BTreeMap<String, Vec<String>>,
+    /// Resolves a lowercase alias; repeated references share the result and `None` skips it.
     pub resolve: &'a dyn Fn(&str) -> Option<T>,
 }
 
@@ -54,27 +56,30 @@ pub(super) struct Selector<'a, T> {
 pub(super) enum Selection<T> {
     Empty,
     Leaf(T),
-    Branch(String, Box<Self>, Box<Self>),
-    Array(String, Vec<Self>),
+    Branch(String, Arc<Self>, Arc<Self>),
+    Array(String, Vec<Arc<Self>>),
 }
 
-impl<T> Selection<T> {
-    /// Moves leaves into their selecting paths for the existing texture and geometry carriers.
-    fn collect(self, path: &mut Vec<Step>, output: &mut Vec<(Vec<Step>, T)>) {
+/// Parsed nodes and their expanded resolved-leaf counts, keyed by source expression and depth.
+type SelectionCache<T> = BTreeMap<(usize, String), (Arc<Selection<T>>, usize)>;
+
+impl<T: Clone> Selection<T> {
+    /// Collects resolved leaves with their selecting paths for texture and geometry carriers.
+    fn collect(&self, path: &mut Vec<Step>, output: &mut Vec<(Vec<Step>, T)>) {
         match self {
             Self::Empty => {}
-            Self::Leaf(leaf) => output.push((path.clone(), leaf)),
+            Self::Leaf(leaf) => output.push((path.clone(), leaf.clone())),
             Self::Branch(condition, yes, no) => {
                 path.push(Step::Branch(condition.clone(), true));
                 yes.collect(path, output);
                 path.pop();
-                path.push(Step::Branch(condition, false));
+                path.push(Step::Branch(condition.clone(), false));
                 no.collect(path, output);
                 path.pop();
             }
             Self::Array(index, members) => {
                 let count = members.len();
-                for (element, member) in members.into_iter().enumerate() {
+                for (element, member) in members.iter().enumerate() {
                     path.push(Step::Element(index.clone(), count, element));
                     member.collect(path, output);
                     path.pop();
@@ -86,29 +91,66 @@ impl<T> Selection<T> {
 
 impl<T> Selector<'_, T> {
     /// Expands resolvable leaves into the conditions selecting them.
-    pub fn leaves(&self, expression: &str) -> Option<Vec<(Vec<Step>, T)>> {
+    pub fn leaves(&self, expression: &str) -> Option<Vec<(Vec<Step>, T)>>
+    where
+        T: Clone,
+    {
         let mut output = Vec::new();
         self.tree(expression)?.collect(&mut Vec::new(), &mut output);
         Some(output)
     }
 
     /// Retains the decision tree so material selectors evaluate each decision exactly once.
-    pub fn tree(&self, expression: &str) -> Option<Selection<T>> {
-        self.expand(expression, &mut 0, 0)
+    pub fn tree(&self, expression: &str) -> Option<Arc<Selection<T>>> {
+        self.expand(expression, &mut 0, 0, &mut BTreeMap::new())
     }
 
-    /// Parses one selector under the shared leaf and nesting admission rules.
-    fn expand(&self, expression: &str, leaves: &mut usize, depth: usize) -> Option<Selection<T>> {
+    /// Shares repeated expressions at the same depth while preserving the expanded leaf limit.
+    fn expand(
+        &self,
+        expression: &str,
+        leaves: &mut usize,
+        depth: usize,
+        cache: &mut SelectionCache<T>,
+    ) -> Option<Arc<Selection<T>>> {
         if depth > MAX_DEPTH {
             return None;
         }
         let expression = strip_outer_parentheses(expression.trim());
+        let key = (depth, expression.to_owned());
+        if let Some((node, count)) = cache.get(&key) {
+            if leaves.checked_add(*count)? > MAX_SELECTOR_LEAVES {
+                return None;
+            }
+            *leaves += *count;
+            return Some(Arc::clone(node));
+        }
+        let start = *leaves;
+        let node = Arc::new(self.parse(expression, leaves, depth, cache)?);
+        cache.insert(key, (Arc::clone(&node), *leaves - start));
+        Some(node)
+    }
+
+    /// Parses a cache miss and collapses unresolved subtrees before retaining their parents.
+    fn parse(
+        &self,
+        expression: &str,
+        leaves: &mut usize,
+        depth: usize,
+        cache: &mut SelectionCache<T>,
+    ) -> Option<Selection<T>> {
         if let Some((condition, yes, no)) = split_ternary(expression) {
-            return Some(Selection::Branch(
-                condition.to_owned(),
-                Box::new(self.expand(yes, leaves, depth + 1)?),
-                Box::new(self.expand(no?, leaves, depth + 1)?),
-            ));
+            let yes = self.expand(yes, leaves, depth + 1, cache)?;
+            let no = self.expand(no?, leaves, depth + 1, cache)?;
+            return Some(
+                if matches!(yes.as_ref(), Selection::Empty)
+                    && matches!(no.as_ref(), Selection::Empty)
+                {
+                    Selection::Empty
+                } else {
+                    Selection::Branch(condition.to_owned(), yes, no)
+                },
+            );
         }
         let lower = expression.to_ascii_lowercase();
         if let Some(alias) = lower.strip_prefix(self.prefix) {
@@ -139,13 +181,20 @@ impl<T> Selector<'_, T> {
         }
         let (name, index) = split_index(expression)?;
         let members = self.arrays.get(&name.to_ascii_lowercase())?;
-        Some(Selection::Array(
-            index.to_owned(),
-            members
+        let members = members
+            .iter()
+            .map(|member| self.expand(member, leaves, depth + 1, cache))
+            .collect::<Option<Vec<_>>>()?;
+        Some(
+            if members
                 .iter()
-                .map(|member| self.expand(member, leaves, depth + 1))
-                .collect::<Option<Vec<_>>>()?,
-        ))
+                .all(|member| matches!(member.as_ref(), Selection::Empty))
+            {
+                Selection::Empty
+            } else {
+                Selection::Array(index.to_owned(), members)
+            },
+        )
     }
 }
 
@@ -218,7 +267,7 @@ pub(super) fn split_index(text: &str) -> Option<(&str, &str)> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use BTreeMap;
 
     use super::*;
 
@@ -315,5 +364,59 @@ mod tests {
         );
         assert_eq!(strip_outer_parentheses("(a ? b : c)"), "a ? b : c");
         assert_eq!(strip_outer_parentheses("(a) ? (b) : c"), "(a) ? (b) : c");
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    use std::{cell::Cell, collections::BTreeMap};
+
+    #[test]
+    fn repeated_unresolved_arrays_stay_compact() {
+        let calls = Cell::new(0);
+        let resolve = |_: &str| {
+            calls.set(calls.get() + 1);
+            None::<u32>
+        };
+        let mut arrays = BTreeMap::new();
+        for level in 0..5 {
+            let member = if level == 0 {
+                "Material.missing".to_owned()
+            } else {
+                format!("Array.a{}[0]", level - 1)
+            };
+            arrays.insert(format!("array.a{level}"), vec![member; 4]);
+        }
+        let selector = Selector {
+            prefix: "material.",
+            arrays,
+            resolve: &resolve,
+        };
+        let tree = selector.tree("Array.a4[0]").unwrap();
+        assert!(matches!(tree.as_ref(), Selection::Empty));
+        assert_eq!(
+            calls.get(),
+            1,
+            "repeated missing aliases must not expand into repeated retained work"
+        );
+        assert!(selector.leaves("Array.a4[0]").unwrap().is_empty());
+    }
+
+    #[test]
+    fn shared_subtrees_preserve_the_expanded_leaf_admission() {
+        let resolve = |_: &str| Some(0);
+        let selector = Selector {
+            prefix: "material.",
+            resolve: &resolve,
+            arrays: BTreeMap::from([
+                ("array.inner".into(), vec!["Material.a".into(); 2]),
+                (
+                    "array.outer".into(),
+                    vec!["Array.inner[0]".into(); MAX_SELECTOR_LEAVES / 2 + 1],
+                ),
+            ]),
+        };
+        assert!(selector.tree("Array.outer[0]").is_none());
     }
 }

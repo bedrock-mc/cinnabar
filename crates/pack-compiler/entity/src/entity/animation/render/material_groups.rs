@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use assets::{
     AssetError, EntityGeometry, EntityRenderCandidate, EntityRenderGeometry, EntityRenderLayer,
@@ -21,7 +24,7 @@ struct Raster {
 pub(super) struct Group {
     raster: Raster,
     hidden: Vec<Box<str>>,
-    selection: Option<Selection<Raster>>,
+    selection: Option<Arc<Selection<Raster>>>,
 }
 
 fn raster(target: Option<&str>, materials: &MaterialStates) -> Raster {
@@ -163,7 +166,7 @@ fn uniform_selection(
     description: &Map<String, Value>,
     controller: &Map<String, Value>,
     materials: &MaterialStates,
-) -> Option<Selection<Raster>> {
+) -> Option<Arc<Selection<Raster>>> {
     use super::super::selection::Selector;
     let [rule] = controller.get("materials")?.as_array()?.as_slice() else {
         return None;
@@ -201,10 +204,12 @@ fn uniform_selection(
             .collect(),
         resolve: &resolve_alias,
     };
-    match selector.tree(expression)? {
-        selection @ (Selection::Branch(..) | Selection::Array(..)) => Some(selection),
-        Selection::Leaf(_) | Selection::Empty => None,
-    }
+    let selection = selector.tree(expression)?;
+    matches!(
+        selection.as_ref(),
+        Selection::Branch(..) | Selection::Array(..)
+    )
+    .then_some(selection)
 }
 
 pub(super) struct Records<'a> {
@@ -317,7 +322,7 @@ pub(super) fn append(
 
 /// Drops an unsupported selection without leaving partial nodes or Molang programs behind.
 fn retain_selection(
-    selection: Selection<Raster>,
+    selection: Arc<Selection<Raster>>,
     nodes: &mut Vec<assets::EntityRenderMaterialSelection>,
     molang: &mut MolangCompiler,
 ) -> Option<u32> {
@@ -335,17 +340,20 @@ fn retain_selection(
 
 /// Lowers one decision tree without cloning the authored controller or repeating its scripts.
 fn compile_selection(
-    selection: Selection<Raster>,
+    selection: Arc<Selection<Raster>>,
     nodes: &mut Vec<assets::EntityRenderMaterialSelection>,
     molang: &mut MolangCompiler,
 ) -> Result<u32, AssetError> {
     use assets::EntityRenderMaterialSelection as Node;
+    if nodes.len() >= MAX_ENTITY_RENDER_CANDIDATES {
+        return Err(invalid("entity material selection count exceeds bound"));
+    }
     let root = nodes.len();
     nodes.push(Node::Raster {
         material: EntityRenderMaterial::Default,
         state: None,
     });
-    let node = match selection {
+    let node = match selection.as_ref() {
         Selection::Empty => Node::Raster {
             material: EntityRenderMaterial::Default,
             state: None,
@@ -355,15 +363,15 @@ fn compile_selection(
             state: raster.state,
         },
         Selection::Branch(condition, yes, no) => Node::Branch {
-            condition: molang.compile(&condition)?,
-            yes: compile_selection(*yes, nodes, molang)?,
-            no: compile_selection(*no, nodes, molang)?,
+            condition: molang.compile(condition)?,
+            yes: compile_selection(Arc::clone(yes), nodes, molang)?,
+            no: compile_selection(Arc::clone(no), nodes, molang)?,
         },
         Selection::Array(index, choices) if !choices.is_empty() => Node::Array {
-            index: molang.compile(&index)?,
+            index: molang.compile(index)?,
             choices: choices
-                .into_iter()
-                .map(|choice| compile_selection(choice, nodes, molang))
+                .iter()
+                .map(|choice| compile_selection(Arc::clone(choice), nodes, molang))
                 .collect::<Result<_, _>>()?,
         },
         Selection::Array(..) => return Err(invalid("empty material selector array")),
