@@ -326,7 +326,7 @@ and its already accepted updates and effects. Replacement retires cached flags, 
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
-Server-driven item-use gameplay starts, block-climber flags, custom collision
+Block-climber flags, custom collision
 definitions, transition-tick packet ordering and broader live-server qualification
 remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
@@ -341,12 +341,18 @@ capture and requests replay when that following frame is retained. Current stamp
 wait for the next frame; a future stamp joins the current frame without immediate replay.
 Replay keeps the starting frame's capture, refreshes later ones and copies the replayed
 word back to the live state, keeping the live spin and glide counters, swim blend and
-camera eye blend. Glide, swim and crawl retain independent bits beside flight;
+camera eye blend. Item use reconciles with the word's item-use bit only on movement ticks:
+a set bit starts the selected item's use and reports `StartUsingItem` (an item without a held
+use completes on the next tick, and whether vanilla slows that tick is unverified; an empty
+hand keeps the flag set), a clear bit stops the use without a release transaction, and a
+spectator game-mode change stops it in packet order. Each tick refreshes the in-use stack,
+count included; release validation compares the whole stack. Two further stack properties,
+including charged-item state, remain unmapped in the retained item data. Replayed ticks
+keep the slowdown their live tick recorded. Glide, swim and crawl retain independent bits beside flight;
 their own trigger transitions produce actions, and their combined state feeds
 the compact body, swim blend and eye offset. Replay preserves the pending swim-blend
 input across immobile pose transitions; only changed swim or crawl corrections replace it.
-Still incomplete: reconciling server `UsingItem` writes with local-use gameplay;
-the Riptide spin's entity-hit end, which
+Still incomplete: the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the
 player's grown by one block, scaling velocity by -0.2 per hit); block-climber flags; and
 live-server evidence for these adoptions.

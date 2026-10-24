@@ -482,10 +482,24 @@ impl WorldAuthority {
                         if actor_unique_id != self.local_player_unique_id {
                             return Ok(());
                         }
+                        self.push_local_game_mode(sequence, event.update);
+                        UiEvent::GameMode(event)
+                    }
+                    UiEvent::GameMode(event) => {
+                        self.push_local_game_mode(sequence, event.update);
                         UiEvent::GameMode(event)
                     }
                     UiEvent::DefaultGameMode(event) => {
                         self.actors.apply_world_game_mode(event.update);
+                        // A player following the default takes its new mode.
+                        if self.local_mode_follows_default
+                            && let protocol::GameModeUpdate::Explicit(mode) = event.update
+                        {
+                            self.push_committed_control(CommittedControlEvent::LocalGameMode {
+                                sequence,
+                                spectator: mode == protocol::PlayerGameMode::Spectator,
+                            });
+                        }
                         UiEvent::DefaultGameMode(event)
                     }
                     event => event,
@@ -541,6 +555,30 @@ impl WorldAuthority {
         }
         Ok(())
     }
+    /// Orders a local game-mode update with the controls it may supersede.
+    /// Only the native spectator mode, explicit or through the world default,
+    /// counts; legacy viewer modes are not spectators.
+    fn push_local_game_mode(&mut self, sequence: u64, update: protocol::GameModeUpdate) {
+        match update {
+            protocol::GameModeUpdate::WorldDefault => self.local_mode_follows_default = true,
+            protocol::GameModeUpdate::Explicit(_) | protocol::GameModeUpdate::LegacyViewer => {
+                self.local_mode_follows_default = false;
+            }
+            protocol::GameModeUpdate::Unknown(_) => {}
+        }
+        let spectator = match update {
+            protocol::GameModeUpdate::Explicit(mode) => mode == protocol::PlayerGameMode::Spectator,
+            protocol::GameModeUpdate::WorldDefault => {
+                self.actors.world_default_game_mode() == Some(protocol::PlayerGameMode::Spectator)
+            }
+            protocol::GameModeUpdate::LegacyViewer | protocol::GameModeUpdate::Unknown(_) => false,
+        };
+        self.push_committed_control(CommittedControlEvent::LocalGameMode {
+            sequence,
+            spectator,
+        });
+    }
+
     /// Retains a committed control within its admission-backed queue bound.
     pub fn push_committed_control(&mut self, event: CommittedControlEvent) {
         assert!(

@@ -88,6 +88,11 @@ impl ActorStore {
         }
     }
 
+    /// The world's default game mode, when known.
+    pub(crate) const fn world_default_game_mode(&self) -> Option<protocol::PlayerGameMode> {
+        self.world_default_game_mode
+    }
+
     /// The level default is resolved at lookup, so existing default-bound players follow changes.
     pub(crate) fn apply_world_game_mode(&mut self, mode: protocol::GameModeUpdate) {
         match mode {

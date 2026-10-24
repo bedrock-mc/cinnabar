@@ -57,6 +57,7 @@ use {
 
 mod boss_lifetime;
 mod credits_identity;
+mod item_use;
 mod npc_identity;
 mod player_authority;
 mod respawn;

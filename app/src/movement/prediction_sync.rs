@@ -12,17 +12,17 @@ pub(crate) fn send_movement_prediction_sync(
     player_runtime: Res<client_state::PlayerRuntime>,
     movement_speed: Res<LocalMovementSpeedAuthority>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
-    item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
 ) {
     let (Some(network), Some(stream)) = (network.as_deref(), client_world.stream.as_ref()) else {
         return;
     };
+    let using_item = physics.live_using_item();
     gameplay::movement::send_movement_prediction_sync(
         &mut physics,
         &client_interaction::movement::world_view::GameplayWorldView(stream),
         player_runtime.facts.air_drag_modifier(),
         movement_speed.reported_current(),
-        item_use.and_then(|item_use| item_use.reported_using_item()),
+        Some(using_item),
         |packet| network.send_movement_packet(packet).is_ok(),
     );
 }

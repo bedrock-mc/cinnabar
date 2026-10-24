@@ -218,3 +218,93 @@ fn ordered_riptide_observed_release_precedes_fresh_held_mining() {
         "the current held input can start mining after release completion"
     );
 }
+
+/// A pending server clear waits for a Use release that sits behind an earlier
+/// ordered edge in the same ticking frame, so the release still sends its
+/// transaction, as vanilla handles input before its movement tick. A re-press
+/// after the release does not hide it.
+#[test]
+fn ordered_use_release_behind_a_pick_precedes_a_server_clear() {
+    for represses in [false, true] {
+        ordered_use_release_behind_a_pick(represses);
+    }
+}
+
+/// Checks that a queued release remains visible when the button may be pressed again.
+fn ordered_use_release_behind_a_pick(represses: bool) {
+    let (mut world, mut captured) =
+        respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);
+    world.init_resource::<crate::melee::MeleeTarget>();
+    world.init_resource::<client_state::GameplayScreenControls>();
+    let clear = client_world::MovementFlagUpdate {
+        using_item: Some(false),
+        ..Default::default()
+    };
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .apply_server_movement_flags(0, clear);
+    world
+        .resource_mut::<Time<Real>>()
+        .advance_by(simulation_clock::TICK_DURATION);
+    let mut events = semantic_input::DesktopEvents::default();
+    let mut edges = vec![(3, true), (3, false), (2, false)];
+    if represses {
+        edges.push((2, true));
+    }
+    for (button, pressed) in edges {
+        events.push(semantic_input::DesktopEvent::Button {
+            control: semantic_input::PhysicalControl::MouseButton(button),
+            pressed,
+            modifiers: semantic_input::ModifierChord::default(),
+        });
+    }
+    // A re-press leaves the button down when the frame's input ends.
+    let held_at_end = if represses { vec![2] } else { Vec::new() };
+    ordered_frame(&mut world, events, held_at_end);
+    world
+        .run_system_cached(crate::item_use::adopt_server_item_use)
+        .unwrap();
+    tick(&mut world);
+    respawn::item_phases(&mut world);
+    // The charged release waits for the input carrying its facing.
+    let mut packets = captured.drain();
+    tick(&mut world);
+    respawn::item_phases(&mut world);
+    packets.extend(captured.drain());
+    let releases = packets
+        .iter()
+        .filter_map(protocol::test_support::transactions::observe_transaction)
+        .filter(|transaction| transaction.release().is_some())
+        .count();
+    assert_eq!(releases, 1, "the queued Use release keeps its transaction");
+}
+
+/// A spectator game-mode stop reaches item use before later ordered input in
+/// the frame, so a Use release after it has no use left to release, as
+/// vanilla stops the use while handling the packet.
+#[test]
+fn a_game_mode_stop_precedes_later_ordered_use_input() {
+    let (mut world, mut captured) =
+        respawn::charging_world(gameplay::item_use::RIPTIDE_CHARGE_TICKS);
+    world.init_resource::<crate::melee::MeleeTarget>();
+    world.init_resource::<client_state::GameplayScreenControls>();
+    world
+        .resource_mut::<LocalPhysicsController>()
+        .stop_item_use_for_game_mode();
+    let mut events = semantic_input::DesktopEvents::default();
+    events.push(semantic_input::DesktopEvent::Button {
+        control: semantic_input::PhysicalControl::MouseButton(2),
+        pressed: false,
+        modifiers: semantic_input::ModifierChord::default(),
+    });
+    ordered_frame(&mut world, events, Vec::new());
+    assert!(!world.resource::<ItemUseRuntime>().is_using());
+    assert!(!world.resource::<MovementTicker>().has_held_release());
+    let releases = captured
+        .drain()
+        .iter()
+        .filter_map(protocol::test_support::transactions::observe_transaction)
+        .filter(|transaction| transaction.release().is_some())
+        .count();
+    assert_eq!(releases, 0);
+}

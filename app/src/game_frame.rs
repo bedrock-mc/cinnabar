@@ -92,7 +92,11 @@ pub(crate) fn configure_world(app: &mut App) {
     interaction::configure(app);
     app.add_systems(
         Update,
-        advance_local_physics
+        (
+            crate::item_use::adopt_server_item_use,
+            advance_local_physics,
+        )
+            .chain()
             .in_set(LocalPlayerFrameSet::Physics)
             .in_set(ClientFrameSet::Physics),
     )

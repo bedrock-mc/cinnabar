@@ -4,6 +4,46 @@ use super::*;
 use bevy::prelude::In;
 use client_presentation::local_player::LocalViewPose;
 
+/// Retires the previous session and dimension before any input or server write is consumed.
+pub(crate) fn synchronize_scope(
+    ui: Res<UiRuntimeResource>,
+    client_world: Res<ClientWorld>,
+    movement: Res<MovementTicker>,
+    mut runtime: ResMut<ItemUseRuntime>,
+) {
+    runtime.synchronize(ui.session_id());
+    runtime.observe_world(
+        movement.interaction_authority_identity().0,
+        client_world
+            .stream
+            .as_ref()
+            .map_or(0, |stream| stream.current_dimension()),
+    );
+}
+
+/// Applies server events before the ordered batch can select a slot or use an item.
+pub(crate) fn synchronize_server_events(
+    mut runtime: ResMut<ItemUseRuntime>,
+    mut physics: Option<ResMut<client_interaction::movement::LocalPhysicsController>>,
+) {
+    take_server_item_use(&mut runtime, physics.as_deref_mut());
+}
+
+/// Records whether the use button holds an accepted use before any
+/// admission can reject this edge, so a rejected press cannot swallow the
+/// release of a use the button now owns.
+pub(crate) fn observe_button(
+    In(input): In<crate::ordered_interactions::InteractionInput>,
+    player: Res<client_state::PlayerRuntime>,
+    mut runtime: ResMut<ItemUseRuntime>,
+) {
+    let allowed = player
+        .facts
+        .game_mode_capabilities()
+        .is_none_or(|caps| caps.can_use_items);
+    runtime.observe_use_button(allowed && input.edge.buttons.held(Action::Use));
+}
+
 /// Resolves one input edge without retaining its pose or unadmitted press.
 pub(crate) fn press(
     In(input): In<crate::ordered_interactions::InteractionInput>,
@@ -14,7 +54,6 @@ pub(crate) fn press(
     mut swings: ResMut<SwingTracker>,
     mut view: ResMut<LocalViewPose>,
 ) {
-    runtime.synchronize(context.ui.session_id());
     if context.client_world.respawn.input_held() {
         runtime.cancel_for_respawn();
         return;
@@ -31,6 +70,7 @@ pub(crate) fn press(
         .game_mode_capabilities()
         .is_none_or(|caps| caps.can_use_items);
     let held = allowed && input.edge.buttons.held(Action::Use);
+    runtime.observe_use_button(held);
     let scope = context.client_world.stream.as_ref().map(|stream| {
         (
             stream.authority().actor_session_id(),
@@ -58,6 +98,7 @@ pub(crate) fn press(
             delay_fix_enabled,
             aim_rotation: input.context.aim,
             release_facing,
+            sample: None,
         };
         if let Some(proposal) =
             frame::observe(&player, &context, runtime, &movement, &mut view, policy)

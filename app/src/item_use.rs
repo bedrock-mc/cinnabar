@@ -78,6 +78,96 @@ pub(crate) fn produce_item_use(world: &mut bevy::prelude::World) {
         .expect("item maintenance resources");
 }
 
+/// Reconciles item use with a server `UsingItem` write just before physics
+/// simulates a movement tick, as vanilla's movement-tick start-or-stop system
+/// does; frames without a tick leave the write pending.
+pub(crate) fn adopt_server_item_use(
+    player_runtime: Res<client_state::PlayerRuntime>,
+    mut context: ItemUseContext,
+    mut runtime: ResMut<ItemUseRuntime>,
+    mut movement: ResMut<MovementTicker>,
+    mut view: ResMut<client_presentation::local_player::LocalViewPose>,
+) {
+    if context.client_world.respawn.input_held() {
+        return;
+    }
+    // A world change the ordered drain has yet to see would cancel the use; a
+    // later tick reconciles the write once that drain has run.
+    let dimension = context
+        .client_world
+        .stream
+        .as_ref()
+        .map_or(0, |stream| stream.current_dimension());
+    if context.ordered.as_deref().is_some_and(|ordered| {
+        ordered.changes_world(movement.interaction_authority_identity().0, dimension)
+    }) {
+        return;
+    }
+    take_server_item_use(&mut runtime, context.physics.as_deref_mut());
+    let ticks = context.physics.as_deref().is_some_and(|physics| {
+        gameplay::movement::frame_simulates_tick(physics, &movement, context.time.delta())
+    });
+    if !ticks {
+        return;
+    }
+    let Some(position) = context
+        .physics
+        .as_deref()
+        .and_then(|physics| physics.network_position())
+    else {
+        return;
+    };
+    // This frame's focus and button come first, as vanilla's input precedes
+    // its tick, so a release now still sends its transaction.
+    let button = use_button(&player_runtime, &context);
+    runtime.observe_gameplay_focus(button.gameplay_focused);
+    runtime.observe_ordered_use_buttons(
+        button.held,
+        crate::ordered_interactions::later_button_states(
+            context.ordered.as_deref(),
+            &context.input,
+            Action::Use,
+        )
+        .filter(|_| button.admitted),
+    );
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+    if !runtime.has_server_using_item() {
+        return;
+    }
+    // The next tick physics simulates, whether or not earlier inputs await sending.
+    let sample = gameplay::movement::InteractionSample {
+        tick: movement.next_tick(),
+        position,
+    };
+    let policy = frame::FramePolicy {
+        held: true,
+        before_flush: false,
+        delay_fix_enabled: false,
+        aim_rotation: None,
+        release_facing: Default::default(),
+        sample: Some(sample),
+    };
+    // Presses wait for their own pass; this one resolves only the server write.
+    let mut pending = gameplay::item_use::PendingUseInput::new(false);
+    runtime.with_pending_input(&mut pending, |runtime| {
+        let Some(proposal) = frame::observe(
+            &player_runtime,
+            &context,
+            runtime,
+            &movement,
+            &mut view,
+            policy,
+        ) else {
+            return;
+        };
+        if runtime.resolve_server_using_item(&proposal.frame) {
+            movement.mark_started_using_item(proposal.frame.tick);
+        }
+    });
+    // Observation can stop a use, as a cancelled Riptide release does.
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+}
+
 /// Runs after block use so a press that interacted with a block starts no item use.
 fn maintain_item_use(
     player_runtime: ResMut<client_state::PlayerRuntime>,
@@ -128,11 +218,13 @@ fn produce_use(
     mut view: ResMut<client_presentation::local_player::LocalViewPose>,
     before_flush: bool,
 ) {
-    runtime.synchronize(context.ui.session_id());
     if context.client_world.respawn.input_held() {
         runtime.cancel_for_respawn();
         return;
     }
+    // The latest server write waits in the owner, where a local start or end
+    // supersedes it before the next movement tick reconciles.
+    take_server_item_use(&mut runtime, context.physics.as_deref_mut());
     movement.send_held_release(|packets| context.network.send_inventory_packets(packets));
     swings.sync_ticks_for_item(
         movement.interaction_authority_identity(),
@@ -142,34 +234,20 @@ fn produce_use(
             .and_then(|timing| timing.swing_duration_ticks),
     );
 
-    let focused =
-        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let use_phase = context.input.phase(Action::Use);
-    let admitted = if context.input.snapshot().is_none() {
-        false
-    } else if !focused || context.focus.ui_focused {
-        use_phase
-            .pressed
-            .then(|| gameplay::movement::note_click_drop("use", "screen_open"));
-        false
-    } else if player_runtime
-        .facts
-        .game_mode_capabilities()
-        .is_some_and(|caps| !caps.can_use_items)
-    {
-        use_phase
-            .pressed
-            .then(|| gameplay::movement::note_click_drop("use", "spectator"));
-        false
-    } else {
-        true
-    };
-    let held = admitted
-        && crate::ordered_interactions::held(
-            context.ordered.as_deref(),
-            &context.input,
-            Action::Use,
-        );
+    let button = use_button(&player_runtime, &context);
+    let admitted = button.admitted;
+    if use_phase.pressed && context.input.snapshot().is_some() && !admitted {
+        let reason = if button.gameplay_focused {
+            "spectator"
+        } else {
+            "screen_open"
+        };
+        gameplay::movement::note_click_drop("use", reason);
+    }
+    runtime.observe_gameplay_focus(button.gameplay_focused);
+    let held = button.held;
+    runtime.observe_use_button(held);
     // Accepted uses may end while new starts wait for the ordered cursor.
     if admitted
         && context
@@ -221,6 +299,7 @@ fn produce_use(
         delay_fix_enabled,
         aim_rotation,
         release_facing,
+        sample: None,
     };
     let Some(frozen) = frame::observe(
         &player_runtime,
@@ -230,6 +309,8 @@ fn produce_use(
         &mut view,
         policy,
     ) else {
+        // Observation can stop a use, as a cancelled Riptide release does.
+        publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
         return;
     };
     frame::admit(
@@ -241,6 +322,79 @@ fn produce_use(
         &mut view,
         &frozen,
     );
+    publish_local_using_item(&mut runtime, context.physics.as_deref_mut());
+}
+
+/// Retires a stopped owner, publishes its remaining local writes, then imports the latest flag.
+fn take_server_item_use(
+    runtime: &mut ItemUseRuntime,
+    mut physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
+) {
+    if physics
+        .as_deref_mut()
+        .is_some_and(|physics| physics.take_server_item_use_stop())
+    {
+        runtime.stop_for_server_control();
+    }
+    publish_local_using_item(runtime, physics.as_deref_mut());
+    let Some(physics) = physics else {
+        return;
+    };
+    if let Some(using) = physics.take_server_using_item() {
+        runtime.adopt_server_using_item(Some(using));
+    }
+}
+
+/// This frame's use-button facts.
+struct UseButton {
+    /// Gameplay has input focus: the window is focused and no menu or UI holds it.
+    gameplay_focused: bool,
+    /// Use input reaches item use: focused gameplay, a game mode allowing
+    /// item use, and an input snapshot.
+    admitted: bool,
+    /// The admitted use button is down at the ordered input cursor.
+    held: bool,
+}
+
+/// Reads this frame's use-button facts from focus, game mode and input.
+fn use_button(player_runtime: &client_state::PlayerRuntime, context: &ItemUseContext) -> UseButton {
+    let focused =
+        !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
+    let gameplay_focused = focused && !context.focus.ui_focused;
+    let admitted =
+        context.input.snapshot().is_some() && gameplay_focused && item_use_allowed(player_runtime);
+    let held = admitted
+        && crate::ordered_interactions::held(
+            context.ordered.as_deref(),
+            &context.input,
+            Action::Use,
+        );
+    UseButton {
+        gameplay_focused,
+        admitted,
+        held,
+    }
+}
+
+/// Whether the local player's game mode allows item use.
+fn item_use_allowed(player_runtime: &client_state::PlayerRuntime) -> bool {
+    !player_runtime
+        .facts
+        .game_mode_capabilities()
+        .is_some_and(|caps| !caps.can_use_items)
+}
+
+/// Writes the item-use flag of a local start or end into movement's live flag
+/// word, which later server writes compare with.
+fn publish_local_using_item(
+    runtime: &mut ItemUseRuntime,
+    physics: Option<&mut client_interaction::movement::LocalPhysicsController>,
+) {
+    if let Some(using) = runtime.take_local_using_item()
+        && let Some(physics) = physics
+    {
+        physics.write_local_using_item(using);
+    }
 }
 
 /// Admits use on its logical clock and fences releases behind their captured action facing.

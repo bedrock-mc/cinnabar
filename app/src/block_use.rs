@@ -86,7 +86,6 @@ fn maintain_block_use(
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
-    mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
     physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
 ) {
@@ -223,7 +222,6 @@ fn maintain_block_use(
         &mut player_runtime,
         &mut context,
         &mut runtime,
-        &mut item_use,
         &mut swings,
         &movement,
         &mut attempt,

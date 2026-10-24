@@ -10,6 +10,7 @@ mod admission;
 pub mod classify;
 mod crossbow;
 mod progress;
+mod server_flag;
 pub use admission::step_and_send;
 use assets::item_use::ItemUseRequirement as Needs;
 pub use classify::{AirUse, classify};
@@ -29,6 +30,9 @@ struct ActiveUse {
     crossbow: bool,
     riptide: bool,
     last_progress_tick: Option<u64>,
+    /// The use button started or has held this use, so button-up releases it.
+    /// A use a server flag started is released only after the button held it.
+    button_owned: bool,
 }
 
 /// Stack and environment facts for a selected trident.
@@ -156,6 +160,18 @@ pub struct ItemUseRuntime {
     riptide_launch: Option<RiptideLaunch>,
     /// Selection, eligibility and facing captured together at the first release edge.
     riptide_release: Option<RiptideRelease>,
+    /// Server `UsingItem` value awaiting a movement tick to reconcile with.
+    server_using: Option<bool>,
+    /// Session and dimension last observed, which a pending server value
+    /// belongs to.
+    world: Option<(SessionGeneration, i32)>,
+    /// The use button was down when last observed.
+    button_held: bool,
+    /// The item-use flag a local start or end last wrote, until movement's
+    /// live flag word takes it.
+    local_using: Option<bool>,
+    /// Gameplay had input focus on the last observed frame.
+    gameplay_focused: bool,
     /// A gliding rocket's use was admitted; its boost is predicted before the server answers.
     rocket_boost: bool,
 }
@@ -166,10 +182,11 @@ impl ItemUseRuntime {
         self.reported_using_item
     }
 
-    /// Adopts a supplied server flag without starting or cancelling a local use.
+    /// Reports a server flag accepted by physics and retains it for the next movement tick.
     pub fn adopt_server_using_item(&mut self, value: Option<bool>) {
         if value.is_some() {
             self.reported_using_item = value;
+            self.server_using = value;
         }
     }
 
@@ -215,10 +232,18 @@ impl ItemUseRuntime {
             .as_ref()
             .is_some_and(|active| active.selection.slot != slot)
         {
-            self.stop_active_use();
-            self.riptide_release = None;
-            self.release_pending = false;
+            self.stop_without_release();
         }
+    }
+
+    /// Ends the use without a release transaction. Like vanilla's stop, this
+    /// clears the item-use flag after any pending server write.
+    fn stop_without_release(&mut self) {
+        self.stop_active_use();
+        self.riptide_release = None;
+        self.release_pending = false;
+        self.server_using = None;
+        self.local_using = Some(false);
     }
 
     /// Accepted use timing shared by native presentation and movement.
@@ -257,7 +282,9 @@ impl ItemUseRuntime {
 
     /// Whether an accepted use has observed button-up or still owes its deferred release.
     pub fn is_releasing(&self, held: bool) -> bool {
-        self.active.is_some() && (!held || self.release_pending)
+        self.active
+            .as_ref()
+            .is_some_and(|active| (active.button_owned && !held) || self.release_pending)
     }
 
     /// Reports an observed release that still belongs to the accepted use.
@@ -287,9 +314,7 @@ impl ItemUseRuntime {
             return false;
         }
         if active.release_selection_changed(selection, !self.release_pending) {
-            self.stop_active_use();
-            self.release_pending = false;
-            self.riptide_release = None;
+            self.stop_without_release();
         } else if self.riptide_release.is_none() {
             self.riptide_release = Some(RiptideRelease {
                 selection: selection.unwrap_or(&active.selection).clone(),
@@ -344,6 +369,9 @@ impl ItemUseRuntime {
         self.release_pending = false;
         self.riptide_launch = None;
         self.riptide_release = None;
+        self.server_using = None;
+        self.local_using = None;
+        self.button_held = false;
         self.rocket_boost = false;
     }
 
@@ -385,8 +413,7 @@ impl ItemUseRuntime {
         held: bool,
         between_ticks: bool,
     ) -> Option<crate::movement::InteractionSample> {
-        let edge =
-            self.pending.latched_press || self.release_pending || (self.active.is_some() && !held);
+        let edge = self.pending.latched_press || self.release_pending || self.is_releasing(held);
         let ticked = self
             .last_frame_tick
             .is_some_and(|tick| movement.completed_tick() >= tick);
@@ -405,6 +432,7 @@ impl ItemUseRuntime {
             frame.riptide_facing,
         );
         self.last_frame_tick = Some(frame.tick);
+        let was_using = self.active.is_some();
         self.observe_selected_slot(frame.selection.as_ref().map(|selection| selection.slot));
         let mut outcome = UseOutcome::default();
         let pressed = std::mem::take(&mut self.pending.latched_press);
@@ -417,13 +445,25 @@ impl ItemUseRuntime {
                         .is_none_or(|selection| selection.item.block_runtime_id() == 0));
         }
         self.cooldowns.retain(|(_, until)| frame.tick < *until);
+        self.button_held = frame.held;
+        if frame.held
+            && let Some(active) = self.active.as_mut()
+        {
+            active.button_owned = true;
+        }
         let release_pending = std::mem::take(&mut self.release_pending);
         self.end_use(frame, &mut outcome, release_pending);
+        let ended = was_using && self.active.is_none();
         if self.active.is_none() && (pressed || frame.held) {
             self.try_use(frame, pressed, &mut outcome);
         }
         if !frame.held {
             self.repeat_armed = false;
+        }
+        if ended || outcome.started {
+            // A local start or end writes the item-use flag after any server write.
+            self.server_using = None;
+            self.local_using = Some(self.active.is_some());
         }
         outcome
     }
@@ -436,7 +476,9 @@ impl ItemUseRuntime {
             Some(_)
                 if active.release_selection_changed(
                     frame.selection.as_ref(),
-                    !frame.held && !release_pending,
+                    // Only a release by the button that owns the use checks the
+                    // count; vanilla's tick refresh ignores it.
+                    !frame.held && !release_pending && active.button_owned,
                 ) =>
             {
                 // Switching away stops the use without a release, as vanilla does.
@@ -448,10 +490,20 @@ impl ItemUseRuntime {
             // An in-flight inventory request hides the stack; keep the one the use began with.
             None => active.selection.clone(),
         };
+        // Vanilla's normal tick refreshes the in-use stack, count included, so
+        // a later release compares with the current count.
+        if frame.selection.is_some()
+            && let Some(active) = self.active.as_mut()
+        {
+            active.selection = selection.clone();
+        }
+        let Some(active) = &self.active else {
+            return;
+        };
         let depleted =
             frame.tick.saturating_sub(active.started_tick) >= u64::from(active.max_ticks);
         // Queue pressure must not turn an already-observed early release into a full charge.
-        if !release_pending && depleted && (frame.held || active.crossbow) {
+        if !release_pending && depleted && (frame.held || active.crossbow || !active.button_owned) {
             // A depleted use finishes locally, without a release transaction.
             // A crossbow stores its loaded projectile for the next press's pose/action.
             if active.crossbow && frame.charge_projectile.is_some() {
@@ -464,7 +516,7 @@ impl ItemUseRuntime {
             self.stop_active_use();
             return;
         }
-        if frame.held && !release_pending {
+        if (frame.held || !active.button_owned) && !release_pending {
             return;
         }
         let launch = self.riptide_release.take().and_then(|release| {
@@ -553,6 +605,7 @@ impl ItemUseRuntime {
                     crossbow: crossbow::is_crossbow(air_use),
                     riptide: frame.riptide.is_some_and(|riptide| riptide.level > 0),
                     last_progress_tick: None,
+                    button_owned: true,
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
@@ -660,16 +713,31 @@ impl ActiveUse {
         })
     }
 
-    /// Adds count admission for a fresh release while retaining held and retry policies.
+    /// Adds whole-stack admission for a fresh release while retaining held and
+    /// retry policies, as vanilla's release validation compares the stack:
+    /// count, an auxiliary value where neither side is the 0x7fff wildcard,
+    /// typed user data and restrictions (absent equals an empty compound), and
+    /// the block only when the selected stack has one. The stack network id,
+    /// which inventory updates rename, is ignored.
     fn release_selection_changed(
         &self,
         selection: Option<&FrozenMiningSelection>,
         check_count: bool,
     ) -> bool {
-        self.selection_changed(selection)
-            || (check_count
-                && selection
-                    .is_some_and(|selection| selection.item.count() != self.selection.item.count()))
+        const ANY_AUX: u32 = 0x7fff;
+        let stack_changed = |selection: &FrozenMiningSelection| {
+            let (current, saved) = (&selection.item, &self.selection.item);
+            current.count() != saved.count()
+                || (current.metadata() != saved.metadata()
+                    && current.metadata() != ANY_AUX
+                    && saved.metadata() != ANY_AUX)
+                // Data the typed comparison cannot read compares byte for byte.
+                || !protocol::item_user_data_equal(current.extra_data(), saved.extra_data())
+                    .unwrap_or_else(|| current.extra_data() == saved.extra_data())
+                || (current.block_runtime_id() != 0
+                    && current.block_runtime_id() != saved.block_runtime_id())
+        };
+        self.selection_changed(selection) || (check_count && selection.is_some_and(stack_changed))
     }
 
     /// Resolves launch eligibility from this charge and the facts observed at release.

@@ -3,13 +3,17 @@ use crate::item_use::ItemUseRuntime;
 use client_world::CommittedControlEvent;
 use std::sync::Arc;
 
-/// Applies the committed item-use flags consumed by the app before physics.
-fn apply_use_controls(world: &mut client_world::WorldAuthority, runtime: &mut ItemUseRuntime) {
-    for control in world.take_committed_controls() {
-        if let CommittedControlEvent::LocalMovementFlags { flags, .. } = control {
-            runtime.adopt_server_using_item(flags.using_item);
-        }
+/// Reports the item-use flag accepted by the committed physics authority.
+fn apply_use_controls(
+    world: &mut client_world::WorldAuthority,
+    physics: &mut LocalPhysicsController,
+    runtime: &mut ItemUseRuntime,
+) {
+    super::state_updates::apply_controls(world, physics);
+    if physics.take_server_item_use_stop() {
+        runtime.stop_for_server_control();
     }
+    runtime.adopt_server_using_item(physics.take_server_using_item());
 }
 
 /// Reads a due sync from the current accepted actor without admitting it.
@@ -79,7 +83,7 @@ fn sync_lifetime_replacement_reseeds_item_use() {
         let mut physics = due_physics();
         world.take_committed_controls();
         write_use(&mut world, 2, !replacement_use.unwrap_or(false));
-        apply_use_controls(&mut world, &mut runtime);
+        apply_use_controls(&mut world, &mut physics, &mut runtime);
         let mut replacement = local_actor_spawn(Vec::new());
         replacement.metadata = replacement_use
             .into_iter()
@@ -102,7 +106,7 @@ fn sync_lifetime_replacement_reseeds_item_use() {
             world.actor(7).unwrap().is_using_item(),
             replacement_use.unwrap_or(false)
         );
-        apply_use_controls(&mut world, &mut runtime);
+        apply_use_controls(&mut world, &mut physics, &mut runtime);
         assert_use(
             &world,
             &mut physics,
@@ -118,7 +122,7 @@ fn sync_lifetime_replacement_reseeds_item_use() {
         assert!(!runtime.step(&frame).packets.is_empty());
         assert_use(&world, &mut physics, &runtime, false);
         write_use(&mut world, 4, true);
-        apply_use_controls(&mut world, &mut runtime);
+        apply_use_controls(&mut world, &mut physics, &mut runtime);
         runtime.cancel_for_respawn();
         assert_use(&world, &mut physics, &runtime, true);
     }
@@ -235,7 +239,7 @@ fn sync_lifetime_later_server_use_wins_after_replacement() {
         )
         .unwrap();
     write_use(&mut world, 3, true);
-    apply_use_controls(&mut world, &mut runtime);
+    apply_use_controls(&mut world, &mut physics, &mut runtime);
     assert_use(&world, &mut physics, &runtime, true);
 }
 
@@ -830,6 +834,7 @@ fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
         client_world::MovementFlagUpdate {
             gliding: Some(true),
             spinning: Some(true),
+            using_item: Some(true),
             ..Default::default()
         },
         client_world::ExplicitDimensions::for_spawn(1),
@@ -841,9 +846,11 @@ fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
             swimming: Some(false),
             crawling: Some(false),
             spinning: Some(false),
+            using_item: Some(true),
             ..Default::default()
         },
     );
+    assert!(physics.live_using_item());
     let flags = physics.prediction_sync_flags();
     let size = physics.prediction_sync_size();
     assert_eq!(flags.gliding, Some(false));
@@ -853,4 +860,35 @@ fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
         .unwrap();
     assert_eq!(physics.prediction_sync_flags(), flags);
     assert_eq!(physics.prediction_sync_size(), size);
+    assert!(physics.live_using_item());
+}
+
+/// Every replacement ends the old use before its flag, including an earlier player stop.
+#[test]
+fn actor_replacement_stops_item_use_before_its_new_flag() {
+    for prior_stop in [false, true] {
+        let mut physics = due_physics();
+        let mut runtime = ItemUseRuntime::default();
+        let (_, mut frame) = super::progress::food_use();
+        runtime.observe_press(true);
+        assert!(runtime.step(&frame).started);
+        runtime.take_local_using_item();
+        if prior_stop {
+            physics.stop_item_use_for_game_mode();
+        }
+        physics.replace_actor_authority(
+            client_world::MovementFlagUpdate {
+                using_item: Some(true),
+                ..Default::default()
+            },
+            client_world::ExplicitDimensions::for_spawn(1),
+        );
+        assert!(physics.take_server_item_use_stop());
+        runtime.stop_for_server_control();
+        assert!(!runtime.is_using());
+        runtime.adopt_server_using_item(physics.take_server_using_item());
+        frame.tick += 1;
+        assert!(runtime.resolve_server_using_item(&frame));
+        assert_eq!(runtime.active_timing().unwrap().0, frame.tick);
+    }
 }

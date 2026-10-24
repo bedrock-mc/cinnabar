@@ -106,6 +106,13 @@ pub enum CommittedControlEvent {
         sequence: u64,
         event: protocol::ActorEffectEvent,
     },
+    /// A local-player game-mode update, ordered with the flag writes it may
+    /// supersede: vanilla's spectator change stops item use.
+    LocalGameMode {
+        sequence: u64,
+        /// The update makes the player a spectator.
+        spectator: bool,
+    },
     /// Movement flags and dimensions from local metadata or an accepted spawn.
     LocalMovementFlags {
         sequence: u64,

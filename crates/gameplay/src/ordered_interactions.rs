@@ -53,6 +53,13 @@ impl OrderedInteractions {
         }
     }
 
+    /// Whether `session` and `dimension` differ from the synchronized world, so
+    /// the next synchronization will invalidate world-owned work.
+    pub fn changes_world(&self, session: SessionGeneration, dimension: i32) -> bool {
+        self.scope
+            .is_some_and(|scope| (scope.session, scope.dimension) != (session, dimension))
+    }
+
     /// Claims a frame once so repeated producer passes cannot replay its edges.
     pub fn observe_frame(&mut self, scope: InteractionScope, frame: InputSequence) -> bool {
         if self.frame == Some((scope, frame)) {

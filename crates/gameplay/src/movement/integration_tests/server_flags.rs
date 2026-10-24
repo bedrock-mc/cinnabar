@@ -970,3 +970,6 @@ fn a_snap_keeps_the_spin_and_its_saved_counter() {
     physics.apply_server_movement_flags(0, spin(true));
     assert_eq!(physics.state().unwrap().spin_attack_ticks, counter);
 }
+
+#[path = "server_flags_item_use.rs"]
+mod item_use;

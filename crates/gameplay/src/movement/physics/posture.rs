@@ -264,7 +264,8 @@ impl LocalPhysicsController {
             .push(ServerWrite::Replacement(flags, dimensions));
         self.live_posture = Default::default();
         self.server_control_flags = None;
-        self.server_flags.reset_history();
+        self.server_flags.replace_actor();
+        self.write_server_using_item(flags.using_item.unwrap_or(false));
         if let Some(state) = self.state.as_mut() {
             state.spin_attack_ticks = flags.spinning.unwrap_or(false).then_some(0);
             state.swim_pose_active = [flags.swimming, flags.crawling].contains(&Some(true));

@@ -85,7 +85,7 @@ fn tick(world: &mut World) -> gameplay::movement::PhysicsMovementSample {
 }
 
 /// Mirrors the socket receipts that allow a release to follow its facing input.
-fn flush_and_acknowledge(world: &mut World) {
+pub(super) fn flush_and_acknowledge(world: &mut World) {
     world.resource_scope(|world, mut movement: Mut<MovementTicker>| {
         let mut written = Vec::new();
         gameplay::movement::flush_player_auth_inputs_guarded(

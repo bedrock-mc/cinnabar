@@ -1,6 +1,9 @@
 use super::*;
 use gameplay::melee::{ActorHit, Crosshair, PressContext};
 
+#[path = "item_use/scope.rs"]
+mod scope;
+
 /// Selects a stack of snowballs in hotbar slot 0 and returns the world scope.
 pub(super) fn hold_snowball(world: &mut World) -> (u64, i32) {
     hold_air_item(world, "minecraft:snowball", 16, std::sync::Arc::from([]))
