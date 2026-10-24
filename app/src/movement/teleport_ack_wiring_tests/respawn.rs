@@ -139,7 +139,8 @@ fn assert_respawn_input_lifecycle(dimension: i32, death: WorldEvent) {
         app.world()
             .resource::<NetworkHandle<PackApplication>>()
             .pending_command_count(),
-        1
+        0,
+        "a dead player reports no dimension loading screen"
     );
     submit(
         &mut app,
@@ -162,7 +163,7 @@ fn assert_respawn_input_lifecycle(dimension: i32, death: WorldEvent) {
         app.world()
             .resource::<NetworkHandle<PackApplication>>()
             .pending_command_count(),
-        2
+        1
     );
     if life_death {
         // Health can lag readiness; a repeated zero must not start another input hold.
@@ -193,18 +194,15 @@ fn assert_respawn_input_lifecycle(dimension: i32, death: WorldEvent) {
     .unwrap();
     let packets = captured.drain();
     assert!(
-        packets.len() > 2,
+        packets.len() > 1,
         "ready phase resumes input on the global clock"
     );
     assert_eq!(
-        &packets[..2],
-        &[
-            protocol::loading_screen_packet(protocol::LoadingScreenPhase::Start, None),
-            protocol::respawn_ready_packet(actor),
-        ],
+        packets[0],
+        protocol::respawn_ready_packet(actor),
         "respawn completion must precede resumed PAI in the production FIFO"
     );
-    for packet in &packets[2..] {
+    for packet in &packets[1..] {
         assert!(player_auth_input_trace_sample(packet).unwrap().tick > 102);
     }
 }
