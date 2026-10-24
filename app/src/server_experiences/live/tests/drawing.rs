@@ -936,6 +936,7 @@ fn mask_selected_during_transfer_is_admitted_while_culled_and_returns_to_drawing
         .permissions
         .insert(Permission::EntityHighlight);
     instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    instance.capabilities.scope.gpu_bytes = MAX_GPU_BYTES;
     instance.dispatch(None, Event::Frame, 1, None).unwrap();
     let helper = instance.helper.as_mut().unwrap();
     let old = serde_json::to_vec(&mod_host::presentation::Output::default()).unwrap();
