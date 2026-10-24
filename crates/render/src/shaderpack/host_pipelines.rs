@@ -57,6 +57,10 @@ impl HostPipelines {
 /// `float_depths` the float `depthtex*` copies it allocates (`targets::float_depths`).
 /// `shadow_depth_formats` comes from the allocated float shadow textures; `center_depth`
 /// is the depth `centerDepthSmooth` samples, when some program reads it.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one pack's attachment formats and optional host passes"
+)]
 pub(super) fn host_pipelines(
     device: &wgpu::Device,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],

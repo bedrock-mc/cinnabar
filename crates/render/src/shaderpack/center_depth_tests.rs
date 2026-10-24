@@ -4,7 +4,11 @@ use super::*;
 use crate::gpu_snapshot::Gpu;
 use shaderpack::{StageMask, UniformMember};
 
-fn block(members: &[(&str, u32, ValueType, Option<(u32, u32)>)]) -> UniformBlock {
+/// A fixture member's name, offset, value type and optional array layout.
+type MemberSpec<'a> = (&'a str, u32, ValueType, Option<(u32, u32)>);
+
+/// Builds a fixture block from explicit member layouts.
+fn block(members: &[MemberSpec<'_>]) -> UniformBlock {
     UniformBlock {
         name: "uniforms".into(),
         group: 0,
