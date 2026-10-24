@@ -10,11 +10,8 @@ use bevy::render::{
     renderer::{RenderDevice, RenderQueue},
 };
 use render_model::{
-    DroppedItemModel, ItemMeshVertex, MAX_ITEM_LAYERS, MIN_ITEM_ATLAS_SIDE,
-    dropped_item::{
-        DroppedItemBounds, atlas_layer_limit, block_mesh, cube_mesh, extruded_sprite_mesh,
-        native_dropped_sprite_mesh,
-    },
+    DroppedItemModel, ItemMeshVertex, MIN_ITEM_ATLAS_SIDE,
+    dropped_item::{DroppedItemBounds, ItemModelBudget},
 };
 use render_scene::DroppedItemScene;
 
@@ -28,64 +25,6 @@ fn push_layer(atlas: &mut Vec<u8>, side: usize, width: usize, height: usize, rgb
         let target = layer * layer_bytes + row * side * 4;
         atlas[target..target + row_bytes]
             .copy_from_slice(&rgba8[row * row_bytes..(row + 1) * row_bytes]);
-    }
-}
-
-/// Builds vertices without retaining texture layers; rejects malformed or excessive geometry.
-fn build_mesh(
-    model: &DroppedItemModel,
-    side: u32,
-    layers_used: usize,
-) -> Option<Vec<ItemMeshVertex>> {
-    match model {
-        DroppedItemModel::Vacant => None,
-        DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
-            let (width, height) = (sprite.width as usize, sprite.height as usize);
-            if layers_used >= MAX_ITEM_LAYERS
-                || sprite.width > side
-                || sprite.height > side
-                || sprite.rgba8.len() != width * height * 4
-            {
-                return None;
-            }
-            let build = if matches!(model, DroppedItemModel::NativeSprite(_)) {
-                native_dropped_sprite_mesh
-            } else {
-                extruded_sprite_mesh
-            };
-            build(
-                sprite.width,
-                sprite.height,
-                &sprite.rgba8,
-                side,
-                layers_used as u32,
-            )
-        }
-        DroppedItemModel::Cube(cube) => {
-            let tile = cube.tile as usize;
-            if cube.tile == 0
-                || cube.tile > side
-                || layers_used + 6 > MAX_ITEM_LAYERS
-                || cube.faces.iter().any(|face| face.len() != tile * tile * 4)
-            {
-                return None;
-            }
-            let layers = std::array::from_fn(|face| (layers_used + face) as u32);
-            cube_mesh(layers, cube.tints, cube.tile, side)
-        }
-        DroppedItemModel::Block(block) => {
-            for (sprite, _) in block.materials.iter() {
-                if sprite.width == 0
-                    || sprite.height == 0
-                    || sprite.width > side
-                    || sprite.height > side
-                    || sprite.rgba8.len() != (sprite.width * sprite.height * 4) as usize
-                {
-                    return None;
-                }
-            }
-            block_mesh(block, layers_used as u32, side)
-        }
     }
 }
 
@@ -125,7 +64,7 @@ pub(super) fn build_model(
     model: &DroppedItemModel,
     side: u32,
 ) -> Option<Vec<ItemMeshVertex>> {
-    let mesh = build_mesh(model, side, atlas.len() / (side * side * 4) as usize)?;
+    let mesh = model.mesh(side, atlas.len() / (side * side * 4) as usize)?;
     copy_model_layers(atlas, model, side);
     Some(mesh)
 }
@@ -144,13 +83,11 @@ impl PreparedModels {
     pub(super) fn new(
         models: &[DroppedItemModel],
         current: &[bool],
-        policy: assets::texture::policy::TexturePolicy,
-        max_array_layers: u32,
-        max_buffer_size: u64,
+        mut budget: ItemModelBudget,
     ) -> Self {
         let mut side = MIN_ITEM_ATLAS_SIDE;
         let mut layers = 1;
-        let mut vertices = MeshStorage::new(max_buffer_size);
+        let mut vertices = MeshStorage::with_capacity_limit(budget.max_vertices());
         let order: Vec<_> = (0..models.len())
             .filter(|&slot| current.get(slot).copied().unwrap_or(false))
             .chain((0..models.len()).filter(|&slot| !current.get(slot).copied().unwrap_or(false)))
@@ -175,19 +112,22 @@ impl PreparedModels {
             let mut uv_side = side;
             let needed = model.texture_layers();
             let mut capacity_rejected = false;
-            if let Some(candidate) = model.atlas_side(policy).map(|extent| extent.max(side))
-                && layers + needed
-                    <= atlas_layer_limit(candidate, policy, max_array_layers as usize)
-                && let Some(mesh) = build_mesh(model, candidate, layers)
+            if let Some(candidate) = model
+                .atlas_side(budget.policy())
+                .map(|extent| extent.max(side))
+                && let Some(mesh) = model.mesh(candidate, layers)
                 && !mesh.is_empty()
             {
                 let fits_empty = vertices.fits_empty(mesh.len());
-                if vertices.append(mesh) {
+                if budget.admit(model, mesh.len()).is_some() {
+                    let appended = vertices.append(mesh);
+                    debug_assert!(appended, "shared budget must fit admitted geometry");
                     side = candidate;
                     uv_side = candidate;
                     layers += needed;
                 } else {
-                    capacity_rejected = fits_empty;
+                    capacity_rejected = fits_empty
+                        && vertices.len().saturating_add(mesh.len()) > budget.max_vertices();
                 }
             }
             entries[slot] = (
@@ -256,9 +196,20 @@ pub(super) fn rebuild_models(
     } = PreparedModels::new(
         &scene.models,
         current,
-        policy,
-        device.limits().max_texture_array_layers,
-        device.limits().max_buffer_size,
+        scene.model_budget.unwrap_or_else(|| {
+            ItemModelBudget::new(
+                policy,
+                device.limits().max_texture_array_layers as usize,
+                device.limits().max_buffer_size,
+            )
+        }),
+    );
+    debug_assert!(
+        scene.model_budget.is_none()
+            || scene.models.iter().zip(&ranges).all(|(model, range)| {
+                matches!(model, DroppedItemModel::Vacant) || !range.vertices.is_empty()
+            }),
+        "published models must pass shared admission"
     );
     let layer_bytes = side as usize * side as usize * 4;
     let layers = atlas.len() / layer_bytes;

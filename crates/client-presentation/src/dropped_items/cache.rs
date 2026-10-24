@@ -55,6 +55,7 @@ impl ModelKey {
 /// Keeps geometry and pixels only for models occupying the bounded atlas.
 #[derive(Default)]
 pub(crate) struct ModelCache {
+    pub(super) budget: render_model::dropped_item::ItemModelBudget,
     session: u64,
     assets: Option<render_scene::ChunkTextureAssetIdentity>,
     icons: u64,
@@ -92,6 +93,8 @@ struct Resident {
     /// Last frame that wanted this model for speculative animation residency.
     warmed: u64,
     layers: usize,
+    vertices: usize,
+    admitted: u64,
     /// Uninspected until a dropped consumer needs bounds; an inspected unknown stays unknown.
     bounds: Option<Option<DroppedItemBounds>>,
 }
@@ -123,7 +126,26 @@ impl ModelCache {
     /// Reuses a successfully admitted model while preserving current-consumer protection.
     pub(super) fn resident(&mut self, key: &ModelKey) -> Option<u32> {
         self.request(key);
-        self.index.get(key).map(|slot| *slot as u32)
+        let slot = *self.index.get(key)?;
+        self.admit_resident(slot).then_some(slot as u32)
+    }
+
+    /// Charges a cached model once per frame before returning it to an artwork chain.
+    fn admit_resident(&mut self, slot: usize) -> bool {
+        let entry = self.residents[slot].as_mut().expect("indexed resident");
+        if entry.admitted == self.frame {
+            return true;
+        }
+        if self
+            .budget
+            .admit(&self.models[slot], entry.vertices)
+            .is_none()
+        {
+            self.budget_refusals = self.budget_refusals.saturating_add(1);
+            return false;
+        }
+        entry.admitted = self.frame;
+        true
     }
 
     /// Derives bounds once per slot occupant, without inspecting geometry for other consumers.
@@ -158,6 +180,7 @@ impl ModelCache {
             .frame
             .checked_add(1)
             .expect("model demand frame overflow");
+        self.budget.reset();
         self.budget_refusals = 0;
         self.budget_fallbacks = 0;
         self.reclaimable.clear();
@@ -277,7 +300,7 @@ impl ModelCache {
                     .expect("indexed resident")
                     .warmed = self.frame;
             }
-            return Some(slot as u32);
+            return (!reclaim || self.admit_resident(slot)).then_some(slot as u32);
         }
         let available = if reclaim {
             self.available
@@ -342,6 +365,15 @@ impl ModelCache {
             self.remember_rejection(key, Some(cost), Some(pixel_bytes));
             return None;
         }
+        let vertices = model
+            .atlas_side(self.budget.policy())
+            .and_then(|side| model.mesh(side, 1))
+            .map(|mesh| mesh.len())
+            .filter(|&vertices| vertices > 0)?;
+        if reclaim && self.budget.admit(&model, vertices).is_none() {
+            self.budget_refusals = self.budget_refusals.saturating_add(1);
+            return None;
+        }
         self.rejected.remove(&key);
         while self.layers + cost >= MAX_ITEM_LAYERS
             || pixel_bytes
@@ -380,6 +412,8 @@ impl ModelCache {
             requested: if reclaim { self.frame } else { 0 },
             warmed: if reclaim { 0 } else { self.frame },
             layers: cost,
+            vertices,
+            admitted: if reclaim { self.frame } else { 0 },
             bounds: None,
         });
         self.layers += cost;
@@ -402,18 +436,14 @@ impl ModelCache {
     }
 
     /// Publishes current demand and fitting speculative frames at stable slots.
-    pub(super) fn finish_frame(
-        &mut self,
-        policy: assets::texture::policy::TexturePolicy,
-        max_array_layers: usize,
-    ) {
+    pub(super) fn finish_frame(&mut self) {
         if self.budget_fallbacks > 0 {
             tracing::debug!(
                 budget_fallbacks = self.budget_fallbacks,
                 "item artwork recovered from cache pressure"
             );
         }
-        let published = self.publication_mask(policy, max_array_layers);
+        let published = self.publication_mask();
         let demand_changed = self.models.iter().enumerate().any(|(slot, _)| {
             published[slot]
                 != self

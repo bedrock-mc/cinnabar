@@ -582,6 +582,20 @@ impl DroppedItemPublisher<'_, '_> {
 
         stream.authority().dropped_items_into(partial_tick, dropped);
         let mut dial_models = dials::DialModels::default();
+        let budget = self.device.as_ref().map_or_else(
+            render_model::dropped_item::ItemModelBudget::default,
+            |device| {
+                let limits = device.limits();
+                render_model::dropped_item::ItemModelBudget::new(
+                    assets::texture::policy::TexturePolicy::for_device(
+                        limits.max_texture_dimension_2d,
+                    ),
+                    limits.max_texture_array_layers as usize,
+                    limits.max_buffer_size,
+                )
+            },
+        );
+        cache.budget = budget;
         cache.begin_frame();
         // Protect all current consumers before admitting new models, regardless of iteration order.
         for view in dropped.iter() {
@@ -803,24 +817,8 @@ impl DroppedItemPublisher<'_, '_> {
             }
         }
         dial_models.warm(cache, icons);
-        let (policy, max_array_layers) = self.device.as_ref().map_or_else(
-            || {
-                (
-                    assets::texture::policy::device_policy(),
-                    render_model::MAX_ITEM_LAYERS,
-                )
-            },
-            |device| {
-                let limits = device.limits();
-                (
-                    assets::texture::policy::TexturePolicy::for_device(
-                        limits.max_texture_dimension_2d,
-                    ),
-                    limits.max_texture_array_layers as usize,
-                )
-            },
-        );
-        cache.finish_frame(policy, max_array_layers);
+        cache.finish_frame();
+        scene.model_budget = Some(budget);
         scene.publish(
             cache.revision,
             Arc::clone(&cache.shared),

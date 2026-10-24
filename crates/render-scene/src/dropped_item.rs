@@ -9,6 +9,8 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Default, Resource, ExtractResource)]
 #[extract_app(bevy::render::RenderApp)]
 pub struct DroppedItemScene {
+    /// Shared empty budget used to admit every published model before upload.
+    pub model_budget: Option<render_model::dropped_item::ItemModelBudget>,
     pub models_revision: u64,
     pub models: Arc<[DroppedItemModel]>,
     pub instances: Arc<[DroppedItemInstance]>,

@@ -1,6 +1,6 @@
 //! Aggregate vertex admission for the dropped-item upload.
 
-use render_model::{ItemMeshVertex, dropped_item::ITEM_MESH_VERTEX_BYTES};
+use render_model::ItemMeshVertex;
 use std::ops::Deref;
 
 /// Retained meshes bounded by both the device buffer and shared storage policy.
@@ -15,12 +15,11 @@ impl MeshStorage {
         &mut self.vertices
     }
 
-    /// Rounds the smaller byte budget down to complete vertices.
-    pub(super) fn new(max_buffer_size: u64) -> Self {
-        let bytes = max_buffer_size.min(assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64);
+    /// Uses the complete vertex limit already calculated by shared admission.
+    pub(super) fn with_capacity_limit(max_vertices: usize) -> Self {
         Self {
             vertices: Vec::new(),
-            max_vertices: (bytes / ITEM_MESH_VERTEX_BYTES as u64) as usize,
+            max_vertices,
         }
     }
 
@@ -58,6 +57,7 @@ impl Deref for MeshStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use render_model::dropped_item::ITEM_MESH_VERTEX_BYTES;
 
     /// Creates an original vertex without relying on device state.
     fn vertex() -> ItemMeshVertex {
@@ -73,7 +73,12 @@ mod tests {
 
     #[test]
     fn aggregate_mesh_admission_respects_a_smaller_device_buffer() {
-        let mut storage = MeshStorage::new((ITEM_MESH_VERTEX_BYTES * 3 - 1) as u64);
+        let budget = render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            render_model::MAX_ITEM_LAYERS,
+            (ITEM_MESH_VERTEX_BYTES * 3 - 1) as u64,
+        );
+        let mut storage = MeshStorage::with_capacity_limit(budget.max_vertices());
         assert!(storage.append(vec![vertex()]));
         assert!(!storage.append(vec![vertex(); 2]));
         assert_eq!(storage.len(), 1);

@@ -79,10 +79,7 @@ fn publish(cache: &mut ModelCache, icons: &UiPresentationRuntime, dials: bool) -
         })
         .collect();
     animation.warm(cache, icons);
-    cache.finish_frame(
-        assets::texture::policy::device_policy(),
-        render_model::MAX_ITEM_LAYERS,
-    );
+    cache.finish_frame();
     handles
 }
 
@@ -159,6 +156,11 @@ fn publish_hd_clock(
     hd_first: bool,
     max_array_layers: usize,
 ) -> (u32, u32) {
+    cache.budget = render_model::dropped_item::ItemModelBudget::new(
+        assets::texture::policy::device_policy(),
+        max_array_layers,
+        u64::MAX,
+    );
     let hd_key = ModelKey::Block {
         hashed: false,
         id: u32::MAX,
@@ -186,7 +188,7 @@ fn publish_hd_clock(
     let mut animation = DialModels::default();
     animation.observe(icons, "minecraft:clock", 0);
     animation.warm(cache, icons);
-    cache.finish_frame(assets::texture::policy::device_policy(), max_array_layers);
+    cache.finish_frame();
     (hd_handle, clock_handle)
 }
 
@@ -211,10 +213,7 @@ fn hd_items_and_every_current_clock_frame_fit_with_either_residency_order() {
                 let mut animation = DialModels::default();
                 animation.observe(&icons, "minecraft:clock", 0);
                 animation.warm(&mut cache, &icons);
-                cache.finish_frame(
-                    assets::texture::policy::device_policy(),
-                    render_model::MAX_ITEM_LAYERS,
-                );
+                cache.finish_frame();
             }
             for frame in 0..inventory::CLOCK_FRAMES * 2 {
                 icons.set_dial_frames(inventory::DialFrames {

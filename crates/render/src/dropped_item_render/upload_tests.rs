@@ -270,16 +270,20 @@ fn enlarging_an_admitted_atlas_keeps_earlier_uvs_glint_and_texture_layers() {
     let original = PreparedModels::new(
         &models[..1],
         &[],
-        assets::texture::policy::device_policy(),
-        render_model::MAX_ITEM_LAYERS as u32,
-        assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            render_model::MAX_ITEM_LAYERS,
+            assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        ),
     );
     let prepared = PreparedModels::new(
         &models,
         &[],
-        assets::texture::policy::device_policy(),
-        render_model::MAX_ITEM_LAYERS as u32,
-        assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            render_model::MAX_ITEM_LAYERS,
+            assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        ),
     );
     assert_eq!(prepared.side, 128);
     let first = &prepared.ranges[0].vertices;
@@ -327,9 +331,11 @@ fn buffer_rejection_cannot_enlarge_already_admitted_texture_layers() {
     let prepared = PreparedModels::new(
         &models,
         &[],
-        assets::texture::policy::device_policy(),
-        render_model::MAX_ITEM_LAYERS as u32,
-        (4096 * ITEM_MESH_VERTEX_BYTES) as u64,
+        render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            render_model::MAX_ITEM_LAYERS,
+            (4096 * ITEM_MESH_VERTEX_BYTES) as u64,
+        ),
     );
     assert_eq!(prepared.side, MIN_ITEM_ATLAS_SIDE);
     assert!(!prepared.ranges[0].vertices.is_empty());
@@ -756,4 +762,36 @@ fn occupied_item_frames_retain_staging_and_draw_storage() {
         assert_eq!(gpu.identity_instance, 1);
         assert_eq!(gpu.instance_scratch.len(), 2);
     }
+}
+
+#[test]
+fn admitted_framed_cubes_and_overflow_sprite_all_have_draw_ranges() {
+    let cube = DroppedItemModel::Cube(render_model::DroppedItemCube {
+        tile: 1,
+        faces: std::array::from_fn(|_| Arc::from([255; 4])),
+        tints: [render_model::OPAQUE_WHITE; 6],
+    });
+    let mut models = vec![cube; 42];
+    models.push(DroppedItemModel::Sprite(render_model::DroppedItemSprite {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([255; 4]),
+    }));
+    let budget = render_model::dropped_item::ItemModelBudget::new(
+        assets::texture::policy::device_policy(),
+        256,
+        u64::MAX,
+    );
+    let prepared = PreparedModels::new(&models, &[true; 43], budget);
+    assert_eq!(prepared.ranges.len(), 43);
+    assert!(
+        prepared
+            .ranges
+            .iter()
+            .all(|range| !range.vertices.is_empty())
+    );
+    assert_eq!(
+        prepared.atlas.len() / (prepared.side * prepared.side * 4) as usize,
+        254
+    );
 }

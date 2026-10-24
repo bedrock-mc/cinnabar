@@ -147,9 +147,11 @@ fn current_frames_fit_before_speculation_with_a_small_device_buffer() {
     let prepared = PreparedModels::new(
         &models,
         &[false, true, true],
-        assets::texture::policy::device_policy(),
-        MAX_ITEM_LAYERS as u32,
-        budget,
+        render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            MAX_ITEM_LAYERS,
+            budget,
+        ),
     );
     assert!(prepared.ranges[0].vertices.is_empty());
     assert!(!prepared.ranges[1].vertices.is_empty());
@@ -169,9 +171,11 @@ fn prioritized_mesh_handles_sample_their_own_texture_layers() {
     let prepared = PreparedModels::new(
         &models,
         &[false, false, true],
-        assets::texture::policy::device_policy(),
-        MAX_ITEM_LAYERS as u32,
-        assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        render_model::dropped_item::ItemModelBudget::new(
+            assets::texture::policy::device_policy(),
+            MAX_ITEM_LAYERS,
+            assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64,
+        ),
     );
     let layer_bytes = (prepared.side * prepared.side * 4) as usize;
     for (slot, model) in models.iter().enumerate() {

@@ -392,7 +392,8 @@ and rendered qualification remain incomplete.
   Crystal and spike items use their flat carried sprites.
   Framed cube items retain their authored carried faces and three-dimensional geometry.
   Framed, dropped and held items try session block sheets, session icons, startup carried
-  geometry and startup sprites in order, continuing when construction or admission fails.
+  geometry and startup sprites in order, continuing when construction, extrusion or device
+  atlas and mesh admission fails. Selection and upload share the same physical budgets.
   Cache-pressure captures, frame pose comparisons, shaped models and special models remain incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
