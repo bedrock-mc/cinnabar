@@ -56,16 +56,17 @@ func (l lifecycleListener) Accept() (session.Conn, error) { return l.c, nil }
 
 // lifecyclePart exercises real signed activation and transfer fences inside the host matrix.
 type lifecyclePart struct {
-	t        *testing.T
-	server   *ext.Server
-	conn     session.Conn
-	inner    *lifecycleConn
-	hello    ext.Hello
-	accept   ext.Accept
-	ready    bool
-	sequence uint64
-	admitted int
-	incoming ext.Channel
+	t                  *testing.T
+	server             *ext.Server
+	conn               session.Conn
+	inner              *lifecycleConn
+	hello              ext.Hello
+	accept             ext.Accept
+	ready              bool
+	sequence           uint64
+	admitted           int
+	incoming           ext.Channel
+	acknowledgedNotice uint64
 }
 
 // readExtensionFixture uses the shared protocol vectors rather than copying their fields.
@@ -202,17 +203,26 @@ func (p *lifecyclePart) inputAt(epoch uint64) {
 	p.deliver(e)
 }
 
-// acknowledgeWorld completes the outstanding server-owned notice and returns its client epoch.
+// acknowledgeWorld completes the oldest unread notice and returns its client epoch.
 func (p *lifecyclePart) acknowledgeWorld() uint64 {
 	p.t.Helper()
-	var control ext.Control
-	pk := p.inner.out[len(p.inner.out)-1].(*packet.ScriptMessage)
-	if err := ext.Decode(pk.Data, &control); err != nil || control.Epoch == nil {
-		p.t.Fatalf("world notice: %v", err)
+	for _, pk := range p.inner.out {
+		msg, ok := pk.(*packet.ScriptMessage)
+		if !ok || msg.Identifier != ext.Carrier {
+			continue
+		}
+		var control ext.Control
+		if err := ext.Decode(msg.Data, &control); err != nil {
+			p.t.Fatal(err)
+		}
+		if epoch := control.Epoch; epoch != nil && epoch.WorldEpoch > p.acknowledgedNotice {
+			p.acknowledgedNotice = epoch.WorldEpoch
+			p.deliver(ext.Control{WorldAck: &ext.WorldAck{Session: epoch.Session, WorldEpoch: epoch.WorldEpoch, RequestedEpoch: epoch.WorldEpoch}})
+			return epoch.WorldEpoch
+		}
 	}
-	epoch := control.Epoch
-	p.deliver(ext.Control{WorldAck: &ext.WorldAck{Session: epoch.Session, WorldEpoch: epoch.WorldEpoch, RequestedEpoch: epoch.WorldEpoch}})
-	return epoch.WorldEpoch
+	p.t.Fatal("no unacknowledged world notice")
+	return 0
 }
 
 // TestLifecycleClientTransferFence admits source traffic and rejects it after same-type travel.

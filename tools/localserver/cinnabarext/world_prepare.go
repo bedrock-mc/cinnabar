@@ -22,8 +22,9 @@ type PlayerSession interface {
 // WorldChange reserves a world change in one accepted session, including late activation.
 // A nil value remains a no-op for hosts without client parts.
 type WorldChange struct {
-	conn *Conn
-	kind WorldChangeKind
+	conn  *Conn
+	kind  WorldChangeKind
+	token uint64
 }
 
 // WorldChangeKind distinguishes initial placement from requested travel and native moves.
@@ -59,9 +60,6 @@ func (c *Conn) PrepareWorldChange(kind WorldChangeKind) (*WorldChange, error) {
 		}
 		return nil, errors.New("player session ended")
 	}
-	if c.pendingChange != nil {
-		return nil, errors.New("a world transfer is already prepared")
-	}
 	if c.phase == active && uint64(c.s.now().Unix()) >= c.expires {
 		c.fallBack(errors.New("the grant expired"))
 	}
@@ -71,12 +69,11 @@ func (c *Conn) PrepareWorldChange(kind WorldChangeKind) (*WorldChange, error) {
 		}
 		c.fallBack(errors.New("native world change requires client-part wire v2"))
 	}
-	change := &WorldChange{conn: c, kind: kind}
-	c.pendingChange = change
-	if c.phase == active {
-		c.prepared = change
+	token, err := c.fence.Prepare(kind != InitialPlacement)
+	if err != nil {
+		return nil, err
 	}
-	return change, nil
+	return &WorldChange{conn: c, kind: kind, token: token}, nil
 }
 
 // Commit publishes a standalone transport change with a fresh authoritative epoch.
@@ -100,38 +97,20 @@ func (w *WorldChange) CommitAt(id WorldID, epoch uint64) bool {
 	defer c.s.transferMu.Unlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.retired || c.pendingChange != w || epoch == 0 {
+	if c.retired || !c.fence.Preparing(w.token) || epoch == 0 {
 		return false
 	}
-	c.pendingChange, c.hostEpoch = nil, epoch
-	if w.kind == InitialPlacement {
-		c.prepared, c.worldID = nil, id
-		return id != ""
-	}
-	if !c.advanceAdmission() {
+	c.hostEpoch = epoch
+	notices, err := c.fence.Commit(w.token, id)
+	if err != nil {
+		c.fallBack(err)
 		return false
 	}
-	c.committedWorld = id
-	if c.prepared != w {
-		return id != ""
-	}
-	c.prepared, c.epochChanged = nil, false
-	if c.phase != active {
-		return c.phase == fallenBack
-	}
-	if id == "" {
-		c.fallBack(errors.New("empty destination world identity"))
-		return false
-	}
-	if uint64(c.s.now().Unix()) >= c.expires {
+	if w.kind != InitialPlacement && c.phase == active && uint64(c.s.now().Unix()) >= c.expires {
 		c.fallBack(errors.New("the grant expired"))
 		return false
 	}
-	c.worldID = id
-	if c.worldNoticePending {
-		return true
-	}
-	if err := c.requestWorldEpoch(); err != nil {
+	if err := c.publishWorldNotices(notices); err != nil {
 		c.fallBack(err)
 		return false
 	}
@@ -149,14 +128,11 @@ func (w *WorldChange) Abort() {
 	c.deliveryMu.Lock()
 	defer c.deliveryMu.Unlock()
 	c.mu.Lock()
-	if c.pendingChange != w {
+	if !c.fence.Preparing(w.token) {
 		c.mu.Unlock()
 		return
 	}
-	c.pendingChange = nil
-	if c.prepared == w {
-		c.prepared = nil
-	}
+	c.fence.Abort(w.token)
 	changed := c.takeEpochCallbacks()
 	c.mu.Unlock()
 	c.deliverEpochCallbacks(changed)
@@ -165,10 +141,9 @@ func (w *WorldChange) Abort() {
 // takeEpochCallbacks consumes a completed acknowledgment only after every world fence opens.
 // The caller holds c.mu and serializes application delivery.
 func (c *Conn) takeEpochCallbacks() []string {
-	if !c.epochChanged || c.prepared != nil || c.worldNoticePending || c.phase != active {
+	if c.phase != active || !c.fence.TakeChanged() {
 		return nil
 	}
-	c.epochChanged = false
 	var changed []string
 	for _, exp := range slices.Sorted(maps.Keys(c.grant.Recipients)) {
 		if c.grant.Recipients[exp].Permissions.Has(PermissionMessaging) {

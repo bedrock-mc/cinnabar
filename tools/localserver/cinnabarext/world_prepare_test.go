@@ -172,6 +172,100 @@ func TestHandshakeDuringTransfer(t *testing.T) {
 	}
 }
 
+// TestReadyDuringLaterPreparationRetainsCommittedNotice keeps pre-Ready travel fenced after abort.
+func TestReadyDuringLaterPreparationRetainsCommittedNotice(t *testing.T) {
+	f := newConn(t, nil)
+	accept := f.accept(f.hello())
+	first, err := f.s.PrepareWorldChange(f.player)
+	if err != nil || !first.Commit("sample:first") {
+		t.Fatalf("first commit: %v", err)
+	}
+	later, err := f.s.PrepareWorldChange(f.player)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epochs := 0
+	f.s.OnEpoch(func(uuid.UUID, PlayerSession, string) { epochs++ })
+	before := len(f.carrier())
+	ready := f.ready(accept)
+	f.deliver(f.encode(Control{Ready: &ready}))
+	later.Abort()
+	if f.sendToClient(1) {
+		t.Fatal("abort released an unacknowledged committed transfer")
+	}
+	f.deliver(f.envelope(accept, 1, nil))
+	if len(f.messages()) != 0 || epochs != 0 {
+		t.Fatal("Ready's old epoch acquired destination authority")
+	}
+	if len(f.carrier()) != before+1 {
+		t.Fatal("activation did not publish the earlier committed transfer")
+	}
+	notice := f.lastWorldNotice()
+	f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
+	if epochs != 1 || !f.sendToClient(1) {
+		t.Fatal("committed transfer acknowledgment did not restore traffic")
+	}
+	f.deliver(f.envelope(accept, 2, func(e *Envelope) { e.WorldEpoch = notice.Epoch.WorldEpoch }))
+	if len(f.messages()) != 1 {
+		t.Fatal("acknowledged destination input was not delivered")
+	}
+}
+
+// TestLateActivationPublishesAllAdmissions preserves ordered notices across preparation completion.
+func TestLateActivationPublishesAllAdmissions(t *testing.T) {
+	for _, commit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "abort", true: "commit"}[commit], func(t *testing.T) {
+			f := newConn(t, nil)
+			accept := f.accept(f.hello())
+			for range 3 {
+				change, err := f.s.PrepareWorldChange(f.player)
+				if err != nil || !change.Commit("sample:same") {
+					t.Fatalf("commit: %v", err)
+				}
+			}
+			later, err := f.s.PrepareWorldChange(f.player)
+			if err != nil {
+				t.Fatal(err)
+			}
+			epochs := 0
+			f.s.OnEpoch(func(uuid.UUID, PlayerSession, string) { epochs++ })
+			before := len(f.carrier())
+			ready := f.ready(accept)
+			f.deliver(f.encode(Control{Ready: &ready}))
+			if len(f.carrier()) != before+3 {
+				t.Fatal("activation did not publish every committed admission")
+			}
+			for i, frame := range f.carrier()[before:] {
+				var notice Control
+				if err := Decode(frame, &notice); err != nil || notice.Epoch == nil || notice.Epoch.WorldEpoch != testEpoch+uint64(i)+1 {
+					t.Fatalf("notice order: %+v, %v", notice, err)
+				}
+			}
+			notice := f.lastWorldNotice()
+			f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
+			if epochs != 0 || f.sendToClient(1) {
+				t.Fatal("cumulative acknowledgment bypassed preparation")
+			}
+			if commit {
+				if !later.Commit("sample:next") || f.sendToClient(1) || epochs != 0 {
+					t.Fatal("later commit did not establish its own admission fence")
+				}
+				latest := f.lastWorldNotice()
+				f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
+				if f.sendToClient(1) || epochs != 0 {
+					t.Fatal("stale cumulative acknowledgment released a later admission")
+				}
+				f.deliver(f.encode(worldAcknowledgment(latest, latest.Epoch.WorldEpoch)))
+			} else {
+				later.Abort()
+			}
+			if epochs != 1 || !f.sendToClient(1) {
+				t.Fatal("completed preparation did not deliver the acknowledged epoch")
+			}
+		})
+	}
+}
+
 // TestReconnectAfterCommittedTransferRetiresWorldState admits wire v1 in a new connection for the same player.
 func TestReconnectAfterCommittedTransferRetiresWorldState(t *testing.T) {
 	f, _ := readyFixture(t)
@@ -287,13 +381,15 @@ func TestPendingAdmissionRequiresLatestRevision(t *testing.T) {
 	f, accept := readyFixture(t)
 	epochs := 0
 	f.s.OnEpoch(func(uuid.UUID, PlayerSession, string) { epochs++ })
+	var notices []Control
 	for _, id := range []WorldID{"sample:destination", "sample:destination"} {
 		change, err := f.s.PrepareWorldChange(f.player)
 		if err != nil || !change.Commit(id) {
 			t.Fatalf("commit: %v", err)
 		}
+		notices = append(notices, f.lastWorldNotice())
 	}
-	first := f.lastWorldNotice()
+	first := notices[0]
 	ack := f.encode(worldAcknowledgment(first, first.Epoch.WorldEpoch))
 	f.deliver(ack)
 	if epochs != 0 || f.sendToClient(1) {
@@ -303,7 +399,7 @@ func TestPendingAdmissionRequiresLatestRevision(t *testing.T) {
 	if len(f.messages()) != 0 {
 		t.Fatal("intermediate placement input acquired latest admission authority")
 	}
-	latest := f.lastWorldNotice()
+	latest := notices[1]
 	if latest.Epoch.WorldEpoch <= first.Epoch.WorldEpoch {
 		t.Fatal("latest admission did not receive a fresh notice")
 	}

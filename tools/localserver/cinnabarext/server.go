@@ -311,25 +311,6 @@ func (s *Server) PlayerSession(player uuid.UUID) PlayerSession {
 	return nil
 }
 
-// activate initializes a late handshake from its own session's pending or committed world.
-// The caller holds transferMu and c.mu.
-func (s *Server) activate(c *Conn) error {
-	if c.pendingChange != nil || c.committedWorld != "" {
-		if c.wire.Version == WireVersion && (c.pendingChange == nil || c.pendingChange.kind != InitialPlacement) {
-			return errors.New("world transfers require client-part wire v2")
-		}
-		if c.pendingChange != nil {
-			c.prepared = c.pendingChange
-		} else {
-			c.worldID = c.committedWorld
-			if err := c.requestWorldEpoch(); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // nonce is a fresh random value in lowercase hex, as the Accept's challenge and session.
 func (s *Server) nonce() (string, error) {
 	s.randMu.Lock()

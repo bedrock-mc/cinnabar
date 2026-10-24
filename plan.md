@@ -853,13 +853,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   same-dimension-type transfers. Size-bounded notices bypass data credits when their
   epoch exceeds the last acknowledged notice; equal and older epochs drop silently.
   Acknowledged epochs advance before transport handoff, allowing the next notice
-  during a pending flush. Only the outstanding notice's acknowledgment bypasses
-  server data credits; replayed acknowledgments consume the normal budget. The
-  server coalesces rapid transfers to the latest admission revision, including repeated
-  placements in the same instance, sending its next notice only after the outstanding
-  acknowledgment arrives and keeping messages
-  fenced throughout. Write failures end the optional session without retry timers. A two-world
-  example uses upstream Dragonfly. Cold-client bundle hosting, generated application
+  during a pending flush. Only acknowledgments of queued notices bypass server data
+  credits; replayed acknowledgments consume the normal budget. One connection-owned state machine queues
+  every committed admission, including repeated placements in the same instance, and
+  publishes notices in order when active. Acknowledgments retire notices through their
+  admission revision; aborting a preparation preserves every committed notice. Messages
+  remain fenced until preparation ends and the notice queue is empty. Write failures
+  end the optional session without retry timers. A two-world example uses upstream Dragonfly. Cold-client bundle hosting, generated application
   Go message bindings and live multi-client transfer qualification remain incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext/internal/worldfence"
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/google/uuid"
@@ -82,36 +83,22 @@ type Conn struct {
 	s      *Server
 	player uuid.UUID
 
-	mu             sync.Mutex
-	phase          phase
-	retired        bool
-	admitted       bool
-	pendingChange  *WorldChange
-	committedWorld WorldID
-	hostEpoch      uint64
+	mu        sync.Mutex
+	phase     phase
+	retired   bool
+	admitted  bool
+	hostEpoch uint64
+	fence     worldfence.Fence[WorldID]
 	// hello, session and wire are the Hello, the session and the wire that the Accept bound.
 	hello   Hello
 	session string
 	expires uint64
 	wire    Wire
-	// grant, epoch, ingress, egress and sequence are Ready's session, set when active.
+	// grant, ingress, egress and sequence are Ready's session, set when active.
 	grant    *Grant
-	epoch    uint64
 	ingress  *Ingress
 	egress   RateLimit
 	sequence uint64
-	// epochChanged is set by a v2 epoch control until receive tells the Experiences.
-	epochChanged bool
-	// requestedEpoch retains the latest notice ID so retired acknowledgments are ignored.
-	requestedEpoch uint64
-	// admissionRevision advances for every placement, even when its world ID is unchanged.
-	admissionRevision uint64
-	requestedRevision uint64
-	// worldID is the latest desired world.
-	worldID WorldID
-	// worldNoticePending fences both directions until the latest desired world is acknowledged.
-	worldNoticePending bool
-	prepared           *WorldChange
 	// deliveryMu keeps preparation behind callbacks already admitted on the old world.
 	deliveryMu sync.Mutex
 }
@@ -217,19 +204,19 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 	var envelope *Envelope
 	var err error
 	if c.wire.Version == WireVersion {
-		envelope, err = c.ingress.Receive(data, nowMs, c.epoch, c.grant)
+		envelope, err = c.ingress.Receive(data, nowMs, c.fence.Epoch(), c.grant)
 	} else {
 		msg, controlErr := control(data)
-		// Only the outstanding notice's acknowledgment bypasses data credits.
-		if ack := msg.WorldAck; controlErr == nil && ack != nil && c.worldNoticePending &&
-			ack.RequestedEpoch == c.requestedEpoch && ack.Session == c.session {
+		// Only acknowledgments of queued published notices bypass data credits.
+		if ack := msg.WorldAck; controlErr == nil && ack != nil &&
+			c.fence.Outstanding(ack.RequestedEpoch) && ack.Session == c.session {
 			return nil, c.changeEpoch(msg)
 		}
 		if err = c.ingress.charge(len(data), nowMs); err == nil {
 			if controlErr == nil {
 				return nil, c.changeEpoch(msg)
 			}
-			envelope, err = c.ingress.take(data, c.epoch, c.grant)
+			envelope, err = c.ingress.take(data, c.fence.Epoch(), c.grant)
 		}
 	}
 	switch {
@@ -243,7 +230,7 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 		// epoch it has since left are dropped and counted.
 		err = errors.New("another world epoch")
 	}
-	if c.worldNoticePending || c.prepared != nil {
+	if envelope != nil && !c.fence.Accepts(envelope.WorldEpoch) {
 		envelope = nil
 	}
 	return envelope, err
@@ -252,43 +239,25 @@ func (c *Conn) handle(data []byte) (*Envelope, error) {
 // changeEpoch takes a v2 client's epoch control: its world epoch changed and its runtime kept
 // running, so its later envelopes, and the server's, carry the new epoch.
 func (c *Conn) changeEpoch(msg Control) error {
-	e := msg.Epoch
 	if ack := msg.WorldAck; ack != nil {
-		switch {
-		case ack.RequestedEpoch == 0 || ack.RequestedEpoch > c.requestedEpoch:
-			return errors.New("acknowledgment for an unrequested world notice")
-		case ack.Session != c.session:
+		if ack.Session != c.session {
 			return errors.New("acknowledgment for another session")
-		case ack.WorldEpoch < ack.RequestedEpoch:
-			return errors.New("acknowledgment below the requested world epoch")
 		}
-		if ack.RequestedEpoch < c.requestedEpoch || !c.worldNoticePending {
-			return nil
+		if c.fence.Outstanding(ack.RequestedEpoch) && c.ingress.open() {
+			return errors.New("epoch inside a fragmented message")
 		}
-		e = &Epoch{Session: ack.Session, WorldEpoch: ack.WorldEpoch}
+		return c.fence.Acknowledge(ack.RequestedEpoch, ack.WorldEpoch)
 	}
+	e := msg.Epoch
 	switch {
 	case e == nil:
 		return errors.New("a control message other than epoch or world_ack after Ready")
 	case e.Session != c.session:
 		return errors.New("epoch for another session")
-	case e.WorldEpoch <= c.epoch:
-		return fmt.Errorf("world epoch %d after %d", e.WorldEpoch, c.epoch)
 	case c.ingress.open():
 		return errors.New("epoch inside a fragmented message")
 	}
-	c.epoch = e.WorldEpoch
-	if msg.WorldAck != nil {
-		c.worldNoticePending = false
-		if c.admissionRevision != c.requestedRevision {
-			if err := c.requestWorldEpoch(); err != nil {
-				return err
-			}
-		}
-	}
-	c.epochChanged = !c.worldNoticePending
-	c.s.log.Info("client part world epoch", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch)
-	return nil
+	return c.fence.Advance(e.WorldEpoch)
 }
 
 // control decodes a handshake message of at most a carrier message's size.
@@ -433,15 +402,14 @@ func (c *Conn) acceptReady(data []byte, nowMs uint64) error {
 		Wire:       c.wire,
 		Recipients: recipients,
 	}
-	c.epoch = r.WorldEpoch
 	c.ingress = NewIngress(ToServer, nowMs)
 	c.egress = NewRateLimit(nowMs)
 	c.sequence = 1
 	c.phase = active
-	if err := c.s.activate(c); err != nil {
+	if err := c.activateWorldFence(r.WorldEpoch); err != nil {
 		return err
 	}
-	c.s.log.Info("client part active", "player", c.IdentityData().DisplayName, "world_epoch", c.epoch, "wire", c.wire.Version)
+	c.s.log.Info("client part active", "player", c.IdentityData().DisplayName, "world_epoch", c.fence.Epoch(), "wire", c.wire.Version)
 	return nil
 }
 
@@ -456,7 +424,7 @@ func (c *Conn) send(exp, channel string, schema uint16, payload []Scalar) bool {
 func (c *Conn) SendRecordAt(epoch uint64, exp, channel string, schema uint16, payload []Scalar) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.retired || epoch != 0 && epoch != c.hostEpoch || c.phase != active || c.worldNoticePending || c.prepared != nil {
+	if c.retired || epoch != 0 && epoch != c.hostEpoch || c.phase != active || !c.fence.AllowsTraffic() {
 		return false
 	}
 	now := c.s.now()
@@ -482,7 +450,7 @@ func (c *Conn) SendRecordAt(epoch uint64, exp, channel string, schema uint16, pa
 		Channel:    channel,
 		Schema:     schema,
 		Sequence:   c.sequence,
-		WorldEpoch: c.epoch,
+		WorldEpoch: c.fence.Epoch(),
 		Payload:    payload,
 	}, c.wire)
 	if err != nil {
@@ -510,9 +478,8 @@ func (c *Conn) SendRecordAt(epoch uint64, exp, channel string, schema uint16, pa
 func (c *Conn) Retire() {
 	c.mu.Lock()
 	c.retired = true
-	c.pendingChange, c.prepared = nil, nil
-	c.committedWorld, c.worldID = "", ""
 	c.fallBack(errors.New("disconnected"))
+	c.fence.Disconnect()
 	c.mu.Unlock()
 	c.s.mu.Lock()
 	delete(c.s.pending, c)
@@ -539,6 +506,7 @@ func (c *Conn) fallBack(reason error) {
 		return
 	}
 	c.phase = fallenBack
+	c.fence.Disable()
 	c.grant, c.ingress = nil, nil
 	c.s.log.Info("client part fallback", "player", c.IdentityData().DisplayName, "reason", reason.Error())
 }
