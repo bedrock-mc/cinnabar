@@ -65,6 +65,41 @@ fn direct_block_outline_respects_the_nearer_actor() {
     }
 }
 
+/// Like vanilla, Hide HUD (F1) draws no block selection, while the pick keeps choosing actors.
+#[test]
+fn hidden_hud_draws_no_block_selection_but_keeps_the_actor_pick() {
+    for (actor_z, hide_hud) in [(None, false), (None, true), (Some(7.5), true)] {
+        let (mut world, _) = fixture();
+        if let Some(z) = actor_z {
+            actor_use_tests::spawn(&mut world, z);
+        }
+        let origin = frame_origin(&world, Vec3::new(4.5, 2.5, 8.5), Quat::IDENTITY);
+        world.insert_resource(origin);
+        world.init_resource::<client_state::RuntimeSettings>();
+        world.init_resource::<render_scene::BlockSelectionFrameResource>();
+        world.init_resource::<crate::block_selection::CrosshairActor>();
+        let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "test".into());
+        menu.set_session_option(
+            launcher::menu::settings_options::SettingId::HideHud,
+            hide_hud.then_some(1),
+        );
+        world.insert_resource(menu);
+        world
+            .run_system_cached(crate::block_selection::publish)
+            .unwrap();
+        assert_eq!(
+            world.resource::<crate::block_selection::CrosshairActor>().0,
+            actor_z.map(|_| 99)
+        );
+        let frame = world.resource::<render_scene::BlockSelectionFrameResource>();
+        assert_eq!(
+            frame.outline.is_empty() && frame.highlight.is_empty(),
+            hide_hud || actor_z.is_some(),
+            "actor z={actor_z:?} hide_hud={hide_hud}"
+        );
+    }
+}
+
 #[test]
 fn nametag_pick_reuses_eye_ray_reach_occlusion_and_mount_exclusion() {
     for (mode, creative, distance, mount, expected) in [
