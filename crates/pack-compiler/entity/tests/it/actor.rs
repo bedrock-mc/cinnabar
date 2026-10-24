@@ -202,8 +202,8 @@ fn alpha_tested_material_keeps_fractional_alpha_for_its_shader_test() {
 
 #[test]
 fn unverified_vanilla_material_rounds_fractional_alpha_instead_of_dropping_the_actor() {
-    assert_eq!(probe_alpha(4, "allay"), (1, 0));
-    assert_eq!(probe_alpha(200, "allay"), (1, 255));
+    assert_eq!(probe_alpha(4, "cushion"), (1, 0));
+    assert_eq!(probe_alpha(200, "cushion"), (1, 255));
 }
 
 #[test]
@@ -229,7 +229,7 @@ fn actor_pixels_are_not_cropped_to_geometry_dimensions() {
 
 #[test]
 fn runtime_rejects_rehashed_untrusted_pixels_and_binding_substitutions() {
-    let pack = pack(0, "allay", false);
+    let pack = pack(0, "cushion", false);
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
     let entities =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();

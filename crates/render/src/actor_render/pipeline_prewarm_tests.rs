@@ -48,6 +48,31 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
 }
 
 #[test]
+fn generated_material_catalog_is_prewarmed_before_entities_arrive() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    let (&msaa, view) = world
+        .query::<(&Msaa, &ExtractedCamera)>()
+        .single(world)
+        .unwrap();
+    let hdr = view.hdr;
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        pipeline
+            .prewarm(world.resource::<PipelineCache>(), msaa, hdr, false)
+            .unwrap();
+        for (name, mut state) in assets::facts::pack::rules().material_states() {
+            state.alpha_test &= !state.blend;
+            let material = assets::facts::pack::rules().raster(name).word(Some(state));
+            assert!(
+                pipeline.draw_variant(msaa, hdr, false, material).is_some(),
+                "{name}"
+            );
+        }
+    });
+}
+
+#[test]
 fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
     let (mut app, _) = crate::queue_review_support::app();
     let world = app.world_mut();

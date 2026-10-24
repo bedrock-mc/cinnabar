@@ -701,3 +701,43 @@ fn invisible_emissive_material_keeps_eye_texels_and_rejects_alpha_endpoints() {
     );
     assert_eq!(center(&eyes), center(&ordinary));
 }
+
+#[test]
+fn authored_depth_equal_and_channel_writes_reach_the_pipeline() {
+    use bevy::render::render_resource::{ColorWrites, CompareFunction};
+    for (disable_alpha_write, disable_color_write, expected) in [
+        (false, false, ColorWrites::ALL),
+        (true, false, ColorWrites::COLOR),
+        (false, true, ColorWrites::empty()),
+        (true, true, ColorWrites::empty()),
+    ] {
+        let mut descriptor = actor_pipeline_descriptor(actor_bind_group_layout());
+        ActorPipelineSpecializer
+            .specialize(
+                ActorPipelineKey {
+                    msaa: Msaa::Off,
+                    hdr: false,
+                    enhanced: false,
+                    material: EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                        depth_equal: true,
+                        disable_alpha_write,
+                        disable_color_write,
+                        ..Default::default()
+                    })),
+                },
+                &mut descriptor,
+            )
+            .unwrap();
+        assert_eq!(
+            descriptor.depth_stencil.unwrap().depth_compare,
+            Some(CompareFunction::Equal)
+        );
+        assert_eq!(
+            descriptor.fragment.unwrap().targets[0]
+                .as_ref()
+                .unwrap()
+                .write_mask,
+            expected
+        );
+    }
+}

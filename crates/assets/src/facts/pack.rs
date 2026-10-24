@@ -112,15 +112,10 @@ pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum MaterialKind {
-    /// A vanilla material the pinned pack names but does not define; its definition is
-    /// unverified, so its texture alpha rounds at 0.5.
+    /// A referenced material without an admitted declaration.
     Provisional,
+    Actor,
     UnmaskedArmor,
-    AlphaTestNoCull,
-    AlphaTest,
-    AlphaBlend,
-    Wind,
-    Charged,
     Dragon,
     DissolveDepth,
     DissolveColor,
@@ -273,10 +268,13 @@ impl PackRules {
             .iter()
             .any(|slot| self.textures[slot] == key)
     }
-    /// Resolves a native material alias without reclassifying it as an actor; every other
-    /// material the pinned vanilla pack names is [`MaterialKind::Provisional`].
+    /// Resolves a material class while keeping undeclared aliases explicit.
     pub fn material(&self, name: &str) -> Option<MaterialKind> {
+        let name = name.strip_suffix(".skinning").unwrap_or(name);
         self.materials.get(name).copied().or_else(|| {
+            if material_states().contains_key(name) {
+                return Some(MaterialKind::Actor);
+            }
             vocabulary()
                 .get("material")?
                 .iter()
@@ -293,40 +291,17 @@ impl PackRules {
             _ => EntityRenderMaterial::Default,
         }
     }
-    /// Resolves built-in material aliases before reading their policy state.
+    /// Resolves generated declaration states, including their skinning aliases.
     pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
-        if let Some(state) = emissive_material_states().get(name) {
-            return Some(*state);
-        }
-        let name = match name {
-            "harness" => "entity_alphatest",
-            _ => name,
-        };
-        let mut state = EntityRenderMaterialState::default();
-        match self.material(name)? {
-            MaterialKind::AlphaTestNoCull => {
-                state.alpha_test = true;
-                state.cull = false;
-            }
-            MaterialKind::AlphaTest => state.alpha_test = true,
-            MaterialKind::AlphaBlend => state.blend = true,
-            MaterialKind::Wind => {
-                state.alpha_test = true;
-                state.blend = true;
-                state.cull = false;
-                state.depth_write = false;
-                state.disable_overlay = true;
-            }
-            MaterialKind::Charged => {
-                state.alpha_test = true;
-                state.cull = false;
-                state.blend = true;
-                state.additive = true;
-                state.disable_overlay = true;
-            }
-            _ => return None,
-        }
-        Some(state)
+        material_states()
+            .get(name.strip_suffix(".skinning").unwrap_or(name))
+            .copied()
+    }
+    /// Enumerates generated states so pipeline preparation follows the material catalog.
+    pub fn material_states(&self) -> impl Iterator<Item = (&str, EntityRenderMaterialState)> {
+        material_states()
+            .iter()
+            .map(|(name, state)| (name.as_str(), *state))
     }
     /// Resolves the actor-to-retail egg rename, retaining ordinary suffix routing.
     pub fn egg_identifier(&self, actor: &str) -> String {
@@ -365,12 +340,12 @@ impl PackRules {
     }
 }
 
-/// Loads the generated emissive alias states independently of pack-authored overrides.
-fn emissive_material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
+/// Loads generated declaration states independently of pack-authored overrides.
+fn material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
     static STATES: OnceLock<BTreeMap<String, EntityRenderMaterialState>> = OnceLock::new();
     STATES.get_or_init(|| {
-        serde_json::from_str(include_str!("../../data/entity-emissive-materials.json"))
-            .expect("valid emissive material states")
+        serde_json::from_str(include_str!("../../data/entity-material-states.json"))
+            .expect("valid entity material states")
     })
 }
 

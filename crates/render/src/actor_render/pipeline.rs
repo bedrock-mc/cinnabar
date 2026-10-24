@@ -217,6 +217,11 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
     });
     ordinary
         .chain(additive)
+        .chain(
+            assets::facts::pack::rules()
+                .material_states()
+                .map(|(name, state)| assets::facts::pack::rules().raster(name).word(Some(state))),
+        )
         .flat_map(|material| {
             [
                 material,
@@ -478,6 +483,8 @@ pub(super) struct ActorPipelineContract {
     blend: bool,
     depth_write: bool,
     depth_always: bool,
+    depth_equal: bool,
+    write_color: bool,
     additive: bool,
     additive_alpha: bool,
     alpha_to_coverage: bool,
@@ -522,13 +529,16 @@ impl ActorPipelineKey {
             blend: state.blend,
             depth_write: state.depth_write,
             depth_always: state.depth_always,
+            depth_equal: state.depth_equal,
+            write_color: !state.disable_color_write,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
-            write_alpha: self.material
-                & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
-                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)
-                != (render_model::LEGACY_COMBAT_MATERIAL_FLAG
-                    | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
+            write_alpha: !state.disable_alpha_write
+                && self.material
+                    & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                        | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)
+                    != (render_model::LEGACY_COMBAT_MATERIAL_FLAG
+                        | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
             alpha_to_coverage: self.msaa.samples() > 1
                 && state.alpha_test
                 && !state.blend
@@ -579,12 +589,13 @@ impl Specializer<RenderPipeline> for ActorPipelineSpecializer {
                 .unwrap()
                 .write_mask = ColorWrites::COLOR;
         }
-        if kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
+        if !contract.write_color || kind == assets::EntityRenderMaterial::DissolveDepth as u32 {
             descriptor.fragment.as_mut().unwrap().targets[0]
                 .as_mut()
                 .unwrap()
                 .write_mask = ColorWrites::empty();
-        } else if kind == assets::EntityRenderMaterial::DissolveColor as u32 {
+        }
+        if contract.depth_equal || kind == assets::EntityRenderMaterial::DissolveColor as u32 {
             descriptor.depth_stencil.as_mut().unwrap().depth_compare = Some(CompareFunction::Equal);
         }
         if state.is_some_and(|state| state.depth_always) {

@@ -54,6 +54,15 @@ pub struct EntityRenderMaterialState {
     /// geometry rendered before it.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub depth_always: bool,
+    /// Draws only where the existing depth equals this layer.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub depth_equal: bool,
+    /// Preserves the target alpha while writing RGB.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub disable_alpha_write: bool,
+    /// Preserves target RGB and alpha while updating depth.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub disable_color_write: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -69,6 +78,9 @@ impl Default for EntityRenderMaterialState {
             additive_alpha: false,
             disable_overlay: false,
             depth_always: false,
+            depth_equal: false,
+            disable_alpha_write: false,
+            disable_color_write: false,
         }
     }
 }
@@ -86,6 +98,9 @@ impl EntityRenderMaterialState {
     pub const DISABLE_OVERLAY: u32 = 1 << 16;
     pub const DEPTH_ALWAYS: u32 = 1 << 17;
     pub const ONLY_EMISSIVE: u32 = 1 << 18;
+    pub const DEPTH_EQUAL: u32 = 1 << 19;
+    pub const DISABLE_ALPHA_WRITE: u32 = 1 << 20;
+    pub const DISABLE_COLOR_WRITE: u32 = 1 << 21;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -99,6 +114,9 @@ impl EntityRenderMaterialState {
             additive_alpha: word & Self::ADDITIVE_ALPHA != 0,
             disable_overlay: word & Self::DISABLE_OVERLAY != 0,
             depth_always: word & Self::DEPTH_ALWAYS != 0,
+            depth_equal: word & Self::DEPTH_EQUAL != 0,
+            disable_alpha_write: word & Self::DISABLE_ALPHA_WRITE != 0,
+            disable_color_write: word & Self::DISABLE_COLOR_WRITE != 0,
         })
     }
 }
@@ -153,6 +171,21 @@ impl EntityRenderMaterial {
                     }
                     | if state.disable_overlay {
                         EntityRenderMaterialState::DISABLE_OVERLAY
+                    } else {
+                        0
+                    }
+                    | if state.depth_equal {
+                        EntityRenderMaterialState::DEPTH_EQUAL
+                    } else {
+                        0
+                    }
+                    | if state.disable_alpha_write {
+                        EntityRenderMaterialState::DISABLE_ALPHA_WRITE
+                    } else {
+                        0
+                    }
+                    | if state.disable_color_write {
+                        EntityRenderMaterialState::DISABLE_COLOR_WRITE
                     } else {
                         0
                     }

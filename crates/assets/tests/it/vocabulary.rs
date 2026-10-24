@@ -54,6 +54,13 @@ impl Vocabulary {
             );
         }
         domains.insert(
+            "entity_material".into(),
+            domains["material"]
+                .iter()
+                .map(|name| name.strip_suffix(".skinning").unwrap_or(name).to_owned())
+                .collect(),
+        );
+        domains.insert(
             "item_tag".into(),
             include_str!("../../../protocol/data/item_tags_native.tsv")
                 .lines()
@@ -155,6 +162,7 @@ fn add(refs: &mut BTreeSet<Reference>, file: &str, path: &str, domain: &str, ide
 /// Selects the registry namespace for a JSON table, failing when a new table has no policy.
 fn table_domain(file: &str) -> &'static str {
     match file {
+        "entity-material-states.json" => "entity_material",
         "entity-components-1.26.50.json" => "actor",
         "block-properties-v2193.json" => "property",
         "item-use-profiles.json"
@@ -191,7 +199,8 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     path,
                     "/entries" | "/frames" | "/equipment" | "/materials" | "/twins"
                 );
-                if state
+                if (file == "entity-material-states.json" && path.is_empty())
+                    || state
                     || identity_map
                     || key.starts_with("minecraft:")
                     || key == "cinnabar:reserved"

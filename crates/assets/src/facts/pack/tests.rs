@@ -185,25 +185,47 @@ fn every_vanilla_pack_material_has_a_kind() {
     for name in &vocabulary()["material"] {
         assert!(rules().material(name).is_some(), "{name}");
     }
-    assert_eq!(rules().material("spider"), Some(MaterialKind::Provisional));
+    assert_eq!(rules().material("spider"), Some(MaterialKind::Actor));
     assert_eq!(
         rules().material("spider_invisible"),
-        Some(MaterialKind::Provisional)
+        Some(MaterialKind::Actor)
     );
     assert!(rules().material_state("spider").unwrap().emissive);
     assert_eq!(rules().material("custom"), None);
 }
 
 #[test]
-fn generated_emissive_aliases_are_live_materials_with_preserved_alpha() {
-    for (name, state) in emissive_material_states() {
-        assert!(vocabulary()["material"].contains(name.as_str()), "{name}");
-        assert!(state.emissive, "{name}");
-        assert!(!state.only_emissive || state.alpha_test, "{name}");
-        assert_eq!(rules().material_state(name), Some(*state), "{name}");
+fn generated_material_states_cover_the_pack_without_stale_aliases() {
+    let expected: BTreeSet<_> = vocabulary()["material"]
+        .iter()
+        .map(|name| name.strip_suffix(".skinning").unwrap_or(name))
+        .collect();
+    // The pack references this material, but its declaration is still unavailable.
+    let missing = BTreeSet::from(["cushion"]);
+    assert!(missing.is_subset(&expected), "stale material exception");
+    assert_eq!(
+        material_states()
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>(),
+        expected.difference(&missing).copied().collect()
+    );
+    for name in expected {
         assert_eq!(
-            EntityRenderMaterialState::from_word(EntityRenderMaterial::Default.word(Some(*state))),
-            Some(*state),
+            rules().material_state(name).is_some(),
+            !missing.contains(name),
+            "{name}"
+        );
+        assert_eq!(
+            rules().material_state(&format!("{name}.skinning")),
+            rules().material_state(name),
+            "{name}"
+        );
+    }
+    for (name, state) in rules().material_states() {
+        assert_eq!(
+            EntityRenderMaterialState::from_word(rules().raster(name).word(Some(state))),
+            Some(state),
             "{name}"
         );
     }
@@ -236,7 +258,7 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
     ]);
     for name in names {
         let expected = match name {
-            "ender_dragon" => EntityRenderMaterial::Dragon,
+            "ender_dragon" | "ender_dragon.skinning" => EntityRenderMaterial::Dragon,
             "entity_dissolve_layer0" | "entity_dissolve_layer0.skinning" => {
                 EntityRenderMaterial::DissolveDepth
             }
@@ -246,40 +268,13 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
             _ => EntityRenderMaterial::Default,
         };
         assert_eq!(rules().raster(name), expected, "{name}");
-        let mut state = EntityRenderMaterialState::default();
-        let expected = match name {
-            "skeleton" | "entity_alphatest" | "sulfur_cube" | "harness" => {
-                state.alpha_test = true;
-                state.cull = false;
-                Some(state)
-            }
-            "experience_orb" => {
-                state.alpha_test = true;
-                Some(state)
-            }
-            "player_spectator" | "slime_outer" | "sulfur_cube_outer" => {
-                state.blend = true;
-                Some(state)
-            }
-            "breeze_wind" => {
-                state.alpha_test = true;
-                state.blend = true;
-                state.cull = false;
-                state.depth_write = false;
-                state.disable_overlay = true;
-                Some(state)
-            }
-            "charged_creeper" => {
-                state.alpha_test = true;
-                state.blend = true;
-                state.cull = false;
-                state.additive = true;
-                state.disable_overlay = true;
-                Some(state)
-            }
-            _ => emissive_material_states().get(name).copied(),
-        };
-        assert_eq!(rules().material_state(name), expected, "{name}");
+        assert_eq!(
+            rules().material_state(name),
+            material_states()
+                .get(name.strip_suffix(".skinning").unwrap_or(name))
+                .copied(),
+            "{name}"
+        );
     }
 }
 
