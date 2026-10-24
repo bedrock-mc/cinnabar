@@ -11,7 +11,7 @@ fn shrieker_inventory_keeps_open_walls_and_first_carried_up_frame() {
         let mut image = image::RgbaImage::new(16, 16);
         for y in 0..16 {
             for x in 0..16 {
-                if y >= 8 || x < 3 || x >= 13 {
+                if y >= 8 || !(3..13).contains(&x) {
                     image.put_pixel(x, y, image::Rgba([255, 0, 0, 255]));
                 }
             }
