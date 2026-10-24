@@ -245,19 +245,6 @@ impl Store {
         });
     }
 
-    /// Attaches initial callback resources to their first native session without recycling tokens.
-    /// A previously bound session must use `bind_session`, which revokes its resources.
-    pub fn attach_session(&mut self, connection: u64, dimension: i32) -> bool {
-        if self.committed.connection != 0 {
-            return false;
-        }
-        let mut resources = (*self.committed).clone();
-        resources.connection = connection;
-        resources.dimension = dimension;
-        self.committed = Arc::new(resources);
-        true
-    }
-
     /// Returns the last successful callback without copying its resources.
     pub fn snapshot(&self) -> &Arc<Resources> {
         &self.committed

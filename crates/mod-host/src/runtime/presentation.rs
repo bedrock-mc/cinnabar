@@ -32,7 +32,7 @@ impl State {
     }
 
     /// Installs trusted native actor references before calling any guest import.
-    pub(crate) fn presentation_context(
+    pub(crate) fn bind_presentation(
         &mut self,
         context: &crate::presentation::Context,
     ) -> Result<()> {
@@ -42,18 +42,10 @@ impl State {
             local: false,
             permissions: self.grants.drawing_permissions(),
         };
-        if self.drawing_policy != Some(session) {
-            if !self
-                .render
-                .retained
-                .attach_session(context.connection, context.dimension)
-            {
-                self.render
-                    .retained
-                    .bind_session(context.connection, context.dimension);
-            }
-            self.render.masks.bind(session);
+        if self.drawing_policy != Some(session) || self.presentation_epoch != Some(context.epoch) {
             self.drawing_policy = Some(session);
+            self.presentation_epoch = Some(context.epoch);
+            self.reset_presentation();
         }
         let removed = self
             .render

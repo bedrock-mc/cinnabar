@@ -93,7 +93,6 @@ fn every_multichunk_initial_scene_finishes_under_frame_budget_pressure() {
             .permissions
             .insert(Permission::WorldDraw);
         instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
-        instance.drawing_context.connection = live.drawing_connection;
     }
     for slice in 0..16 {
         for instance in live.instances.values_mut() {
@@ -186,4 +185,122 @@ fn drawing_releases_retired_gpu_charges_without_a_helper_reply() {
     assert_eq!(output.gpu_reservations[0].ledger.used(), 0);
     assert_eq!(released_revision, revision);
     assert_eq!(live.drawing().1, released_revision);
+}
+
+#[test]
+fn idle_dimension_change_binds_current_entities_before_epoch_callback() {
+    let mut live = initialized(1);
+    live.grant.wire = Wire {
+        version: MAX_WIRE_VERSION,
+        limits: Limits::host(),
+    };
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance.capabilities.scope.permissions.extend([
+        Permission::WorldDraw,
+        Permission::EntityObserve,
+        Permission::RenderThroughWalls,
+    ]);
+    instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    instance.helper.as_mut().unwrap().observe_epoch = true;
+    let old = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    let mut initial = context(1);
+    initial.candidates = vec![old];
+    initial.live = vec![old];
+    initial.targets = vec![(
+        mod_api::drawing::MaskEntity {
+            connection: old.session,
+            dimension: old.dimension,
+            runtime_id: old.runtime_id,
+            spawn_revision: old.spawn_revision,
+        },
+        3,
+    )];
+    live.bind_drawing(&initial, |_| true).unwrap();
+    let current = mod_render::retained::EntityKey {
+        dimension: 1,
+        runtime_id: 43,
+        ..old
+    };
+    let current_context = mod_host::presentation::Context {
+        dimension: 1,
+        candidates: vec![current],
+        live: vec![current],
+        targets: vec![(
+            mod_api::drawing::MaskEntity {
+                connection: current.session,
+                dimension: current.dimension,
+                runtime_id: current.runtime_id,
+                spawn_revision: current.spawn_revision,
+            },
+            3,
+        )],
+        ..context(2)
+    };
+    live.bind_drawing(&current_context, |key| key == current)
+        .unwrap();
+    live.poll(2, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    let instance = &live.instances["bundle0"];
+    assert!(instance.stopped.is_none());
+    let context = instance.helper.as_ref().unwrap().contexts.last().unwrap();
+    assert_eq!(context, &current_context);
+    assert_eq!(
+        instance.presentation.output().0.retained[0]
+            .entities
+            .values()
+            .copied()
+            .collect::<Vec<_>>(),
+        [current]
+    );
+}
+
+#[test]
+fn pending_initialization_uses_its_original_drawing_fence() {
+    let mut live = fixture(1);
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::EntityHighlight);
+    instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    let helper = instance.helper.as_mut().unwrap();
+    assert_eq!(helper.contexts, [context(1)]);
+    let bytes = serde_json::to_vec(&mod_host::presentation::Output {
+        time: Some(18_000),
+        ..Default::default()
+    })
+    .unwrap();
+    helper
+        .presentation
+        .push_back(mod_host::presentation::Chunk {
+            revision: 1,
+            offset: 0,
+            total: bytes.len() as u32,
+            bytes,
+        });
+    complete(&mut live, "bundle0");
+    let changed = mod_host::presentation::Context {
+        dimension: 1,
+        ..context(1)
+    };
+    live.bind_drawing(&changed, |_| false).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    assert!(live.ready);
+    assert_eq!(live.instances["bundle0"].presentation.time, None);
+}
+
+#[test]
+fn dispatch_requires_a_context_for_the_callback_epoch() {
+    let mut live = initialized(1);
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    assert!(instance.dispatch(None, Event::Epoch, 2, None).is_err());
+    instance.drawing_context = Default::default();
+    assert!(instance.dispatch(None, Event::Frame, 1, None).is_err());
+    assert!(instance.helper.as_ref().unwrap().dispatched.is_empty());
 }

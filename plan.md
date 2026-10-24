@@ -795,7 +795,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.
-  Session teardown, epoch actor context, actor-only snapshots, staggered initialization,
+  Drawing authority and current actor identities bind together before initialization or any
+  callback; unbound and stale contexts are refused. Session teardown, epoch actor
+  context, actor-only snapshots, staggered initialization,
   fair frame callbacks and expanded triangle limits have regression coverage. Immediate
   primitives share one admitted list whose allocation ranges survive layer merging.
   One frame publisher rebuilds anchor availability from all current contributors,

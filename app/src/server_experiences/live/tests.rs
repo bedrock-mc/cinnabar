@@ -24,6 +24,9 @@ struct FakeWorker {
     /// Makes each dispatch fail its callback instead of completing it.
     fail: bool,
     dispatched: Vec<Event>,
+    /// Makes epoch callbacks publish the actor references they observe.
+    observe_epoch: bool,
+    contexts: Vec<mod_host::presentation::Context>,
     /// The modal size each dispatch carried.
     sizes: Vec<Option<GuiSize>>,
     /// The revision of the session items each dispatch carried.
@@ -38,7 +41,7 @@ impl Worker for FakeWorker {
         _: Vec<u8>,
         owner: Principal,
         _: Capabilities,
-        _: u64,
+        drawing: mod_host::presentation::Context,
         _: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
         Ok(Self {
@@ -47,6 +50,8 @@ impl Worker for FakeWorker {
             failure: None,
             fail: false,
             dispatched: Vec::new(),
+            observe_epoch: false,
+            contexts: vec![drawing],
             sizes: Vec::new(),
             items: Vec::new(),
             owner,
@@ -68,6 +73,33 @@ impl Worker for FakeWorker {
     /// Records delivered events and completes them on the next poll, in the dispatch's epoch,
     /// or fails them when the test asks.
     fn dispatch(&mut self, request: Dispatch) -> Result<()> {
+        let context = request.drawing.clone();
+        self.contexts.push(context.clone());
+        if self.observe_epoch && matches!(request.event, Event::Epoch) {
+            let mut output = mod_host::presentation::Output::default();
+            output.drawing.entities = context
+                .candidates
+                .iter()
+                .enumerate()
+                .map(|(slot, &key)| {
+                    (
+                        mod_api::drawing::DrawingHandle {
+                            owner: 1,
+                            generation: 1,
+                            slot: slot as u64 + 1,
+                        },
+                        key,
+                    )
+                })
+                .collect();
+            let bytes = serde_json::to_vec(&output)?;
+            self.presentation.push_back(mod_host::presentation::Chunk {
+                revision: 1,
+                offset: 0,
+                total: bytes.len() as u32,
+                bytes,
+            });
+        }
         self.sizes.push(request.gui);
         self.items
             .push(request.items.as_ref().map(|items| items.revision));
@@ -89,6 +121,15 @@ impl Worker for FakeWorker {
             commands: Vec::new(),
         });
         Ok(())
+    }
+}
+
+/// Supplies a bound native context for deterministic helper scheduling.
+fn context(epoch: u64) -> mod_host::presentation::Context {
+    mod_host::presentation::Context {
+        connection: 1,
+        epoch,
+        ..Default::default()
     }
 }
 
@@ -213,8 +254,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         epoch: 1,
         modal_order: 0,
         gui: None,
-        drawing_connection: 1,
-        drawing_dimension: 0,
+        drawing_fence: None,
         drawing: Default::default(),
         drawing_generation: mod_render::next_owner(),
         drawing_sources: Vec::new(),
@@ -222,6 +262,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         frame_cursor: None,
         session: None,
     };
+    live.bind_drawing(&context(1), |_| false).unwrap();
     live.initialize().unwrap();
     live
 }
@@ -623,6 +664,7 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
     live.receive(&message(&live, 2, 1), 2).unwrap();
+    live.bind_drawing(&context(2), |_| false).unwrap();
     let packets = live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
     let Control::Epoch {
         session,

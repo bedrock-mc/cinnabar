@@ -32,8 +32,9 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 /// The helper IPC protocol. A client and its helper ship together; a helper of another version
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
 /// the helper exiting; 3 the session items a dispatch carries; 4 verified drawing assets,
-/// native drawing context and typed presentation output.
-const HELPER_PROTOCOL: u32 = 4;
+/// native drawing context and typed presentation output; 5 requires that context at startup
+/// and before every callback.
+const HELPER_PROTOCOL: u32 = 5;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -89,6 +90,7 @@ struct Start {
     epoch: u64,
     component: String,
     assets: std::collections::BTreeMap<String, Vec<u8>>,
+    drawing: crate::presentation::Context,
 }
 
 /// What one callback delivers to the guest.
@@ -260,8 +262,7 @@ pub struct Dispatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<SessionItems>,
     /// Native drawing identities for this callback, never values supplied by the guest.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub drawing: Option<crate::presentation::Context>,
+    pub drawing: crate::presentation::Context,
 }
 
 pub struct Helper {
@@ -292,7 +293,7 @@ impl Helper {
         bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
-        epoch: u64,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         ensure!(
             std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
@@ -304,7 +305,7 @@ impl Helper {
             bytes,
             owner,
             capabilities,
-            epoch,
+            drawing,
             Default::default(),
         )
     }
@@ -315,13 +316,14 @@ impl Helper {
         bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
-        epoch: u64,
+        drawing: crate::presentation::Context,
         assets: std::collections::BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
         ensure!(
             std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
             "developer helper disabled"
         );
+        drawing.check(drawing.epoch)?;
         ensure!(bytes.len() <= MAX_COMPONENT_BYTES, "component too large");
         ensure!(
             assets.values().map(Vec::len).sum::<usize>() as u64 <= capabilities.scope.memory_bytes,
@@ -336,7 +338,8 @@ impl Helper {
                 protocol: HELPER_PROTOCOL,
                 owner,
                 capabilities,
-                epoch,
+                epoch: drawing.epoch,
+                drawing,
                 component: crypto::hex(&bytes),
                 assets,
             })
@@ -371,6 +374,7 @@ impl Helper {
             "helper busy or quarantined"
         );
         request.event.check()?;
+        request.drawing.check(request.epoch)?;
         serialize_frame(&request, MAX_DISPATCH_IPC)?;
         self.requests.try_send(request)?;
         self.pending_since = Some(Instant::now());
@@ -457,6 +461,7 @@ pub fn serve_developer() -> Result<()> {
             startup.capabilities,
             startup.epoch,
             startup.assets,
+            startup.drawing,
         )
     })();
     let mut host = match started {
@@ -474,13 +479,10 @@ pub fn serve_developer() -> Result<()> {
         let request: Dispatch = read_frame(&mut input, MAX_DISPATCH_IPC)?;
         let callback = request.event.callback();
         host.set_modal_size(request.gui);
-        if let Some(context) = request.drawing {
-            host.set_drawing_context(&context)?;
-        }
         if let Some(items) = request.items {
             host.set_session(std::sync::Arc::new(items.into()));
         }
-        let reply = match host.dispatch(&request.event, request.epoch) {
+        let reply = match host.dispatch(&request.event, request.epoch, &request.drawing) {
             Ok(transaction) => committed(&mut host, transaction, &bundle, callback),
             Err(error) => Reply::Failed(CallFailure {
                 fuel: Some(host.last_fuel_used()),

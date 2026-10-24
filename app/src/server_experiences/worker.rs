@@ -12,7 +12,7 @@ pub(super) trait Worker: Sized {
         bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
-        epoch: u64,
+        drawing: mod_host::presentation::Context,
         assets: std::collections::BTreeMap<String, Vec<u8>>,
     ) -> Result<Self>;
     /// Returns a completed or failed callback without waiting on the render thread; an `Err`
@@ -33,10 +33,10 @@ impl Worker for Helper {
         bytes: Vec<u8>,
         owner: Principal,
         capabilities: Capabilities,
-        epoch: u64,
+        drawing: mod_host::presentation::Context,
         assets: std::collections::BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
-        Self::spawn_developer_with_assets(executable, bytes, owner, capabilities, epoch, assets)
+        Self::spawn_developer_with_assets(executable, bytes, owner, capabilities, drawing, assets)
     }
 
     /// Polls the supervised process without blocking the frame.

@@ -358,7 +358,7 @@ pub struct BundleHost {
     last_fuel: u64,
     presentation_sent: Option<(u64, Option<u32>, Option<[f32; 2]>)>,
     presentation_pending: Option<crate::presentation::Pending>,
-    drawing_context: Option<crate::presentation::Context>,
+    drawing_context: crate::presentation::Context,
     _ticker: crate::execution::EpochTicker,
 }
 
@@ -369,12 +369,13 @@ impl BundleHost {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         ensure!(
             std::env::var(DEVELOPER_ENV).as_deref() == Ok("1"),
             "in-process server code is developer-only"
         );
-        Self::instantiate(bytes, owner, capabilities, epoch)
+        Self::instantiate(bytes, owner, capabilities, epoch, drawing)
     }
 
     /// Compiles inside the helper, with no WASI or precompiled native cache input.
@@ -383,12 +384,20 @@ impl BundleHost {
         owner: Principal,
         capabilities: Capabilities,
         epoch: u64,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         ensure!(
             bytes.len() <= MAX_COMPONENT_BYTES && bytes.starts_with(b"\0asm"),
             "invalid component bytes"
         );
-        Self::instantiate_with_assets(bytes, owner, capabilities, epoch, Default::default())
+        Self::instantiate_with_assets(
+            bytes,
+            owner,
+            capabilities,
+            epoch,
+            Default::default(),
+            drawing,
+        )
     }
 
     /// Admits host-verified assets before guest initialization can read them.
@@ -398,6 +407,7 @@ impl BundleHost {
         capabilities: Capabilities,
         epoch: u64,
         assets: std::collections::BTreeMap<String, Vec<u8>>,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         ensure!(
             bytes.len() <= MAX_COMPONENT_BYTES && bytes.starts_with(b"\0asm"),
@@ -411,7 +421,7 @@ impl BundleHost {
             assets.keys().all(|path| capabilities.assets.contains(path)),
             "unowned drawing asset"
         );
-        Self::launch(bytes, owner, capabilities, epoch, assets)
+        Self::launch(bytes, owner, capabilities, epoch, assets, drawing)
     }
 
     /// Links the 1.1 imports, which also satisfy a 1.0 component's semver-compatible ones, and
@@ -422,6 +432,7 @@ impl BundleHost {
         capabilities: Capabilities,
         epoch: u64,
         assets: std::collections::BTreeMap<String, Vec<u8>>,
+        drawing: crate::presentation::Context,
     ) -> Result<Self> {
         capabilities.scope.validate()?;
         ensure!(
@@ -456,8 +467,15 @@ impl BundleHost {
         crate::runtime::State::link_presentation(&mut linker, |state: &mut State| {
             &mut state.presentation
         })?;
-        let (store, exports) =
-            Self::start(&linker, &component, owner, capabilities, epoch, assets)?;
+        let (store, exports) = Self::start(
+            &linker,
+            &component,
+            owner,
+            capabilities,
+            epoch,
+            assets,
+            &drawing,
+        )?;
         let mut host = Self {
             store,
             exports,
@@ -467,7 +485,7 @@ impl BundleHost {
             last_fuel: 0,
             presentation_sent: None,
             presentation_pending: None,
-            drawing_context: None,
+            drawing_context: drawing,
             _ticker: ticker,
         };
         host.last_fuel = host.fuel_used();
@@ -482,7 +500,9 @@ impl BundleHost {
         capabilities: Capabilities,
         epoch: u64,
         assets: std::collections::BTreeMap<String, Vec<u8>>,
+        drawing: &crate::presentation::Context,
     ) -> Result<(Store<State>, Exports)> {
+        drawing.check(epoch)?;
         let mut state = State {
             presentation: crate::runtime::State::new(
                 drawing_grants(&capabilities),
@@ -510,6 +530,7 @@ impl BundleHost {
             bytes: 0,
             calls: 0,
         };
+        state.presentation.bind_presentation(drawing)?;
         state.presentation.asset_files = assets;
         state.begin_output()?;
         let mut store = Store::new(linker.engine(), state);
@@ -530,13 +551,20 @@ impl BundleHost {
     /// fresh instance's `init` output is discarded too, since the first one's still stands. Only
     /// a failed restart quarantines the bundle. A 1.0 component skips `action` and `epoch` and
     /// returns an empty transaction.
-    pub fn dispatch(&mut self, event: &Event, epoch: u64) -> Result<Transaction> {
+    pub fn dispatch(
+        &mut self,
+        event: &Event,
+        epoch: u64,
+        drawing: &crate::presentation::Context,
+    ) -> Result<Transaction> {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
-        if self.store.data().epoch != epoch || matches!(event, Event::Epoch) {
+        drawing.check(epoch)?;
+        if self.drawing_context.fence() != drawing.fence() || matches!(event, Event::Epoch) {
             self.presentation_pending = None;
             self.presentation_sent = None;
         }
+        self.drawing_context = drawing.clone();
         let state = self.store.data_mut();
         if let Event::Action { id, .. }
         | Event::SecondaryAction { id, .. }
@@ -558,9 +586,7 @@ impl BundleHost {
         if state.epoch != epoch || matches!(event, Event::Epoch) {
             state.presentation.reset_presentation();
         }
-        if let Some(context) = self.drawing_context.take() {
-            state.presentation.presentation_context(&context)?;
-        }
+        state.presentation.bind_presentation(drawing)?;
         state.epoch = epoch;
         state.begin_output()?;
         state.presentation.begin_presentation();
@@ -620,6 +646,7 @@ impl BundleHost {
             capabilities,
             epoch,
             assets,
+            &self.drawing_context,
         ) {
             Ok((store, exports)) => {
                 (self.store, self.exports) = (store, exports);
@@ -714,18 +741,6 @@ impl BundleHost {
                 None => Ok(()),
             },
         }
-    }
-
-    /// Supplies the native frame fence and admitted actor references before a callback.
-    pub fn set_drawing_context(&mut self, context: &crate::presentation::Context) -> Result<()> {
-        ensure!(
-            context.candidates.len() <= mod_api::MAX_DRAW_ENTITIES
-                && context.live.len() <= mod_api::MAX_DRAW_ENTITIES * 2
-                && context.targets.len() <= mod_api::drawing::MAX_MASK_ENTITIES,
-            "drawing context budget exceeded"
-        );
-        self.drawing_context = Some(context.clone());
-        Ok(())
     }
 
     /// Returns changed drawing only; bundles without drawing authority publish no presentation.

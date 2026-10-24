@@ -5,6 +5,11 @@ use std::collections::BTreeSet;
 /// Builds startup metadata without enabling developer execution in the test environment.
 fn startup() -> Start {
     Start {
+        drawing: crate::presentation::Context {
+            connection: 1,
+            epoch: 1,
+            ..Default::default()
+        },
         assets: Default::default(),
         protocol: HELPER_PROTOCOL,
         owner: Principal {
@@ -71,7 +76,7 @@ fn delayed_start_keeps_frame_polling_responsive_and_reports_launch_failure() {
     assert!(
         helper
             .dispatch(Dispatch {
-                drawing: None,
+                drawing: crate::presentation::Context::default(),
                 event: Event::Epoch,
                 epoch: 1,
                 gui: None,
@@ -139,7 +144,7 @@ fn maximum_typed_message_round_trips_through_dispatch_ipc() {
     .unwrap();
     assert_eq!(record.len(), MAX_MESSAGE_BYTES);
     let request = Dispatch {
-        drawing: None,
+        drawing: crate::presentation::Context::default(),
         event: Event::Message {
             channel: "f".repeat(MAX_IDENTIFIER_BYTES),
             record,

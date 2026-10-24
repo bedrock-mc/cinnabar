@@ -427,7 +427,10 @@ in bounded callback replies and become visible only when complete; this keeps th
 existing output limit without rejecting an otherwise admissible retained model.
 Revoke, disconnect, bundle
 replacement and a world epoch change drop the old scene. The `epoch()` callback
-lets the guest rebuild without restarting its component.
+lets the guest rebuild without restarting its component. Before `init()` and each
+later callback, the host binds drawing to the current native connection, world
+epoch, dimension type and actor identities together. A changed binding revokes old
+references before guest code runs; an unbound or stale context cannot dispatch.
 The combined scene admits immediate primitives once within the shared limits and
 tags their allocation owners. GPU reservations partition that admitted list.
 Anchor availability is rebuilt from all current contributors every frame, including

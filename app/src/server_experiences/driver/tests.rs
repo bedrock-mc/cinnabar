@@ -372,7 +372,11 @@ fn committed_dimension_transition_revokes_live_runtime_in_the_same_frame() {
         super::super::live::Live::start(
             grant,
             Vec::new(),
-            old_epoch,
+            &mod_host::presentation::Context {
+                connection: 1,
+                epoch: old_epoch,
+                ..Default::default()
+            },
             0,
             PathBuf::new().as_path(),
             PathBuf::new().as_path(),
@@ -604,7 +608,11 @@ fn changing_a_signed_bundle_set_drops_the_previous_runtime() {
         super::super::live::Live::start(
             grant.clone(),
             Vec::new(),
-            1,
+            &mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
             0,
             PathBuf::new().as_path(),
             PathBuf::new().as_path(),

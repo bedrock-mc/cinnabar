@@ -38,11 +38,47 @@ pub struct Output {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Context {
+    pub epoch: u64,
     pub connection: u64,
     pub dimension: i32,
     pub candidates: Vec<mod_render::retained::EntityKey>,
     pub live: Vec<mod_render::retained::EntityKey>,
     pub targets: Vec<(mod_api::drawing::MaskEntity, u64)>,
+}
+
+impl Context {
+    /// Refuses callbacks whose authority or actor identities do not match their world epoch.
+    pub fn check(&self, epoch: u64) -> Result<()> {
+        ensure!(
+            self.connection != 0 && self.epoch == epoch,
+            "unbound or stale drawing context"
+        );
+        ensure!(
+            self.candidates.len() <= mod_api::MAX_DRAW_ENTITIES
+                && self.live.len() <= mod_api::MAX_DRAW_ENTITIES * 2
+                && self.targets.len() <= mod_api::drawing::MAX_MASK_ENTITIES,
+            "drawing context budget exceeded"
+        );
+        ensure!(
+            self.candidates.iter().all(|key| self.live.contains(key))
+                && self
+                    .live
+                    .iter()
+                    .all(|key| key.session == self.connection && key.dimension == self.dimension)
+                && self
+                    .targets
+                    .iter()
+                    .all(|(key, _)| key.connection == self.connection
+                        && key.dimension == self.dimension),
+            "foreign drawing context actor"
+        );
+        Ok(())
+    }
+
+    /// Identifies the authority shared by callbacks, independently of their current actor lists.
+    pub fn fence(&self) -> (u64, u64, i32) {
+        (self.connection, self.epoch, self.dimension)
+    }
 }
 
 /// Maps helper-owned tokens into the application's common renderer namespace.

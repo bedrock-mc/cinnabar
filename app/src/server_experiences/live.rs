@@ -79,10 +79,11 @@ impl<H: Worker> Instance<H> {
             })
             .map(SessionItems::from);
         let revision = items.as_ref().map(|items| items.revision);
+        self.drawing_context.check(epoch)?;
         self.callback = event.callback();
         self.pending_drawing_context = self.drawing_context.clone();
         helper.dispatch(Dispatch {
-            drawing: Some(self.drawing_context.clone()),
+            drawing: self.drawing_context.clone(),
             event,
             epoch,
             gui,
@@ -153,8 +154,7 @@ pub(super) struct Live<H = Helper> {
     modal_order: u64,
     /// The drawn open modal's size and its bundle, which dispatches to that bundle carry.
     gui: Option<(GuiSize, String)>,
-    drawing_connection: u64,
-    drawing_dimension: i32,
+    drawing_fence: Option<(u64, u64, i32)>,
     drawing: mod_render::RenderOutput,
     drawing_generation: u64,
     drawing_sources: Vec<u64>,
@@ -170,11 +170,13 @@ impl<H: Worker> Live<H> {
     pub(super) fn start(
         grant: Grant,
         bundles: Vec<VerifiedBundle>,
-        epoch: u64,
+        context: &mod_host::presentation::Context,
         now_ms: u64,
         executable: &Path,
         media_helper: &Path,
     ) -> Result<Self> {
+        context.check(context.epoch)?;
+        let epoch = context.epoch;
         ensure!(
             bundles
                 .iter()
@@ -267,8 +269,7 @@ impl<H: Worker> Live<H> {
             epoch,
             modal_order: 0,
             gui: None,
-            drawing_connection: 0,
-            drawing_dimension: 0,
+            drawing_fence: None,
             drawing: Default::default(),
             drawing_generation: mod_render::next_owner(),
             drawing_sources: Vec::new(),
@@ -276,6 +277,7 @@ impl<H: Worker> Live<H> {
             frame_cursor: None,
             session: None,
         };
+        live.bind_drawing(context, |_| false)?;
         live.initialize()?;
         Ok(live)
     }
@@ -312,22 +314,14 @@ impl<H: Worker> Live<H> {
                     presentation,
                 }) => {
                     if transaction.epoch == self.epoch
-                        && (instance.callback == "init"
-                            || (instance.pending_drawing_context.connection
-                                == self.drawing_connection
-                                && instance.pending_drawing_context.dimension
-                                    == self.drawing_dimension))
+                        && Some(instance.pending_drawing_context.fence()) == self.drawing_fence
                         && let Some(presentation) = presentation
                     {
                         instance.presentation.receive(
                             *presentation,
                             mod_host::server::drawing_grants(&instance.capabilities)
                                 .drawing_permissions(),
-                            if instance.callback == "init" {
-                                &instance.drawing_context
-                            } else {
-                                &instance.pending_drawing_context
-                            },
+                            &instance.pending_drawing_context,
                             instance.capabilities.scope.memory_bytes,
                             instance.capabilities.scope.gpu_bytes,
                         )?;
@@ -540,7 +534,6 @@ impl<H: Worker> Live<H> {
             packets.push(control);
         }
         for instance in self.instances.values_mut() {
-            instance.presentation.clear();
             let guest = instance.helper.is_some() || instance.component.is_some();
             if guest
                 && !instance
@@ -560,6 +553,7 @@ impl<H: Worker> Live<H> {
             if instance.component.is_none() || !self.budget.can_dispatch(&instance.owner) {
                 continue;
             }
+            instance.drawing_context.check(self.epoch)?;
             self.budget.dispatch(&instance.owner)?;
             let component = instance.component.take().expect("component checked");
             instance.helper = Some(H::spawn(
@@ -567,9 +561,10 @@ impl<H: Worker> Live<H> {
                 component,
                 instance.owner.clone(),
                 instance.capabilities.clone(),
-                self.epoch,
+                instance.drawing_context.clone(),
                 std::mem::take(&mut instance.assets),
             )?);
+            instance.pending_drawing_context = instance.drawing_context.clone();
             instance.epoch = self.epoch;
             instance.callback = "init";
         }
@@ -605,32 +600,22 @@ impl<H: Worker> Live<H> {
         &mut self.media
     }
 
-    /// Binds presentation to the native actor connection and dimension type, not server IDs.
-    pub(super) fn bind_drawing(&mut self, connection: u64, dimension: i32) {
-        if self.drawing_connection == connection && self.drawing_dimension == dimension {
-            return;
-        }
-        self.drawing_connection = connection;
-        self.drawing_dimension = dimension;
-        for instance in self.instances.values_mut() {
-            instance.drawing_context.connection = connection;
-            instance.drawing_context.dimension = dimension;
-        }
-        for instance in self.instances.values_mut() {
-            instance.presentation.clear();
-        }
-        self.drawing_sources.clear();
-    }
-
-    /// Supplies the same native actor publication used by personal mods.
-    pub(super) fn set_drawing_context(
+    /// Replaces authority and actor identities together before initialization or any dispatch.
+    pub(super) fn bind_drawing(
         &mut self,
-        candidates: Vec<mod_render::retained::EntityKey>,
-        targets: Vec<(mod_api::drawing::MaskEntity, u64)>,
+        context: &mod_host::presentation::Context,
         valid: impl Fn(mod_render::retained::EntityKey) -> bool,
-    ) {
+    ) -> Result<()> {
+        context.check(context.epoch)?;
+        if self.drawing_fence != Some(context.fence()) {
+            for instance in self.instances.values_mut() {
+                instance.presentation.clear();
+            }
+            self.drawing_sources.clear();
+            self.drawing_fence = Some(context.fence());
+        }
         for instance in self.instances.values_mut() {
-            let mut live = candidates.clone();
+            let mut current = context.clone();
             for key in instance
                 .presentation
                 .output()
@@ -641,19 +626,13 @@ impl<H: Worker> Live<H> {
                 .copied()
                 .filter(|key| valid(*key))
             {
-                if !live.contains(&key) {
-                    live.push(key);
+                if !current.live.contains(&key) {
+                    current.live.push(key);
                 }
             }
-
-            instance.drawing_context = mod_host::presentation::Context {
-                connection: self.drawing_connection,
-                dimension: self.drawing_dimension,
-                candidates: candidates.clone(),
-                live,
-                targets: targets.clone(),
-            };
+            instance.drawing_context = current;
         }
+        Ok(())
     }
 
     /// Merges only changed client-part output; stopped parts release their renderer resources.

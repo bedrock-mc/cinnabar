@@ -85,7 +85,11 @@ fn spawn(component: Vec<u8>) -> Helper {
         component,
         owner,
         capabilities,
-        1,
+        mod_host::presentation::Context {
+            connection: 1,
+            epoch: 1,
+            ..Default::default()
+        },
     )
     .unwrap()
 }
@@ -105,7 +109,11 @@ fn reply(helper: &mut Helper) -> Reply {
 fn call(helper: &mut Helper, channel: &str) -> Reply {
     helper
         .dispatch(Dispatch {
-            drawing: None,
+            drawing: mod_host::presentation::Context {
+                connection: 1,
+                epoch: 1,
+                ..Default::default()
+            },
             event: Event::Message {
                 channel: channel.into(),
                 record: b"[]".to_vec(),

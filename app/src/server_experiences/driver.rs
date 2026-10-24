@@ -165,7 +165,7 @@ fn drive(
     mut runtime: ResMut<UiRuntimeResource>,
     mut presentation: ResMut<UiPresentationResource>,
     network: Res<NetworkHandle<PackApplication>>,
-    world: Res<crate::runtime::world::ClientWorld>,
+    drawing: super::drawing::Frame,
     fatal_error: Res<crate::runtime::shutdown::FatalError>,
     windows: Query<&Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -179,6 +179,7 @@ fn drive(
     driven: Option<Res<client_state::DrivenInput>>,
 ) {
     let now_ms = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let world = &drawing.world;
     let generation = runtime.session_id();
     let extension = &mut runtime.experiences;
     if service.generation != generation {
@@ -428,16 +429,7 @@ fn drive(
         &network,
         generation,
         now_ms,
-        world
-            .stream
-            .as_ref()
-            .map(|stream| {
-                (
-                    stream.authority().actor_session_id(),
-                    stream.authority().current_dimension(),
-                )
-            })
-            .unwrap_or_default(),
+        &drawing,
     ) {
         extension.session.disable();
         extension.active = false;
@@ -535,13 +527,16 @@ fn advance_runtime(
     network: &NetworkHandle<PackApplication>,
     generation: u64,
     now_ms: u64,
-    drawing_fence: (u64, i32),
+    drawing: &super::drawing::Frame,
 ) -> anyhow::Result<()> {
     let State::Granted(grant) = &extension.session.state else {
         service.download = None;
         service.live = None;
         extension.active = false;
         while extension.pop().is_some() {}
+        return Ok(());
+    };
+    let Some(context) = drawing.context(extension.epoch) else {
         return Ok(());
     };
     let deployment_changed = service.select_deployment(grant);
@@ -573,7 +568,7 @@ fn advance_runtime(
         service.live = Some(super::live::Live::start(
             grant.clone(),
             result?,
-            extension.epoch,
+            &context,
             now_ms,
             &mod_host::helper::developer_executable(&client),
             &mod_host::helper::media_executable(&client),
@@ -584,7 +579,7 @@ fn advance_runtime(
         while extension.pop().is_some() {}
     }
     if let Some(live) = &mut service.live {
-        live.bind_drawing(drawing_fence.0, drawing_fence.1);
+        live.bind_drawing(&context, |key| drawing.current(key))?;
         while let Some((received_ms, bytes)) = extension.pop() {
             live.receive(&bytes, received_ms)?;
         }
