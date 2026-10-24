@@ -4,14 +4,18 @@ use assets::{
 };
 use std::collections::BTreeSet;
 
-const REGISTRY: &str = include_str!("../../../../protocol/data/retail_actors_1_26_50.txt");
-
 // These missing body routes stay explicit until their models can be rendered.
 const INCOMPLETE: &[&str] = &[
     "minecraft:agent",
+    "minecraft:balloon",
+    "minecraft:chalkboard",
+    "minecraft:elder_guardian_ghost",
+    "minecraft:ice_bomb",
+    "minecraft:moving_block",
     "minecraft:ominous_item_spawner",
     "minecraft:thrown_trident",
     "minecraft:turtle",
+    "minecraft:shield",
 ];
 
 /// Reads local carrier fixtures without replacing unavailable assets with diagnostic artwork.
@@ -89,8 +93,12 @@ fn has_body_route(
 }
 
 #[test]
-fn incomplete_entity_routes_cannot_outlive_the_retail_registry() {
-    let registry: BTreeSet<_> = REGISTRY.lines().collect();
+fn incomplete_entity_routes_cannot_outlive_the_native_registry() {
+    let registry: BTreeSet<_> = EntityFacts::pinned()
+        .records
+        .iter()
+        .map(|record| record.identifier.as_ref())
+        .collect();
     assert_eq!(
         INCOMPLETE.iter().copied().collect::<BTreeSet<_>>().len(),
         INCOMPLETE.len()
@@ -104,7 +112,7 @@ fn incomplete_entity_routes_cannot_outlive_the_retail_registry() {
 }
 
 #[test]
-fn retail_entities_resolve_complete_render_resources() {
+fn native_entities_resolve_complete_render_resources() {
     let Some(entity_bytes) = fixture("CINNABAR_ENTITY_CARRIER") else {
         return;
     };
@@ -117,7 +125,8 @@ fn retail_entities_resolve_complete_render_resources() {
     let parents = assets::validate_entity_geometry_inheritance(entities.geometries())
         .expect("valid geometry inheritance");
     let mut failures = Vec::new();
-    for identifier in REGISTRY.lines() {
+    for record in &EntityFacts::pinned().records {
+        let identifier = record.identifier.as_ref();
         // These classes publish block, item, painting, weather or particle geometry elsewhere.
         let special = matches!(
             EntityFacts::pinned().get(identifier).native_class,
