@@ -88,6 +88,17 @@ fn drawn(
     layers
         .iter()
         .filter(|layer| {
+            [layer.condition, layer.material_condition]
+                .into_iter()
+                .flatten()
+                .all(|index| {
+                    molang
+                        .evaluate_query(index, "query.is_invisible", value)
+                        .unwrap()
+                        != 0.0
+                })
+        })
+        .filter(|layer| {
             visibility[layer.first_visibility as usize
                 ..layer.first_visibility as usize + usize::from(layer.visibility_count)]
                 .iter()
@@ -153,9 +164,9 @@ fn material_selection_keeps_dynamic_authored_visibility() {
 }
 
 #[test]
-fn equivalent_material_leaves_draw_each_bone_once() {
+fn wide_equivalent_material_arrays_draw_each_bone_once() {
     let fixture = compile(json!({
-        "arrays": {"materials": {"Array.same": ["Material.solid", "Material.solid"]}},
+        "arrays": {"materials": {"Array.same": vec!["Material.solid"; 64]}},
         "materials": [{"*": "Array.same[query.is_invisible]"}]
     }));
     for value in [0.0, 1.0, 2.0] {
@@ -164,4 +175,38 @@ fn equivalent_material_leaves_draw_each_bone_once() {
             [material_word("entity_alphatest")]
         );
     }
+}
+
+#[test]
+fn material_choices_preserve_admitted_visibility_scripts() {
+    for text in ["return query.is_alive;", "query.is_alive;"] {
+        let fixture = compile(json!({
+            "materials": [{"*": "query.is_invisible ? Material.blend : Material.solid"}],
+            "part_visibility": [{"*": text}]
+        }));
+        assert!(fixture.0.iter().all(|layer| layer.visibility_count == 1));
+    }
+}
+
+#[test]
+fn static_single_material_needs_no_literal_bone_mask() {
+    let mut controller = json!({"materials":[{"*":"Material.solid"},{"eye":"Material.blend"}]});
+    let description = json!({"materials":{"solid":"entity_alphatest","blend":"entity_alphablend"}});
+    let name = "a".repeat(MAX_ENTITY_RENDER_PATTERN_BYTES + 1);
+    let geometry: EntityGeometry = serde_json::from_value(json!({
+        "identifier":"geometry.test", "source_index":0, "texture_width":1, "texture_height":1,
+        "bones":[{"name":name,"cubes":[]}]
+    }))
+    .unwrap();
+    let groups = resolve(
+        description.as_object().unwrap(),
+        controller.as_object_mut().unwrap(),
+        &MaterialStates::default(),
+        &[geometry],
+        [0],
+        &mut None,
+    )
+    .unwrap();
+    assert_eq!(groups.len(), 1);
+    assert!(groups[0].hidden.is_empty());
 }

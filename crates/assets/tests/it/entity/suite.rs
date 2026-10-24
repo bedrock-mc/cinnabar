@@ -691,6 +691,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 hurt_color: None,
                 rig: 0,
                 condition: None,
+                material_condition: None,
                 first_slot: 0,
                 slot_count: 1,
                 unresolved_textures: false,
@@ -1087,4 +1088,17 @@ fn render_layers_round_trip_and_reject_invalid_indices() {
     let mut bad_pattern = compiled;
     bad_pattern.render.visibility[0].pattern = "Root".into();
     assert!(entity::encode_entity_blob(&bad_pattern).is_err());
+}
+
+#[test]
+fn material_choice_condition_is_optional_and_validated() {
+    let mut compiled = carrier_v4_fixture();
+    let serialized = serde_json::to_value(compiled.render.layers[0]).unwrap();
+    assert!(serialized.get("material_condition").is_none());
+    let layer: entity::EntityRenderLayer = serde_json::from_value(serialized).unwrap();
+    assert_eq!(layer.material_condition, None);
+    compiled.render.layers[0].material_condition = Some(u32::MAX);
+    assert!(compiled.validate().is_err());
+    compiled.render.layers[0].material_condition = Some(0);
+    assert!(compiled.validate().is_ok());
 }

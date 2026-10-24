@@ -173,6 +173,9 @@ pub struct EntityRenderLayer {
     pub rig: u32,
     /// The entity's activation expression for this controller; absent means always.
     pub condition: Option<u32>,
+    /// Whole-model material choice, evaluated after controller activation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material_condition: Option<u32>,
     pub first_slot: u32,
     pub slot_count: u16,
     /// Authored texture references could not resolve; activation still controls fallback.
@@ -301,6 +304,9 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
             || (layer.unresolved_textures && layer.slot_count != 0)
             || layer.rig as usize >= compiled.rig_bindings.len()
             || layer.condition.is_some_and(|index| !expression(index))
+            || layer
+                .material_condition
+                .is_some_and(|index| !expression(index))
             || !range_in_bounds(
                 layer.first_slot,
                 u32::from(layer.slot_count),

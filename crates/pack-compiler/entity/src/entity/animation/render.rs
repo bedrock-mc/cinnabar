@@ -324,6 +324,7 @@ pub(super) fn compile_render(
                 hurt_color: compile_color(molang, definition.get("is_hurt_color"), "this"),
                 rig: rig_index as u32,
                 condition,
+                material_condition: None,
                 first_slot: first_slot as u32,
                 slot_count: (slots.len() - first_slot) as u16,
                 unresolved_textures: slots.len() == first_slot,

@@ -41,6 +41,8 @@ pub(crate) fn render_layer_expressions(
 
     expressions.extend(layer.condition);
     gates.extend(layer.condition);
+    expressions.extend(layer.material_condition);
+    gates.extend(layer.material_condition);
     expressions.extend(layer.light_color_multiplier);
     for channels in [
         layer.color,

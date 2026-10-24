@@ -389,12 +389,16 @@ fn evaluate_layer_into(
     let render = assets.render_data();
     let mut unresolved_artwork = false;
     budget.charge_work()?;
-    if let Some(condition) = layer.condition
-        && !evaluator
+    for condition in [layer.condition, layer.material_condition]
+        .into_iter()
+        .flatten()
+    {
+        if !evaluator
             .run(condition as usize, variables, 0.0, budget)?
             .truthy()
-    {
-        return Ok(unresolved_artwork);
+        {
+            return Ok(unresolved_artwork);
+        }
     }
     let choices = render
         .geometries

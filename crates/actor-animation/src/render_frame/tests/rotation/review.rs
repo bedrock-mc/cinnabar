@@ -468,3 +468,71 @@ fn body_sampling_retains_render_layers_under_the_same_frame_budget() {
     assert_eq!(render, body.render);
     assert_eq!(frame.remaining_ops(), 0);
 }
+
+#[test]
+fn material_choices_gate_layers_before_consumers_pick_the_first_texture() {
+    for active in [false, true] {
+        let mut compiled = compiled_fixture(180.0);
+        let frame_alpha = compiled
+            .molang_symbols
+            .iter()
+            .position(|symbol| symbol.identifier.as_ref() == "query.frame_alpha")
+            .unwrap() as u32;
+        let early = expression(
+            &mut compiled,
+            &[MolangOp::LoadQuery(frame_alpha), MolangOp::Not],
+            1,
+        );
+        let late = expression(&mut compiled, &[MolangOp::LoadQuery(frame_alpha)], 1);
+        let activation = expression(
+            &mut compiled,
+            &[MolangOp::Push(crate::test_support::scalar(f32::from(
+                active,
+            )))],
+            1,
+        );
+        let mut first = compiled.render.layers[0];
+        first.material = assets::EntityRenderMaterial::Dragon;
+        first.condition = Some(activation);
+        first.material_condition = Some(early);
+        let second = assets::EntityRenderLayer {
+            material: assets::EntityRenderMaterial::Default,
+            material_condition: Some(late),
+            first_slot: 1,
+            ..first
+        };
+        compiled.render.layers = vec![first, second].into();
+        let slot = compiled.render.slots[0];
+        compiled.render.slots = vec![
+            slot,
+            assets::EntityRenderSlot {
+                first_candidate: 1,
+                ..slot
+            },
+        ]
+        .into();
+        compiled.render.candidates = compiled.render.candidates.repeat(2).into();
+        let (store, actors) = fixture_with(compiled, 0.0, Default::default());
+        for (alpha, expected) in [
+            (0.0, assets::EntityRenderMaterial::Dragon),
+            (1.0, assets::EntityRenderMaterial::Default),
+        ] {
+            let mut budget = MAX_MOLANG_OPS_PER_RENDER_FRAME;
+            let layers = store
+                .render_layers(&actors[&1], alpha, [0.0; 2], [0.0; 3], &mut budget, false)
+                .unwrap();
+            assert_eq!(layers.render.len(), usize::from(active));
+            if active {
+                assert_eq!(
+                    layers
+                        .render
+                        .iter()
+                        .find(|layer| layer.texture_slot == 0)
+                        .unwrap()
+                        .material,
+                    expected
+                );
+            }
+        }
+    }
+}
