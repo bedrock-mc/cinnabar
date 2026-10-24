@@ -73,11 +73,9 @@ pub(super) fn inline_local_constants(src: &[Tok]) -> Option<Vec<Tok>> {
                 });
                 pending.push((*visible_from, (name, value)));
             }
-            Some(_) if contexts.contains(&i) => {
-                if inline(&mut out, token, after_member, &scopes) {
-                    changed = true;
-                    continue;
-                }
+            Some(_) if contexts.contains(&i) && inline(&mut out, token, after_member, &scopes) => {
+                changed = true;
+                continue;
             }
             _ => {}
         }
