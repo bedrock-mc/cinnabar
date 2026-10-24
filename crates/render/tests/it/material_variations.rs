@@ -1,37 +1,15 @@
 use crate::material_shader;
-use std::{
-    borrow::Cow,
-    future::Future,
-    task::{Context, Poll, Waker},
-};
+use std::borrow::Cow;
 use wgpu::util::DeviceExt;
 
-/// Polls the adapter/device futures without adding another executor dependency.
-fn finish<T>(future: impl Future<Output = T>) -> T {
-    let mut future = std::pin::pin!(future);
-    let mut context = Context::from_waker(Waker::noop());
-    loop {
-        if let Poll::Ready(value) = future.as_mut().poll(&mut context) {
-            return value;
-        }
-        std::thread::yield_now();
-    }
-}
-
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn positional_material_gpu_matches_signed_coordinate_vectors() {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    let adapter = finish(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-        .expect("this fixture requires a native GPU adapter");
-    assert_ne!(
-        adapter.get_info().backend,
-        wgpu::Backend::Noop,
-        "native GPU required"
-    );
-    eprintln!("positional material GPU fixture: {:?}", adapter.get_info());
-    let (device, queue) =
-        finish(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let Some(gpu) = crate::gpu_snapshot::Gpu::for_fixture(
+        "positional_material_gpu_matches_signed_coordinate_vectors",
+    ) else {
+        return;
+    };
+    let (device, queue) = (gpu.device, gpu.queue);
     let source = material_shader::source(include_str!("../../src/material.wesl"));
     let source = format!(
         "{source}\n{}",

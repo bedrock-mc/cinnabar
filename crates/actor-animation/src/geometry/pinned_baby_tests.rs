@@ -3,10 +3,13 @@ use super::super::*;
 use protocol_ids::ActorFlag;
 
 #[test]
-#[ignore = "requires CINNABAR_ENTITY_CARRIER pointing to the pinned compiled entity carrier"]
 fn pinned_baby_polar_bear_selects_its_own_model_and_never_plays_the_adult_body_clip() {
-    let bytes = std::fs::read(std::env::var_os("CINNABAR_ENTITY_CARRIER").unwrap()).unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ENTITY_CARRIER",
+        "pinned_baby_polar_bear_selects_its_own_model_and_never_plays_the_adult_body_clip",
+    ) else {
+        return;
+    };
     let mut actor = tests::actor_with_metadata(HashMap::from([(
         0,
         ActorMetadataValue::Flags(1 << ActorFlag::Baby.wire_value()),

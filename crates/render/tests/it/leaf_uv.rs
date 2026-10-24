@@ -55,9 +55,11 @@ fn native_cube_axes_are_applied_before_all_pack_rotations_and_reflections() {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn actual_gpu_uvs_follow_native_world_axes_for_every_face() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture("actual_gpu_uvs_follow_native_world_axes_for_every_face")
+    else {
+        return;
+    };
     let source = shader();
     for face in Face::ALL {
         let config = gpu.buffer(
@@ -102,9 +104,12 @@ fn actual_gpu_uvs_follow_native_world_axes_for_every_face() {
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn actual_gpu_draws_mirror_opposing_leaf_alpha_masks_on_all_three_axes() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("actual_gpu_draws_mirror_opposing_leaf_alpha_masks_on_all_three_axes")
+    else {
+        return;
+    };
     // An authored asymmetric mask: only its upper-left texel is transparent.
     // Rendering the same plane twice leaves one quarter uncovered; rendering
     // native opposing faces closes that artificial straight-through opening.
