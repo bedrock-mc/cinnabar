@@ -469,30 +469,30 @@ fn legacy_replacement_preserves_explicit_sneak_and_the_level_profile() {
     let mut physics = due_physics();
     physics.set_base_game_version(protocol::BaseGameVersion::parse("1.19.80"));
     world.take_committed_controls();
-    tick_sneak(&world, &mut physics, true);
-    write_dimensions(&mut world, 2, &[(ActorDataKey::Height, 0.7)]);
+    tick_sneak(&mut physics, true);
+    write_dimensions(&mut world, &mut physics, 2, &[(ActorDataKey::Height, 0.7)]);
     write_flags(
         &mut world,
         &mut physics,
         3,
         1 << ActorFlag::Sneaking.wire_value(),
     );
-    tick_sneak(&world, &mut physics, true);
+    tick_sneak(&mut physics, true);
     assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, 0.7]);
-    replace_with_width(&mut world, 4);
+    replace_with_width(&mut world, &mut physics, 4);
     write_flags(
         &mut world,
         &mut physics,
         5,
         1 << ActorFlag::Sneaking.wire_value(),
     );
-    tick_sneak(&world, &mut physics, true);
+    tick_sneak(&mut physics, true);
     assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
     assert_eq!(
         reported_box(&mut physics, &world),
         [1.0, 0.8, STANDING_HEIGHT]
     );
-    tick_sneak(&world, &mut physics, false);
+    tick_sneak(&mut physics, false);
     assert_eq!(
         reported_box(&mut physics, &world),
         [1.0, WIDTH, STANDING_HEIGHT]
