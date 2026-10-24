@@ -399,12 +399,9 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
-  Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
-  hooks, ladders, lily pads and sea pickles use their carried sprites; falling blocks retain
-  their world models.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
-  resin clumps, hooks, ladders, lily pads and sea pickles use their carried sprites; falling
-  blocks retain their world models.
+  resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
+  sprites; falling blocks retain their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.

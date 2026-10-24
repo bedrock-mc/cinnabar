@@ -130,6 +130,8 @@ fn item_block_id(
                 | assets::facts::BlockRenderKind::LilyPad
                 | assets::facts::BlockRenderKind::SeaPickle
         ) || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CANDLE_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::METAL_BAR_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
     }
