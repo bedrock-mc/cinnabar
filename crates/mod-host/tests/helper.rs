@@ -108,11 +108,16 @@ fn reply(helper: &mut Helper) -> Reply {
 }
 
 fn call(helper: &mut Helper, channel: &str) -> Reply {
+    call_record(helper, channel, b"[]")
+}
+
+/// Sends a message payload through the real helper process and waits for its reply.
+fn call_record(helper: &mut Helper, channel: &str, record: &[u8]) -> Reply {
     helper
         .dispatch(Dispatch {
             event: Event::Message {
                 channel: channel.into(),
-                record: b"[]".to_vec(),
+                record: record.to_vec(),
             },
             epoch: 1,
             gui: None,
@@ -300,7 +305,11 @@ fn negotiation_readiness_and_recovery_cross_helper_ipc() {
     };
     assert!(transaction.commands.is_empty());
     assert!(matches!(
-        call(&mut helper, "demo.registry"),
+        call_record(
+            &mut helper,
+            "demo.registry",
+            br#"[{"type":"text","value":"expected"}]"#
+        ),
         Reply::Committed { .. }
     ));
     helper
@@ -331,8 +340,17 @@ fn negotiation_readiness_and_recovery_cross_helper_ipc() {
         call(&mut helper, "demo.waiting"),
         Reply::NotReady { .. }
     ));
+    let Reply::Failed(failure) = call_record(
+        &mut helper,
+        "demo.registry",
+        br#"[{"type":"text","value":"changed-server"}]"#,
+    ) else {
+        panic!("mismatched definitions must fail without restarting");
+    };
+    assert_eq!(failure.kind, FailureKind::RegistryMismatch);
+    assert_eq!(failure.reason, experience_sdk::REGISTRY_MISMATCH);
     assert!(matches!(
-        call(&mut helper, "demo.registry"),
-        Reply::Committed { .. }
+        call(&mut helper, "demo.waiting"),
+        Reply::Failed(_)
     ));
 }

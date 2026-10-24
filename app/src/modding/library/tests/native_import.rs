@@ -124,7 +124,7 @@ fn imported_native_menu_requests_explicit_consent_and_starts_on_the_next_join() 
             &mods,
             &registration,
             &mut requests,
-            &mut || Ok(Some(source.clone())),
+            &mut || Ok(Some(source.clone().into())),
             &mut |_| Ok(retirement_permit()),
         )
         .unwrap()
@@ -268,7 +268,7 @@ fn imported_external_reactor_keeps_native_menu_alive_after_explicit_consent() {
             &mods,
             &registration,
             &mut requests,
-            &mut || Ok(Some(source.clone())),
+            &mut || Ok(Some(source.clone().into())),
             &mut |_| Ok(retirement_permit()),
         )
         .unwrap()

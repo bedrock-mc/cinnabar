@@ -18,8 +18,17 @@
 //! `client`, and its build script `declarations`.
 
 pub use channel::{Channel, Direction, Field};
+/// Attributes that export the two separately compiled mod entry points.
+pub mod entry {
+    pub use experience_macros::{client, server};
+}
 pub use value::Value;
 
+/// Explains why incompatible shared definitions stop a client part.
+pub const REGISTRY_MISMATCH: &str =
+    "mod registry fingerprint mismatch; rebuild the client and server definitions together";
+
+pub mod artifact;
 mod channel;
 mod value;
 

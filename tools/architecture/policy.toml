@@ -18,6 +18,10 @@ forbidden_artifacts = [
 
 # Original art, never Mojang content.
 [[owned_artifacts]]
+path = "examples/experiences/terminal-client/assets/terminal.png"
+ownership_record = "docs/mod-projects.md"
+
+[[owned_artifacts]]
 path = "assets/panorama/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
@@ -483,13 +487,19 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "experience-sdk"
 path = "crates/experience-sdk"
+allowed_dependencies = ["experience-macros"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "experience-macros"
+path = "crates/experience-macros"
 allowed_dependencies = []
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
 name = "experience-runtime"
 path = "crates/experience-runtime"
-allowed_dependencies = ["test-time"]
+allowed_dependencies = ["experience-sdk", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
@@ -1355,6 +1365,11 @@ path = "crates/update-installer"
 allowed_dependencies = ["update-manifest"]
 forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio"]
 
+# Procedural attributes require a separate compiler plugin crate; the SDK owns their public API.
+[[reexport_allowances]]
+path = "crates/experience-sdk/src/lib.rs"
+exports = ["experience_macros::client", "experience_macros::server"]
+
 # Production identity decisions move to the facts owners; unlisted files have a zero budget.
 [identifier_literals]
 owners = [
@@ -1380,6 +1395,11 @@ baselines = [
 path = "tools/devtool/src/startup.rs"
 literal = "mesa"
 reason = "Directory for the Mesa driver's isolated shader cache, independent of biome identifiers."
+
+[[identifier_literal_exceptions]]
+path = "tools/cxb/src/project/local.rs"
+literal = "target"
+reason = "Cargo compiler-artifact JSON field, independent of game identifiers."
 
 [[identifier_literal_exceptions]]
 path = "crates/oreui/src/settings/localization.rs"

@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use server_experience::{cache, crypto};
 
 pub mod bundle;
+pub mod client_build;
 pub mod fixtures;
 pub mod keys;
 pub mod media;

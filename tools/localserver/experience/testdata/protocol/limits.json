@@ -1,6 +1,6 @@
 {
   "max_frame_bytes": 4194304,
-  "protocol": 6,
+  "protocol": 7,
   "max_block_data_bytes": 65536,
   "max_staged_ops": 64,
   "max_tells": 4,

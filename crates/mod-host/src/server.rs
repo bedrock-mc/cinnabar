@@ -17,6 +17,7 @@ use wasmtime::{
 
 mod negotiation;
 use negotiation::Negotiation;
+pub use negotiation::RegistryMismatch;
 
 /// Whether the callback ran or must remain in its caller's queue until confirmation.
 #[derive(Debug)]
@@ -536,6 +537,14 @@ impl BundleHost {
         if let Some(negotiation) = &state.negotiation {
             self.last_fuel = 0;
             let confirms = matches!(event, Event::Message { channel, .. } if channel == &negotiation.confirmation);
+            if confirms
+                && let Event::Message { record, .. } = event
+                && !negotiation.matches(record)
+            {
+                state.negotiation = None;
+                self.active = false;
+                return Err(RegistryMismatch.into());
+            }
             if !confirms {
                 if epoch != previous_epoch {
                     let request = negotiation.request.clone();

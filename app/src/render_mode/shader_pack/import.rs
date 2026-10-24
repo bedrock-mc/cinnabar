@@ -25,7 +25,7 @@ const PACK_FILES: Filter = Filter {
 };
 
 /// Opens a file picker and returns the chosen files, none on cancel, or a visible error.
-type Pick = Arc<dyn Fn(&Filter) -> Result<Vec<PathBuf>, String> + Send + Sync>;
+type Pick = Arc<dyn Fn(&Filter) -> Result<Vec<picker::PickedFile>, String> + Send + Sync>;
 
 /// What an import worker finished.
 enum Finished {
@@ -120,7 +120,13 @@ fn start_picked_import(
         .name("shader pack picker".into())
         .spawn(move || {
             let picked = pick(&PACK_FILES).map(|paths| {
-                (!paths.is_empty()).then(|| shaderpack::add_dropped_packs(&paths, &dir))
+                (!paths.is_empty()).then(|| {
+                    let sources: Vec<_> = paths
+                        .iter()
+                        .map(|file| file.as_ref().to_path_buf())
+                        .collect();
+                    shaderpack::add_dropped_packs(&sources, &dir)
+                })
             });
             let _ = sender.send(Finished::Picked(picked));
         });

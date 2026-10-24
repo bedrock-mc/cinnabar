@@ -32,6 +32,7 @@ pub struct Definition {
     pub name: String,
     pub kind: String,
     pub value: String,
+    pub content: Option<super::content::Content>,
 }
 
 /// A checked message and its source definition, with generation attributes removed.
@@ -92,7 +93,16 @@ impl Project {
             "project ID must start with a lowercase letter and contain only lowercase letters, digits and underscores"
         );
         project.permissions.insert("messaging".into());
-        let mut names = BTreeSet::new();
+        let mut names = BTreeSet::from(
+            [
+                "PACKAGE_ID",
+                "REGISTRY",
+                "REGISTRY_FINGERPRINT",
+                "assets",
+                "registration",
+            ]
+            .map(str::to_owned),
+        );
         let mut ids = BTreeSet::new();
         ids.insert(format!("{}.registry", project.id));
         ids.insert(format!("{}.registry_request", project.id));
@@ -170,15 +180,18 @@ impl Project {
                         fields: types,
                     });
                 }
-                Item::Const(constant) => {
+                Item::Const(mut constant) => {
+                    let mut attributes = take(&mut constant.attrs, "block");
+                    attributes.extend(take(&mut constant.attrs, "item"));
+                    ensure!(attributes.len() <= 1, "one content declaration per ID");
                     ensure!(
                         constant.attrs.iter().all(|a| a.path().is_ident("doc")),
                         "conditional ID constants are unsupported"
                     );
                     let kind = constant.ty.to_token_stream().to_string();
                     ensure!(
-                        matches!(kind.as_str(), "EntityId" | "WorldId" | "ItemId"),
-                        "shared constants must use EntityId, WorldId or ItemId"
+                        matches!(kind.as_str(), "EntityId" | "WorldId" | "ItemId" | "BlockId"),
+                        "shared constants must use EntityId, WorldId, BlockId or ItemId"
                     );
                     let Expr::Macro(value) = constant.expr.as_ref() else {
                         bail!("typed ID constants must use id!(...)");
@@ -197,10 +210,15 @@ impl Project {
                         names.insert(constant.ident.to_string()) && ids.insert(value.clone()),
                         "duplicate typed ID"
                     );
+                    let content = attributes
+                        .first()
+                        .map(|attribute| super::content::Content::parse(attribute, &kind))
+                        .transpose()?;
                     project.definitions.push(Definition {
                         name: constant.ident.to_string(),
                         kind,
                         value,
+                        content,
                     });
                     project.items.push(Item::Const(constant));
                 }
@@ -241,7 +259,13 @@ impl Project {
         let ids = self
             .definitions
             .iter()
-            .map(|id| json!({"name": id.name, "kind": id.kind, "value": id.value}))
+            .map(|id| {
+                let mut value = json!({"name": id.name, "kind": id.kind, "value": id.value});
+                if let Some(content) = &id.content {
+                    value["content"] = json!({"name": content.display_name, "asset": content.asset.to_token_stream().to_string(), "hardness": content.hardness, "max_stack": content.max_stack});
+                }
+                value
+            })
             .collect::<Vec<_>>();
         json!({"format": 1, "id": self.id, "messages": messages, "ids": ids})
     }
@@ -395,7 +419,7 @@ fn field_type(ty: &Type, bounds: &Bounds, in_list: bool) -> Result<FieldType> {
             ensure!(bounds.max_bytes.is_none(), "max_bytes only applies to text");
             Ok(FieldType::Bool)
         }
-        "String" | "EntityId" | "WorldId" | "ItemId" => Ok(FieldType::Text {
+        "String" | "EntityId" | "WorldId" | "ItemId" | "BlockId" => Ok(FieldType::Text {
             max_bytes: bounds
                 .max_bytes
                 .context("text and IDs need #[field(max_bytes = ...)]")?,
