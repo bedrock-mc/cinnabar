@@ -28,9 +28,11 @@ impl DialModels {
         for (&identifier, frames) in &self.strips {
             for metadata in frames.clone() {
                 if let Some(icon) = icons.item_icon(identifier, metadata) {
-                    cache.warm_icon(ModelKey::icon(icon, true), || {
-                        icon_sprite(icons, identifier, metadata, true)
-                    });
+                    cache.warm_icon(
+                        ModelKey::icon(icon, true),
+                        || super::source_cost::icon_cost(icons, icon, true),
+                        || icon_sprite(icons, identifier, metadata, true),
+                    );
                 }
             }
         }

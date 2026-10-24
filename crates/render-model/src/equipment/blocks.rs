@@ -494,67 +494,84 @@ pub fn dropped_model(
     }
     let mut quads = Vec::with_capacity(vertices.len() / 6);
     for vertices in vertices.as_chunks::<6>().0 {
-        let order = if vertices[4] == vertices[2] {
-            [0, 1, 2, 5]
-        } else {
-            [0, 4, 1, 2]
-        };
-        let corners = order.map(|index| vertices[index]);
-        if corners.iter().any(|vertex| {
-            vertex
-                .position
-                .iter()
-                .chain(&vertex.uv)
-                .any(|value| !value.is_finite())
-                || vertex.position.iter().any(|value| {
-                    let fixed = (value + 0.5) * 256.0;
-                    fixed < f32::from(i16::MIN) || fixed > f32::from(i16::MAX)
-                })
-                || vertex.uv.iter().any(|value| !(0.0..=1.0).contains(value))
-        }) {
-            return None;
-        }
-        let origin = corners[0].glint_origin;
-        let tile = std::array::from_fn::<_, 2, _>(|axis| {
-            (origin[axis] * grid[axis] as f32).round() as u32
-        });
-        if tile.iter().zip(grid).any(|(&tile, size)| tile >= size)
-            || corners.iter().any(|vertex| vertex.glint_origin != origin)
-        {
-            return None;
-        }
-        let local_uvs = corners.map(|vertex| {
-            std::array::from_fn::<_, 2, _>(|axis| {
-                (vertex.uv[axis] - origin[axis]) * grid[axis] as f32
-            })
-        });
-        if local_uvs
-            .iter()
-            .flatten()
-            .any(|value| !(-0.0001..=1.0001).contains(value))
-        {
-            return None;
-        }
-        quads.push(assets::ModelQuad {
-            positions: corners.map(|vertex| {
-                vertex
-                    .position
-                    .map(|value| ((value + 0.5) * 256.0).round() as i16)
-            }),
-            uvs: local_uvs.map(|uv| {
-                uv.map(|value| {
-                    (value.clamp(0.0, 1.0) * f32::from(assets::MODEL_UV_SCALE)).round() as u16
-                })
-            }),
-            material: tile[1] * grid[0] + tile[0],
-            flags: 0,
-        });
+        quads.push(dropped_quad(vertices)?);
     }
     Some(crate::DroppedItemBlock {
         materials: materials.into(),
         quads: quads.into(),
         rotation: 0,
     })
+}
+
+/// Validates and quantizes one held quad without allocating its dropped geometry.
+fn dropped_quad(vertices: &[crate::ActorRigVertex; 6]) -> Option<assets::ModelQuad> {
+    let grid = BLOCK_ITEM_SHEET_GRID.map(u32::from);
+    let order = if vertices[4] == vertices[2] {
+        [0, 1, 2, 5]
+    } else {
+        [0, 4, 1, 2]
+    };
+    let corners = order.map(|index| vertices[index]);
+    if corners.iter().any(|vertex| {
+        vertex
+            .position
+            .iter()
+            .chain(&vertex.uv)
+            .any(|value| !value.is_finite())
+            || vertex.position.iter().any(|value| {
+                let fixed = (value + 0.5) * 256.0;
+                fixed < f32::from(i16::MIN) || fixed > f32::from(i16::MAX)
+            })
+            || vertex.uv.iter().any(|value| !(0.0..=1.0).contains(value))
+    }) {
+        return None;
+    }
+    let origin = corners[0].glint_origin;
+    let tile =
+        std::array::from_fn::<_, 2, _>(|axis| (origin[axis] * grid[axis] as f32).round() as u32);
+    if tile.iter().zip(grid).any(|(&tile, size)| tile >= size)
+        || corners.iter().any(|vertex| vertex.glint_origin != origin)
+    {
+        return None;
+    }
+    let local_uvs = corners.map(|vertex| {
+        std::array::from_fn::<_, 2, _>(|axis| (vertex.uv[axis] - origin[axis]) * grid[axis] as f32)
+    });
+    if local_uvs
+        .iter()
+        .flatten()
+        .any(|value| !(-0.0001..=1.0001).contains(value))
+    {
+        return None;
+    }
+    Some(assets::ModelQuad {
+        positions: corners.map(|vertex| {
+            vertex
+                .position
+                .map(|value| ((value + 0.5) * 256.0).round() as i16)
+        }),
+        uvs: local_uvs.map(|uv| {
+            uv.map(|value| {
+                (value.clamp(0.0, 1.0) * f32::from(assets::MODEL_UV_SCALE)).round() as u16
+            })
+        }),
+        material: tile[1] * grid[0] + tile[0],
+        flags: 0,
+    })
+}
+
+/// Measures authored held geometry using exactly the conversion used to build dropped quads.
+pub fn dropped_vertex_count(vertices: &[crate::ActorRigVertex]) -> Option<usize> {
+    if vertices.is_empty() || !vertices.len().is_multiple_of(6) {
+        return None;
+    }
+    vertices
+        .as_chunks::<6>()
+        .0
+        .iter()
+        .try_fold(0usize, |count, vertices| {
+            Some(count + crate::dropped_item::block_quad_vertex_count(&dropped_quad(vertices)?))
+        })
 }
 
 /// Composes carried cube faces from overlay-local materials for inventory and held rendering.

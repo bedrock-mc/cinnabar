@@ -910,6 +910,7 @@ fn resolve(
                 &plant.states,
             )?;
             held.push(StaticItemPlacement {
+                allow_block_models: false,
                 identifier: Arc::clone(&plant.identifier),
                 metadata: 0,
                 potted_block: Some(id),

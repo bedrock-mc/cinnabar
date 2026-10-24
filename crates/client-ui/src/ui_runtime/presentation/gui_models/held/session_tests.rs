@@ -692,6 +692,19 @@ fn custom_content_preview_uses_authored_mesh_and_matching_sheet() {
         .unwrap();
     assert_eq!(layers, assets::BlockFace::ALL.len());
     assert_eq!(layers, dropped.texture_layers());
+    let before = test_alloc::thread_allocations();
+    let measured = presentation
+        .session_block_cost(ITEM, 0, held.source)
+        .unwrap();
+    assert_eq!(
+        test_alloc::thread_allocations(),
+        before,
+        "cost measurement borrows geometry and pixels"
+    );
+    assert_eq!(
+        Some(measured),
+        render_model::dropped_item::ItemModelCost::from_model(&dropped)
+    );
     assert!(
         held.placements
             .iter()

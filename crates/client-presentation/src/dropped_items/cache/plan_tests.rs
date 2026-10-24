@@ -6,6 +6,7 @@ use render_model::{DroppedItemCube, DroppedItemSprite, dropped_item::ItemModelBu
 struct Artwork {
     model: DroppedItemModel,
     vertices: usize,
+    builds: std::cell::Cell<usize>,
 }
 
 impl Artwork {
@@ -43,7 +44,11 @@ impl Artwork {
             )
             .unwrap()
             .len();
-        Self { model, vertices }
+        Self {
+            model,
+            vertices,
+            builds: std::cell::Cell::new(0),
+        }
     }
 }
 
@@ -70,8 +75,11 @@ fn resolve(
                         hashed: false,
                         id: id as u32,
                     },
-                    || Some(model.texture_layers()),
-                    || Some(model.clone()),
+                    || planning::ModelCost::from_model(model),
+                    || {
+                        models[id].builds.set(models[id].builds.get() + 1);
+                        Some(model.clone())
+                    },
                 )
             })
         })
@@ -206,5 +214,145 @@ fn bounded_random_plans_draw_at_least_both_baselines_within_both_budgets() {
         let budget =
             ItemModelBudget::new(assets::texture::policy::device_policy(), layers, mesh_bytes);
         assert_best_plan(&models, &items, budget);
+    }
+}
+
+#[test]
+fn device_rejections_never_build_and_recheck_only_after_budget_changes() {
+    let artwork = [
+        Artwork::new(16, false, false),
+        Artwork::new(16, false, false),
+    ];
+    let models: Vec<_> = artwork.iter().collect();
+    let items = [[None, Some(0), None, None], [None, Some(1), None, None]].repeat(32);
+    for layers in [true, false] {
+        for art in &artwork {
+            art.builds.set(0);
+        }
+        let budget = |expanded: bool| {
+            ItemModelBudget::new(
+                assets::texture::policy::device_policy(),
+                if layers && !expanded {
+                    2
+                } else {
+                    MAX_ITEM_LAYERS
+                },
+                if !layers && !expanded {
+                    (artwork[0].vertices * render_model::dropped_item::ITEM_MESH_VERTEX_BYTES)
+                        as u64
+                } else {
+                    u64::MAX
+                },
+            )
+        };
+        let mut cache = ModelCache {
+            budget: budget(false),
+            ..Default::default()
+        };
+        let rejected_key = ModelKey::Block {
+            hashed: false,
+            id: 1,
+        };
+        let mut checks = None;
+        for _ in 0..24 {
+            let chosen = cache.prepare(|cache| resolve(cache, &models, &items));
+            assert_eq!(chosen.iter().flatten().count(), 32);
+            cache.finish_frame();
+            assert_eq!(artwork[0].builds.get(), 1, "admitted artwork is retained");
+            assert_eq!(
+                artwork[1].builds.get(),
+                0,
+                "rejected artwork is never built"
+            );
+            let current = cache.admission_checks[&rejected_key];
+            assert_eq!(
+                *checks.get_or_insert(current),
+                current,
+                "unchanged rejections reuse their budget decision"
+            );
+        }
+        let checks_before_expansion = cache.admission_checks[&rejected_key];
+        cache.budget = budget(true);
+        for _ in 0..24 {
+            let chosen = cache.prepare(|cache| resolve(cache, &models, &items));
+            assert_eq!(chosen.iter().flatten().count(), items.len());
+            cache.finish_frame();
+            assert!(artwork.iter().all(|art| art.builds.get() == 1));
+            assert!(cache.admission_checks[&rejected_key] > checks_before_expansion);
+        }
+    }
+}
+
+#[test]
+fn rejected_source_is_reconsidered_after_competing_demand_or_artwork_changes() {
+    let artwork = [
+        Artwork::new(16, false, false),
+        Artwork::new(16, false, false),
+    ];
+    let models: Vec<_> = artwork.iter().collect();
+    let items = [[None, Some(0), None, None], [None, Some(1), None, None]];
+    let budget = ItemModelBudget::new(assets::texture::policy::device_policy(), 2, u64::MAX);
+    let mut cache = ModelCache {
+        budget,
+        ..Default::default()
+    };
+    for _ in 0..12 {
+        assert_eq!(
+            cache
+                .prepare(|cache| resolve(cache, &models, &items))
+                .iter()
+                .flatten()
+                .count(),
+            1
+        );
+        cache.finish_frame();
+    }
+    assert_eq!(artwork[1].builds.get(), 0);
+    for _ in 0..12 {
+        assert!(cache.prepare(|cache| resolve(cache, &models, &items[1..]))[0].is_some());
+        cache.finish_frame();
+    }
+    assert_eq!(artwork[1].builds.get(), 1, "changed demand frees capacity");
+    cache.sync(0, None, 1);
+    cache.budget = budget;
+    assert!(cache.prepare(|cache| resolve(cache, &models, &items[1..]))[0].is_some());
+    assert_eq!(
+        artwork[1].builds.get(),
+        2,
+        "new artwork generation replaces old costs and pixels"
+    );
+}
+
+#[test]
+fn selected_residents_survive_a_new_model_before_them_in_demand_order() {
+    let art = Artwork::new(1, false, false);
+    let models: Vec<_> = (0..MAX_ITEM_LAYERS).map(|_| &art).collect();
+    let mut items: Vec<_> = (0..MAX_ITEM_LAYERS - 1)
+        .map(|id| [None, Some(id), None, None])
+        .collect();
+    let mut cache = ModelCache::default();
+    assert!(
+        cache
+            .prepare(|cache| resolve(cache, &models, &items))
+            .iter()
+            .all(Option::is_some)
+    );
+    cache.finish_frame();
+    let builds = cache.model_builds;
+    items.pop();
+    items.insert(0, [None, Some(MAX_ITEM_LAYERS - 1), None, None]);
+    for _ in 0..12 {
+        assert!(
+            cache
+                .prepare(|cache| resolve(cache, &models, &items))
+                .iter()
+                .all(Option::is_some)
+        );
+        cache.finish_frame();
+        assert_eq!(
+            cache.model_builds,
+            builds + 1,
+            "only the newly selected source is built"
+        );
     }
 }

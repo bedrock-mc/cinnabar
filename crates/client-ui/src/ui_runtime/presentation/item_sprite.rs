@@ -1,5 +1,6 @@
 //! Straight-alpha item icon pixels for world-space item meshes.
 
+use render_model::dropped_item::ItemModelCost;
 use {super::UiPresentationRuntime, ui::IconRef};
 
 /// One item icon cropped from a UI atlas page.
@@ -25,6 +26,82 @@ impl UiPresentationRuntime {
     /// Crops the selected artwork without resolving the item identity again.
     pub fn resolved_item_sprite(&self, icon: IconRef, max_side: u32) -> Option<ItemSpritePixels> {
         crop_icon(self, icon, max_side)
+    }
+
+    /// Measures the exact reduced sprite directly from its atlas, before cropping pixels.
+    pub fn resolved_item_cost(
+        &self,
+        icon: IconRef,
+        max_side: u32,
+        native: bool,
+    ) -> Option<ItemModelCost> {
+        let source = IconPixels::new(self, icon, max_side)?;
+        let vertices = render_model::sampled_sprite_vertex_count(
+            source.width as usize,
+            source.height as usize,
+            |x, y| source.pixel(x as u32, y as u32)[3] >= if native { 2 } else { 1 },
+        )?;
+        ItemModelCost::new(
+            source.width.max(source.height),
+            1,
+            (source.width * source.height * 4) as usize,
+            vertices,
+        )
+    }
+
+    /// Measures a session sheet and its authored geometry without copying either source.
+    pub fn session_block_cost(
+        &self,
+        identifier: &str,
+        metadata: u32,
+        sheet: IconRef,
+    ) -> Option<ItemModelCost> {
+        let source = IconPixels::new(self, sheet, assets::MAX_TILE_SIZE)?;
+        let grid = assets::BLOCK_ITEM_SHEET_GRID.map(u32::from);
+        let [width, height] = [source.width / grid[0], source.height / grid[1]];
+        let vertices =
+            if let Some((_, vertices)) = self.session_icons.held_block(identifier, metadata) {
+                if width == 0
+                    || height == 0
+                    || source.width != width * grid[0]
+                    || source.height != height * grid[1]
+                {
+                    return None;
+                }
+                render_model::equipment::blocks::dropped_vertex_count(&vertices)?
+            } else {
+                if [source.width, source.height] != assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from) {
+                    return None;
+                }
+                36
+            };
+        ItemModelCost::new(
+            width.max(height),
+            assets::BlockFace::ALL.len(),
+            (width * height * 4) as usize * assets::BlockFace::ALL.len(),
+            vertices,
+        )
+    }
+
+    /// Measures a matching startup sheet without allocating its six face buffers.
+    pub fn carried_block_cost(
+        &self,
+        visual: u32,
+        source_manifest_sha256: [u8; 32],
+    ) -> Option<ItemModelCost> {
+        let sprite = self.carried_block_sheet(visual, source_manifest_sha256)?;
+        if [sprite.width, sprite.height] != assets::BLOCK_ITEM_SHEET_SIZE
+            || sprite.rgba8.len() != usize::from(sprite.width) * usize::from(sprite.height) * 4
+        {
+            return None;
+        }
+        let side = u32::from(assets::BLOCK_ITEM_FACE_SIDE);
+        ItemModelCost::new(
+            side,
+            assets::BlockFace::ALL.len(),
+            (side * side * 4) as usize * assets::BlockFace::ALL.len(),
+            36,
+        )
     }
 
     /// The admitted six-face sheet for this pack item variant, falling back to variant zero.
@@ -76,6 +153,15 @@ impl UiPresentationRuntime {
         visual: u32,
         source_manifest_sha256: [u8; 32],
     ) -> Option<render_model::DroppedItemCube> {
+        carried_cube(self.carried_block_sheet(visual, source_manifest_sha256)?)
+    }
+
+    /// Borrows a startup face sheet only when its catalog matches the terrain source.
+    fn carried_block_sheet(
+        &self,
+        visual: u32,
+        source_manifest_sha256: [u8; 32],
+    ) -> Option<&assets::IconSprite> {
         let catalog = self.icon_catalog.as_deref()?;
         if catalog.source_manifest_sha256() != source_manifest_sha256 {
             return None;
@@ -84,10 +170,9 @@ impl UiPresentationRuntime {
             .block_sheets()
             .binary_search_by_key(&visual, |sheet| sheet.visual.0)
             .ok()?;
-        let sprite = catalog
+        catalog
             .sprites()
-            .get(catalog.block_sheets()[index].sprite as usize)?;
-        carried_cube(sprite)
+            .get(catalog.block_sheets()[index].sprite as usize)
     }
 }
 
@@ -135,34 +220,66 @@ fn crop_icon(
     icon: IconRef,
     max_side: u32,
 ) -> Option<ItemSpritePixels> {
-    let width = u32::from(icon.uv[2].checked_sub(icon.uv[0])?);
-    let height = u32::from(icon.uv[3].checked_sub(icon.uv[1])?);
-    if width == 0 || height == 0 {
-        return None;
-    }
-    let page = runtime.textures.pages().get(usize::from(icon.page))?;
-    let [page_width, page_height] = page.dimensions();
-    if u32::from(icon.uv[2]) > page_width || u32::from(icon.uv[3]) > page_height {
-        return None;
-    }
-    let factor = reduction_factor(width, height, max_side)?;
-    let (out_width, out_height) = (width / factor, height / factor);
-    let pixels = page.pixels();
-    let mut rgba8 = Vec::with_capacity((out_width * out_height * 4) as usize);
-    for y in 0..out_height {
-        for x in 0..out_width {
-            // Nearest sample from the middle of each reduced block.
-            let source_x = u32::from(icon.uv[0]) + x * factor + factor / 2;
-            let source_y = u32::from(icon.uv[1]) + y * factor + factor / 2;
-            let offset = ((source_y * page_width + source_x) * 4) as usize;
-            rgba8.extend_from_slice(pixels.get(offset..offset + 4)?);
+    let source = IconPixels::new(runtime, icon, max_side)?;
+    let mut rgba8 = Vec::with_capacity((source.width * source.height * 4) as usize);
+    for y in 0..source.height {
+        for x in 0..source.width {
+            rgba8.extend_from_slice(source.pixel(x, y));
         }
     }
     Some(ItemSpritePixels {
-        width: out_width,
-        height: out_height,
+        width: source.width,
+        height: source.height,
         rgba8,
     })
+}
+
+/// Borrows the exact atlas samples used for reduced icon construction and cost measurement.
+struct IconPixels<'a> {
+    width: u32,
+    height: u32,
+    factor: u32,
+    origin: [u32; 2],
+    stride: u32,
+    pixels: &'a [u8],
+}
+
+impl<'a> IconPixels<'a> {
+    /// Validates the rectangle and reduction once before either reader visits its pixels.
+    fn new(runtime: &'a UiPresentationRuntime, icon: IconRef, max_side: u32) -> Option<Self> {
+        let width = u32::from(icon.uv[2].checked_sub(icon.uv[0])?);
+        let height = u32::from(icon.uv[3].checked_sub(icon.uv[1])?);
+        let page = runtime.textures.pages().get(usize::from(icon.page))?;
+        let [stride, rows] = page.dimensions();
+        if u32::from(icon.uv[2]) > stride || u32::from(icon.uv[3]) > rows {
+            return None;
+        }
+        let factor = reduction_factor(width, height, max_side)?;
+        let pixels = page.pixels();
+        if pixels.len()
+            != (stride as usize)
+                .checked_mul(rows as usize)?
+                .checked_mul(4)?
+        {
+            return None;
+        }
+        Some(Self {
+            width: width / factor,
+            height: height / factor,
+            factor,
+            origin: [u32::from(icon.uv[0]), u32::from(icon.uv[1])],
+            stride,
+            pixels,
+        })
+    }
+
+    /// Samples the middle of the same reduced source block as the cropped icon.
+    fn pixel(&self, x: u32, y: u32) -> &[u8] {
+        let x = self.origin[0] + x * self.factor + self.factor / 2;
+        let y = self.origin[1] + y * self.factor + self.factor / 2;
+        let offset = ((y * self.stride + x) * 4) as usize;
+        &self.pixels[offset..offset + 4]
+    }
 }
 
 /// Selects an integer sampling factor that preserves both icon dimensions.

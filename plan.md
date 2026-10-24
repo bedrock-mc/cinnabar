@@ -395,9 +395,10 @@ and rendered qualification remain incomplete.
   geometry and startup sprites in order, continuing when construction, extrusion or device
   atlas and mesh admission fails. Selection and upload share the same physical budgets.
   Framed and dropped items compare complete cube-preferred and sprite-only preparations
-  against texture and mesh budgets before upload. They choose the plan that draws more items,
-  keeping cubes on a tie, and count and log omissions. Invalid meshes stay rejected
-  until their artwork generation changes.
+  using borrowed source costs before constructing artwork. Only selected models copy pixels
+  and retain their result. They choose the plan that draws more items, keeping cubes on a tie,
+  and count and log omissions. Capacity rejections reuse their decision until the budget
+  changes; invalid meshes stay rejected until their artwork generation changes.
   Cache-pressure captures, frame pose comparisons, shaped models and special models remain incomplete.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.

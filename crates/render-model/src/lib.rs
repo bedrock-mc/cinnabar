@@ -64,7 +64,10 @@ pub use frame_pacing::{
     Cadence, FrameRate, OCCLUDED_FRAME_RATE, UNFOCUSED_FRAME_RATE, WindowActivity,
     effective_frame_rate,
 };
-pub use item_geometry::{extruded_sprite_vertices, held_sprite_vertices, textured_cube_vertices};
+pub use item_geometry::{
+    extruded_sprite_vertices, held_sprite_vertices, sampled_sprite_vertex_count,
+    textured_cube_vertices,
+};
 pub use nametag::{
     MAX_NAMETAG_RECORDS, NAMETAG_ALPHA_CUTOFF, NAMETAG_ATLAS_SIDE, NAMETAG_BLOCKS_PER_FONT_PIXEL,
     NAMETAG_DIM_TEXT_ALPHA, NAMETAG_LINE_PITCH_PX, NAMETAG_TEXT_REVERSE_Z_BIAS, NametagAtlasRect,

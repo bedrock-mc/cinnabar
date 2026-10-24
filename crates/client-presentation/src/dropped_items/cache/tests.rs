@@ -12,6 +12,21 @@ fn sprite() -> DroppedItemModel {
     })
 }
 
+/// Measures the solid square fixture without constructing its pixel buffer.
+fn sprite_cost(side: u32) -> Option<planning::ModelCost> {
+    planning::ModelCost::new(
+        side,
+        1,
+        (side * side * 4) as usize,
+        12 + side as usize * 4 * 6,
+    )
+}
+
+/// Measures six solid faces without constructing their pixel buffers.
+fn cube_cost(side: u32) -> Option<planning::ModelCost> {
+    planning::ModelCost::new(side, 6, (side * side * 4 * 6) as usize, 36)
+}
+
 /// Makes an independent key for capacity tests.
 fn key(id: u32) -> ModelKey {
     ModelKey::Block { hashed: false, id }
@@ -19,7 +34,7 @@ fn key(id: u32) -> ModelKey {
 
 /// Admits one sprite through the same lazy construction path as the publisher.
 fn admit(cache: &mut ModelCache, id: u32) -> Option<u32> {
-    cache.model(key(id), || Some(1), || Some(sprite()))
+    cache.model(key(id), || sprite_cost(1), || Some(sprite()))
 }
 
 /// Starts a frame and protects its current consumers before calculating capacity.
@@ -58,7 +73,7 @@ fn inactive_hd_models_cannot_size_the_current_atlas() {
     let hd = cache
         .model(
             key(0),
-            || Some(1),
+            || sprite_cost(2048),
             || {
                 Some(DroppedItemModel::Sprite(DroppedItemSprite {
                     width: 2048,
@@ -76,7 +91,7 @@ fn inactive_hd_models_cannot_size_the_current_atlas() {
             cache
                 .model(
                     key(id),
-                    || Some(1),
+                    || sprite_cost(16),
                     || {
                         Some(DroppedItemModel::Sprite(DroppedItemSprite {
                             width: 16,
@@ -202,7 +217,7 @@ fn cube_admission_reclaims_six_layers_without_moving_a_live_sprite() {
         cache
             .model(
                 key(900),
-                || Some(assets::BlockFace::ALL.len()),
+                || cube_cost(1),
                 || Some(DroppedItemModel::Cube(DroppedItemCube {
                     tile: 1,
                     faces: std::array::from_fn(|_| Arc::from([255; 4])),
@@ -241,7 +256,7 @@ fn insufficient_mixed_capacity_skips_construction_and_retries_after_despawn() {
                     key(900),
                     || {
                         cost_queries.set(cost_queries.get() + 1);
-                        Some(assets::BlockFace::ALL.len())
+                        cube_cost(1)
                     },
                     || panic!("three layers cannot fit a cube")
                 ),
@@ -260,7 +275,7 @@ fn insufficient_mixed_capacity_skips_construction_and_retries_after_despawn() {
         cache
             .model(
                 key(900),
-                || Some(assets::BlockFace::ALL.len()),
+                || cube_cost(1),
                 || Some(DroppedItemModel::Cube(DroppedItemCube {
                     tile: 1,
                     faces: std::array::from_fn(|_| Arc::from([255; 4])),
@@ -292,7 +307,7 @@ fn rejected_layer_estimates_stay_bounded_and_drop_unused_keys() {
         assert_eq!(
             cache.model(
                 key(id),
-                || Some(MAX_ITEM_LAYERS),
+                || planning::ModelCost::new(32, MAX_ITEM_LAYERS, 4, 36),
                 || panic!("oversized models must not be built")
             ),
             None
@@ -327,7 +342,7 @@ fn warm_icon_lookup_and_admission_do_not_allocate() {
         true,
     );
     assert_eq!(
-        cache.model(key.clone(), || Some(1), || Some(sprite())),
+        cache.model(key.clone(), || sprite_cost(1), || Some(sprite())),
         Some(0)
     );
     cache.finish_frame();
@@ -382,7 +397,7 @@ fn permanent_block_build_failures_are_attempted_once_until_sync_changes() {
                         key(900),
                         || {
                             costs.set(costs.get() + 1);
-                            Some(1)
+                            sprite_cost(1)
                         },
                         || {
                             builds.set(builds.get() + 1);
@@ -423,7 +438,7 @@ fn permanent_block_failures_are_bounded_and_follow_demand() {
     let mut cache = ModelCache::default();
     frame(&mut cache, []);
     for id in 0..60_000 {
-        assert_eq!(cache.model(key(id), || Some(1), || None), None);
+        assert_eq!(cache.model(key(id), || sprite_cost(1), || None), None);
     }
     assert_eq!(cache.rejected.len(), MAX_ITEM_LAYERS - 1);
     assert!(cache.models.is_empty() && cache.index.is_empty());
@@ -442,7 +457,7 @@ fn permanent_block_failures_are_bounded_and_follow_demand() {
     assert_eq!(
         cache.model(
             key(0),
-            || Some(1),
+            || sprite_cost(1),
             || {
                 builds.set(builds.get() + 1);
                 None
@@ -475,7 +490,7 @@ fn transient_icon_and_carried_block_build_failures_are_retried() {
             cache.begin_frame();
             cache.request(&key);
             cache.finish_demand();
-            let result = cache.model(key.clone(), || Some(1), || succeeds.then(sprite));
+            let result = cache.model(key.clone(), || sprite_cost(1), || succeeds.then(sprite));
             assert_eq!(result, succeeds.then_some(0));
         }
     }
@@ -602,12 +617,16 @@ fn hd_pixel_budget_reclaims_unused_models_and_preserves_current_consumers() {
     let mut cache = ModelCache::default();
     frame(&mut cache, []);
     for id in 0..4 {
-        assert!(cache.warm_icon(key(id), build).is_some());
+        assert!(
+            cache
+                .warm_icon(key(id), || sprite_cost(2048), build)
+                .is_some()
+        );
     }
     frame(&mut cache, [0, 1, 2, 3, 4]);
-    assert!(cache.model(key(4), || Some(1), build).is_none());
+    assert!(cache.model(key(4), || sprite_cost(2048), build).is_none());
     frame(&mut cache, [0, 4]);
-    assert!(cache.model(key(4), || Some(1), build).is_some());
+    assert!(cache.model(key(4), || sprite_cost(2048), build).is_some());
     assert!(cache.index.contains_key(&key(0)));
     assert_eq!(
         cache.models.iter().map(pixel_cost).sum::<usize>(),
@@ -627,8 +646,8 @@ fn byte_budget_rejections_skip_builds_until_capacity_changes() {
     };
     let mut cache = ModelCache::default();
     frame(&mut cache, []);
-    let first = cache.model(key(0), || Some(6), cube).unwrap();
-    let second = cache.model(key(1), || Some(6), cube).unwrap();
+    let first = cache.model(key(0), || cube_cost(1024), cube).unwrap();
+    let second = cache.model(key(1), || cube_cost(1024), cube).unwrap();
     cache.finish_frame();
     let shared = Arc::clone(&cache.shared);
     let costs = std::cell::Cell::new(0);
@@ -641,7 +660,7 @@ fn byte_budget_rejections_skip_builds_until_capacity_changes() {
                     key(2),
                     || {
                         costs.set(costs.get() + 1);
-                        Some(6)
+                        cube_cost(1024)
                     },
                     || {
                         builds.set(builds.get() + 1);
@@ -657,7 +676,7 @@ fn byte_budget_rejections_skip_builds_until_capacity_changes() {
         assert_eq!(cache.index[&key(1)], second as usize);
     }
     assert_eq!(costs.get(), 1);
-    assert_eq!(builds.get(), 1);
+    assert_eq!(builds.get(), 0);
     frame(&mut cache, [1, 2]);
     cache.request(&key(0));
     assert!(
@@ -692,7 +711,14 @@ fn speculative_icon_frames_do_not_evict_models_at_the_layer_limit() {
         uv: [0, 0, 1, 1],
         native: true,
     };
-    assert_eq!(cache.warm_icon(icon, || panic!("no free layers")), None);
+    assert_eq!(
+        cache.warm_icon(
+            icon,
+            || panic!("no free capacity"),
+            || panic!("no free layers")
+        ),
+        None
+    );
     assert_eq!(cache.index.len(), MAX_ITEM_LAYERS - 1);
     assert_eq!(cache.index[&key(0)], 0);
     assert!(
@@ -720,7 +746,9 @@ fn speculative_icon_frames_do_not_evict_models_at_the_pixel_limit() {
     frame(&mut cache, []);
     let count = assets::texture::policy::MAX_SUBSCRIBER_BYTES / pixels.len();
     for id in 0..count as u32 {
-        cache.warm_icon(key(id), build).unwrap();
+        cache
+            .warm_icon(key(id), || sprite_cost(2048), build)
+            .unwrap();
     }
     frame(&mut cache, [0]);
     let icon = ModelKey::Icon {
@@ -728,7 +756,10 @@ fn speculative_icon_frames_do_not_evict_models_at_the_pixel_limit() {
         uv: [0, 0, 1, 1],
         native: true,
     };
-    assert_eq!(cache.warm_icon(icon, || Some(sprite())), None);
+    assert_eq!(
+        cache.warm_icon(icon, || sprite_cost(1), || Some(sprite())),
+        None
+    );
     assert_eq!(cache.index.len(), count);
     assert_eq!(
         cache.pixel_bytes,
@@ -746,7 +777,9 @@ fn late_current_models_can_reclaim_speculative_frames_without_double_charging() 
     let mut cache = ModelCache::default();
     frame(&mut cache, []);
     for id in 0..(MAX_ITEM_LAYERS - 1) as u32 {
-        cache.warm_icon(key(id), || Some(sprite())).unwrap();
+        cache
+            .warm_icon(key(id), || sprite_cost(1), || Some(sprite()))
+            .unwrap();
     }
     let selected = cache.model(
         key(0),
@@ -770,6 +803,11 @@ fn late_current_models_can_reclaim_speculative_frames_without_double_charging() 
 fn invalid_geometry_is_retried_only_after_artwork_generation_changes() {
     let mut cache = ModelCache::default();
     let builds = std::cell::Cell::new(0);
+    let invalid = DroppedItemModel::NativeSprite(DroppedItemSprite {
+        width: 1,
+        height: 1,
+        rgba8: Arc::from([]),
+    });
     let key = ModelKey::icon(
         ui::IconRef {
             color_mask: None,
@@ -788,7 +826,7 @@ fn invalid_geometry_is_retried_only_after_artwork_generation_changes() {
                 assert_eq!(
                     cache.model(
                         key.clone(),
-                        || Some(1),
+                        || planning::ModelCost::from_model(&invalid),
                         || {
                             builds.set(builds.get() + 1);
                             Some(DroppedItemModel::NativeSprite(DroppedItemSprite {
@@ -802,6 +840,7 @@ fn invalid_geometry_is_retried_only_after_artwork_generation_changes() {
                 );
             }
         }
-        assert_eq!(builds.get(), generation + 1);
+        assert_eq!(builds.get(), 0);
+        assert_eq!(cache.mesh_validations[&key], 1);
     }
 }

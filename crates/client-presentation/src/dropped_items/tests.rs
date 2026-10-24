@@ -69,6 +69,17 @@ fn potted_models_sample_the_exposed_server_texture_grid() {
         cache.begin_frame();
         cache.finish_demand();
         let handle = DroppedItemPublisher::potted_model(&mut cache, &runtime, 1).unwrap();
+        let cost = source_cost::template_cost(
+            &runtime,
+            runtime
+                .potted_model_template(NetworkIdMode::Sequential, 1)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            Some(cost),
+            render_model::dropped_item::ItemModelCost::from_model(&cache.models[handle as usize])
+        );
         let DroppedItemModel::Block(model) = &cache.models[handle as usize] else {
             panic!("pot contents must retain their model");
         };
@@ -526,6 +537,7 @@ fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
     )
     .unwrap();
     let mut placement = render_model::StaticItemPlacement {
+        allow_block_models: true,
         identifier: "minecraft:barrel".into(),
         metadata: 0,
         potted_block: None,

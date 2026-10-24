@@ -35,6 +35,7 @@ pub(crate) struct DroppedItemFrame<'a> {
 mod dials;
 mod lighting;
 mod preparation;
+mod source_cost;
 use crate::session_artwork::ItemArtwork;
 use preparation::DropPreparation;
 
@@ -178,40 +179,6 @@ fn block_cube(assets: &RuntimeAssets, mode: NetworkIdMode, id: u32) -> Option<Dr
     })
 }
 
-/// Counts the distinct texture materials needed by a block model without copying its data.
-fn block_model_layers(assets: &RuntimeAssets, mode: NetworkIdMode, id: u32) -> Option<usize> {
-    let block = assets.resolve(mode, id);
-    if !block.is_known() {
-        return None;
-    }
-    if block.kind() == VisualKind::Cube {
-        return Some(BlockFace::ALL.len());
-    }
-    if !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
-        return None;
-    }
-    template_layers(assets, block.model_template()?)
-}
-
-/// Counts materials in one model's contiguous parts without copying texture pixels.
-fn template_layers(assets: &RuntimeAssets, mut template_id: u32) -> Option<usize> {
-    let mut materials = std::collections::HashSet::new();
-    loop {
-        let template = assets.model_templates().get(template_id as usize)?;
-        let first = template.quad_start as usize;
-        for quad in assets
-            .model_quads()
-            .get(first..first + template.quad_count as usize)?
-        {
-            materials.insert(quad.material);
-        }
-        if template.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT == 0 {
-            return Some(materials.len());
-        }
-        template_id = template_id.checked_add(1)?;
-    }
-}
-
 fn block_template(
     assets: &RuntimeAssets,
     mode: NetworkIdMode,
@@ -310,7 +277,7 @@ impl DroppedItemPublisher<'_, '_> {
         let template = assets.potted_model_template(NetworkIdMode::Sequential, id)?;
         cache.model(
             ModelKey::PottedBlock { id },
-            || template_layers(assets, template),
+            || source_cost::template_cost(assets, template),
             || template_model(assets, template, 0).map(DroppedItemModel::Block),
         )
     }
@@ -326,7 +293,7 @@ impl DroppedItemPublisher<'_, '_> {
         };
         cache.model(
             key,
-            || block_model_layers(assets, mode, id),
+            || source_cost::block_cost(assets, mode, id),
             || {
                 block_cube(assets, mode, id)
                     .map(DroppedItemModel::Cube)
@@ -344,7 +311,7 @@ impl DroppedItemPublisher<'_, '_> {
         native_drop: bool,
     ) -> Option<u32> {
         let icon = icons.item_icon(identifier, metadata)?;
-        Self::resolved_icon_model(cache, icon, native_drop, || {
+        Self::resolved_icon_model(cache, icons, icon, native_drop, || {
             icon_sprite(icons, identifier, metadata, native_drop)
         })
     }
@@ -353,11 +320,16 @@ impl DroppedItemPublisher<'_, '_> {
     /// from the same identifier and metadata only when the model is not resident.
     fn resolved_icon_model(
         cache: &mut ModelCache,
+        icons: &UiPresentationRuntime,
         icon: ui::IconRef,
         native_drop: bool,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
-        cache.model(ModelKey::icon(icon, native_drop), || Some(1), build)
+        cache.model(
+            ModelKey::icon(icon, native_drop),
+            || source_cost::icon_cost(icons, icon, native_drop),
+            build,
+        )
     }
 
     fn carried_block_model(
@@ -373,7 +345,7 @@ impl DroppedItemPublisher<'_, '_> {
         };
         cache.model(
             key,
-            || Some(BlockFace::ALL.len()),
+            || source_cost::carried_cost(icons, assets, mode, id),
             || {
                 let block = assets.resolve(mode, id);
                 if !block.is_known() {
@@ -409,7 +381,7 @@ impl DroppedItemPublisher<'_, '_> {
     ) -> Option<u32> {
         cache.model(
             ModelKey::session_block(sheet),
-            || icons.session_block_texture_layers(identifier, metadata),
+            || icons.session_block_cost(identifier, metadata, sheet),
             || icons.session_block_model(identifier, metadata, sheet),
         )
     }
@@ -428,7 +400,7 @@ impl DroppedItemPublisher<'_, '_> {
         }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
-                placement.carried_block?;
+                placement.allow_block_models.then_some(())?;
                 let sheet = icons.session_block_sheet(&placement.identifier, placement.metadata)?;
                 Self::session_block_model(
                     cache,
@@ -448,16 +420,17 @@ impl DroppedItemPublisher<'_, '_> {
                     false,
                 )
             }
-            ItemArtwork::StartupCube => Self::carried_block_model(
+            ItemArtwork::StartupCube if placement.allow_block_models => Self::carried_block_model(
                 cache,
                 icons,
                 assets?,
                 NetworkIdMode::Sequential,
                 placement.carried_block?.0,
             ),
+            ItemArtwork::StartupCube => None,
             ItemArtwork::StartupSprite => {
                 let icon = startup_icon?;
-                Self::resolved_icon_model(cache, icon, false, || {
+                Self::resolved_icon_model(cache, icons, icon, false, || {
                     resolved_icon_sprite(icons, icon, false)
                 })
             }
@@ -503,7 +476,7 @@ impl DroppedItemPublisher<'_, '_> {
                     &ModelKey::icon(icon, true),
                     DroppedItemShape::Sprite,
                     |cache| {
-                        Self::resolved_icon_model(cache, icon, true, || {
+                        Self::resolved_icon_model(cache, icons, icon, true, || {
                             resolved_icon_sprite(icons, icon, true)
                         })
                     },

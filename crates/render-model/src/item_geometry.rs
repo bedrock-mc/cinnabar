@@ -21,12 +21,25 @@ pub(crate) fn sprite_vertex_count(
     if width == 0 || height == 0 || rgba8.len() != width.checked_mul(height)?.checked_mul(4)? {
         return None;
     }
+    sampled_sprite_vertex_count(width, height, |column, row| {
+        rgba8[(row * width + column) * 4 + 3] >= minimum_alpha
+    })
+}
+
+/// Counts a borrowed or resampled alpha mask without copying pixels or allocating geometry.
+pub fn sampled_sprite_vertex_count(
+    width: usize,
+    height: usize,
+    opaque: impl Fn(usize, usize) -> bool,
+) -> Option<usize> {
+    if width == 0 || height == 0 {
+        return None;
+    }
     let max_vertices = crate::MAX_ACTOR_RIG_VERTICES
         .min(assets::texture::policy::MAX_SUBSCRIBER_BYTES / std::mem::size_of::<ActorRigVertex>());
     let mut vertices = 12;
     for row in 0..height {
         for column in 0..width {
-            let opaque = |column, row| rgba8[(row * width + column) * 4 + 3] >= minimum_alpha;
             if !opaque(column, row) {
                 continue;
             }

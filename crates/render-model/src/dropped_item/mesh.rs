@@ -141,7 +141,35 @@ impl DroppedItemModel {
                     },
                 )
             }
-            _ => self.mesh(side, 1).map(|vertices| vertices.len()),
+            Self::Vacant => None,
+            Self::Cube(cube) => {
+                let bytes = (cube.tile as usize)
+                    .checked_mul(cube.tile as usize)?
+                    .checked_mul(4)?;
+                (cube.tile > 0
+                    && cube.tile <= side
+                    && cube.faces.iter().all(|face| face.len() == bytes))
+                .then_some(36)
+            }
+            Self::Block(block) => {
+                for (sprite, _) in block.materials.iter() {
+                    if sprite.width == 0
+                        || sprite.height == 0
+                        || sprite.width > side
+                        || sprite.height > side
+                        || sprite.rgba8.len()
+                            != (sprite.width as usize)
+                                .checked_mul(sprite.height as usize)?
+                                .checked_mul(4)?
+                    {
+                        return None;
+                    }
+                }
+                block.quads.iter().try_fold(0usize, |count, quad| {
+                    block.materials.get(quad.material as usize)?;
+                    count.checked_add(super::block_quad_vertex_count(quad))
+                })
+            }
         }
     }
 

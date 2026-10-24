@@ -6,6 +6,7 @@ mod atlas;
 mod block;
 mod bounds;
 mod budget;
+mod cost;
 mod culling;
 mod mesh;
 mod native;
@@ -14,6 +15,7 @@ pub use atlas::atlas_layer_limit;
 pub use block::block_mesh;
 pub use bounds::{DroppedItemBounds, DroppedItemCullView, DroppedItemFrustum};
 pub use budget::ItemModelBudget;
+pub use cost::{ItemModelCost, block_quad_vertex_count};
 
 pub use mesh::{
     ITEM_MESH_VERTEX_BYTES, ItemMeshVertex, cube_mesh, extruded_sprite_mesh,

@@ -173,7 +173,11 @@ fn publish_hd_clock(
     cache.finish_demand();
     let admit_hd = |cache: &mut ModelCache| {
         cache
-            .model(hd_key.clone(), || Some(1), || Some(hd.clone()))
+            .model(
+                hd_key.clone(),
+                || render_model::dropped_item::ItemModelCost::from_model(hd),
+                || Some(hd.clone()),
+            )
             .unwrap()
     };
     let admit_clock = |cache: &mut ModelCache| {

@@ -208,6 +208,7 @@ fn framed_cube_faces_follow_pack_replacement_and_removal() {
     world.init_resource::<DroppedItemScene>();
     world.insert_resource(render_scene::StaticItemPlacementsResource(
         render_model::StaticItemPlacements(vec![render_model::StaticItemPlacement {
+            allow_block_models: true,
             identifier: ITEM.into(),
             metadata: 0,
             potted_block: None,
@@ -387,7 +388,7 @@ fn pressured_cache(free: usize) -> ModelCache {
         cache
             .model(
                 ModelKey::Block { hashed: false, id },
-                || Some(1),
+                || render_model::dropped_item::ItemModelCost::new(1, 1, 4, 36),
                 || {
                     Some(DroppedItemModel::Sprite(DroppedItemSprite {
                         width: 1,
@@ -436,6 +437,7 @@ fn framed_session_cube_uses_session_sprite_under_cache_pressure() {
     let (mut icons, _) = fixture(0);
     install(&mut icons, Some(160), true, 0);
     let placement = render_model::StaticItemPlacement {
+        allow_block_models: true,
         identifier: ITEM.into(),
         metadata: 0,
         potted_block: None,
@@ -477,6 +479,7 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
         frustum: None,
     };
     let placement = render_model::StaticItemPlacement {
+        allow_block_models: true,
         identifier: ITEM.into(),
         metadata: 0,
         potted_block: None,
@@ -486,11 +489,14 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
     };
     for native in [false, true] {
         let mut cache = pressured_cache(1);
-        let startup =
-            DroppedItemPublisher::resolved_icon_model(&mut cache, startup_icon, native, || {
-                resolved_icon_sprite(&icons, startup_icon, native)
-            })
-            .unwrap();
+        let startup = DroppedItemPublisher::resolved_icon_model(
+            &mut cache,
+            &icons,
+            startup_icon,
+            native,
+            || resolved_icon_sprite(&icons, startup_icon, native),
+        )
+        .unwrap();
         let model = if native {
             let prepared =
                 DroppedItemPublisher::dropped_model(&mut cache, &icons, None, None, &preparation)
@@ -667,6 +673,7 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
         let models: Vec<_> = (0..43)
             .map(|metadata| {
                 let placement = render_model::StaticItemPlacement {
+                    allow_block_models: true,
                     identifier: ITEM.into(),
                     metadata,
                     potted_block: None,
@@ -730,6 +737,7 @@ fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
             (0..count)
                 .map(|metadata| {
                     let placement = render_model::StaticItemPlacement {
+                        allow_block_models: true,
                         identifier: ITEM.into(),
                         metadata,
                         potted_block: None,
@@ -808,4 +816,96 @@ fn fitting_cube_plan_reclaims_unused_fallback_sprites() {
 #[test]
 fn equally_complete_plans_keep_cubes_with_the_last_item_using_a_sprite() {
     assert_framed_plan_recovers(render_model::MAX_ITEM_LAYERS, [86, 86, 80]);
+}
+
+#[test]
+fn borrowed_artwork_costs_match_constructed_pixels_and_geometry() {
+    let (mut icons, _) = fixture(0);
+    install(&mut icons, Some(90), true, 0);
+    for native in [false, true] {
+        for icon in [
+            icons.startup_item_icon(ITEM, 0),
+            icons.session_item_icon(ITEM, 0),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let before = test_alloc::thread_allocations();
+            let cost = source_cost::icon_cost(&icons, icon, native).unwrap();
+            assert_eq!(test_alloc::thread_allocations(), before);
+            let built = resolved_icon_sprite(&icons, icon, native).unwrap();
+            assert_eq!(
+                Some(cost),
+                render_model::dropped_item::ItemModelCost::from_model(&built)
+            );
+        }
+    }
+    let sheet = icons.session_block_sheet(ITEM, 0).unwrap();
+    let before = test_alloc::thread_allocations();
+    let cost = icons.session_block_cost(ITEM, 0, sheet).unwrap();
+    assert_eq!(test_alloc::thread_allocations(), before);
+    let built = icons.session_block_model(ITEM, 0, sheet).unwrap();
+    assert_eq!(
+        Some(cost),
+        render_model::dropped_item::ItemModelCost::from_model(&built)
+    );
+    let (icons, stream, assets, _) = carried_fixture();
+    let mut views = Vec::new();
+    stream.authority().dropped_items_into(0.0, &mut views);
+    let view = &views[0];
+    let (mode, id) = item_block_id(
+        &stream,
+        view.item.visual,
+        view.item.identifier.as_deref(),
+        Some(&assets),
+    )
+    .unwrap();
+    let cost = source_cost::carried_cost(&icons, &assets, mode, id).unwrap();
+    let built = DroppedItemModel::Cube(
+        icons
+            .carried_block_cube(id, assets.provenance().source_manifest_sha256)
+            .unwrap(),
+    );
+    assert_eq!(
+        Some(cost),
+        render_model::dropped_item::ItemModelCost::from_model(&built)
+    );
+    let cost = source_cost::block_cost(&assets, mode, id).unwrap();
+    let built = block_cube(&assets, mode, id)
+        .map(DroppedItemModel::Cube)
+        .or_else(|| block_template(&assets, mode, id).map(DroppedItemModel::Block))
+        .unwrap();
+    assert_eq!(
+        Some(cost),
+        render_model::dropped_item::ItemModelCost::from_model(&built)
+    );
+}
+
+#[test]
+fn session_block_sheets_render_without_startup_identity_but_campfire_items_stay_flat() {
+    let (mut icons, _) = fixture(0);
+    install(&mut icons, Some(90), true, 0);
+    let mut placement = render_model::StaticItemPlacement {
+        identifier: ITEM.into(),
+        metadata: 0,
+        potted_block: None,
+        carried_block: None,
+        allow_block_models: true,
+        world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 1.0),
+        light: None,
+    };
+    let mut cache = ModelCache::default();
+    for block_models in [true, false, true] {
+        placement.allow_block_models = block_models;
+        let slot = cache
+            .prepare(|cache| {
+                DroppedItemPublisher::placement_model(cache, &icons, None, &placement, None)
+            })
+            .unwrap();
+        assert_eq!(
+            matches!(cache.models[slot as usize], DroppedItemModel::Cube(_)),
+            block_models
+        );
+        cache.finish_frame();
+    }
 }

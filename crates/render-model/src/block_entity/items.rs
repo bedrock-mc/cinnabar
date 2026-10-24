@@ -15,6 +15,8 @@ pub struct StaticItemPlacement {
     pub potted_block: Option<u32>,
     /// A frame's canonical block visual, before selecting its compatible carried geometry.
     pub carried_block: Option<assets::BlockVisualId>,
+    /// Allows block geometry for frames; campfire items keep their flat sprites.
+    pub allow_block_models: bool,
     /// Maps the unit item model into the world.
     pub world_from_item: [[f32; 4]; 3],
     /// Fixed light levels; `None` samples the world at the item.

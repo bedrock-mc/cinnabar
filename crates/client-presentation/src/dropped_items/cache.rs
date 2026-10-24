@@ -76,6 +76,8 @@ pub(crate) struct ModelCache {
     planning: bool,
     costs: HashMap<ModelKey, planning::ModelCost>,
     planned: HashSet<ModelKey>,
+    selected: HashSet<ModelKey>,
+    budget_rejections: HashMap<(ModelKey, bool, bool), planning::RejectionBudget>,
     planned_pixels: usize,
     /// Invalid geometry stays rejected until the session or artwork generation changes.
     invalid_meshes: HashSet<ModelKey>,
@@ -100,6 +102,8 @@ pub(crate) struct ModelCache {
     pub(super) mesh_validations: HashMap<ModelKey, usize>,
     #[cfg(test)]
     pub(super) model_builds: usize,
+    #[cfg(test)]
+    pub(super) admission_checks: HashMap<ModelKey, usize>,
 }
 
 struct Resident {
@@ -116,9 +120,8 @@ struct Resident {
 }
 
 struct RejectedModel {
-    /// None marks a block that cannot be built from the current assets.
-    layers: Option<usize>,
-    pixel_bytes: Option<usize>,
+    /// Blocks with unavailable sources remain refused until the artwork generation changes.
+    unavailable: bool,
     requested: u64,
 }
 
@@ -147,13 +150,25 @@ impl ModelCache {
         self.begin_frame();
         prepare(self);
         let cube_items = self.prepared_items;
+        std::mem::swap(&mut self.planned, &mut self.selected);
         self.sprite_only = true;
         self.begin_frame();
         prepare(self);
         let downgrade = self.prepared_items > cube_items;
+        if downgrade {
+            std::mem::swap(&mut self.planned, &mut self.selected);
+        }
         self.planning = false;
         self.sprite_only = downgrade;
         self.begin_frame();
+        for key in &self.selected {
+            if let Some(&slot) = self.index.get(key) {
+                self.residents[slot]
+                    .as_mut()
+                    .expect("selected resident")
+                    .requested = self.frame;
+            }
+        }
         self.collect_reclaimable();
         let plan = prepare(self);
         self.prune_rejections();
@@ -192,19 +207,24 @@ impl ModelCache {
 
     /// Charges a cached model once per frame before returning it to an artwork chain.
     fn admit_resident(&mut self, slot: usize) -> bool {
-        let entry = self.residents[slot].as_mut().expect("indexed resident");
+        let entry = self.residents[slot].as_ref().expect("indexed resident");
         if entry.admitted == self.frame {
             return true;
         }
-        if self
-            .budget
-            .admit(&self.models[slot], entry.vertices)
-            .is_none()
-        {
-            self.budget_refusals = self.budget_refusals.saturating_add(1);
+        let key = entry.key.clone();
+        let cost = self.costs[&key];
+        if !self.charge_cost(
+            &key,
+            cost,
+            MAX_ITEM_LAYERS - 1,
+            assets::texture::policy::MAX_SUBSCRIBER_BYTES,
+        ) {
             return false;
         }
-        entry.admitted = self.frame;
+        self.residents[slot]
+            .as_mut()
+            .expect("indexed resident")
+            .admitted = self.frame;
         true
     }
 
@@ -306,19 +326,13 @@ impl ModelCache {
         self.demand_ready = true;
     }
 
-    /// Remembers admission costs; absent layers mean a permanent block failure.
-    fn remember_rejection(
-        &mut self,
-        key: ModelKey,
-        layers: Option<usize>,
-        pixel_bytes: Option<usize>,
-    ) {
+    /// Retains bounded negative entries while their sources remain demanded.
+    fn remember_rejection(&mut self, key: ModelKey, unavailable: bool) {
         if self.rejected.len() < MAX_ITEM_LAYERS - 1 || self.rejected.contains_key(&key) {
             self.rejected.insert(
                 key,
                 RejectedModel {
-                    layers,
-                    pixel_bytes,
+                    unavailable,
                     requested: self.frame,
                 },
             );
@@ -328,7 +342,7 @@ impl ModelCache {
     /// Remembers unavailable block sources whose assets cannot become ready later this generation.
     fn reject_unavailable(&mut self, key: &ModelKey) {
         if matches!(key, ModelKey::Block { .. } | ModelKey::PottedBlock { .. }) {
-            self.remember_rejection(key.clone(), None, None);
+            self.remember_rejection(key.clone(), true);
         }
     }
 
@@ -362,11 +376,11 @@ impl ModelCache {
     pub(super) fn model(
         &mut self,
         key: ModelKey,
-        cost: impl FnOnce() -> Option<usize>,
+        cost: impl FnOnce() -> Option<planning::ModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
         if self.planning {
-            return self.plan_model(key, cost, build);
+            return self.plan_model(key, cost);
         }
         self.admit(key, cost, build, true)
     }
@@ -375,16 +389,17 @@ impl ModelCache {
     pub(super) fn warm_icon(
         &mut self,
         key: ModelKey,
+        cost: impl FnOnce() -> Option<planning::ModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
-        self.admit(key, || Some(1), build, false)
+        self.admit(key, cost, build, false)
     }
 
     /// Admits a model within both budgets, optionally reclaiming absent consumers.
     fn admit(
         &mut self,
         key: ModelKey,
-        cost: impl FnOnce() -> Option<usize>,
+        cost: impl FnOnce() -> Option<planning::ModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
         reclaim: bool,
     ) -> Option<u32> {
@@ -419,33 +434,15 @@ impl ModelCache {
             self.budget_refusals = self.budget_refusals.saturating_add(1);
             return None;
         }
-        let estimate = match self.rejected.get(&key) {
-            Some(entry) => {
-                if entry
-                    .pixel_bytes
-                    .is_some_and(|bytes| bytes > available_pixels)
-                {
-                    self.budget_refusals = self.budget_refusals.saturating_add(1);
-                    return None;
-                }
-                entry.layers
+        let cost = self.measure_cost(&key, cost)?;
+        let previous_budget = self.budget;
+        if reclaim {
+            if !self.charge_cost(&key, cost, available, available_pixels) {
+                return None;
             }
-            None => {
-                let estimate = cost();
-                if estimate.is_none() {
-                    self.reject_unavailable(&key);
-                }
-                estimate
-            }
-        };
-        let cost = estimate?;
-        if cost == 0 {
-            return None;
-        }
-        if cost > available {
+        } else if cost.layers > available || cost.pixels > available_pixels {
             self.budget_refusals = self.budget_refusals.saturating_add(1);
-            let pixel_bytes = self.rejected.get(&key).and_then(|entry| entry.pixel_bytes);
-            self.remember_rejection(key, Some(cost), pixel_bytes);
+            self.remember_rejection(key, false);
             return None;
         }
         #[cfg(test)]
@@ -453,25 +450,22 @@ impl ModelCache {
             self.model_builds += 1;
         }
         let Some(model) = build() else {
+            self.budget = previous_budget;
             self.reject_unavailable(&key);
             return None;
         };
         assert_eq!(
             model.texture_layers(),
-            cost,
-            "model layer estimate must match its geometry"
+            cost.layers,
+            "measured layers match constructed artwork"
         );
         let pixel_bytes = pixel_cost(&model);
-        if pixel_bytes > available_pixels {
-            self.budget_refusals = self.budget_refusals.saturating_add(1);
-            self.remember_rejection(key, Some(cost), Some(pixel_bytes));
-            return None;
-        }
-        let vertices = self.validate_model(&key, &model)?.vertices;
-        if reclaim && self.budget.admit(&model, vertices).is_none() {
-            self.budget_refusals = self.budget_refusals.saturating_add(1);
-            return None;
-        }
+        assert_eq!(
+            pixel_bytes, cost.pixels,
+            "measured pixels match constructed artwork"
+        );
+        let vertices = cost.vertices;
+        let cost = cost.layers;
         self.rejected.remove(&key);
         while self.layers + cost >= MAX_ITEM_LAYERS
             || pixel_bytes

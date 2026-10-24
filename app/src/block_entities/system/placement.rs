@@ -15,6 +15,7 @@ pub(super) fn held_placement(
         identifier: Arc::clone(&item.identifier),
         metadata: item.metadata,
         potted_block: None,
+        allow_block_models: frame_stream.is_some(),
         carried_block: frame_stream.and_then(|stream| {
             match stream
                 .authority()
