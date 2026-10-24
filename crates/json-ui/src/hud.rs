@@ -47,6 +47,8 @@ pub struct HudModel {
     pub chat_color: Option<char>,
     /// Optional mention color applied only to decoded message labels.
     pub chat_mention_color: Option<char>,
+    /// The current local actor display name used for mention matching.
+    pub chat_local_player: std::sync::Arc<str>,
     pub chat_visible: bool,
     /// Seconds a chat line stays before its fade.
     pub chat_lifetime: f64,

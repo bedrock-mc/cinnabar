@@ -3,6 +3,7 @@
 //! A frame is a 4-byte little-endian length followed by that many bytes of JSON. Bytes inside
 //! messages are lowercase hex (see [`crate::hex`]).
 
+use experience_sdk::artifact::MAX_STACK_SIZE;
 use std::io::{self, ErrorKind, Read, Write};
 
 use serde::de::DeserializeOwned;
@@ -14,13 +15,19 @@ use crate::limits::{
     MAX_FLIPBOOK_FRAMES, MAX_FRAME_BYTES, MAX_GEOMETRY_BYTES, MAX_ITEM_DATA_BYTES, MAX_ITEMS,
     MAX_MATERIALS, MAX_NAME_BYTES, MAX_NETWORK_BLOCKS, MAX_NETWORK_DATA_BYTES, MAX_PERMUTATIONS,
     MAX_REASON_BYTES, MAX_RECIPE_INPUT_ITEMS, MAX_RECIPES, MAX_SCHEDULE_TICKS,
-    MAX_SCHEDULED_UPDATES, MAX_SERVER_ITEMS, MAX_STACK_SIZE, MAX_STAGED_OPS, MAX_STATE_BITS,
-    MAX_STATE_VALUES, MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
+    MAX_SCHEDULED_UPDATES, MAX_SERVER_ITEMS, MAX_STAGED_OPS, MAX_STATE_BITS, MAX_STATE_VALUES,
+    MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
 
 mod player;
 mod recipes;
 mod visuals;
+mod worlds;
+pub use worlds::{
+    DimensionType, Generator, PlayerEvent, PlayerLocation, Position, StateRecord, StoreKey,
+    StoreScope, WorldContext, WorldDefinition, WorldHandle, WorldInstance, WorldOp,
+    WorldRegistration, WorldSettings,
+};
 
 pub use recipes::{Crafted, ItemMatch, Recipe};
 
@@ -36,8 +43,9 @@ pub use visuals::{
 /// 2 added the `client_message` call and the `send_client` op; 3 the `epoch` call and list and
 /// record values; 4 the `focus` of those calls and of `loaded`; 5 server WIT 0.5's block states
 /// and visuals, items, the actor's inventory, the network scope and their ops; 6 server WIT 0.6's
-/// recipes in `load`, the `scheduled_update` call and the `schedule_update` op.
-pub const PROTOCOL_VERSION: u32 = 6;
+/// recipes in `load`, the `scheduled_update` call and the `schedule_update` op; 7 adds retained
+/// control delivery to `send_client`; 8 adds world lifecycle, player observations and scoped state.
+pub const PROTOCOL_VERSION: u32 = 8;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -60,9 +68,11 @@ pub enum Face {
     East,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Info {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<WorldContext>,
     pub world_id: String,
     pub dimension_id: String,
     pub tick: u64,
@@ -122,9 +132,13 @@ pub enum Scalar {
     Record(Vec<Scalar>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
+    Player {
+        player: String,
+        event: PlayerEvent,
+    },
     Place {
         change: Change,
     },
@@ -176,7 +190,7 @@ pub(crate) fn is_player_id(id: &str) -> bool {
 /// Adapter → runtime. One request is decoded per frame and never stored in bulk, so the large
 /// `Callback` variant stays inline.
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     /// `items` are the server's items, which the guest may make stacks of besides its own.
@@ -250,9 +264,16 @@ pub enum FailKind {
 
 /// A staged operation; `data` is lowercase hex, `None` clears it. `SendClient` goes to the
 /// player's client part after the rest commits.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
+    World {
+        action: WorldOp,
+    },
+    StoreWrite {
+        key: StoreKey,
+        data: Option<String>,
+    },
     SetBlock {
         pos: BlockPos,
         id: String,
@@ -266,6 +287,9 @@ pub enum Op {
         text: String,
     },
     SendClient {
+        /// Retains negotiation replies after transport budget refusal.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        control: bool,
         player: String,
         channel: String,
         schema: u16,
@@ -293,7 +317,7 @@ pub enum Op {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Outcome {
     Committed {
@@ -323,6 +347,8 @@ pub enum Response {
         blocks: Vec<BlockDef>,
         items: Vec<ItemDef>,
         focus: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        worlds: Option<WorldRegistration>,
     },
     LoadFailed {
         reason: String,
@@ -391,6 +417,7 @@ pub fn read_frame<T: DeserializeOwned>(r: &mut impl Read) -> io::Result<Option<T
 }
 
 mod fixtures;
+mod fixtures_worlds;
 pub use fixtures::fixtures;
 
 #[cfg(test)]

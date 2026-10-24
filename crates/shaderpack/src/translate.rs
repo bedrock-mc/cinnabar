@@ -208,7 +208,8 @@ pub(crate) fn translate_program(
     }
     let mut attempted = HashSet::new();
     let drafts = loop {
-        let (drafts, mut unknown) = compile_stages(cx, &preprocessed, &mut out);
+        let (drafts, mut unknown) =
+            compile_stages(cx, &preprocessed, program.group.draws_geometry(), &mut out);
         unknown.retain(|name| attempted.insert(name.clone()));
         if !out.diagnostics.is_empty()
             || unknown.is_empty()
@@ -293,9 +294,11 @@ pub(crate) fn translate_program(
 }
 
 /// Compiles stage drafts with one shared interface and retains vertex name-resolution failures.
+/// `geometry` programs have the block atlas rather than `colortex0` on texture unit 0.
 fn compile_stages(
     cx: &Context<'_>,
     preprocessed: &[(usize, Preprocessed)],
+    geometry: bool,
     out: &mut ProgramTranslation,
 ) -> (Vec<(usize, StageDraft, LineMap)>, HashSet<String>) {
     let mut iface = ProgramInterface::default();
@@ -304,6 +307,10 @@ fn compile_stages(
         let names = ResourceNames {
             image_formats: cx.image_formats,
             sampler_classes: cx.sampler_classes,
+            normalize_legacy: out.stages[*i].stage == StageKind::Compute
+                || pp.profile.as_deref() != Some("core")
+                    && (pp.version < 150 || pp.profile.as_deref() == Some("compatibility")),
+            geometry,
         };
         match transform(pp, out.stages[*i].stage, &mut iface, &names) {
             Ok(draft) => drafts.push((*i, draft, pp.map.clone())),

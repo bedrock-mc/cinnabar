@@ -1,0 +1,65 @@
+// pointer gives each scalar an owned value of its exact wire type.
+func pointer[T any](value T) *T { return &value }
+
+// checkFieldCount refuses missing and extra positional fields.
+func checkFieldCount(record cinnabarext.Record, want int) error {
+    if len(record) != want { return fmt.Errorf("message field count mismatch") }
+    return nil
+}
+
+// validID checks a stable key before assigning its typed domain.
+func validID(s string) bool {
+    parts := strings.Split(s, ":")
+    if len(parts) != 2 || parts[0] == "" || parts[1] == "" { return false }
+    for _, c := range s {
+        if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.ContainsRune(":_.-", c)) { return false }
+    }
+    return true
+}
+
+// validText counts UTF-8 bytes and refuses strings Rust cannot represent.
+func validText(s string, max int) bool { return utf8.ValidString(s) && len(s) <= max }
+
+// RegistryConfirmation starts the matching client part. Send it before app data.
+type RegistryConfirmation struct{}
+
+// Route selects the owning bundle's generated registry confirmation channel.
+func (RegistryConfirmation) Route() cinnabarext.Route {
+    return cinnabarext.Route{Bundle: PackageID, Channel: RegistryChannel, Schema: 1}
+}
+
+// Encode confirms the schema generated alongside this package.
+func (RegistryConfirmation) Encode() (cinnabarext.Record, error) {
+    return cinnabarext.Record{{Text: pointer(RegistryFingerprint)}}, nil
+}
+
+// EncodeRecord returns the existing wire v2 positional payload for other transports.
+func (v RegistryConfirmation) EncodeRecord() ([]byte, error) {
+    record, err := v.Encode(); if err != nil { return nil, err }
+    return cinnabarext.Encode(record)
+}
+
+var _ cinnabarext.Message = RegistryConfirmation{}
+
+// registryRequest carries the client's request without invoking authored callbacks.
+type registryRequest struct{}
+
+// decodeRegistryRequest checks the fixed request record; the client validates our confirmation.
+func decodeRegistryRequest(record cinnabarext.Record) (registryRequest, error) {
+    if err := checkFieldCount(record, 1); err != nil { return registryRequest{}, err }
+    if record[0].Text == nil || !validText(*record[0].Text, len(RegistryFingerprint)) { return registryRequest{}, fmt.Errorf("invalid registry request") }
+    return registryRequest{}, nil
+}
+
+// RegisterRegistry answers the client's initialization request through the typed helper.
+// Register it before the server listens, alongside the application's typed receivers.
+func RegisterRegistry(server *cinnabarext.Server) error {
+    kind := cinnabarext.MessageType[registryRequest]{
+        Route: cinnabarext.Route{Bundle: PackageID, Channel: RegistryRequestChannel, Schema: 1},
+        Decode: decodeRegistryRequest,
+    }
+    return cinnabarext.OnMessage(server, kind, func(player uuid.UUID, _ registryRequest) {
+        // Unavailable recipients need no reply; transient refusals remain queued by the helper.
+        server.SendControl(player, RegistryConfirmation{})
+    })
+}

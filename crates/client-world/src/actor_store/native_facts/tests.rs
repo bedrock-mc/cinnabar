@@ -47,6 +47,11 @@ fn custom_entities_inherit_native_class_shadow_offsets_and_effect_membership() {
     .enumerate()
     {
         assert_ne!(facts.get(base).class_key, 0);
+        let expected = EntityFact {
+            // A custom base supplies class facts, but cannot verify its interaction resolver.
+            actor_use_resolver: assets::entity::offered_use::ActorUseResolver::Unresolved,
+            ..facts.get(base)
+        };
         let identifier = custom(base);
         for late in [false, true] {
             let mut store = ActorStore::new(1, 0);
@@ -72,11 +77,7 @@ fn custom_entities_inherit_native_class_shadow_offsets_and_effect_membership() {
                 );
             }
             let actor = &store.actors[&id];
-            assert_eq!(
-                actor.entity_fact,
-                facts.get(base),
-                "base {base}, late {late}"
-            );
+            assert_eq!(actor.entity_fact, expected, "base {base}, late {late}");
             assert_eq!(actor.is_horse(), facts.get(base).horse);
             assert_eq!(actor.is_collidable(), facts.get(base).collidable);
             assert_eq!(

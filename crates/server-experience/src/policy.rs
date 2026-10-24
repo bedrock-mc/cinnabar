@@ -26,6 +26,8 @@ pub const MAX_MESSAGES_PER_SECOND: u64 = 64;
 
 pub const MAX_BYTES_PER_SECOND: u64 = 64 * 1024;
 
+pub const MAX_BURST_BYTES: u64 = 3 * MAX_MESSAGE_BYTES as u64;
+
 pub const MAX_QUEUE_MESSAGES: usize = 256;
 
 pub const MAX_QUEUE_BYTES: usize = 256 * 1024;

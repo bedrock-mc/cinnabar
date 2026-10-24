@@ -85,6 +85,7 @@ fn message_tooltip_tracks_pointer_without_a_native_chat_action() {
         crate::test_support::hover_chat::CAPTION,
         "Plain caption",
         "Hello @Alex",
+        "Hello @Steve",
     ] {
         for color in [0, 1] {
             check_message_tooltip(caption, color);
@@ -141,6 +142,7 @@ fn check_message_tooltip(expected_caption: &str, color: i32) {
                 .paint(
                     &engine,
                     ChatInput {
+                        local_player: "Alex",
                         editor: &editor,
                         messages: &messages,
                         suggestions: &[],
@@ -185,7 +187,14 @@ fn check_message_tooltip(expected_caption: &str, color: i32) {
                         _ => None,
                     })
                     .expect("decoded mention paints");
-                assert_eq!(mention.style.color, ui::BedrockColor::White);
+                assert_eq!(
+                    mention.style.color,
+                    if expected_caption.contains("@Alex") {
+                        ui::BedrockColor::White
+                    } else {
+                        expected_color
+                    }
+                );
             }
             let tooltip = screen.nodes().iter().find_map(|node| match &node.draw {
                 Draw::Custom { renderer, data } if renderer == "hover_text_renderer" => Some(data),

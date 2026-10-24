@@ -284,6 +284,22 @@ impl CustomTexture {
         }
     }
 
+    /// Whether this directive replaces a shared texture unit rather than a declared sampler.
+    /// `texture.noise` configures the noise texture itself, including for raw data.
+    pub fn is_unit_override(&self) -> bool {
+        !matches!(self.source, TextureSource::Raw { .. }) || self.stage == "noise"
+    }
+
+    /// The reflected binding key. Raw stage directives have a separate name so they cannot
+    /// replace the texture unit read by other samplers, including unbound ones.
+    pub fn binding_name(&self) -> String {
+        if self.is_unit_override() {
+            crate::buffers::canonical_sampler_name(self.uniform())
+        } else {
+            format!("texture.{}.{}", self.stage, self.uniform())
+        }
+    }
+
     /// Whether it binds in programs of `group` (`texture.noise` binds everywhere).
     pub fn applies_to(&self, group: ProgramGroup) -> bool {
         self.stage == group.texture_stage() || self.stage == "noise"
@@ -363,6 +379,13 @@ pub struct CustomImage {
     pub clear: bool,
     /// Image dimensions.
     pub size: ImageSize,
+}
+
+impl CustomImage {
+    /// A reflected sampler key that cannot collide with a built-in or fallback texture.
+    pub fn sampler_binding_name(&self) -> String {
+        format!("image.{}", self.name)
+    }
 }
 
 /// Size of a custom image; relative images are 2D, absolute images 1D, 2D or 3D.

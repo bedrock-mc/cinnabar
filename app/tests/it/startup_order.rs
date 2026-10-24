@@ -53,7 +53,9 @@ fn invalid_local_assets_fail_before_connection_startup() {
             String::from_utf8_lossy(&output.stderr),
         );
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("load startup block assets"), "{stderr}");
+        assert!(stderr.contains("load startup world carriers"), "{stderr}");
+        assert!(stderr.contains(&assets.display().to_string()), "{stderr}");
+        assert!(stderr.contains("truncated world asset blob"), "{stderr}");
         assert!(!stderr.contains("spawn Go core"), "{stderr}");
         assert!(!stderr.contains("wait for Go core"), "{stderr}");
     }

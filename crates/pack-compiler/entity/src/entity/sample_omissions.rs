@@ -155,7 +155,7 @@ pub fn missing_harness_bindings<'a>(
             "format_version":"1.10.0",
             "minecraft:attachable":{"description":{
                 "identifier":record.identifier,
-                "materials":{"default":"harness"},
+                "materials":{"default":assets::facts::pack::HARNESS_MATERIAL},
                 "textures":{"default":texture},
                 "geometry":{"default":GEOMETRY},
                 "render_controllers":[CONTROLLER]

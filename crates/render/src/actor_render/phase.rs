@@ -193,11 +193,14 @@ impl ActorGpu {
     pub(super) fn pack_supports_span(&self, span: &crate::actor::gpu::ActorDrawSpan) -> bool {
         #[cfg(feature = "shaderpacks")]
         {
-            (span.page == 0
-                || self
-                    .artwork
-                    .page(usize::from(span.page) - 1)
-                    .is_some_and(|page| page.raw_texture().is_some()))
+            // A pack vertex shader may move a depth producer away from its native overlay.
+            // Keep the complete actor frame native while that dependency exists.
+            !self.pack_depth_dependency
+                && (span.page == 0
+                    || self
+                        .artwork
+                        .page(usize::from(span.page) - 1)
+                        .is_some_and(|page| page.raw_texture().is_some()))
                 && (span.first..span.first + span.count).all(|index| {
                     self.instances
                         .get(index as usize)

@@ -3,6 +3,20 @@ use {
     launcher::local_worlds::model::{Input, Screen},
 };
 
+/// Attaching the launcher loads its catalog and preferences without requesting a world start.
+#[test]
+fn attaching_never_requests_a_saved_world_start() {
+    let mut worlds = LocalWorlds::default();
+    let effects = worlds.attachment_effects();
+    assert!(!effects.is_empty(), "the menu still requests its data");
+    assert!(
+        effects
+            .iter()
+            .all(|effect| matches!(effect, Effect::List | Effect::LoadPrefs)),
+        "attachment requested work beyond loading menu data: {effects:?}"
+    );
+}
+
 #[test]
 fn focus_only_pauses_while_playing_and_detached_is_inert() {
     let mut worlds = LocalWorlds::default();

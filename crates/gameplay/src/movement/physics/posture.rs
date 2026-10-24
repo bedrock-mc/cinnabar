@@ -14,6 +14,7 @@ pub(super) struct SyncState {
     dimensions: client_world::ExplicitDimensions,
     last_pose: (bool, bool),
     previous_mode: sim::MovementMode,
+    sneak_profile: sim::SneakProfile,
 }
 
 /// A pose correction and the resize it caused when accepted by the live actor.
@@ -55,6 +56,14 @@ pub(super) fn replay_actor_modes(writes: &[ServerWrite], modes: &mut ModeTracker
 }
 
 impl SyncState {
+    /// Clears runtime state while retaining the level's dimension profile.
+    pub(super) fn reset(&mut self) {
+        *self = Self {
+            sneak_profile: self.sneak_profile,
+            ..Default::default()
+        };
+    }
+
     /// Replaces every lifetime-owned field before accepting the new actor's state.
     fn replace_actor(
         &mut self,
@@ -68,6 +77,7 @@ impl SyncState {
             dimensions: Default::default(),
             last_pose: (false, false),
             previous_mode: sim::MovementMode::Walking,
+            sneak_profile: self.sneak_profile,
         };
         self.resize();
         self.apply_dimensions(dimensions);
@@ -187,6 +197,7 @@ impl SyncState {
 
     /// Records producer writes after a successful movement tick.
     pub(super) fn complete_tick(&mut self, frame: &ControllerFrame, state: &PlayerState) {
+        self.sneak_profile = frame.input.sneak_profile;
         self.flags.sneaking = Some(frame.input.sneaking);
         self.flags.sprinting = Some(frame.input.sprinting);
         self.flags.has_collision = Some(!frame.input.no_clip);
@@ -228,7 +239,7 @@ impl SyncState {
                 if horizontal {
                     sim::PLAYER_WIDTH as f32
                 } else {
-                    sim::MovementMode::Walking.hitbox_height(pose.0) as f32
+                    sim::MovementMode::Walking.hitbox_height(pose.0, self.sneak_profile) as f32
                 },
             ]);
         }
@@ -328,6 +339,21 @@ fn moving_between(before: Vec3, after: Vec3) -> bool {
     let dy = after.y as f32 - before.y as f32;
     let dz = after.z as f32 - before.z as f32;
     dz * dz + (dy * dy + dx * dx) > MOVING_FLAG_DISTANCE_SQUARED
+}
+
+impl LocalPhysicsController {
+    /// Sets the level's sneaking profile until the next StartGame replaces it.
+    pub fn set_base_game_version(&mut self, version: protocol::BaseGameVersion) {
+        let profile = sim::SneakProfile::for_base_game_version(version.version());
+        self.modes.set_sneak_profile(profile);
+        self.sync_state.sneak_profile = profile;
+    }
+
+    /// Returns the level's sneaking dimensions for queries outside the tick.
+    #[must_use]
+    pub const fn sneak_profile(&self) -> sim::SneakProfile {
+        self.modes.sneak_profile()
+    }
 }
 
 #[cfg(test)]
@@ -718,6 +744,7 @@ mod tests {
             dimensions: client_world::ExplicitDimensions::for_spawn(1),
             last_pose: (true, true),
             previous_mode: sim::MovementMode::Gliding,
+            sneak_profile: sim::SneakProfile::default(),
         };
         let mut fresh = SyncState::default();
         fresh.replace_actor(flags, dimensions);

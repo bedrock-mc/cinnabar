@@ -64,6 +64,17 @@ fn omitted_harness_bindings_follow_registry_tags_and_present_resources() {
         .filter(|record| record.fact.tags.contains(tag))
         .count();
     assert_eq!(compiled.equipment_bindings.len(), expected);
+    assert!(!compiled.assets.render.layers.is_empty());
+    for layer in &compiled.assets.render.layers {
+        assert_eq!(
+            layer.material_state,
+            Some(assets::EntityRenderMaterialState {
+                alpha_test: true,
+                cull: false,
+                ..Default::default()
+            })
+        );
+    }
     for binding in &compiled.equipment_bindings {
         assert!(
             facts

@@ -91,6 +91,7 @@ pub(super) fn bootstrap(
         player_game_mode_uses_world_default: false,
         server_authoritative_block_breaking: true,
         rewind_history_size: 20,
+        base_game_version: protocol::BaseGameVersion::Any,
         hardcore: false,
         hud_rules: Default::default(),
         death_rules: Default::default(),

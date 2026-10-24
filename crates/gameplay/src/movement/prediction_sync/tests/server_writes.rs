@@ -321,7 +321,7 @@ fn sync_replaces_explicit_dimensions_on_a_later_local_resize() {
         Some([
             1.0,
             0.6,
-            sim::MovementMode::Walking.hitbox_height(true) as f32
+            sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32
         ])
     );
     physics.advance(
@@ -615,4 +615,25 @@ fn sync_pose_echo_uses_the_effective_live_word() {
         protocol::test_support::packets::prediction_sync_flags(&sync_packet(&mut physics, &actor))
             .unwrap();
     assert!(flag_set(&words, ActorFlag::Gliding));
+}
+
+/// A reset keeps the level profile for server posture writes received before another tick.
+#[test]
+fn legacy_profile_survives_runtime_reset_before_server_resize() {
+    let mut physics = due_physics();
+    physics.set_base_game_version(protocol::BaseGameVersion::parse("1.19.80"));
+    physics.deactivate();
+    physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+    physics.apply_server_movement_flags(
+        0,
+        client_world::MovementFlagUpdate {
+            sneaking: Some(true),
+            ..Default::default()
+        },
+    );
+    assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
+    assert_eq!(
+        physics.prediction_sync_walking_height(),
+        Some(sim::PLAYER_HEIGHT as f32)
+    );
 }

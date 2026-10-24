@@ -270,6 +270,20 @@ pub(super) fn compile(
             &mut definitions,
         )?;
     }
+    // Sprites and reviewed routes keep their item; only an otherwise unclaimed name draws its block.
+    for (identifier, block_visual) in &routes.implicit_block_items {
+        definitions
+            .entry(ItemVisualKey {
+                identifier: identifier.clone(),
+                metadata: 0,
+            })
+            .or_insert((
+                route_source,
+                ItemVisualDefinitionRoute::BlockItem {
+                    block_visual: *block_visual,
+                },
+            ));
+    }
     let registry_source = *source_indices
         .get(assets::item::names::SOURCE_PATH)
         .ok_or_else(|| invalid("item registry source is absent"))?;
@@ -323,6 +337,8 @@ struct ReviewedRoutes {
     routes: BTreeMap<ItemVisualKey, BlockVisualId>,
     /// Items whose placed block has another name (seeds, signs, string).
     placers: BTreeSet<ItemVisualKey>,
+    /// Registry blocks no named item claims, each with its first canonical state.
+    implicit_block_items: BTreeMap<Box<str>, BlockVisualId>,
 }
 
 fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
@@ -361,20 +377,25 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
             return Err(invalid("duplicate exact block item route"));
         }
     }
-    add_registry_block_items(&mut routes, &reviewed_blocks)?;
+    let implicit_block_items = add_registry_block_items(&mut routes, &reviewed_blocks)?;
     Ok(ReviewedRoutes {
         block_visual_count: table.canonical_block_states,
         routes,
         placers,
+        implicit_block_items,
     })
 }
 
 /// Registry items named after a registry block the reviewed table omits (saplings, mushrooms,
 /// torchflower, command blocks) are that block's block item, drawn from its first canonical state.
+///
+/// Returns the registry blocks that no named item claims. Vanilla registers a plain block item
+/// under each such block's name once named items are in place (`ItemRegistry::
+/// finishedRegistration`), and that item's icon is its block (`BlockItem::getIconInfo`).
 fn add_registry_block_items(
     routes: &mut BTreeMap<ItemVisualKey, BlockVisualId>,
     reviewed_blocks: &BTreeSet<Box<str>>,
-) -> Result<(), AssetError> {
+) -> Result<BTreeMap<Box<str>, BlockVisualId>, AssetError> {
     let records = assets::read_registry_for_protocol(BLOCK_REGISTRY, ROUTE_PROTOCOL)?;
     let mut first_state = BTreeMap::new();
     for record in records.iter() {
@@ -382,6 +403,19 @@ fn add_registry_block_items(
             .entry(record.name.as_ref())
             .or_insert(record.sequential_id);
     }
+    let draws_a_block = |identifier: &str| {
+        assets::facts::pack::rules().item_visual(identifier)
+            != Some(assets::facts::pack::ItemVisualKind::EmptyHand)
+    };
+    let implicit = first_state
+        .iter()
+        .filter(|(name, _)| {
+            **name != assets::facts::block::RESERVED_BLOCK_NAME
+                && assets::item::names::serialization_ids(name).is_none()
+                && draws_a_block(name)
+        })
+        .map(|(name, state)| ((*name).into(), BlockVisualId(*state)))
+        .collect();
     for identifier in assets::item::names::identifiers() {
         let key = ItemVisualKey {
             identifier: identifier.into(),
@@ -391,13 +425,12 @@ fn add_registry_block_items(
             continue;
         }
         if let Some(&state) = first_state.get(identifier)
-            && assets::facts::pack::rules().item_visual(identifier)
-                != Some(assets::facts::pack::ItemVisualKind::EmptyHand)
+            && draws_a_block(identifier)
         {
             routes.insert(key, BlockVisualId(state));
         }
     }
-    Ok(())
+    Ok(implicit)
 }
 
 fn validate_route_provenance(

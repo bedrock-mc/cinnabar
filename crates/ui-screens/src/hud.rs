@@ -132,6 +132,7 @@ pub struct HudScreens {
     /// Presentation color kept separate from the factory and collection message inputs.
     chat_color: Option<char>,
     chat_mention_color: Option<char>,
+    chat_local_player: Arc<str>,
     crosshair_data: Arc<DataSource>,
     model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
@@ -221,6 +222,11 @@ impl HudScreens {
             Some((model, changes, opacity)) => {
                 self.chat_color = model.chat_color;
                 self.chat_mention_color = model.chat_mention_color;
+                if self.chat_local_player != model.chat_local_player {
+                    self.hud_paint.drawn = None;
+                    self.crosshair_paint.drawn = None;
+                    self.chat_local_player = Arc::clone(&model.chat_local_player);
+                }
                 if changes.text {
                     self.model_clocks = hud_clocks(model);
                 }
@@ -284,7 +290,14 @@ impl HudScreens {
             .next()
             .unwrap_or_default();
         let text_format = |node: &json_ui::DrawNode, text: &str| {
-            crate::settings_chat::message_text(&node.key, history, text, color, mention)
+            crate::settings_chat::message_text(
+                &node.key,
+                history,
+                text,
+                color,
+                mention,
+                &self.chat_local_player,
+            )
         };
         let bounds = PaintBounds::default();
         let art = ScreenArt {

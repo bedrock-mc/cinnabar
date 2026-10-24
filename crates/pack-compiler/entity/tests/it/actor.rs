@@ -202,8 +202,8 @@ fn alpha_tested_material_keeps_fractional_alpha_for_its_shader_test() {
 
 #[test]
 fn unverified_vanilla_material_rounds_fractional_alpha_instead_of_dropping_the_actor() {
-    assert_eq!(probe_alpha(4, "spider"), (1, 0));
-    assert_eq!(probe_alpha(200, "spider"), (1, 255));
+    assert_eq!(probe_alpha(4, "cushion"), (1, 0));
+    assert_eq!(probe_alpha(200, "cushion"), (1, 255));
 }
 
 #[test]
@@ -229,7 +229,7 @@ fn actor_pixels_are_not_cropped_to_geometry_dimensions() {
 
 #[test]
 fn runtime_rejects_rehashed_untrusted_pixels_and_binding_substitutions() {
-    let pack = pack(0, "spider", false);
+    let pack = pack(0, "cushion", false);
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
     let entities =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
@@ -409,4 +409,24 @@ fn sprite_uvs_use_declared_dimensions_independently_of_raster_resolution() {
         (catalog.textures()[0].width, catalog.textures()[0].height),
         (16, 16)
     );
+}
+
+#[test]
+fn emissive_actor_aliases_keep_fractional_lighting_and_eye_masks() {
+    for material in [
+        "blaze_body",
+        "blaze_head",
+        "glow_squid",
+        "magma_cube",
+        "spider",
+        "spider_invisible",
+        "enderman",
+        "enderman_invisible",
+        "phantom",
+        "phantom_invisible",
+    ] {
+        for alpha in [4, 128, 200] {
+            assert_eq!(probe_alpha(alpha, material), (1, alpha), "{material}");
+        }
+    }
 }

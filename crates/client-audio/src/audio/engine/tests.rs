@@ -141,7 +141,7 @@ fn a_full_decode_backlog_defers_a_sound_until_it_can_start() {
                 None,
                 &settings,
                 None,
-                [0.0; 3]
+                [0.0; START_ROLLS]
             )
             .is_none()
     );
@@ -306,7 +306,13 @@ fn huge_aggregate_weights_pick_without_overflow() {
     let settings = AudioSettings::default();
     assert!(
         engine
-            .start_rolled(&request, None, &settings, None, [0.999_999, 0.0, 0.0])
+            .start_rolled(
+                &request,
+                None,
+                &settings,
+                None,
+                [0.999_999, 0.0, 0.0, 0.0, 0.0]
+            )
             .is_none()
     );
     assert_eq!(engine.stats.no_pcm, 1, "the pick reached PCM lookup");

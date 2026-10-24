@@ -15,6 +15,7 @@ const (
 	MaxMessageBytes         = 48 * 1024
 	MaxMessagesPerSecond    = 64
 	MaxBytesPerSecond       = 64 * 1024
+	MaxBurstBytes           = 3 * MaxMessageBytes
 	MaxQueueBytes           = 256 * 1024
 	MaxChannels             = 64
 	MaxChannelFields        = 64

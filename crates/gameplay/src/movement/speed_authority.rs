@@ -313,6 +313,15 @@ impl LocalMovementSpeedAuthority {
         self.speed.prediction_speed()
     }
 
+    /// Simulator speed for a frame that requests `sprinting`, leaving the effective attribute
+    /// unchanged. The sprint modifier changes only once a tick has selected the sprint, so
+    /// frames between ticks keep the current the field of view reads.
+    pub(crate) fn requested_prediction_speed(&self, sprinting: bool) -> Option<f64> {
+        let mut speed = self.speed;
+        speed.set_sprinting(sprinting);
+        speed.prediction_speed()
+    }
+
     /// Applies one local sprint transition to the effective attribute.
     pub(crate) fn set_sprinting(&mut self, sprinting: bool) {
         self.speed.set_sprinting(sprinting);

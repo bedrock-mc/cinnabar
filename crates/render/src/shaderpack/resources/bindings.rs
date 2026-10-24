@@ -74,7 +74,7 @@ pub(crate) fn resolve_bindings(
             } else {
                 images
                     .iter()
-                    .position(|i| i.sampler == t.name)
+                    .position(|i| i.sampler_binding_name() == t.name)
                     .map(|index| TextureSource::Image {
                         index,
                         format: image_formats[index],

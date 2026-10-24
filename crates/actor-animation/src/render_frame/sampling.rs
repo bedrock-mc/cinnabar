@@ -41,6 +41,12 @@ pub(crate) fn render_layer_expressions(
 
     expressions.extend(layer.condition);
     gates.extend(layer.condition);
+    let material_expressions: Vec<_> = data
+        .material_nodes(layer)
+        .filter_map(|node| node.expression())
+        .collect();
+    expressions.extend(material_expressions.iter().copied());
+    gates.extend(material_expressions);
     expressions.extend(layer.light_color_multiplier);
     for channels in [
         layer.color,
@@ -86,13 +92,14 @@ pub(crate) fn render_layer_expressions(
 }
 
 /// Frame-time queries require fresh rendered-layer evaluation between simulation ticks.
-pub(crate) fn needs_frame_sampling(assets: &RuntimeEntityAssets, binding: usize) -> bool {
-    uses_render_query(assets, binding, |symbol| {
-        matches!(
-            assets.molang_query_binding(symbol),
-            Some(assets::MolangQuery::FrameAlpha | assets::MolangQuery::LifeTime)
-        )
-    })
+pub(crate) fn needs_frame_sampling(
+    assets: &RuntimeEntityAssets,
+    layout: &VariableLayout,
+    binding: usize,
+) -> bool {
+    render_expressions(assets, binding)
+        .into_iter()
+        .any(|expression| layout.expression_inputs(expression as usize).frame)
 }
 
 /// Rendered expressions retain motion endpoints whenever they read interpolated actor inputs.

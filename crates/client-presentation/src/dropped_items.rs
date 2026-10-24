@@ -118,8 +118,23 @@ fn item_block_id(
     if identifier.is_some_and(|identifier| {
         matches!(
             assets::facts::block_render_fact(identifier).kind,
-            assets::facts::BlockRenderKind::Lantern | assets::facts::BlockRenderKind::Chain
-        )
+            assets::facts::BlockRenderKind::Lantern
+                | assets::facts::BlockRenderKind::Chain
+                | assets::facts::BlockRenderKind::Bamboo
+                | assets::facts::BlockRenderKind::CoralFan
+                | assets::facts::BlockRenderKind::DefaultRail
+                | assets::facts::BlockRenderKind::LeafLitter
+                | assets::facts::BlockRenderKind::ResinClump
+                | assets::facts::BlockRenderKind::TripwireHook
+                | assets::facts::BlockRenderKind::Ladder
+                | assets::facts::BlockRenderKind::LilyPad
+                | assets::facts::BlockRenderKind::SeaPickle
+        ) || assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::FLOWER_BED_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CANDLE_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::METAL_BAR_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
     }

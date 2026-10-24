@@ -135,7 +135,7 @@ impl WorldsClient {
                     }
                     // Only an open holds the gate, so a revoked client never starts a world
                     // while slow requests (a Docker probe) never delay a detach.
-                    let gate = matches!(effect, Effect::Open(_) | Effect::Prestart).then_some(gate);
+                    let gate = matches!(effect, Effect::Open(_)).then_some(gate);
                     let cancelled = || *lock(&worker_revoked);
                     let event = execute(&manager, &route, effect, &cancelled);
                     drop(gate);
@@ -247,7 +247,13 @@ fn execute(
             .map_or_else(failed, |()| Event::EulaAccepted),
         Effect::Import(Some(files)) => import_files(manager, files, cancelled),
         Effect::Import(None) => match picker::pick(&WORLD_FILES) {
-            Ok(file) => import_files(manager, file.into_iter().collect(), cancelled),
+            Ok(file) => import_files(
+                manager,
+                file.iter()
+                    .map(|file| file.as_ref().to_path_buf())
+                    .collect(),
+                cancelled,
+            ),
             Err(error) => Event::Imported {
                 worlds: Vec::new(),
                 errors: vec![error],
@@ -268,10 +274,6 @@ fn execute(
         }
         Effect::Prepare => {
             manager.prepare();
-            return None;
-        }
-        Effect::Prestart => {
-            manager.prestart();
             return None;
         }
         Effect::OpenUrl(_) => return None,
