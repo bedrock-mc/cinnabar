@@ -121,6 +121,25 @@ impl IconBlocks {
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
+        if record.model_family == ModelFamily::Button {
+            // The base game's button UI shape is the unpressed plate on a west wall, which is the
+            // world shape of the east-facing state.
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    candidate.name == record.name
+                        && state[BlockProperty::FacingDirection.name()]["value"] == 5
+                        && state[BlockProperty::ButtonPressedBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         let crafter = record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier();
         if crafter
             || assets::facts::block_render_fact(&record.name).kind
@@ -580,3 +599,7 @@ mod crafter_tests;
 #[cfg(test)]
 #[path = "blocks/lightning_rod_tests.rs"]
 mod lightning_rod_tests;
+
+#[cfg(test)]
+#[path = "blocks/button_tests.rs"]
+mod button_tests;
