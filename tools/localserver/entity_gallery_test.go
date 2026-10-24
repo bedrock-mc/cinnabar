@@ -158,11 +158,13 @@ func TestEntityGallerySpawnHeightsMatchEntityFacts(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, record := range facts.Records {
-				for _, size := range []struct {
-					name   string
-					scale  *float32
-					height float32
-				}{
+				type spawnSize struct {
+					name     string
+					scale    *float32
+					height   float32
+					painting string
+				}
+				sizes := []spawnSize{
 					{name: "default"},
 					{name: "double-scale", scale: new(float32(2))},
 					{name: "double-height", height: 2 * entityGalleryFallingBlockHeight},
@@ -174,9 +176,16 @@ func TestEntityGallerySpawnHeightsMatchEntityFacts(t *testing.T) {
 					{name: "nan-height", height: float32(math.NaN())},
 					{name: "infinite-height", height: float32(math.Inf(1))},
 					{name: "overflow-size", scale: new(float32(math.MaxFloat32)), height: math.MaxFloat32},
-				} {
+				}
+				if record.Fact.NativeClass == "Painting" {
+					sizes = append(sizes, spawnSize{name: "unknown-motive", painting: "unknown-motive"})
+					for _, motive := range entityGalleryPaintingMotives {
+						sizes = append(sizes, spawnSize{name: motive.Title, painting: motive.Title})
+					}
+				}
+				for _, size := range sizes {
 					t.Run(record.Identifier+"/"+size.name, func(t *testing.T) {
-						appearance := entityAppearance{Identifier: record.Identifier, Scale: size.scale, Height: size.height}
+						appearance := entityAppearance{Identifier: record.Identifier, Scale: size.scale, Height: size.height, Painting: size.painting}
 						spawns := 0
 						for _, pk := range entityGalleryPackets([]entityAppearance{appearance}, mgl32.Vec3{0, 65.62, 0}) {
 							var position mgl32.Vec3
@@ -210,7 +219,30 @@ func TestEntityGallerySpawnHeightsMatchEntityFacts(t *testing.T) {
 								position = actor.Position
 								position[1] -= record.Fact.NetworkYOffset
 							case *packet.AddPainting:
-								position = actor.Position // The client retains the painting anchor unchanged.
+								position = actor.Position
+								wantTitle := size.painting
+								if wantTitle == "" {
+									wantTitle = entityGalleryPaintingMotives[0].Title
+								}
+								if actor.Title != wantTitle {
+									t.Fatalf("painting title = %q, want %q", actor.Title, wantTitle)
+								}
+								motive := entityGalleryPaintingMotives[0]
+								for _, candidate := range entityGalleryPaintingMotives {
+									if candidate.Title == actor.Title {
+										motive = candidate
+										break
+									}
+								}
+								// Painting packets retain the center; compare the rendered lower edge.
+								position[1] -= motive.Size[1] / 16 / 2
+								if actor.Direction < 0 || actor.Direction > 3 {
+									t.Fatalf("invalid painting direction %d", actor.Direction)
+								}
+								normal := mgl32.Rotate3DY(-float32(actor.Direction) * math.Pi / 2).Mul3x1(mgl32.Vec3{0, 0, 1})
+								if normal.Dot(mgl32.Vec3{0, 65.62, 0}.Sub(actor.Position)) <= 0.00001 {
+									t.Error("painting front faces away from the viewer")
+								}
 							default:
 								continue
 							}

@@ -255,9 +255,10 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 		if appearance.Identifier == "minecraft:painting" {
 			title := appearance.Painting
 			if title == "" {
-				title = "Kebab"
+				title = entityGalleryPaintingMotives[0].Title
 			}
-			actor = &packet.AddPainting{EntityUniqueID: id, EntityRuntimeID: uint64(id), Position: position, Direction: 0, Title: title}
+			center := position.Add(mgl32.Vec3{0, entityGalleryPaintingHeight(title) / 2, 0})
+			actor = &packet.AddPainting{EntityUniqueID: id, EntityRuntimeID: uint64(id), Position: center, Direction: 2, Title: title}
 		} else if appearance.Identifier == "minecraft:item" {
 			stack := appearance.Item
 			if stack == nil {
