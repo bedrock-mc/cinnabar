@@ -53,6 +53,9 @@ struct PlacementValues {
 /// Every protocol enum string, so the Go adapter can check its sets against Rust.
 #[derive(Serialize)]
 struct Enums {
+    dimensions: [DimensionType; 3],
+    generators: [Generator; 2],
+    store_scopes: [StoreScope; 3],
     faces: [Face; 6],
     causes: [Cause; 3],
     fail_kinds: [FailKind; 4],
@@ -92,6 +95,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
     let callback = |seq: u64, actor: Option<&str>, call: Call| Request::Callback {
         seq,
         info: Info {
+            context: None,
             world_id: "world".to_owned(),
             dimension_id: "overworld".to_owned(),
             tick: 48_213,
@@ -247,7 +251,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         path: format!("/srv/experiences/benergistics/assets/{file}"),
     };
 
-    vec![
+    let mut fixtures = vec![
         (
             "request_load",
             pretty(&Request::Load {
@@ -468,6 +472,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     max_stack: 1,
                 }],
                 focus: true,
+                worlds: None,
             }),
         ),
         (
@@ -600,6 +605,9 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "enums",
             pretty(&Enums {
+                dimensions: all_variants!(DimensionType: Overworld, Nether, End),
+                generators: all_variants!(Generator: Empty, Flat),
+                store_scopes: all_variants!(StoreScope: Player, Instance, Mod),
                 faces: all_variants!(Face: Down, Up, North, South, West, East),
                 causes: all_variants!(Cause: Player, Guest, Environment),
                 fail_kinds: all_variants!(FailKind: Trap, Fuel, Deadline, Limit),
@@ -628,7 +636,9 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     .collect(),
             }),
         ),
-    ]
+    ];
+    fixtures.extend(super::fixtures_worlds::fixtures());
+    fixtures
 }
 
 /// A state named `name` holding `value`.

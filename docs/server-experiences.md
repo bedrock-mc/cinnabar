@@ -172,6 +172,27 @@ within negotiated limits. Sequences, routes, schemas, epochs, reassembly budgets
 and rates are checked. Wire v1 falls back on dimension change. Neither version's
 fallback may depend on a final message arriving from a stopped client.
 
+Server-driven transfers, including same-dimension moves, use an `epoch` notice.
+The client replies with `world_ack`: `requested_epoch` echoes the notice and
+`world_epoch` is a strictly newer client epoch. Deploy matching client/helper
+revisions. The helper fences both directions before delivery; input must match the
+acknowledged epoch. Client state stays live and `epoch` requests fresh state.
+
+Committed admissions queue per connection and publish in order at activation or
+commit. Acknowledgment retires that notice and all earlier admissions; traffic
+opens only with an empty queue and no preparation. Aborting preparation preserves
+committed admissions. A client part activating during preparation joins the fence;
+after commit it receives the destination notice.
+
+Native epoch updates consume ordinary data credits and wait ahead of later sends.
+Queued notices and matching acknowledgments bypass data credits. Notices must fit
+256 encoded bytes and exceed the last acknowledged notice; equal/older notices
+are dropped. The client advances its acknowledged epoch before writing the reply.
+Multiple notices can precede one cumulative acknowledgment. Retired/repeated
+acknowledgments use ordinary credits and leave the fence unchanged. Failed notice
+writes end the optional session without a retry timer; travel remains committed.
+The fence does not certify that terrain has rendered.
+
 ## Developer media
 
 `media.control` names an indexed descriptor; a scene quad whose texture is that

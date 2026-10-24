@@ -106,15 +106,18 @@ server and remove `<world>/mods/<id>` first. Preserve saved block identities.
 ## Existing Go servers
 
 The generated module is `cinnabar.local/<id>/messages`. Use a local `replace` or
-place it under your server module. Preserve its helper-source `replace` in the
-main module too; Go does not inherit dependency replacements. The generated
-`go.mod` pins the helper and compatible Dragonfly version.
+place it under your server module. The generated `go.mod` pins the helper and
+compatible Dragonfly version. Import the helper as
+`github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext`; regenerate older
+bindings and their module together to update the module identity.
 
 Before listening, call `messages.RegisterRegistry(ext)` and check its error.
 Use `cinnabarext.OnMessage(ext, messages.PingType, callback)` to receive, and
 `ext.Send`/`ext.Broadcast` with generated messages to send. Import the helper at
-the path emitted by `messages.go`. Player identity comes from the connection;
-world access still belongs in Dragonfly transactions. `EncodeRecord` and
+the path emitted by `messages.go`. Message/epoch hooks receive the originating
+`cinnabarext.PlayerSession`; match it to the admitted session before routing input.
+Player identity comes from the connection; world access still belongs in
+Dragonfly transactions. `EncodeRecord` and
 `DecodeRecord` expose canonical wire-v2 records for other transports.
 
 `SendControl` retains a refused negotiation/acknowledgment reply until credit

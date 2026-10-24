@@ -2,6 +2,7 @@ package experience
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -244,9 +245,21 @@ func TestGarbageAndOversizedAreFaults(t *testing.T) {
 	}
 }
 
-// A helper that exits instead of answering is a fault.
-func TestExitIsFault(t *testing.T) {
-	assertPromptFault(t, "exit")
+// A helper that exits instead of answering recovers without consuming guest strikes.
+func TestExitPreservesGuestStrikes(t *testing.T) {
+	log, _ := testLog(t)
+	s, _ := startFake(t, "exit", log, startOptions{})
+	for range strikeLimit - 1 {
+		s.account(context.Background(), Outcome{Failed: &Failed{Kind: FailTrap}}, nil)
+	}
+	old := currentHelper(s)
+	if _, err := s.Call(probeInteract(probeCount)); !errors.Is(err, errHelperFault) {
+		t.Fatalf("Call: %v, want errHelperFault", err)
+	}
+	assertRestarted(t, s, old)
+	if s.Quarantined() || len(s.strikes) != strikeLimit-1 {
+		t.Fatal("transport failure consumed guest strikes")
+	}
 }
 
 // A result that answers another seq is a fault.
@@ -285,10 +298,10 @@ func TestStrikesQuarantine(t *testing.T) {
 	}
 }
 
-// Helper faults are strikes too.
+// Guest protocol faults count as strikes.
 func TestFaultsCountAsStrikes(t *testing.T) {
 	log, _ := testLog(t)
-	s, _ := startFake(t, "exit", log, startOptions{})
+	s, _ := startFake(t, "garbage", log, startOptions{})
 	for i := 1; i <= strikeLimit; i++ {
 		if _, err := s.Call(probeInteract(probeCount)); !errors.Is(err, errHelperFault) {
 			t.Fatalf("fault %d: %v, want errHelperFault", i, err)
@@ -326,7 +339,7 @@ func TestFailedRestartIsFault(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			log, _ := testLog(t)
-			s, _ := startFake(t, "exit", log, startOptions{})
+			s, _ := startFake(t, "garbage", log, startOptions{})
 			changed := fakeLoaded()
 			tc.change(&changed)
 			rescript(t, s, tc.mode, changed)
@@ -336,7 +349,7 @@ func TestFailedRestartIsFault(t *testing.T) {
 			if currentHelper(s) != nil {
 				t.Fatal("the helper of a failed restart runs")
 			}
-			// The first call's exit and failed restart are two strikes; each later call retries
+			// The first call's protocol fault and failed restart are two strikes; each later call retries
 			// the restart, which fails again.
 			calls := 1
 			for !s.Quarantined() && calls < strikeLimit {
@@ -356,7 +369,7 @@ func TestRestartLimitQuarantines(t *testing.T) {
 	step := restartStep(t)
 	clock := newFakeClock()
 	log, _ := testLog(t)
-	s, _ := startFake(t, "exit", log, startOptions{now: clock.Now})
+	s, _ := startFake(t, "garbage", log, startOptions{now: clock.Now})
 	for i := 1; i <= maxRestarts+1; i++ {
 		if _, err := s.Call(probeInteract(probeCount)); !errors.Is(err, errHelperFault) {
 			t.Fatalf("fault %d: %v, want errHelperFault", i, err)
@@ -403,7 +416,7 @@ func TestReloadClearsRestartHistory(t *testing.T) {
 	step := restartStep(t)
 	clock := newFakeClock()
 	log, _ := testLog(t)
-	s, _ := startFake(t, "exit", log, startOptions{now: clock.Now})
+	s, _ := startFake(t, "garbage", log, startOptions{now: clock.Now})
 	faults := func() {
 		t.Helper()
 		for range maxRestarts {
@@ -445,7 +458,7 @@ func TestReloadRefusesChangedArtifact(t *testing.T) {
 	}
 	t.Run("quarantined", func(t *testing.T) {
 		log, _ := testLog(t)
-		s, _ := startFake(t, "exit", log, startOptions{})
+		s, _ := startFake(t, "garbage", log, startOptions{})
 		for range strikeLimit {
 			s.Call(probeInteract(probeCount))
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"math"
 	"strings"
 	"sync"
@@ -12,21 +13,17 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 )
 
-// WorldInstanceID is a stable storage identity supplied by the server when it opens a world.
-// Reopening that instance keeps its ID; another instance must have another ID.
-type WorldInstanceID string
-
 // WorldHandle identifies one live opening of an instance. Closing it invalidates the handle.
 type WorldHandle struct {
-	ID         WorldInstanceID
-	Generation uint64
+	ID         cinnabarext.WorldID `json:"id"`
+	Generation uint64              `json:"generation"`
 }
 
 // The default instance IDs also identify the worlds in a migrated dimension-keyed store.
 const (
-	OverworldInstance WorldInstanceID = "overworld"
-	NetherInstance    WorldInstanceID = "nether"
-	EndInstance       WorldInstanceID = "end"
+	OverworldInstance cinnabarext.WorldID = "overworld"
+	NetherInstance    cinnabarext.WorldID = "nether"
+	EndInstance       cinnabarext.WorldID = "end"
 )
 
 // ErrStaleWorld rejects a handle after its instance was unbound or reopened.
@@ -47,14 +44,15 @@ func (w worldInstance) storeKey(pos cube.Pos) Key {
 // worldBindings tracks loaded instances and rejects handles from earlier openings.
 // It does not own Dragonfly world shutdown.
 type worldBindings struct {
-	mu      sync.RWMutex
-	next    uint64
-	byWorld map[*world.World]worldInstance
-	byID    map[WorldInstanceID]*world.World
+	mu           sync.RWMutex
+	next         uint64
+	byWorld      map[*world.World]worldInstance
+	byID         map[cinnabarext.WorldID]*world.World
+	reservations map[WorldHandle]uint64
 }
 
 // bind associates a stable instance ID with a live world and assigns a fresh generation.
-func (b *worldBindings) bind(id WorldInstanceID, w *world.World) (WorldHandle, error) {
+func (b *worldBindings) bind(id cinnabarext.WorldID, w *world.World, generation uint64) (WorldHandle, error) {
 	if id == "" || strings.TrimSpace(string(id)) != string(id) || w == nil {
 		return WorldHandle{}, errors.New("a nonempty instance ID and world are required")
 	}
@@ -79,10 +77,15 @@ func (b *worldBindings) bind(id WorldInstanceID, w *world.World) (WorldHandle, e
 	}
 	if b.byWorld == nil {
 		b.byWorld = make(map[*world.World]worldInstance)
-		b.byID = make(map[WorldInstanceID]*world.World)
+		b.byID = make(map[cinnabarext.WorldID]*world.World)
 	}
-	b.next++
-	handle := WorldHandle{ID: id, Generation: b.next}
+	if generation == 0 {
+		b.next++
+		generation = b.next
+	} else {
+		b.next = max(b.next, generation)
+	}
+	handle := WorldHandle{ID: id, Generation: generation}
 	b.byWorld[w] = worldInstance{handle: handle, id: strings.ToLower(name)}
 	b.byID[id] = w
 	return handle, nil
@@ -121,7 +124,7 @@ func (b *worldBindings) unbind(handle WorldHandle) error {
 }
 
 // legacyWorldInstance maps only the historical store's three dimension identities.
-func legacyWorldInstance(dim int) (WorldInstanceID, error) {
+func legacyWorldInstance(dim int) (cinnabarext.WorldID, error) {
 	switch dim {
 	case 0:
 		return OverworldInstance, nil
@@ -136,11 +139,19 @@ func legacyWorldInstance(dim int) (WorldInstanceID, error) {
 
 // BindWorld enables Experience hooks for a live instance. The caller owns its lifetime and
 // must unbind it before closing it or replacing it with another world.
-func (h *Host) BindWorld(id WorldInstanceID, w *world.World) (WorldHandle, error) {
+func (h *Host) BindWorld(id cinnabarext.WorldID, w *world.World) (WorldHandle, error) {
 	if h.closed.Load() {
 		return WorldHandle{}, errors.New("experience host is closed")
 	}
-	return h.worlds.bind(id, w)
+	var generation uint64
+	if h.store != nil {
+		var err error
+		generation, err = h.store.reserveWorldGeneration()
+		if err != nil {
+			return WorldHandle{}, err
+		}
+	}
+	return h.worlds.bind(id, w, generation)
 }
 
 // ResolveWorld rejects stale handles instead of resolving them to a later instance opening.
@@ -159,7 +170,7 @@ func (h *Host) UnbindWorld(ctx context.Context, handle WorldHandle) error {
 		return err
 	}
 	var result error
-	if err := await(ctx, w.Do(func(*world.Tx) { result = h.worlds.unbind(handle) })); err != nil {
+	if err := await(ctx, w.Do(func(*world.Tx) { result = h.worlds.unload(handle) })); err != nil {
 		return err
 	}
 	return result

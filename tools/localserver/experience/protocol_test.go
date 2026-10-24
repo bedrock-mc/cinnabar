@@ -67,6 +67,9 @@ func rustLimits(t *testing.T) fixtureLimits {
 
 // fixtureEnums mirrors the enums fixture: every protocol enum string, in Rust's order.
 type fixtureEnums struct {
+	Dimensions      []DimensionType  `json:"dimensions"`
+	Generators      []Generator      `json:"generators"`
+	StoreScopes     []StoreScope     `json:"store_scopes"`
 	Faces           []Face           `json:"faces"`
 	Causes          []Cause          `json:"causes"`
 	FailKinds       []FailKind       `json:"fail_kinds"`
@@ -171,6 +174,9 @@ func TestFixturesRoundTrip(t *testing.T) {
 // checkEnums checks that Go knows exactly Rust's enum strings and refuses any other.
 func checkEnums(t *testing.T, rust *fixtureEnums) {
 	t.Helper()
+	if !slices.Equal(dimensions, rust.Dimensions) || !slices.Equal(generators, rust.Generators) || !slices.Equal(storeScopes, rust.StoreScopes) {
+		t.Error("world enums differ from Rust")
+	}
 	if !slices.Equal(faces, rust.Faces) {
 		t.Errorf("Go faces %q, Rust faces %q", faces, rust.Faces)
 	}

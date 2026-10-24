@@ -123,7 +123,7 @@ func TestV1KeepsOneWorldEpoch(t *testing.T) {
 func TestEpochChangeKeepsTheClientPart(t *testing.T) {
 	f := newConn(t, nil)
 	var told []string
-	f.s.OnEpoch(func(player uuid.UUID, exp string) {
+	f.s.OnEpoch(func(player uuid.UUID, _ PlayerSession, exp string) {
 		if player == f.player {
 			told = append(told, exp)
 		}
@@ -246,7 +246,7 @@ func TestEpochViolationsFallBack(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			f := newConn(t, nil)
 			told := 0
-			f.s.OnEpoch(func(uuid.UUID, string) { told++ })
+			f.s.OnEpoch(func(uuid.UUID, PlayerSession, string) { told++ })
 			accept := f.accept(f.hello())
 			if c.ready {
 				r := f.ready(accept)

@@ -133,6 +133,8 @@ fn item_block_id(
             || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
             || assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS.contains(&identifier)
             || assets::facts::FLOWER_BED_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CANDLE_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::METAL_BAR_ITEM_IDENTIFIERS.contains(&identifier)
     }) {
         return None;
     }

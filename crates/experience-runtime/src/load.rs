@@ -5,6 +5,7 @@ use experience_sdk::artifact::{ASSETS_DIR, SERVER_WASM};
 mod block_type;
 mod geometry;
 mod items;
+pub(crate) mod worlds;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -49,6 +50,7 @@ pub(crate) struct Catalog {
     pub server: HashMap<String, HashMap<u16, protocol::ServerItem>>,
     /// The server's crafting-table recipes, in the order it tries them.
     pub recipes: Vec<protocol::Recipe>,
+    pub worlds: protocol::WorldRegistration,
 }
 
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
@@ -63,6 +65,7 @@ pub struct Loaded {
     pub(crate) catalog: Arc<Catalog>,
     /// Whether the world of its `api` takes its player's focus in client messages and epochs.
     pub focus: bool,
+    pub worlds: Option<protocol::WorldRegistration>,
     pub(crate) pre: Pre,
 }
 
@@ -139,6 +142,16 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
     let registration = register(engine, &pre, &manifest.id)?;
     let (blocks, items) = validate_registration(dir, &manifest, registration)?;
+    let worlds = if let Pre::V0_8(component) = &pre {
+        let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+        let declared = component
+            .instantiate(&mut store)?
+            .call_world_definitions(&mut store)?
+            .map_err(|error| anyhow!("world definitions failed: {error:?}"))?;
+        Some(worlds::validate(&manifest.id, declared)?)
+    } else {
+        None
+    };
     let catalog = Catalog {
         blocks: blocks
             .iter()
@@ -150,6 +163,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             .collect(),
         server: HashMap::new(),
         recipes: Vec::new(),
+        worlds: worlds.clone().unwrap_or_default(),
     };
     Ok(Loaded {
         manifest,
@@ -157,6 +171,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         items,
         catalog: Arc::new(catalog),
         focus: api.focus(),
+        worlds,
         pre,
     })
 }

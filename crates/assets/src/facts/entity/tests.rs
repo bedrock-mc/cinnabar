@@ -6,6 +6,7 @@ fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
         (NativeEntityClass::Player, "minecraft:player"),
         (NativeEntityClass::Tnt, "minecraft:tnt"),
         (NativeEntityClass::Sheep, "minecraft:sheep"),
+        (NativeEntityClass::Shulker, "minecraft:shulker"),
         (
             NativeEntityClass::FireworksRocket,
             "minecraft:fireworks_rocket",

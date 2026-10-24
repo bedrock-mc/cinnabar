@@ -94,6 +94,7 @@ impl Fixture {
         let request = Request::Callback {
             seq: 1,
             info: Info {
+                context: None,
                 world_id: "world".to_owned(),
                 dimension_id: "overworld".to_owned(),
                 tick: 1,
@@ -139,6 +140,7 @@ impl Fixture {
             ]
             .into(),
             recipes: Vec::new(),
+            worlds: Default::default(),
         };
         let (res, _) = prepare(&Arc::new(own), &request).unwrap();
         res
@@ -150,6 +152,7 @@ impl Fixture {
         let request = Request::Callback {
             seq: 1,
             info: Info {
+                context: None,
                 world_id: "world".to_owned(),
                 dimension_id: "overworld".to_owned(),
                 tick: 1,
@@ -173,6 +176,7 @@ impl Fixture {
             items: [(CELL.to_owned(), 1)].into(),
             server: [server_item(STONE, 0, 64, false)].into(),
             recipes: Vec::new(),
+            worlds: Default::default(),
         };
         prepare(&Arc::new(own), &request).map(|(res, _)| res)
     }
@@ -210,29 +214,6 @@ fn loaded(pos: BlockPos, id: &str, owned: bool, data: Option<&str>) -> Cell {
 /// Whether `result` is a trap that fails the callback as `limit`.
 fn limited<T>(result: anyhow::Result<T>) -> bool {
     result.is_err_and(|error| error.is::<LimitExceeded>())
-}
-
-/// Both bounds are inside the world; the cells past them are outside even though the
-/// snapshot holds them.
-#[test]
-fn world_height_bounds_reads_and_writes() {
-    let mut res = Fixture {
-        min_y: ANCHOR.y,
-        max_y: ANCHOR.y,
-        ..Fixture::new()
-    }
-    .res();
-    assert_eq!(res.get_block(ANCHOR).unwrap(), Ok(COUNTER.to_owned()));
-    assert_eq!(res.get_block(UP).unwrap(), Err(WorldError::OutOfBounds));
-    assert_eq!(res.block_data(DOWN).unwrap(), Err(WorldError::OutOfBounds));
-    assert_eq!(
-        res.set_block(UP, AIR.to_owned()).unwrap(),
-        Err(WorldError::OutOfBounds)
-    );
-    assert_eq!(
-        res.set_block_data(DOWN, None).unwrap(),
-        Err(WorldError::OutOfBounds)
-    );
 }
 
 /// West and north of the anchor lie in other chunk columns (`-1 >> 4 == -1`); east shares
@@ -1071,3 +1052,5 @@ fn malformed_inventories_are_refused() {
         Err(error) => assert!(error.contains("bytes"), "{error}"),
     }
 }
+
+mod worlds;

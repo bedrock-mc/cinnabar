@@ -119,6 +119,7 @@ fn cosmic_runtime_child() {
         let request = Request::Callback {
             seq: 1,
             info: Info {
+                context: None,
                 world_id: "cosmic-test".into(),
                 dimension_id: "overworld".into(),
                 tick: 1,

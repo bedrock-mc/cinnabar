@@ -80,14 +80,19 @@ type Server struct {
 	rand   io.Reader
 
 	// receive gets the valid messages of client parts; nil drops them.
-	receive func(player uuid.UUID, exp, channel string, schema uint16, payload []Scalar)
+	receive func(player uuid.UUID, source PlayerSession, exp, channel string, schema uint16, payload []Scalar)
 	// epoch learns of each v2 client part that moved to a new world epoch; nil drops them.
-	epoch func(player uuid.UUID, exp string)
+	epoch func(player uuid.UUID, source PlayerSession, exp string)
+
+	// transferMu serializes activation, preparation and publication, before connection locks.
+	transferMu sync.Mutex
 
 	mu sync.Mutex
-	// active holds each player's connection whose client part is active.
-	active   map[uuid.UUID]*Conn
-	handlers map[Route]func(uuid.UUID, Record)
+	// pending holds connections until Dragonfly accepts their login.
+	pending map[*Conn]struct{}
+	// connections holds admitted sessions, including those whose client part activates later.
+	connections map[uuid.UUID]*Conn
+	handlers    map[Route]func(uuid.UUID, Record)
 }
 
 // New signs the offer of cfg.Bundles, valid from now for a day less an hour.
@@ -109,13 +114,14 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		key:      cfg.Key,
-		bundles:  make(map[string]*Bundle, len(cfg.Bundles)),
-		log:      cfg.Log,
-		now:      cfg.Now,
-		rand:     cfg.Rand,
-		active:   make(map[uuid.UUID]*Conn),
-		handlers: make(map[Route]func(uuid.UUID, Record)),
+		key:         cfg.Key,
+		bundles:     make(map[string]*Bundle, len(cfg.Bundles)),
+		log:         cfg.Log,
+		now:         cfg.Now,
+		rand:        cfg.Rand,
+		connections: make(map[uuid.UUID]*Conn),
+		pending:     make(map[*Conn]struct{}),
+		handlers:    make(map[Route]func(uuid.UUID, Record)),
 	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
@@ -262,7 +268,7 @@ func (s *Server) Offer() Offer {
 // OnClientMessage sets the function that gets each valid message a player's client part sends,
 // for the Experience exp whose id is the bundle id. It runs on that player's packet reader, so it
 // must not block. Set it before the server listens.
-func (s *Server) OnClientMessage(receive func(player uuid.UUID, exp, channel string, schema uint16, payload []Scalar)) {
+func (s *Server) OnClientMessage(receive func(player uuid.UUID, source PlayerSession, exp, channel string, schema uint16, payload []Scalar)) {
 	s.receive = receive
 }
 
@@ -270,7 +276,7 @@ func (s *Server) OnClientMessage(receive func(player uuid.UUID, exp, channel str
 // player's wire v2 client changed world epoch and kept its client part running, so the
 // Experience can resend its state. It runs on that player's packet reader, so it must not block.
 // Set it before the server listens.
-func (s *Server) OnEpoch(epoch func(player uuid.UUID, exp string)) {
+func (s *Server) OnEpoch(epoch func(player uuid.UUID, source PlayerSession, exp string)) {
 	s.epoch = epoch
 }
 
@@ -290,25 +296,19 @@ func (s *Server) Declares(exp, channel string, schema uint16) bool {
 // rate would be exceeded by the whole message.
 func (s *Server) SendRecord(player uuid.UUID, exp, channel string, schema uint16, payload []Scalar) bool {
 	s.mu.Lock()
-	c := s.active[player]
+	c := s.connections[player]
 	s.mu.Unlock()
 	return c != nil && c.send(exp, channel, schema, payload)
 }
 
-// activate makes c its player's active connection.
-func (s *Server) activate(c *Conn) {
+// PlayerSession returns the admitted connection, including a client part that has not activated.
+func (s *Server) PlayerSession(player uuid.UUID) PlayerSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.active[c.player] = c
-}
-
-// deactivate forgets c if it is its player's active connection.
-func (s *Server) deactivate(c *Conn) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.active[c.player] == c {
-		delete(s.active, c.player)
+	if c := s.connections[player]; c != nil {
+		return c
 	}
+	return nil
 }
 
 // nonce is a fresh random value in lowercase hex, as the Accept's challenge and session.

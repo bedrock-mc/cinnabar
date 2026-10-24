@@ -1,4 +1,18 @@
 {
+  "dimensions": [
+    "overworld",
+    "nether",
+    "end"
+  ],
+  "generators": [
+    "empty",
+    "flat"
+  ],
+  "store_scopes": [
+    "player",
+    "instance",
+    "mod"
+  ],
   "faces": [
     "down",
     "up",
