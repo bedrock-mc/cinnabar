@@ -421,4 +421,29 @@ fn animation_warming_reuses_rejection_after_later_consumers_fill_the_budget() {
         }
         assert_eq!(artwork[1].builds.get(), 0);
     }
+    cache.budget = ItemModelBudget::new(
+        assets::texture::policy::device_policy(),
+        MAX_ITEM_LAYERS,
+        u64::MAX,
+    );
+    let mut allowed_checks = None;
+    for _ in 0..12 {
+        cache.prepare(|cache| resolve(cache, &models, &[items[0], items[2]]));
+        assert!(
+            cache
+                .warm_icon(
+                    key.clone(),
+                    || planning::ModelCost::from_model(&artwork[1].model),
+                    || {
+                        artwork[1].builds.set(artwork[1].builds.get() + 1);
+                        Some(artwork[1].model.clone())
+                    }
+                )
+                .is_some()
+        );
+        cache.finish_frame();
+        let current = cache.admission_checks[&key];
+        assert_eq!(*allowed_checks.get_or_insert(current), current);
+        assert_eq!(artwork[1].builds.get(), 1);
+    }
 }

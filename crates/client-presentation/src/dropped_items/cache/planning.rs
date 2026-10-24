@@ -10,10 +10,10 @@ struct Capacity {
     pixels: usize,
 }
 
-/// A refused capacity and the last later upload state that also refused animation warming.
+/// A refused capacity and the last later upload decision for animation warming.
 pub(super) struct RejectionBudget {
     capacity: Capacity,
-    warm_upload: Option<render_model::dropped_item::ItemModelBudget>,
+    warm_upload: Option<(render_model::dropped_item::ItemModelBudget, bool)>,
 }
 
 impl ModelCache {
@@ -25,8 +25,13 @@ impl ModelCache {
         else {
             return true;
         };
-        if rejection.capacity.upload == self.budget || rejection.warm_upload == Some(self.budget) {
+        if rejection.capacity.upload == self.budget {
             return false;
+        }
+        if let Some((budget, admitted)) = rejection.warm_upload
+            && budget == self.budget
+        {
+            return admitted;
         }
         let cost = self
             .costs
@@ -37,14 +42,11 @@ impl ModelCache {
             *self.admission_checks.entry(key.clone()).or_default() += 1;
         }
         let mut upload = self.budget;
-        if upload
+        let admitted = upload
             .admit_dimensions(cost.side, cost.layers, cost.vertices)
-            .is_some()
-        {
-            return true;
-        }
-        rejection.warm_upload = Some(self.budget);
-        false
+            .is_some();
+        rejection.warm_upload = Some((self.budget, admitted));
+        admitted
     }
 
     /// Resolves source metadata once per artwork generation, without building a model.
