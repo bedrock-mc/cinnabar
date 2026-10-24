@@ -45,7 +45,16 @@ pub fn compile_actor_pack_unless(
     files: Vec<(Box<str>, Vec<u8>)>,
     cancelled: &dyn Fn() -> bool,
 ) -> Option<Result<Option<ActorPackCompilation>, AssetError>> {
-    match compile_stages(files, cancelled) {
+    compile_actor_pack_unless_with_equipment_priorities(files, &[], cancelled)
+}
+
+/// Compiles a pack while reserving selected equipment texture identifiers before ordinary art.
+pub fn compile_actor_pack_unless_with_equipment_priorities(
+    files: Vec<(Box<str>, Vec<u8>)>,
+    equipment_priorities: &[&str],
+    cancelled: &dyn Fn() -> bool,
+) -> Option<Result<Option<ActorPackCompilation>, AssetError>> {
+    match compile_stages(files, equipment_priorities, cancelled) {
         Ok(compiled) => Some(Ok(compiled)),
         Err(Stop::Failed(error)) => Some(Err(error)),
         Err(Stop::Cancelled) => None,
@@ -55,6 +64,7 @@ pub fn compile_actor_pack_unless(
 /// The stages of [`compile_actor_pack`], checking `cancelled` before each one after the first.
 fn compile_stages(
     files: Vec<(Box<str>, Vec<u8>)>,
+    equipment_priorities: &[&str],
     cancelled: &dyn Fn() -> bool,
 ) -> Result<Option<ActorPackCompilation>, Stop> {
     let check = || {
@@ -79,9 +89,10 @@ fn compile_stages(
     };
     let build = build_artwork(&pack.assets, &runtime, &read, true)?;
     check()?;
-    let equipment_textures = crate::entity::compile_equipment_textures_for_assets_with(
+    let equipment_textures = crate::entity::compile_equipment_textures_for_assets_with_priorities(
         &pack.assets,
         &pack.equipment_bindings,
+        equipment_priorities,
         &mut |source| {
             pack.payloads
                 .get(source.path.as_ref())

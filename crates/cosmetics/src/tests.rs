@@ -1,18 +1,18 @@
 use super::*;
 
-#[test]
-fn generation_changes_only_when_catalog_content_changes() {
+/// Builds synthetic metadata without installing a visible catalog.
+fn descriptor(id: &str, free: bool) -> Descriptor {
     let asset = Asset {
         url: "fixture".into(),
         sha256: "a".repeat(64),
         bytes: 1,
     };
-    let descriptor = Descriptor {
-        id: "fixture:generation".into(),
+    Descriptor {
+        id: id.into(),
         slot: "head".into(),
         display_name: "Fixture".into(),
         tags: Vec::new(),
-        free: true,
+        free,
         assets: Assets {
             geometry: asset.clone(),
             texture: asset,
@@ -25,7 +25,31 @@ fn generation_changes_only_when_catalog_content_changes() {
             double_sided: false,
             emissive: false,
         },
-    };
+    }
+}
+
+#[test]
+fn item_ownership_tracks_session_grants_and_withdrawal() {
+    let _catalog = test_support::catalog_lock();
+    let free = Item::admit(descriptor("fixture:free-ownership", true)).unwrap();
+    let paid = Item::admit(descriptor("fixture:paid-ownership", false)).unwrap();
+    assert!(free.is_owned());
+    assert!(!paid.is_owned());
+    set_ownership("1", &[paid.id().into()]);
+    assert!(paid.is_owned());
+    set_ownership("2", &[]);
+    assert!(!paid.is_owned());
+    set_ownership("1", &[paid.id().into()]);
+    assert!(paid.is_owned());
+    set_ownership("", &[]);
+    assert!(!paid.is_owned());
+    assert!(free.is_owned());
+}
+
+#[test]
+fn generation_changes_only_when_catalog_content_changes() {
+    let _catalog = test_support::catalog_lock();
+    let descriptor = descriptor("fixture:generation", true);
     let before = Item::generation();
     let item = Item::admit(descriptor.clone()).unwrap();
     let admitted = Item::generation();

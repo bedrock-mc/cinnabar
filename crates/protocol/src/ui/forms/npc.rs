@@ -21,6 +21,7 @@ use crate::ui::{MAX_FORM_JSON_BYTES, MAX_UI_TEXT_BYTES, UiEvent, UiPacketError};
 pub const NPC_DIALOGUE_FORM_ID: u32 = u32::MAX;
 /// NPC action entries whose `mode` makes them a clickable button.
 const BUTTON_MODE: u64 = 0;
+const URL_ACTION_TYPE: u64 = 0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpcDialogueForm {
@@ -37,6 +38,8 @@ pub struct NpcDialogueForm {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NpcButton {
     pub text: Arc<str>,
+    /// Selects the URL label style rather than the command label style.
+    pub is_url: bool,
     /// Index into the full action list, echoed back in the request.
     pub action_index: u8,
 }
@@ -124,6 +127,7 @@ fn buttons(json: &str) -> Result<Vec<NpcButton>, UnsupportedForm> {
         }
         buttons.push(NpcButton {
             text: Arc::from(text),
+            is_url: action.get("type").and_then(Value::as_u64) == Some(URL_ACTION_TYPE),
             action_index: index as u8,
         });
     }
@@ -171,6 +175,14 @@ pub fn server_settings_request_packet() -> crate::Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_buttons_preserve_their_label_kind() {
+        let parsed = buttons(r#"[{"button_name":"Command","type":1,"mode":0},{"button_name":"Website","type":0,"mode":0},{"button_name":"Default"}]"#).unwrap();
+        assert!(!parsed[0].is_url);
+        assert!(parsed[1].is_url);
+        assert!(!parsed[2].is_url);
+    }
 
     #[test]
     fn button_mode_actions_keep_their_action_indexes() {

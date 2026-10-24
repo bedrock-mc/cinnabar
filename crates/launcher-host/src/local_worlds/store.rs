@@ -10,7 +10,9 @@ use launcher::local_worlds::world::{Difficulty, Generator, NewWorld, Prefs, Worl
 use serde::{Deserialize, Serialize};
 
 use super::{
-    create_private_dir, lock,
+    create_private_dir,
+    level_dat::LevelData,
+    lock,
     provision::unix_now,
     world::{WorldError, failed, validate_name},
 };
@@ -92,6 +94,10 @@ struct Record<'a> {
     difficulty: Difficulty,
     backend: Backend,
     seed: i64,
+    options: &'a launcher::local_worlds::options::WorldOptions,
+    pending_options: &'a launcher::local_worlds::options::OptionChanges,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    options_unapplied: bool,
     created_unix: i64,
     last_played_unix: i64,
 }
@@ -112,6 +118,13 @@ struct Saved {
     backend: String,
     #[serde(default)]
     seed: i64,
+    #[serde(default)]
+    options: Option<launcher::local_worlds::options::WorldOptions>,
+    #[serde(default)]
+    pending_options: launcher::local_worlds::options::OptionChanges,
+    /// A created world whose options no successful start has written to its level data yet.
+    #[serde(default)]
+    options_unapplied: bool,
     #[serde(default)]
     created_unix: i64,
     #[serde(default)]
@@ -187,7 +200,8 @@ impl Store {
             .map_err(|error| failed(format!("save world thumbnail: {error}")))
     }
 
-    fn read(&self, id: &str) -> Result<World, WorldError> {
+    /// Reads and validates the saved metadata record.
+    fn saved(&self, id: &str) -> Result<Saved, WorldError> {
         let path = self.dir(id)?.join(META_FILE);
         let raw = match fs::read(path) {
             Ok(raw) => raw,
@@ -201,6 +215,13 @@ impl Store {
         if saved.id != id {
             return Err(corrupt());
         }
+        Ok(saved)
+    }
+
+    /// Combines metadata edits with the latest settings saved by BDS.
+    fn read(&self, id: &str) -> Result<World, WorldError> {
+        let saved = self.saved(id)?;
+        let corrupt = || failed(format!("corrupt world metadata for {id}"));
         let backend = match saved.backend.as_str() {
             "" | "dragonfly" => Backend::Dragonfly,
             "bds" => Backend::Bds,
@@ -213,6 +234,23 @@ impl Store {
             "normal" => Generator::Normal,
             _ => return Err(corrupt()),
         };
+        let level = super::level_dat::read(&self.root.join(id).join(LEVEL_DIR).join("level.dat"));
+        let options_unavailable = matches!(level, Ok(LevelData::Oversized));
+        let current = match &level {
+            Ok(LevelData::Read(bytes)) => super::level_dat::options_from(bytes),
+            _ => None,
+        };
+        // Until a start applies them, the requested options outrank level data BDS defaulted.
+        let current = current.filter(|_| !saved.options_unapplied);
+        let mut options = match (saved.options, current) {
+            (Some(mut options), Some(current)) => {
+                options.merge_server_rules(&current);
+                options
+            }
+            (Some(options), None) => options,
+            (None, current) => current.unwrap_or_default(),
+        };
+        options.apply_changes(&saved.pending_options);
         Ok(World {
             id: saved.id,
             name: saved.name,
@@ -221,17 +259,24 @@ impl Store {
             difficulty: saved.difficulty,
             backend,
             seed: saved.seed,
+            options,
             created_unix: saved.created_unix,
             last_played_unix: saved.last_played_unix,
+            options_unavailable,
             size_bytes: 0,
         })
     }
 
-    fn write(&self, world: &World) -> Result<(), WorldError> {
+    fn write(
+        &self,
+        world: &World,
+        pending_options: &launcher::local_worlds::options::OptionChanges,
+        options_unapplied: bool,
+    ) -> Result<(), WorldError> {
         let dir = self.dir(&world.id)?;
         create_private_dir(&dir)
             .map_err(|error| failed(format!("create world directory: {error}")))?;
-        write_record(&dir, world)
+        write_record(&dir, world, pending_options, options_unapplied)
     }
 
     /// Validates `world` and saves it with a fresh id.
@@ -239,7 +284,7 @@ impl Store {
         let id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         let state = self.lock();
         let world = new_record(&state, id, world)?;
-        self.write(&world)?;
+        self.write(&world, &Default::default(), true)?;
         Ok(world)
     }
 
@@ -309,12 +354,16 @@ impl Store {
             id = format!("{:016x}", u64::from_be_bytes(random_bytes()?));
         }
         let mut world = new_record(&state, id, world)?;
-        write_record(&staging.dir, &world)?;
+        write_record(&staging.dir, &world, &Default::default(), false)?;
         let dir = self.root.join(&world.id);
         fs::rename(&staging.dir, &dir)
             .map_err(|error| failed(format!("publish imported world: {error}")))?;
         drop(state);
         world.size_bytes = dir_size(&dir);
+        world.options_unavailable = matches!(
+            super::level_dat::read(&dir.join(LEVEL_DIR).join("level.dat")),
+            Ok(LevelData::Oversized)
+        );
         Ok(world)
     }
 
@@ -361,16 +410,60 @@ impl Store {
         if let Some(difficulty) = update.difficulty {
             world.difficulty = difficulty;
         }
-        self.write(&world)?;
+        if let Some(options) = &update.options {
+            world.options.apply_changes(options);
+        }
+        let saved = self.saved(id)?;
+        let mut pending = saved.pending_options;
+        if let Some(changes) = &update.options {
+            pending.extend(changes);
+        }
+        self.write(&world, &pending, saved.options_unapplied)?;
         Ok(world)
     }
 
-    /// Records that a world was just played.
-    pub(crate) fn touch(&self, id: &str) -> Result<(), WorldError> {
+    /// A world to start, the pending edits its start applies, and whether its options have
+    /// never been applied, so the start also writes the creation-only ones.
+    pub(crate) fn snapshot(
+        &self,
+        id: &str,
+    ) -> Result<(World, launcher::local_worlds::options::OptionChanges, bool), WorldError> {
+        let _state = self.lock();
+        let saved = self.saved(id)?;
+        Ok((
+            self.read(id)?,
+            saved.pending_options,
+            saved.options_unapplied,
+        ))
+    }
+
+    /// Records that a world was just played and that its start applied the options and
+    /// `applied` edits; edits saved since that snapshot stay pending.
+    pub(crate) fn touch(
+        &self,
+        id: &str,
+        applied: &launcher::local_worlds::options::OptionChanges,
+    ) -> Result<(), WorldError> {
         let state = self.lock();
         let mut world = self.read(id)?;
         world.last_played_unix = state.now();
-        self.write(&world)
+        let mut pending = self.saved(id)?.pending_options;
+        pending.acknowledge(applied);
+        self.write(&world, &pending, false)
+    }
+
+    /// Drops pending edits that a running server applied and has since saved into its own data.
+    pub(crate) fn acknowledge(
+        &self,
+        id: &str,
+        applied: &launcher::local_worlds::options::OptionChanges,
+    ) -> Result<(), WorldError> {
+        let _state = self.lock();
+        let world = self.read(id)?;
+        let saved = self.saved(id)?;
+        let mut pending = saved.pending_options;
+        pending.acknowledge(applied);
+        self.write(&world, &pending, saved.options_unapplied)
     }
 
     /// Removes a world and all of its saved data.
@@ -423,7 +516,12 @@ fn valid_id(id: &str) -> bool {
 }
 
 /// Writes `world.json` for `world` into `dir`.
-fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
+fn write_record(
+    dir: &Path,
+    world: &World,
+    pending_options: &launcher::local_worlds::options::OptionChanges,
+    options_unapplied: bool,
+) -> Result<(), WorldError> {
     let raw = serde_json::to_vec_pretty(&Record {
         id: &world.id,
         name: &world.name,
@@ -432,6 +530,9 @@ fn write_record(dir: &Path, world: &World) -> Result<(), WorldError> {
         difficulty: world.difficulty,
         backend: world.backend,
         seed: world.seed,
+        options: &world.options,
+        pending_options,
+        options_unapplied,
         created_unix: world.created_unix,
         last_played_unix: world.last_played_unix,
     })
@@ -455,8 +556,10 @@ fn new_record(state: &StoreState, id: String, world: &NewWorld) -> Result<World,
         difficulty: world.difficulty,
         backend: world.backend.unwrap_or_else(|| state.default_backend()),
         seed,
+        options: world.options.clone(),
         created_unix: now,
         last_played_unix: now,
+        options_unavailable: false,
         size_bytes: 0,
     })
 }

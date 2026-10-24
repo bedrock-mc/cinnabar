@@ -23,6 +23,34 @@ pub(super) struct Candidate<'a> {
     pub(super) priority: i32,
     pub(super) ingredients: [Ingredient<'a>; super::model::MAX_INGREDIENTS],
     pub(super) output: Output,
+    pub(super) extra: ExtraOutputs<'a>,
+}
+
+/// The wire results after a recipe's first, kept borrowed until materialization.
+#[derive(Clone, Copy, Default)]
+pub(super) struct ExtraOutputs<'a> {
+    bytes: &'a [u8],
+    count: usize,
+}
+
+impl ExtraOutputs<'_> {
+    pub(super) const fn len(&self) -> usize {
+        self.count
+    }
+
+    /// Re-reads the already validated results.
+    pub(super) fn read(&self) -> ReadResult<Vec<Output>> {
+        let mut reader = Reader::new(self.bytes)?;
+        let mut outputs = Vec::new();
+        outputs
+            .try_reserve_exact(self.count)
+            .map_err(|_| Refusal::Policy)?;
+        for _ in 0..self.count {
+            outputs.push(output(&mut reader)?.ok_or(Refusal::Wire)?);
+        }
+        reader.finish()?;
+        Ok(outputs)
+    }
 }
 
 /// Borrowed identity metadata carried beside the numeric recipe it describes.
@@ -192,14 +220,30 @@ fn normal<'a>(
     }
     valid &= ingredients.iter().any(|i| i.count > 0);
     let results = reader.count(64)?;
-    valid &= results == 1;
+    valid &= results >= 1;
     let mut result = None;
-    for _ in 0..results {
+    let mut extra_start = reader.position();
+    for index in 0..results {
+        if index == 1 {
+            extra_start = reader.position();
+        }
         let current = output(reader)?;
-        if results == 1 {
+        // Every result must be craftable for the recipe to be.
+        valid &= current.is_some();
+        if index == 0 {
             result = current;
         }
     }
+    let extra = if results > 1 {
+        ExtraOutputs {
+            bytes: reader.since(extra_start),
+            count: results - 1,
+        }
+    } else {
+        ExtraOutputs::default()
+    };
+    // Station screens take exactly one result.
+    let single = if results == 1 { result } else { None };
     reader.take(16)?;
     let tag = reader.text()?;
     let block = tag.unwrap_or("");
@@ -237,10 +281,10 @@ fn normal<'a>(
         };
         count == expected && ingredients.iter().take(count).all(|item| item.count == 1)
     });
-    let skipped = screen_kind.is_some() && !(valid && !shaped && supported && result.is_some());
+    let skipped = screen_kind.is_some() && !(valid && !shaped && supported && single.is_some());
     let screen = screen_kind
         .filter(|_| valid && !shaped && supported)
-        .zip(result)
+        .zip(single)
         .map(|(kind, output)| {
             let mut kept = [Ingredient::default(); 3];
             kept[..count].copy_from_slice(&ingredients[..count]);
@@ -264,6 +308,7 @@ fn normal<'a>(
                 priority,
                 ingredients,
                 output,
+                extra,
             })
         } else {
             None

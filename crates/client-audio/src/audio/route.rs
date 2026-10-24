@@ -44,10 +44,21 @@ pub(super) fn play_request(play: &PlayAudioEvent) -> SoundRequest {
 }
 
 /// `LevelSoundEvent`: actor route first, then block material, then a named individual sound.
+#[cfg(test)]
 pub(super) fn level_sound_request(
     tables: &SoundEventTables,
     event: &LevelAudioEvent,
     block_identifier: &dyn Fn(u32) -> Option<String>,
+) -> Option<SoundRequest> {
+    level_sound_request_with_component_material(tables, event, block_identifier, None)
+}
+
+/// `LevelSoundEvent` routing with the session block's network sound component available.
+pub(super) fn level_sound_request_with_component_material(
+    tables: &SoundEventTables,
+    event: &LevelAudioEvent,
+    block_identifier: &dyn Fn(u32) -> Option<String>,
+    component_material: Option<&str>,
 ) -> Option<SoundRequest> {
     let name = event.sound_event.as_ref();
     let position = (!event.is_global).then_some(event.position);
@@ -64,8 +75,11 @@ pub(super) fn level_sound_request(
             RouteLookup::Absent => {}
         }
     }
-    let material = block_identifier(event.data as u32)
-        .and_then(|identifier| tables.material_of(&identifier).map(str::to_owned));
+    let material = block_identifier(event.data as u32).map(|identifier| {
+        tables
+            .material_of_with_component(&identifier, component_material)
+            .to_owned()
+    });
     if let Some(material) = material.as_deref() {
         let mover = if actor.is_empty() { "player" } else { actor };
         let route = tables
@@ -168,6 +182,7 @@ pub(super) fn record_sound_name(item_identifier: &str) -> Option<String> {
 }
 
 /// Break sound of the block in `data` for a destroy-block level event; other ids yield `None`.
+#[cfg(test)]
 pub fn destroy_block_request(
     tables: &SoundEventTables,
     event_id: i32,
@@ -175,11 +190,31 @@ pub fn destroy_block_request(
     data: i32,
     block_identifier: &dyn Fn(u32) -> Option<String>,
 ) -> Option<SoundRequest> {
+    destroy_block_request_with_component_material(
+        tables,
+        event_id,
+        position,
+        data,
+        block_identifier,
+        None,
+    )
+}
+
+/// Break routing with the session block's network sound component available.
+pub fn destroy_block_request_with_component_material(
+    tables: &SoundEventTables,
+    event_id: i32,
+    position: [f32; 3],
+    data: i32,
+    block_identifier: &dyn Fn(u32) -> Option<String>,
+    component_material: Option<&str>,
+) -> Option<SoundRequest> {
     if event_id != DESTROY_BLOCK_EVENT {
         return None;
     }
     let identifier = block_identifier(data as u32)?;
-    let route = tables.block(tables.material_of(&identifier)?, "break")?;
+    let material = tables.material_of_with_component(&identifier, component_material);
+    let route = tables.block(material, "break")?;
     Some(from_route(route, Some(position)))
 }
 
@@ -273,7 +308,41 @@ mod tests {
         let request = level_sound_request(&tables(), &level("break", "", 7), &stone).unwrap();
         assert_eq!(&*request.name, "dig.stone");
         assert_eq!(request.position, Some([1.0, 2.0, 3.0]));
-        assert!(level_sound_request(&tables(), &level("break", "", 9), &stone).is_none());
+        let fallback = level_sound_request(&tables(), &level("break", "", 9), &|id| {
+            (id == 9).then(|| "example:unknown".to_owned())
+        })
+        .expect("unknown block fallback");
+        assert_eq!(&*fallback.name, "dig.stone");
+    }
+
+    #[test]
+    fn component_material_is_used_when_blocks_json_has_no_entry() {
+        let tables = SoundEventTables::from_json(
+            &json!({
+                "block_sounds": {
+                    "wood": {"events": {"break": "dig.wood"}},
+                    "stone": {"events": {"break": "dig.stone"}}
+                }
+            }),
+            &json!({}),
+        );
+        let request = level_sound_request_with_component_material(
+            &tables,
+            &level("break", "", 9),
+            &|id| (id == 9).then(|| "example:custom".to_owned()),
+            Some("wood"),
+        )
+        .expect("component route");
+        assert_eq!(&*request.name, "dig.wood");
+
+        let fallback = level_sound_request_with_component_material(
+            &tables,
+            &level("break", "", 9),
+            &|id| (id == 9).then(|| "example:custom".to_owned()),
+            None,
+        );
+        assert!(fallback.is_some(), "unknown blocks fall back to stone");
+        assert_eq!(&*fallback.unwrap().name, "dig.stone");
     }
 
     #[test]

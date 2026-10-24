@@ -51,6 +51,8 @@ pub struct CameraFeelSettings {
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations, hand motion and view bob.
     pub java_animations: bool,
+    /// Whether server-pack custom held-item models are drawn.
+    pub show_custom_item_models: bool,
     pub gamepad_look_sensitivity: f32,
     pub touch_look_sensitivity: f32,
 }
@@ -73,6 +75,7 @@ impl CameraFeelSettings {
             camera_shake: settings.video.camera_shake,
             damage_bob: unit(settings.video.damage_bob),
             java_animations: settings.video.java_animations,
+            show_custom_item_models: settings.video.show_custom_item_models,
             gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
             touch_look_sensitivity: settings.controls.touch_look_sensitivity,
         }
@@ -356,5 +359,14 @@ mod tests {
             camera.replace(1, &settings).unwrap();
             assert_eq!(camera.horizontal_fov_degrees(), degrees as f32);
         }
+    }
+
+    #[test]
+    fn camera_authority_publishes_the_custom_item_model_preference() {
+        let mut settings = UserSettings::default();
+        settings.video.show_custom_item_models = false;
+        let mut camera = CameraSettingsAuthority::default();
+        camera.replace(1, &settings).unwrap();
+        assert!(!camera.feel().show_custom_item_models);
     }
 }

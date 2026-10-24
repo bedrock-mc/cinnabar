@@ -14,12 +14,13 @@ pub struct PhysicsSendIdentity {
     pub reanchor_epoch: PositionAuthorityGeneration,
 }
 
-/// A movement-only replacement when an admitted interaction loses its authority.
+/// An admitted interaction and its optional preceding action, with a movement-only fallback.
 #[derive(Debug)]
 pub struct InteractionPacketGuard {
     authority_epoch: u64,
     authority: watch::Receiver<u64>,
     movement_packet: Packet,
+    preceding_packet: Option<Packet>,
 }
 
 impl InteractionPacketGuard {
@@ -33,15 +34,23 @@ impl InteractionPacketGuard {
             authority_epoch,
             authority,
             movement_packet,
+            preceding_packet: None,
         }
     }
 
-    /// Removes a stale interaction immediately before transport begins its write.
-    pub fn sanitize(self, packet: Packet) -> Packet {
+    /// Keeps a standalone action in the same admission and cancellation unit as its input.
+    #[must_use]
+    pub fn with_preceding_packet(mut self, packet: Packet) -> Self {
+        self.preceding_packet = Some(packet);
+        self
+    }
+
+    /// Removes stale interactions and their preceding actions immediately before writing.
+    pub fn sanitize(self, packet: Packet) -> (Option<Packet>, Packet) {
         if *self.authority.borrow() == self.authority_epoch {
-            packet
+            (self.preceding_packet, packet)
         } else {
-            self.movement_packet
+            (None, self.movement_packet)
         }
     }
 }

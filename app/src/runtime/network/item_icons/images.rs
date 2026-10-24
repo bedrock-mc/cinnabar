@@ -35,7 +35,10 @@ fn resolve_key_with_carrier(
         return Ok(Vec::new());
     }
     let mut tried = Vec::new();
-    if let Some(variants) = paths.get(key) {
+    let catalog_key = paths
+        .get(key)
+        .or_else(|| key.rsplit_once(':').and_then(|(_, bare)| paths.get(bare)));
+    if let Some(variants) = catalog_key {
         let textures: Vec<_> = variants
             .iter()
             .enumerate()
@@ -131,5 +134,16 @@ mod tests {
             resolve_key_with_carrier(&view, &paths, "fixture:alias", 2, 16 * 16 * 4, carrier)
                 .unwrap();
         assert_eq!(bounded.len(), 1);
+    }
+
+    #[test]
+    fn namespaced_registry_keys_use_the_pack_catalog_short_name() {
+        let view = super::super::tests::view();
+        let paths =
+            std::collections::HashMap::from([("gem".into(), vec!["textures/items/gem".into()])]);
+        let icons =
+            resolve_key_with_carrier(&view, &paths, "geyser_custom:gem", 1, 16 * 16 * 4, |_| None)
+                .expect("namespace-stripped catalog key");
+        assert_eq!(icons.len(), 1);
     }
 }

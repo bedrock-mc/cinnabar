@@ -107,6 +107,7 @@ fn feed() -> client_world::LocalPlayerFeed {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,
@@ -141,6 +142,7 @@ fn presentation(catalog: &assets::RuntimeEntityAssets) -> UiPresentationRuntime 
     presentation.menu_artwork.refs.insert(
         "test-cape".into(),
         ui::IconRef {
+            color_mask: None,
             page: 100,
             uv: [0, 0, 64, 32],
             glint: false,

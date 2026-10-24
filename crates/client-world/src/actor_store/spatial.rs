@@ -9,13 +9,7 @@ pub(super) const MIN_COLLISION_DIMENSION: f32 = 0.005;
 impl ActorSnapshot {
     /// Bounds for movement use constructor dimensions when the server omits them.
     pub(super) fn movement_collision_bounds(&self) -> Option<ActorCollisionBounds> {
-        self.bounding_box_with_defaults(
-            self.position,
-            self.entity_fact.collision.unwrap_or([
-                DEFAULT_ACTOR_COLLISION_WIDTH,
-                DEFAULT_ACTOR_COLLISION_HEIGHT,
-            ]),
-        )
+        self.bounding_box()
     }
 
     /// Uses the synced collision flag when supplied, otherwise the default definition.
@@ -36,7 +30,7 @@ impl ActorSnapshot {
     }
 
     /// Feet-anchored `(min, max)` box with server scale applied once.
-    /// Omitted dimensions retain the generic actor defaults independently.
+    /// Omitted dimensions retain the actor definition's defaults independently.
     #[must_use]
     pub fn bounding_box(&self) -> Option<([f32; 3], [f32; 3])> {
         self.bounding_box_at(self.position)
@@ -45,21 +39,6 @@ impl ActorSnapshot {
     /// [`Self::bounding_box`] with the feet at `position`.
     #[must_use]
     pub fn bounding_box_at(&self, position: [f32; 3]) -> Option<([f32; 3], [f32; 3])> {
-        self.bounding_box_with_defaults(
-            position,
-            [
-                DEFAULT_ACTOR_COLLISION_WIDTH,
-                DEFAULT_ACTOR_COLLISION_HEIGHT,
-            ],
-        )
-    }
-
-    /// Applies server dimensions and scale to a box, using caller-owned defaults for omitted size.
-    fn bounding_box_with_defaults(
-        &self,
-        position: [f32; 3],
-        defaults: [f32; 2],
-    ) -> Option<([f32; 3], [f32; 3])> {
         if let Some(painting) = &self.painting {
             use assets::painting::{PAINTING_HALF_DEPTH, PAINTING_HITBOX_INSET, motive};
             use protocol::PaintingDirection;
@@ -79,6 +58,10 @@ impl ActorSnapshot {
                 std::array::from_fn(|axis| position[axis] + half[axis]),
             ));
         }
+        let defaults = self.entity_fact.collision.unwrap_or([
+            DEFAULT_ACTOR_COLLISION_WIDTH,
+            DEFAULT_ACTOR_COLLISION_HEIGHT,
+        ]);
         let width = self.scaled_collision_dimension(ActorDataKey::Width, defaults[0])?;
         let height = self.scaled_collision_dimension(ActorDataKey::Height, defaults[1])?;
         let half_width = width * 0.5;
@@ -115,24 +98,38 @@ impl ActorSnapshot {
     /// Interaction boxes at the actor's current pose.
     #[must_use]
     pub fn hit_boxes(&self) -> ActorHitBoxes<'_> {
-        self.hit_boxes_at(self.position)
+        self.hit_boxes_at_pose(self.current_pose())
     }
 
     /// Interaction boxes with collision feet at `position`. Custom pivots are relative
     /// to the native actor position and are independent of render scale and rotation.
     #[must_use]
     pub fn hit_boxes_at(&self, mut position: [f32; 3]) -> ActorHitBoxes<'_> {
+        let feet = position;
+        position[1] += self.network_position_offset();
+        self.hit_boxes_with_origin(feet, position)
+    }
+
+    /// Uses the exact native origin retained by a current or predicted actor pose.
+    pub(crate) fn hit_boxes_at_pose(&self, pose: ActorPose) -> ActorHitBoxes<'_> {
+        self.hit_boxes_with_origin(
+            pose.position,
+            pose.native_position(self.network_position_offset()),
+        )
+    }
+
+    /// Anchors collision boxes at feet and custom boxes at the matching native origin.
+    fn hit_boxes_with_origin(&self, feet: [f32; 3], native: [f32; 3]) -> ActorHitBoxes<'_> {
         let custom = self
             .hitboxes
             .as_ref()
             .map_or(&[][..], |state| state.boxes.as_slice());
         let fallback = if custom.is_empty() {
-            self.bounding_box_at(position)
+            self.bounding_box_at(feet)
         } else {
             None
         };
-        position[1] += self.network_position_offset();
-        ActorHitBoxes::new(custom, position, fallback)
+        ActorHitBoxes::new(custom, native, fallback)
     }
 
     /// Samples 0.66 of the body height above interpolated feet.
@@ -149,9 +146,7 @@ impl ActorSnapshot {
 
     /// Restores the native actor-state origin from stored collision feet.
     pub fn native_position(&self) -> [f32; 3] {
-        let mut position = self.position;
-        position[1] += self.network_position_offset();
-        position
+        self.current_native_position()
     }
 
     /// Native actor-state origin at supplied retained feet, preserving this class's decoded offset.

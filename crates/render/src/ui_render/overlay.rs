@@ -3,6 +3,7 @@ use super::pipeline::{UiPipeline, UiPipelineKey};
 #[cfg(test)]
 use super::segments::UiSegment;
 use super::segments::plan_ui_passes;
+use super::target::{NativeUiTarget, UiTarget};
 use super::*;
 use super::{
     damage::UiDamage,
@@ -212,6 +213,10 @@ pub(super) fn queue_ui_overlay(
     if gpu.batches.is_empty() || gpu.vertex_buffer.is_none() || gpu.index_buffer.is_none() {
         return;
     }
+    let needs_invert = gpu
+        .batches
+        .iter()
+        .any(|batch| batch.blend_mode == UI_BLEND_INVERT);
     let needs_models = gpu
         .batches
         .iter()
@@ -239,12 +244,17 @@ pub(super) fn queue_ui_overlay(
             gpu.view_pipelines.remove(&view_entity);
             continue;
         };
-        let Ok(invert_pipeline_id) = pipeline
-            .variants
-            .specialize(&pipeline_cache, hud_invert_pipeline_key(camera.hdr))
-        else {
-            gpu.view_pipelines.remove(&view_entity);
-            continue;
+        let invert_pipeline_id = if needs_invert {
+            let Ok(id) = pipeline
+                .variants
+                .specialize(&pipeline_cache, hud_invert_pipeline_key(camera.hdr))
+            else {
+                gpu.view_pipelines.remove(&view_entity);
+                continue;
+            };
+            id
+        } else {
+            pipeline_id
         };
         cache_view_pipeline_pair(
             &mut gpu.view_pipelines,
@@ -270,6 +280,13 @@ pub(super) fn queue_ui_overlay(
             for (depth_test, depth_write) in
                 [(false, false), (true, false), (false, true), (true, true)]
             {
+                if !gpu.batches.iter().any(|batch| {
+                    batch.isolated_depth_scope.is_some()
+                        && (batch.depth_test != 0, batch.depth_write != 0)
+                            == (depth_test, depth_write)
+                }) {
+                    continue;
+                }
                 let key = UiPipelineKey {
                     msaa: *msaa,
                     hdr: camera.hdr,
@@ -280,10 +297,19 @@ pub(super) fn queue_ui_overlay(
                     isolated_depth: true,
                     attached_depth: false,
                 };
+                let invert = gpu.batches.iter().any(|batch| {
+                    batch.isolated_depth_scope.is_some()
+                        && batch.blend_mode == UI_BLEND_INVERT
+                        && (batch.depth_test != 0, batch.depth_write != 0)
+                            == (depth_test, depth_write)
+                });
                 let pair = pipeline
                     .variants
                     .specialize(&pipeline_cache, key)
                     .and_then(|alpha| {
+                        if !invert {
+                            return Ok((alpha, alpha));
+                        }
                         pipeline
                             .variants
                             .specialize(
@@ -411,6 +437,8 @@ type UiOverlayQuery = (
     &'static ExtractedCamera,
     Option<&'static MainPassResolutionOverride>,
     Option<&'static super::composite::UiLayerTexture>,
+    Option<&'static crate::render_scale::RenderScaleOutput>,
+    Option<&'static NativeUiTarget>,
 );
 
 /// Draws the retained HUD after world post-processing.
@@ -420,7 +448,7 @@ pub(crate) fn ui_overlay(
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
-    let (target, main, camera, resolution_override, layer) = query.into_inner();
+    let (target, main, camera, resolution_override, layer, output, native) = query.into_inner();
     let context = &mut context;
     crate::screen_overlay_render::draw_before_hud(
         view_entity,
@@ -430,6 +458,16 @@ pub(crate) fn ui_overlay(
         context,
         world,
     );
+    // Keep screen UI reachable in the reduced view if native composition is unavailable.
+    let native = native.filter(|native| {
+        UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
+    });
+    let target = UiTarget::new(target, native);
+    let output_extent = if target.is_native() {
+        None
+    } else {
+        output.map(|output| output.0.to_array())
+    };
     let (Some(gpu), Some(pipeline_cache), Some(composite)) = (
         world.get_resource::<UiGpu>(),
         world.get_resource::<PipelineCache>(),
@@ -453,6 +491,7 @@ pub(crate) fn ui_overlay(
     ) else {
         return Ok(());
     };
+    let pages_complete = screen_pages_complete(gpu);
     let batches = batches.filter(|(_, batch, _)| {
         gpu.textures
             .page_binding(batch.texture_page as usize)
@@ -491,6 +530,7 @@ pub(crate) fn ui_overlay(
                 indices,
                 view: view_entity,
                 viewport: viewport.as_ref(),
+                output_extent,
             },
             target,
             &backdrops,
@@ -513,6 +553,8 @@ pub(crate) fn ui_overlay(
     // crosshair) must see the scene, so the layer composites before it.
     let raster_count = plan.layer_count();
     let mut raster_index = 0;
+    let mut frame_complete = pages_complete;
+    let mut frame_encoded = false;
     for segment in &plan.segments {
         let layered = &batches[segment.layered.clone()];
         let retained = if layered.is_empty() {
@@ -535,6 +577,7 @@ pub(crate) fn ui_overlay(
             layer: raster,
             model_depth,
             viewport: viewport.as_ref(),
+            output_extent,
             skip: skip.as_ref(),
             clear: composite.clear_pipeline(pipeline_cache),
             keep: false,
@@ -573,7 +616,8 @@ pub(crate) fn ui_overlay(
             _ if held.is_some() => animation,
             (Some(content), Some(input)) => raster.damage(content, input).union(animation),
             _ => UiDamage::Full,
-        };
+        }
+        .for_projection(output_extent.is_none());
         let damage = super::layer::damage_for_passes(
             proposed,
             layered.first().map(|(_, batch, _)| *batch),
@@ -594,21 +638,22 @@ pub(crate) fn ui_overlay(
                 profile.record_damage(rect);
             }
         }
-        let encoded = if layered.is_empty() {
-            false
+        let (complete, encoded, nonempty) = if layered.is_empty() {
+            (true, false, false)
         } else if damage == UiDamage::Unchanged {
             // Color reuse must still advance scope transitions before the next invert.
             for (_, batch, _) in layered {
                 model_lifetime.enter(batch.isolated_depth_scope);
             }
             let encoded = held.unwrap_or(!layered.is_empty());
+            let nonempty = raster.retained_nonempty();
             if held.is_none() {
                 raster.hold_publication(
-                    content.clone().map(|content| (content, encoded)),
+                    content.clone().map(|content| (content, encoded, nonempty)),
                     publication.clone(),
                 );
             }
-            encoded
+            (true, encoded, nonempty)
         } else {
             let drawn = super::filter::draw_layer(
                 context,
@@ -626,11 +671,13 @@ pub(crate) fn ui_overlay(
                 content
                     .clone()
                     .filter(|_| drawn.complete)
-                    .map(|content| (content, drawn.encoded)),
+                    .map(|content| (content, drawn.encoded, drawn.nonempty)),
                 publication.clone(),
             );
-            drawn.encoded
+            (drawn.complete, drawn.encoded, drawn.nonempty)
         };
+        frame_complete &= complete;
+        frame_encoded |= nonempty;
         if encoded {
             if segment.present {
                 layer.defer_present();
@@ -651,6 +698,7 @@ pub(crate) fn ui_overlay(
             model_lifetime.enter(batch.isolated_depth_scope);
             let needs_depth = batch.depth_test != 0 || batch.depth_write != 0;
             if scoped && needs_depth && model_depth.is_none() {
+                frame_complete = false;
                 continue;
             }
             let id = if scoped {
@@ -662,6 +710,7 @@ pub(crate) fn ui_overlay(
             };
             let Some(pipeline) = id.and_then(|id| pipeline_cache.get_render_pipeline(id)) else {
                 // Still compiling: skip the crosshair rather than blend it wrong.
+                frame_complete = false;
                 continue;
             };
             // HUD layers and invert batches share the current resolved scene texture.
@@ -692,13 +741,14 @@ pub(crate) fn ui_overlay(
                 model_lifetime.encoded();
             }
             pass.set_render_pipeline(pipeline);
-            draw_batches(
+            frame_encoded |= draw_batches(
                 &mut pass,
                 gpu,
                 vertices,
                 indices,
                 viewport.as_ref(),
                 crate::render_bounds::extent(target.main_texture_view()),
+                output_extent,
                 std::slice::from_ref(inverted),
                 skip.as_ref(),
                 None,
@@ -708,6 +758,7 @@ pub(crate) fn ui_overlay(
             );
         }
     }
+    layer.record_content_draw(frame_complete, frame_encoded);
     Ok(())
 }
 
@@ -824,4 +875,16 @@ mod review_tests {
             .unwrap();
         assert_eq!(descriptor.multisample.count, 1);
     }
+}
+
+/// Requires bindings only for screen-space pages referenced by the accepted publication.
+pub(super) fn screen_pages_complete(gpu: &UiGpu) -> bool {
+    gpu.batches
+        .iter()
+        .filter(|batch| batch.world_projection == 0 && batch.index_count != 0)
+        .all(|batch| {
+            gpu.textures
+                .page_binding(batch.texture_page as usize)
+                .is_some()
+        })
 }

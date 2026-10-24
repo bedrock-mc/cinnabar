@@ -40,10 +40,8 @@ pub(crate) fn press(
         };
         runtime.selection_changed(&selection);
         runtime.observe_use(input.edge.buttons.held(Action::Use), true, false, true);
-        let (Some(state), Some(pick)) = (
-            movement.build_action_state(),
-            runtime.pick(movement.interaction_authority_identity()),
-        ) else {
+        let (Some(state), Some(pick)) = (movement.build_action_state(), runtime.pick(&movement))
+        else {
             return false;
         };
         let game_mode = player.facts.player_game_mode();
@@ -75,7 +73,7 @@ pub(crate) fn press(
             mode,
             clock.survival,
             input.context.identity,
-            movement.interaction_authority_identity().1,
+            movement.position_authority_identity().1,
             &runtime,
             Some(pick),
             ItemUseTrigger::PlayerInput,

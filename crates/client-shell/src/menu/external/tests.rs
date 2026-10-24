@@ -85,7 +85,7 @@ fn external_preferences_emit_only_edits_and_surface_storage_failures() {
     for screen in [MenuScreen::Home, MenuScreen::Settings, MenuScreen::Servers] {
         menu.screen = screen;
         let message = "Browser preferences could not be saved.";
-        menu.external_error(message);
+        menu.show_notice(message);
         let view = menu.view();
         assert_eq!(view.dialog, Some(launcher::menu::MenuDialog::Notice));
         let popup = launcher::menu::dialogs::dialog(&view, view.dialog.unwrap(), &|_| None);

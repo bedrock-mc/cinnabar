@@ -20,19 +20,25 @@ pub(crate) struct HandLayer {
 
 impl HandLayer {
     /// Retains the composite pipeline and binding until the viewport format or extent changes.
-    pub(crate) fn new(device: &RenderDevice, target: &ViewTarget) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("enhanced resolved hand"),
-            size: target.main_texture().size(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: target.main_texture_format(),
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+    /// `None` when the device is out of memory.
+    pub(crate) fn new(device: &RenderDevice, target: &ViewTarget) -> Option<Self> {
+        let size = target.main_texture().size();
+        let bytes = u64::from(size.width) * u64::from(size.height) * 8;
+        let texture =
+            crate::gpu_allocation::checked(device, "enhanced resolved hand", bytes, || {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("enhanced resolved hand"),
+                    size: target.main_texture().size(),
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: target.main_texture_format(),
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                })
+            })?;
         let view = texture.create_view(&Default::default());
         let gpu = device.wgpu_device();
         let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -72,12 +78,12 @@ impl HandLayer {
                 resource: wgpu::BindingResource::TextureView(&view),
             }],
         });
-        Self {
+        Some(Self {
             texture,
             view,
             pipeline,
             binding,
-        }
+        })
     }
 
     /// A stable viewport needs no new attachment or bind group.

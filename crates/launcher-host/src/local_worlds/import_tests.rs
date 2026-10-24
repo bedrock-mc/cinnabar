@@ -14,6 +14,11 @@ fn name(out: &mut Vec<u8>, name: &str) {
 
 /// A `level.dat`: creative, hard, seed 42, flat, behind unrelated nested tags the reader skips.
 fn level_dat() -> Vec<u8> {
+    level_dat_with_generator(2)
+}
+
+/// Builds level data with the requested Bedrock generator tag.
+fn level_dat_with_generator(generator: i32) -> Vec<u8> {
     let mut nbt = vec![TAG_COMPOUND];
     name(&mut nbt, "");
     nbt.push(TAG_COMPOUND);
@@ -28,7 +33,11 @@ fn level_dat() -> Vec<u8> {
     nbt.extend(2i32.to_le_bytes());
     nbt.extend(1i32.to_le_bytes());
     nbt.extend(26i32.to_le_bytes());
-    for (tag, value) in [("GameType", 1i32), ("Difficulty", 3), ("Generator", 2)] {
+    for (tag, value) in [
+        ("GameType", 1i32),
+        ("Difficulty", 3),
+        ("Generator", generator),
+    ] {
         nbt.push(TAG_INT);
         name(&mut nbt, tag);
         nbt.extend(value.to_le_bytes());
@@ -172,7 +181,14 @@ fn a_world_in_one_top_level_folder_imports() {
 fn a_damaged_level_dat_falls_back_to_the_file_name_and_defaults() {
     let fixture = fixture();
     let archive = fixture.archive("Old Save.mcworld", &[("level.dat", &level_dat()[..20])]);
-    let world = fixture.import(&archive).expect("import");
+    let world = import(
+        &fixture.store,
+        &archive,
+        Backend::Bds,
+        &WORLD_LIMITS,
+        &|| false,
+    )
+    .expect("import");
     assert_eq!(
         (world.name.as_str(), world.game_mode, world.generator),
         ("Old Save", GameMode::Survival, Generator::Normal)
@@ -375,4 +391,58 @@ fn a_cancelled_import_publishes_nothing_and_a_retry_makes_one_world() {
     fixture.import(&archive).expect("retry");
     assert_eq!(fixture.store.list().expect("list").len(), 1);
     assert_only_listed_worlds(&fixture);
+}
+
+/// The imported record reports oversized level data at once, before any relisting.
+#[test]
+fn an_import_with_oversized_level_data_reports_options_unavailable() {
+    let fixture = fixture();
+    let level = crate::local_worlds::test_support::padded_level_dat(
+        &level_dat(),
+        crate::local_worlds::level_dat::MAX_LEVEL_DAT_BYTES as usize,
+    );
+    let archive = fixture.archive("Huge.mcworld", &[("level.dat", &level)]);
+    let world = fixture.import(&archive).expect("import");
+    assert!(world.options_unavailable);
+    assert_eq!(
+        (
+            world.game_mode,
+            world.difficulty,
+            world.generator,
+            world.seed
+        ),
+        (GameMode::Creative, Difficulty::Hard, Generator::Flat, 42),
+        "metadata comes from the bounded prefix"
+    );
+    let level_dir = fixture.store.dir(&world.id).expect("dir").join(LEVEL_DIR);
+    assert!(fs::read(level_dir.join("level.dat")).expect("level") == level);
+    let small = fixture.archive("Small.mcworld", &[("level.dat", &level_dat())]);
+    assert!(!fixture.import(&small).expect("import").options_unavailable);
+}
+
+/// Unsupported imports leave no saved world and can be retried with BDS.
+#[test]
+fn natural_import_requires_bds_before_publishing() {
+    for level in [level_dat_with_generator(1), level_dat()[..20].to_vec()] {
+        let fixture = fixture();
+        let archive = fixture.archive("Natural.mcworld", &[("level.dat", &level)]);
+        let original = fs::read(&archive).expect("archive");
+        let error = fixture
+            .import(&archive)
+            .expect_err("natural terrain requires BDS");
+        assert!(matches!(error, WorldError::Invalid(_)), "{error}");
+        assert!(fixture.store.list().expect("list").is_empty());
+        assert!(fixture.leftovers().is_empty());
+        assert_eq!(fs::read(&archive).expect("archive"), original);
+        let world = import(
+            &fixture.store,
+            &archive,
+            Backend::Bds,
+            &WORLD_LIMITS,
+            &|| false,
+        )
+        .expect("retry with BDS");
+        assert_eq!(world.backend, Backend::Bds);
+        assert_eq!(world.generator, Generator::Normal);
+    }
 }

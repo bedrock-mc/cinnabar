@@ -14,6 +14,7 @@ fn same_item_menu_cells_keep_distinct_custom_names_including_empty_names() {
     let mut icons = Vec::new();
     let mut cells = Cells {
         names: &names,
+        facts: &inventory::SessionItemFacts::default(),
         icons: &mut icons,
     };
     for name in [Some("Market"), Some("Next page"), Some(""), None] {
@@ -81,6 +82,7 @@ fn retained_inventory_cell_answers_empty_after_occupied_and_can_be_refilled() {
     stack.stack_network_id = 1;
     stack.count = 1;
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -94,6 +96,7 @@ fn retained_inventory_cell_answers_empty_after_occupied_and_can_be_refilled() {
         let mut icons = Vec::new();
         let mut cells = Cells {
             names: &names,
+            facts: &inventory::SessionItemFacts::default(),
             icons: &mut icons,
         };
         let cell = cells.cell(occupied.then_some(&stack), occupied.then_some(icon), None);
@@ -119,6 +122,7 @@ fn emptying_a_cell_keeps_other_cells_icon_bindings() {
     stack.network_id = 1;
     stack.count = 1;
     let icon = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -128,6 +132,7 @@ fn emptying_a_cell_keeps_other_cells_icon_bindings() {
         let mut icons = Vec::new();
         let mut cells = Cells {
             names: &names,
+            facts: &inventory::SessionItemFacts::default(),
             icons: &mut icons,
         };
         cells.cell(occupied.then_some(&stack), occupied.then_some(icon), None);
@@ -153,6 +158,7 @@ fn occupied_cell_without_art_explicitly_clears_the_old_icon() {
     let mut icons = Vec::new();
     let mut cells = Cells {
         names: &names,
+        facts: &inventory::SessionItemFacts::default(),
         icons: &mut icons,
     };
     let cell = cells.cell(Some(&stack), None, None);

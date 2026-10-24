@@ -46,10 +46,11 @@ type LocalWorld struct {
 
 // LocalWorldInfo identifies the open world to Xbox friends.
 type LocalWorldInfo struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	GameMode string `json:"game_mode"`
-	Backend  string `json:"backend"`
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	GameMode            string `json:"game_mode"`
+	Backend             string `json:"backend"`
+	MultiplayerDisabled bool   `json:"multiplayer_disabled,omitempty"`
 }
 
 // LocalWorldTarget is the running world's loopback server and how to dial it.

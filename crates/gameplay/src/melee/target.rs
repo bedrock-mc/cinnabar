@@ -1,8 +1,8 @@
 //! Actor picking and attack-target classification.
 use client_world::ActorSnapshot;
 
-/// Default pick-box inflation and actor-versus-block bias, evaluated as native floats.
-const ACTOR_PICK_RADIUS: f32 = 0.1;
+/// Actor-versus-block bias stays fixed when an actor overrides its pick-box inflation.
+const ACTOR_PICK_RADIUS: f32 = assets::facts::entity::DEFAULT_ACTOR_PICK_RADIUS;
 /// Axes with a smaller squared segment displacement do not supply a clipping plane.
 const PICK_AXIS_EPSILON_SQUARED: f32 = 1e-7;
 /// The nearest pickable actor along the crosshair ray.
@@ -85,8 +85,8 @@ where
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))
         .filter_map(|actor| {
             let point = hit_boxes(actor).into_iter().find_map(|(min, max)| {
-                let min = min.map(|axis| axis - ACTOR_PICK_RADIUS);
-                let max = max.map(|axis| axis + ACTOR_PICK_RADIUS);
+                let min = min.map(|axis| axis - actor.entity_fact.pick_radius);
+                let max = max.map(|axis| axis + actor.entity_fact.pick_radius);
                 pick_box_point(origin, end, min, max)
             })?;
             let distance_squared = pick_distance_squared(origin, point);

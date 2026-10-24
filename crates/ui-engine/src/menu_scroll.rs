@@ -8,6 +8,7 @@ use ui::{UiPoint, UiRect};
 
 #[cfg(test)]
 mod smoothing_tests;
+mod touch;
 
 /// Scroll state for one menu; `F` names the focused control a reveal follows.
 pub struct MenuScrolls<F> {
@@ -19,9 +20,11 @@ pub struct MenuScrolls<F> {
     screen: Option<String>,
     focused: Option<F>,
     focused_bounds: Option<UiRect>,
+    focused_viewport: Option<[f64; 4]>,
     smooth: bool,
     seconds: f64,
     motion: HashMap<String, ScrollTween>,
+    touch: Option<touch::TouchScroll>,
 }
 
 impl<F> Default for MenuScrolls<F> {
@@ -33,9 +36,11 @@ impl<F> Default for MenuScrolls<F> {
             screen: None,
             focused: None,
             focused_bounds: None,
+            focused_viewport: None,
             smooth: false,
             seconds: 0.0,
             motion: HashMap::new(),
+            touch: None,
         }
     }
 }
@@ -43,7 +48,7 @@ impl<F> Default for MenuScrolls<F> {
 impl<F: PartialEq> MenuScrolls<F> {
     /// Retention waits for wheel interpolation and captured scrollbar input.
     pub fn active(&self) -> bool {
-        self.drag.is_some() || !self.motion.is_empty()
+        self.drag.is_some() || self.touch.is_some() || !self.motion.is_empty()
     }
 
     /// Samples wheel motion once per rendered menu frame using the real menu clock.
@@ -72,9 +77,11 @@ impl<F: PartialEq> MenuScrolls<F> {
             self.offsets.clear();
             self.motion.clear();
             self.drag = None;
+            self.touch = None;
             self.screen = Some(screen);
             self.focused = None;
             self.focused_bounds = None;
+            self.focused_viewport = None;
         }
     }
 
@@ -96,8 +103,17 @@ impl<F: PartialEq> MenuScrolls<F> {
         let grew = bounds
             .zip(self.focused_bounds)
             .is_some_and(|(current, previous)| current.height() > previous.height() + 0.5);
+        let geometry = [
+            viewport.min().x(),
+            viewport.min().y(),
+            viewport.width(),
+            viewport.height(),
+        ]
+        .map(f64::from);
+        let viewport_changed = self.focused_viewport != Some(geometry);
+        self.focused_viewport = Some(geometry);
         self.focused_bounds = bounds;
-        if self.focused != action || grew {
+        if self.focused != action || grew || viewport_changed {
             self.focused = action;
             if let Some(bounds) = bounds {
                 let top = bounds.min().y() - offset;
@@ -122,16 +138,12 @@ impl<F: PartialEq> MenuScrolls<F> {
         key: Option<&str>,
         frame: &crate::frame::EngineFrame,
     ) {
-        if self.focused == action {
-            return;
-        }
-        self.focused = action;
-        self.focused_bounds = None;
         let Some(region) = frame
             .hits
             .iter()
             .find(|region| Some(region.key.as_str()) == key)
         else {
+            self.observe_focus(action);
             return;
         };
         let Some((key, metrics)) = frame
@@ -146,8 +158,21 @@ impl<F: PartialEq> MenuScrolls<F> {
             })
             .max_by_key(|(key, _)| key.len())
         else {
+            self.observe_focus(action);
             return;
         };
+        let viewport = [
+            metrics.viewport_top,
+            metrics.viewport,
+            f64::from(frame.scale),
+            f64::from(frame.origin[usize::from(!metrics.horizontal)]),
+        ];
+        if self.focused == action && self.focused_viewport == Some(viewport) {
+            return;
+        }
+        self.focused = action;
+        self.focused_bounds = None;
+        self.focused_viewport = Some(viewport);
         let (start, length) = if metrics.horizontal {
             (region.rect.x, region.rect.w)
         } else {
@@ -167,6 +192,7 @@ impl<F: PartialEq> MenuScrolls<F> {
     pub fn observe_focus(&mut self, action: Option<F>) {
         if self.focused != action {
             self.focused_bounds = None;
+            self.focused_viewport = None;
         }
         self.focused = action;
     }
@@ -212,6 +238,12 @@ impl<F: PartialEq> MenuScrolls<F> {
             area.offset = offset.clamp(0.0, area.max);
             self.offsets.insert(key.to_owned(), area.offset);
         }
+    }
+
+    /// Resets a list's stored offset and wheel motion, even between paints with no areas.
+    pub fn scroll_to_start(&mut self, key: &str) {
+        self.set(key, 0.0);
+        self.offsets.insert(key.to_owned(), 0.0);
     }
 
     /// Direct edge scrolling during a captured drag follows the pointer without wheel easing.
@@ -352,6 +384,53 @@ mod tests {
 
     pub(super) fn point(x: f32, y: f32) -> UiPoint {
         UiPoint::new(x, y).unwrap()
+    }
+
+    #[test]
+    fn returning_to_start_cancels_wheel_motion_with_or_without_painted_areas() {
+        for cleared in [false, true] {
+            let mut scrolls = MenuScrolls::<u8>::default();
+            scrolls.set_areas(vec![area()]);
+            assert!(scrolls.wheel(point(15.0, 25.0), -2.0, false));
+            assert_eq!(scrolls.offsets().get("list"), Some(&20.0));
+            scrolls.configure_motion(true, 0.0);
+            assert!(scrolls.wheel(point(15.0, 25.0), -1.0, false));
+            assert!(scrolls.active());
+            if cleared {
+                scrolls.clear_areas();
+            }
+            scrolls.scroll_to_start("list");
+            scrolls.configure_motion(true, 1.0);
+            assert_eq!(scrolls.offsets().get("list"), Some(&0.0));
+            assert!(!scrolls.active());
+        }
+    }
+
+    /// A focused field follows a shrinking viewport once, while later manual scrolling wins.
+    #[test]
+    fn unchanged_focus_is_revealed_after_keyboard_reduces_the_viewport() {
+        let mut scrolls = MenuScrolls::default();
+        let bounds = UiRect::new(point(0.0, 70.0), point(80.0, 90.0)).unwrap();
+        let full = area().viewport;
+        let short = UiRect::new(point(0.0, 0.0), point(100.0, 50.0)).unwrap();
+        assert_eq!(
+            scrolls.reveal_focus("list", Some(1), Some(bounds), full, 150.0),
+            0.0
+        );
+        assert_eq!(
+            scrolls.reveal_focus("list", Some(1), Some(bounds), short, 150.0),
+            40.0
+        );
+        scrolls.offsets.insert("list".into(), 10.0);
+        assert_eq!(
+            scrolls.reveal_focus("list", Some(1), Some(bounds), short, 150.0),
+            10.0
+        );
+        scrolls.reveal_focus("list", Some(1), Some(bounds), full, 150.0);
+        assert_eq!(
+            scrolls.reveal_focus("list", Some(1), Some(bounds), short, 150.0),
+            40.0
+        );
     }
 
     // Wheel, track press and thumb drag each move the view under the pointer,

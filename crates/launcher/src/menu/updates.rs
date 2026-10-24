@@ -69,6 +69,8 @@ pub fn installed_version() -> String {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct View {
+    /// A downloaded copy needs the older client to release this installation's updater role.
+    pub manual_pending: bool,
     /// Only the client holding the updater role exposes update controls and notices.
     pub active: bool,
     pub ready: Option<Ready>,
@@ -113,6 +115,12 @@ impl Default for Preferences {
 impl View {
     /// Gives busy and failed checks priority while retaining any verified update offer.
     pub fn status_text(&self) -> String {
+        if self.manual_pending {
+            return format!(
+                "Close other {} windows to finish installing this update.",
+                crate::PRODUCT_NAME
+            );
+        }
         if !self.status.is_busy()
             && self.status != Status::Failed
             && let Some(ready) = &self.ready
@@ -131,6 +139,7 @@ impl View {
     /// Builds a view from the publishing tracks declared by a release catalog.
     pub fn with_publications(published: impl Fn(Channel) -> bool) -> Self {
         Self {
+            manual_pending: false,
             active: true,
             ready: None,
             status: Status::Idle,

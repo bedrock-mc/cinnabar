@@ -3,6 +3,7 @@
 use crate::buffers::{BufferDirectives, BufferFormat, canonical_sampler_name};
 use crate::dimensions::DimensionSelector;
 use crate::environment::Environment;
+use crate::flips::{program_releases, samples_released_override};
 use crate::ids::{BLOCK_FILE, ENTITY_FILE, ITEM_FILE, IdMaps};
 use crate::lang::PackLang;
 use crate::option_menu::OptionMenu;
@@ -24,7 +25,7 @@ use std::path::Path;
 const SHADER_EXTENSIONS: &[&str] = &["glsl", "vsh", "fsh", "gsh", "csh", "tcs", "tes", "inc", "h"];
 
 /// What to translate and with which settings.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TranslateConfig {
     /// Program folder, e.g. `world0`; see [`ShaderPack::dimension_folder`]. A folder the pack
     /// lacks selects its base program set, as in [`ShaderPack::programs`].
@@ -51,7 +52,7 @@ impl Default for TranslateConfig {
 }
 
 /// A whole-pack translation result.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PackTranslation {
     /// `shaders.properties` evaluated with the configured options.
     pub properties: ShaderProperties,
@@ -62,7 +63,7 @@ pub struct PackTranslation {
 }
 
 /// A shader pack opened from a folder or zip, with its options discovered.
-#[derive(Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct ShaderPack {
     source: PackSource,
     options: Vec<PackOption>,
@@ -175,6 +176,21 @@ impl ShaderPack {
         config: &TranslateConfig,
         progress: impl Fn(usize, usize) + Sync,
     ) -> PackTranslation {
+        self.translate_cancellable(config, progress, || false)
+            .expect("an uncancelled translation produces a result")
+    }
+
+    /// Translates with progress, stopping between programs when `cancelled` returns true.
+    /// Programs already translating may finish; a cancelled load returns no partial pack.
+    pub fn translate_cancellable(
+        &self,
+        config: &TranslateConfig,
+        progress: impl Fn(usize, usize) + Sync,
+        cancelled: impl Fn() -> bool + Sync,
+    ) -> Option<PackTranslation> {
+        if cancelled() {
+            return None;
+        }
         let properties = self.properties(&config.environment, &config.options);
         let programs = self.programs(&config.folder, &config.environment);
         let profile_disabled = self.profile_disabled_programs(&config.options);
@@ -183,14 +199,51 @@ impl ShaderPack {
         let mut programs: Vec<ProgramTranslation> = programs
             .par_iter()
             .map(|program| {
+                if cancelled() {
+                    return None;
+                }
                 let translated =
-                    self.translate_one(program, config, &properties, &profile_disabled);
+                    self.translate_one(program, config, &properties, &profile_disabled, 0);
                 let mut done = completed.lock().unwrap_or_else(|error| error.into_inner());
                 *done += 1;
                 progress(*done, programs.len());
-                translated
+                Some(translated)
             })
+            .collect::<Option<Vec<_>>>()?;
+        if cancelled() {
+            return None;
+        }
+        // Iris releases a stage's `colortexN` binding once an earlier pass of the stage
+        // flipped the buffer; programs reading it then sample the buffer through its class.
+        let releases = program_releases(&programs, &properties.flips);
+        let stale: Vec<usize> = (0..programs.len())
+            .filter(|&i| samples_released_override(&programs[i], releases[i], &properties))
             .collect();
+        let retranslated = stale
+            .par_iter()
+            .map(|&i| {
+                (!cancelled()).then(|| {
+                    let program = &programs[i].program;
+                    let translated = self.translate_one(
+                        program,
+                        config,
+                        &properties,
+                        &profile_disabled,
+                        releases[i],
+                    );
+                    (i, translated)
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        for (i, translated) in retranslated {
+            programs[i] = translated;
+        }
+        for (program, released) in programs.iter_mut().zip(releases) {
+            program.released_overrides = released;
+        }
+        if cancelled() {
+            return None;
+        }
         let mut buffers = BufferDirectives::default();
         for c in programs
             .iter()
@@ -210,11 +263,11 @@ impl ShaderPack {
                 }
             }
         }
-        PackTranslation {
+        Some(PackTranslation {
             properties,
             buffers,
             programs,
-        }
+        })
     }
 
     /// Programs (`[<folder>/]<name>`) the profile matching `options` disables with
@@ -229,13 +282,15 @@ impl ShaderPack {
     }
 
     /// Translates one program, honouring its enable rule from the folder it came from and
-    /// the current profile's disabled programs.
+    /// the current profile's disabled programs. Colour buffers in `released` read through
+    /// their own class rather than their stage binding's.
     fn translate_one(
         &self,
         program: &ProgramSource,
         config: &TranslateConfig,
         properties: &ShaderProperties,
         profile_disabled: &[String],
+        released: u32,
     ) -> ProgramTranslation {
         let defines = self.defines(&config.environment, &config.options);
         let rule = properties.program_rule(&program.folder, &program.name);
@@ -261,6 +316,7 @@ impl ShaderPack {
                     reflection: None,
                     draw_buffers: vec![0],
                     consts: vec![],
+                    released_overrides: 0,
                 };
             }
             let flips = rule
@@ -304,7 +360,10 @@ impl ShaderPack {
             .collect();
         for noise in [true, false] {
             for t in &properties.custom_textures {
-                if t.applies_to(program.group) && (t.stage == "noise") == noise {
+                if t.applies_to(program.group)
+                    && (t.stage == "noise") == noise
+                    && !t.released_by(released)
+                {
                     sampler_classes.insert(
                         (
                             canonical_sampler_name(t.uniform()),

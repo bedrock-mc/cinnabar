@@ -90,6 +90,7 @@ impl SettingsOptions {
         validated.graphics_api_revision = saved.graphics_api_revision;
         validated.keys = saved.keys;
         validated.server_list = saved.server_list;
+        validated.set_touch_layout(saved.touch_layout);
         if let Some(slots) = saved.emote_slots {
             validated.set_emote_slots(slots);
         }

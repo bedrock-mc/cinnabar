@@ -127,7 +127,7 @@ fn open_two_sided_degenerate_and_inward_blocks_keep_culling_off() {
 }
 
 #[test]
-fn legacy_sprites_require_opaque_alpha_while_native_sprites_allow_binary_cutouts() {
+fn static_sprites_require_opaque_alpha_while_native_sprites_allow_binary_cutouts() {
     let sprite = DroppedItemSprite {
         width: 3,
         height: 1,
@@ -135,16 +135,13 @@ fn legacy_sprites_require_opaque_alpha_while_native_sprites_allow_binary_cutouts
     };
     assert!(DroppedItemModel::Sprite(sprite.clone()).can_cull_back_faces());
     assert!(DroppedItemModel::NativeSprite(sprite.clone()).can_cull_back_faces());
-    let mut symmetric = sprite.clone();
-    Arc::make_mut(&mut symmetric.rgba8)[7] = 0;
-    assert!(!DroppedItemModel::Sprite(symmetric.clone()).can_cull_back_faces());
-    assert!(DroppedItemModel::NativeSprite(symmetric).can_cull_back_faces());
-    let mut asymmetric = sprite.clone();
-    Arc::make_mut(&mut asymmetric.rgba8)[3] = 0;
-    assert!(!DroppedItemModel::Sprite(asymmetric.clone()).can_cull_back_faces());
-    assert!(DroppedItemModel::NativeSprite(asymmetric).can_cull_back_faces());
+    let mut cutout = sprite.clone();
+    Arc::make_mut(&mut cutout.rgba8)[3] = 0;
+    assert!(!DroppedItemModel::Sprite(cutout.clone()).can_cull_back_faces());
+    assert!(DroppedItemModel::NativeSprite(cutout).can_cull_back_faces());
     let mut translucent = sprite;
     Arc::make_mut(&mut translucent.rgba8)[3] = 128;
+    assert!(!DroppedItemModel::Sprite(translucent.clone()).can_cull_back_faces());
     assert!(!DroppedItemModel::NativeSprite(translucent).can_cull_back_faces());
 }
 

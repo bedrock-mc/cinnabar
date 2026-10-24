@@ -4,7 +4,10 @@
 use bevy::input::keyboard::Key;
 use bevy::{
     ecs::message::{MessageCursor, Messages},
-    input::keyboard::{KeyboardFocusLost, KeyboardInput},
+    input::{
+        keyboard::{KeyboardFocusLost, KeyboardInput},
+        touch::TouchInput,
+    },
     prelude::{ButtonInput, KeyCode, Local, MessageReader, Real, Res, ResMut, Time},
     winit::RawWinitWindowEvent,
 };
@@ -16,6 +19,8 @@ pub struct MenuInputContext<'w, 's> {
     pub(super) player_runtime: Res<'w, client_state::PlayerRuntime>,
     pub(super) time: Option<Res<'w, Time<Real>>>,
     pub(super) keyboard_messages: MessageReader<'w, 's, KeyboardInput>,
+    pub(super) touch_messages: Option<Res<'w, Messages<TouchInput>>>,
+    pub(super) touch_cursor: Local<'s, MessageCursor<TouchInput>>,
     pub(super) focus: Option<ResMut<'w, client_state::CursorFocus>>,
     pub(super) driven: Option<Res<'w, client_state::DrivenInput>>,
 }

@@ -8,6 +8,45 @@ use launcher::menu::settings_options::{
 };
 use launcher::menu::{MenuAction, MenuView};
 
+/// Inserts a registry-backed dropdown after an existing advanced Video control.
+pub(super) fn install_video_dropdown(catalog: &mut json_ui::Catalog, id: SettingId, after: &str) {
+    let option = id.definition();
+    let SettingKind::Dropdown(choices) = option.kind else {
+        return;
+    };
+    let name = option.name;
+    let choices = choices
+        .iter()
+        .map(|choice| {
+            serde_json::json!({
+                "@settings_common.radio_with_label": {
+                    "$toggle_state_binding_name": format!("#{}", choice.name),
+                    "$radio_label_text": choice.label
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    let overlay = serde_json::json!({
+        "namespace": "general_section",
+        format!("{name}_dropdown_content@settings_common.option_radio_dropdown_group"): {
+            "$radio_buttons": choices
+        },
+        "advanced_graphics_options_section": {
+            "modifications": [{
+                "array_name": "controls", "operation": "insert_after", "control_name": after,
+                "value": [{ format!("{name}@settings_common.option_dropdown"): {
+                    "$option_label": option.label,
+                    "$dropdown_content": format!("general_section.{name}_dropdown_content"),
+                    "$dropdown_area": "content_area", "$dropdown_name": format!("{name}_dropdown"),
+                    "$option_enabled_binding_name": format!("#{name}_dropdown_enabled"),
+                    "$options_dropdown_toggle_label_binding": format!("#{name}_dropdown_toggle_label")
+                }}]
+            }]
+        }
+    });
+    catalog.overlay_text(&format!("ui/cinnabar_{name}.json"), &overlay.to_string());
+}
+
 /// Supply control values, labels and enabled states using the pack's binding names.
 pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&str) -> String) {
     bind_values(

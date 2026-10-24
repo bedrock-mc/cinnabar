@@ -6,8 +6,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    MovementEnvironment, MovementInput, MovementMode, PlayerState, TickResult,
-    environment::SampledEnvironment,
+    MovementEnvironment, MovementInput, PlayerState, TickResult, environment::SampledEnvironment,
 };
 
 /// How far below a scaffolding top the feet may sit and still stand on it.
@@ -57,33 +56,32 @@ impl ClimberContact {
 }
 
 /// Vanilla's descent action: the input mode's descent request over a
-/// climbable block (`OverDescendingBlock`) sinks through it, except while
+/// climbable block (`OverDescendingBlock`) sinks through it, including while
 /// riding. Inputs without a captured request use the sneak state.
 #[must_use]
 pub fn descends_through_block(input: &MovementInput, over_descending_block: bool) -> bool {
-    input.mode != MovementMode::Riding
-        && input.descent_request.unwrap_or(input.sneaking)
-        && over_descending_block
+    input.descent_request.unwrap_or(input.sneaking) && over_descending_block
 }
 
 /// Runs the block climber after the tick's move, as vanilla does, and retains
 /// its contact for the next tick's descent action, climb jump and gravity.
 /// `start` is the contact the tick began with; an immobile tick's descent
 /// action reads it. Cells without usable facts count as neither scaffolding
-/// nor support. As an untraced recovery policy, an unavailable movement origin
-/// or a failed scan publishes the retained contact instead of failing the
-/// tick; a spectator, or such a tick without retained contact, is unsampled.
+/// nor support. As an untraced recovery policy, unavailable origins and failed
+/// scans other than missing block data publish the retained contact; a spectator, or such a tick without
+/// retained contact, is unsampled. Identity conflicts still reject the tick,
+/// including conflicts discovered after movement.
 pub(super) fn finish_tick(
     world: &(impl CollisionWorld + ?Sized),
     state: &mut PlayerState,
     input: &MovementInput,
     start: Option<ClimberContact>,
     result: &mut TickResult,
-) {
+) -> Result<(), WorldQueryError> {
     result.environment.climber_unsampled = true;
     if input.spectator {
         state.climber = None;
-        return;
+        return Ok(());
     }
     // The climber reads the resolved collision faces, not a box rebuilt
     // around the rounded feet.
@@ -93,7 +91,7 @@ pub(super) fn finish_tick(
         state.collision_box(state.hitbox_height(*input)),
         input,
         &mut result.world_identity,
-    );
+    )?;
     if input.immobile {
         result.environment.descending_through_block = start
             .or(measured)
@@ -109,21 +107,37 @@ pub(super) fn finish_tick(
             state.fall_distance = 0.0;
         }
     }
+    Ok(())
 }
 
 /// Measures climber contact at `feet`, merging the reads into `identity`.
+/// Unreadable terrain leaves contact unmeasured; identity conflicts propagate.
 fn measure(
     world: &(impl CollisionWorld + ?Sized),
     feet: crate::Vec3,
     player: Aabb,
     input: &MovementInput,
     identity: &mut crate::WorldCollisionIdentity,
-) -> Option<ClimberContact> {
-    world.ensure_movement_origin(feet).ok()?;
+) -> Result<Option<ClimberContact>, WorldQueryError> {
     let mut sampled = SampledEnvironment::unsampled(identity.clone());
-    let contact = sample_climber(world, player, input.can_stand_on_snow, &mut sampled).ok()?;
-    *identity = sampled.identity;
-    Some(contact)
+    let measured = match world.ensure_movement_origin(feet) {
+        Ok(())
+        | Err(WorldQueryError::UnloadedChunk(_) | WorldQueryError::UnknownRuntimeId { .. }) => {
+            sample_climber(world, player, input.can_stand_on_snow, &mut sampled)
+        }
+        Err(error) => Err(error),
+    };
+    match measured {
+        Ok(contact) => {
+            *identity = sampled.identity;
+            Ok(Some(contact))
+        }
+        Err(
+            error @ (WorldQueryError::RegistryIdentityMismatch
+            | WorldQueryError::ChunkRevisionConflict { .. }),
+        ) => Err(error),
+        Err(_) => Ok(None),
+    }
 }
 
 /// Scaffolding and climbable-block facts of one footprint layer.

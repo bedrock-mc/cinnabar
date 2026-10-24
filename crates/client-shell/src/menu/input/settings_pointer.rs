@@ -39,6 +39,9 @@ pub(super) fn update_slider(
             }
             _ => None,
         };
+        if let Some(index) = menu.settings_input.slider_drag {
+            menu.capture_settings_slider(index);
+        }
     }
     if pointer_pressed
         && let Some(index) = menu.settings_input.slider_drag

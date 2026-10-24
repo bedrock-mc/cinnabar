@@ -1,9 +1,10 @@
 //! Item-space geometry: centered one-texel sprite slabs, fixed-depth held sprites and unit
 //! block cubes, with UVs mapped into a caller-chosen region of the texture layer.
 //!
-//! Each slab face shows the sprite unmirrored to a viewer on that face's side, so an item reads
-//! correctly from either side. Vertices sit on rig bone 0; `back_uv` is what a viewer behind the
-//! triangle sees.
+//! Both slab faces sample the same texel at each point, as vanilla's per-texel item
+//! tessellation does: the front reads unmirrored, the back mirrored, and transparent texels
+//! never reveal different rear art. Vertices sit on rig bone 0; `back_uv` is what a viewer
+//! behind the triangle sees.
 
 use crate::ActorRigVertex;
 
@@ -59,17 +60,16 @@ fn sprite_vertices(
     let (x0, x1) = (x_at(0), x_at(width));
     let (y0, y1) = (y_at(height), y_at(0));
     let upright = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]].map(to_region);
-    let mirrored = [[1.0, 1.0], [0.0, 1.0], [0.0, 0.0], [1.0, 0.0]].map(to_region);
-    for (z, normal, uvs, back_uvs) in [
-        (half_depth, [0.0, 0.0, 1.0], upright, mirrored),
-        (-half_depth, [0.0, 0.0, -1.0], mirrored, upright),
+    for (z, normal) in [
+        (half_depth, [0.0, 0.0, 1.0]),
+        (-half_depth, [0.0, 0.0, -1.0]),
     ] {
         let corners = [[x0, y0, z], [x1, y0, z], [x1, y1, z], [x0, y1, z]];
         push_quad(
             &mut vertices,
             corners,
-            uvs,
-            back_uvs,
+            upright,
+            upright,
             normal,
             [uv_rect[0], uv_rect[1]],
         );
@@ -161,12 +161,6 @@ pub fn held_sprite_vertices(
             if z > 0.0 { 0.0 } else { -HELD_SPRITE_DEPTH },
         ];
         vertex.normal[0] = -vertex.normal[0];
-        // The +Z face's front UVs and the -Z face's back UVs carry the unmirrored layout.
-        if vertex.normal[2] < 0.0 {
-            vertex.uv = vertex.back_uv;
-        } else {
-            vertex.back_uv = vertex.uv;
-        }
     }
     // Mirroring X reverses every triangle; restore counter-clockwise winding about the normal.
     for triangle in vertices.as_chunks_mut::<3>().0 {
@@ -539,23 +533,33 @@ mod tests {
         }
     }
 
+    // A framed or campfire item is drawn two-sided; rear art that differs from the front at a
+    // point shows through transparent texels as a mirrored second copy.
     #[test]
-    fn faces_show_the_sprite_unmirrored_from_their_own_side() {
+    fn both_faces_sample_the_same_texel_at_each_point() {
         let vertices = extruded_sprite_vertices(4, 4, &opaque(4, 4), FULL).unwrap();
-        for triangle in vertices[..12].as_chunks::<3>().0 {
-            for vertex in triangle {
-                // The front-facing UV of one slab is the other slab's back-facing UV, mirrored in u.
-                let other = vertices[..12]
-                    .iter()
-                    .find(|other| {
-                        other.position[..2] == vertex.position[..2]
-                            && other.position[2] != vertex.position[2]
-                    })
-                    .unwrap();
-                assert!((vertex.uv[0] - (1.0 - other.uv[0])).abs() < 1e-6);
-                assert_eq!(vertex.uv[1], other.uv[1]);
-                assert_eq!(vertex.back_uv, other.uv);
-            }
+        let faces = &vertices[..12];
+        for vertex in faces {
+            let other = faces
+                .iter()
+                .find(|other| {
+                    other.position[..2] == vertex.position[..2]
+                        && other.position[2] != vertex.position[2]
+                })
+                .unwrap();
+            assert_eq!(vertex.uv, other.uv);
+            assert_eq!(vertex.back_uv, vertex.uv);
+        }
+        // The +Z face reads unmirrored: column 0 on the left, row 0 at the top.
+        for vertex in faces.iter().filter(|vertex| vertex.normal[2] > 0.0) {
+            assert_eq!(
+                vertex.uv[0],
+                if vertex.position[0] < 0.0 { 0.0 } else { 1.0 }
+            );
+            assert_eq!(
+                vertex.uv[1],
+                if vertex.position[1] > 0.0 { 0.0 } else { 1.0 }
+            );
         }
     }
 

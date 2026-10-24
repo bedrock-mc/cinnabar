@@ -1,7 +1,7 @@
 //! Local hotbar slot selection.
 //!
 //! Number keys, the mouse wheel and controller buttons announce the selected slot through
-//! equipment packets. Ordered desktop input publishes its local selection on FIFO admission.
+//! equipment packets. Selection-only input stays local until the next tick's announcement.
 
 use crate::runtime::{
     network::resource_packs::PackApplication,
@@ -14,22 +14,28 @@ use protocol::Packet;
 
 pub(crate) mod ordered;
 
-/// Flushes the queued hotbar selection after input sampling and before block use.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Player authority is borrowed separately from UI state."
-)]
+/// Announces a queued selection before unordered hand actions capture it.
+/// Selection-only frames leave the announcement to the next tick.
 pub(crate) fn flush_hotbar_selection(
     mut player_runtime: bevy::prelude::ResMut<client_state::PlayerRuntime>,
     network: Res<NetworkHandle<PackApplication>>,
     mut fatal_error: ResMut<FatalError>,
     input: Option<Res<client_state::SemanticInputSnapshot>>,
 ) {
-    if input
-        .as_ref()
-        .and_then(|input| input.snapshot())
-        .is_some_and(|input| input.ordered.is_some())
-    {
+    let Some(input) = input.as_ref().and_then(|input| input.snapshot()) else {
+        return;
+    };
+    let hand_action = [
+        semantic_input::Action::Attack,
+        semantic_input::Action::Use,
+        semantic_input::Action::PickItem,
+    ]
+    .into_iter()
+    .any(|action| {
+        let phase = input.phases[action as usize];
+        phase.pressed || phase.held || phase.released
+    });
+    if input.ordered.is_some() || !hand_action {
         return;
     }
     ordered::flush_existing_with(
@@ -413,15 +419,12 @@ mod tests {
     }
 
     #[test]
-    fn matching_equipment_bootstrap_sends_while_ledger_slot_is_unknown() {
+    fn matching_equipment_bootstrap_needs_no_duplicate_announcement() {
         let mut player_runtime = client_state::PlayerRuntime(player_state::PlayerState::new(1));
 
         let mut runtime = identified_runtime(&mut player_runtime);
         let equipment_stack = present_stack();
         let game_mode = player_runtime.facts.player_game_mode();
-        player_runtime
-            .inventory
-            .queue_local_hotbar_selection(2, game_mode);
         runtime.retain_local_selected_equipment(
             &mut player_runtime,
             1,
@@ -434,6 +437,9 @@ mod tests {
                 handedness: Some(protocol::ActorHandedness::Right),
             },
         );
+        player_runtime
+            .inventory
+            .queue_local_hotbar_selection(2, game_mode);
         let snapshot = player_runtime.selected_stack_snapshot().unwrap();
         assert_eq!(snapshot.slot, 2);
         assert_eq!(
@@ -448,10 +454,9 @@ mod tests {
             Ok(())
         });
 
-        let expected = select_hotbar_slot_packet(42, 2, &equipment_stack).unwrap();
-        assert_eq!(
-            protocol::encode(&sent.unwrap()).unwrap(),
-            protocol::encode(&expected).unwrap()
+        assert!(
+            sent.is_none(),
+            "the server already announced this same equipment"
         );
         assert_eq!(player_runtime.inventory.pending_hotbar_selection(), None);
         assert_eq!(fatal, None);

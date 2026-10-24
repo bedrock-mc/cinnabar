@@ -78,7 +78,7 @@ fn mask_selection_keeps_the_dissolve_companion() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     let spans = selection(&mask, app.sub_app(RenderApp).world().resource::<ActorGpu>()).unwrap();
@@ -164,7 +164,7 @@ fn mask_selection_suppresses_failed_actor_uploads_and_recovers() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     assert!(mask.authorized());
@@ -513,7 +513,7 @@ fn masks_split_shared_coverage_after_membership_changes() {
             connection: entry.identity.session_id,
             dimension: entry.identity.dimension,
             runtime_id: entry.identity.runtime_id,
-            spawn_revision: entry.identity.spawn_revision,
+            spawn_revision: entry.identity.spawn_revision.get(),
         })
         .collect();
     let mut first = mod_render::masks::Mask {
@@ -658,7 +658,7 @@ fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() 
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
     };
     assert!(!selection(&mask, gpu).unwrap().is_empty());
@@ -672,4 +672,21 @@ fn hidden_local_body_is_available_to_translated_masks_without_main_pass_draws() 
         ..mask.clone()
     };
     assert!(!compatible(&mask, &ordinary));
+}
+
+#[test]
+fn an_independent_layer_stays_visible_beside_its_coverage_only_owner() {
+    let mut app = fixture();
+    let mut frame = publication(1, &[20, 20], 1);
+    let runtime_id = frame.rig.manifest[0].identity.runtime_id;
+    let manifest = std::sync::Arc::make_mut(&mut frame.rig.manifest);
+    manifest[1].identity.runtime_id = runtime_id;
+    manifest[0].identity.layer = render_model::hats::ACTOR_LAYER_HAT;
+    frame.mask_only_runtime_ids = std::sync::Arc::from([runtime_id]);
+    frame.main_pass_instance_count = Some(1);
+    draw_frame(&mut app, &frame);
+    let gpu = app.sub_app(RenderApp).world().resource::<ActorGpu>();
+    assert_eq!(gpu.spans.iter().map(|span| span.count).sum::<u32>(), 1);
+    assert_eq!(gpu.mask_spans.iter().map(|span| span.count).sum::<u32>(), 2);
+    assert_eq!(gpu.main_manifest.len(), 1);
 }

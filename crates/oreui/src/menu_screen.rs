@@ -336,6 +336,13 @@ impl Screen for OreUiScreen {
                     focus = Some(focus_actions(&canvas));
                 }
                 MenuScreen::Settings => {
+                    if self.settings_state.query != view.settings_query {
+                        scrolls.scroll_to_start(settings::SEARCH_SCROLL_KEY);
+                        canvas
+                            .offsets
+                            .insert(settings::SEARCH_SCROLL_KEY.to_owned(), 0.0);
+                        self.settings_state.query.clone_from(&view.settings_query);
+                    }
                     let section = SettingSection::from_index(view.settings.section)
                         .unwrap_or(SettingSection::Accessibility);
                     canvas
@@ -351,7 +358,7 @@ impl Screen for OreUiScreen {
                             size,
                             translate,
                             artwork.get(&view.feeds.profile.picture_path).copied(),
-                            &mut self.shader_option_description,
+                            &mut self.settings_state,
                         )?;
                         let adjusted = scroll_focus::reveal(&mut canvas, scrolls, view);
                         if !adjusted || attempt == 1 {

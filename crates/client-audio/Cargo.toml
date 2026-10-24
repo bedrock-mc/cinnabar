@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-platform-specific = ["windows"]
+platform-specific = ["macos", "windows"]
 
 [features]
 test-support = ["dep:test-time"]

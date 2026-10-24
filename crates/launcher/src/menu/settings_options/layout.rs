@@ -18,7 +18,7 @@ macro_rules! panels {
 }
 
 panels! {
-AccessibilityTts,AccessibilityGameplay,AccessibilityUi,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,General,GeneralPause,GeneralNetwork,Updates,GeneralMisc,GeneralAdvanced,CreatorCoordinates,CreatorContentLog,CreatorDebugger,CreatorDiagnostic,CreatorWatchdog,CreatorDevice,CreatorEditor,CreatorFiltering,Chat,Discord,DiscordDetails
+AccessibilityGameplay,AccessibilityUi,VideoBackend,VideoGeneral,VideoPerformance,VideoGraphics,VideoClouds,VideoCustomization,VideoAccessibility,VideoAdvanced,Audio,Keyboard,Controller,Touch,General,GeneralPause,GeneralNetwork,Updates,ModUpdates,GeneralAdvanced,CreatorCoordinates,Chat,Discord,DiscordDetails
 }
 
 /// Derives ordered rows once and rejects duplicate or missing row positions.
@@ -58,6 +58,33 @@ static PANEL_ROWS: [[Option<SettingId>; SETTINGS_OPTIONS.len()]; SettingPanel::A
     panel_rows();
 
 impl SettingPanel {
+    /// Returns the settings category that owns this panel, including custom client tabs.
+    pub const fn section(self) -> super::super::settings_sections::SettingSection {
+        use super::super::settings_sections::SettingSection;
+        match self {
+            Self::AccessibilityGameplay | Self::AccessibilityUi => SettingSection::Accessibility,
+            Self::VideoBackend
+            | Self::VideoGeneral
+            | Self::VideoPerformance
+            | Self::VideoGraphics
+            | Self::VideoClouds
+            | Self::VideoCustomization
+            | Self::VideoAccessibility
+            | Self::VideoAdvanced => SettingSection::Video,
+            Self::Audio => SettingSection::Sound,
+            Self::Keyboard => SettingSection::KeyboardAndMouse,
+            Self::Controller => SettingSection::ControllerAndSwitch,
+            Self::Touch => SettingSection::Touch,
+            Self::General | Self::GeneralPause | Self::GeneralNetwork | Self::GeneralAdvanced => {
+                SettingSection::General
+            }
+            Self::Updates | Self::ModUpdates => SettingSection::Updates,
+            Self::CreatorCoordinates => SettingSection::Creator,
+            Self::Chat => SettingSection::Chat,
+            Self::Discord | Self::DiscordDetails => SettingSection::Discord,
+        }
+    }
+
     /// Returns registered rows in display order without allocating during painting.
     pub fn options(self) -> impl Iterator<Item = &'static SettingDefinition> {
         PANEL_ROWS[self as usize]

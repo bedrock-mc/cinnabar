@@ -27,6 +27,14 @@ struct TouchFrame {
     pressed: Vec<u16>,
 }
 
+/// Dropdown choices retain their contact for pressed feedback until a completed tap.
+fn utility_choice(hit_id: u16) -> bool {
+    matches!(
+        hit_id,
+        touch::EMOTE | touch::DEBUG_OVERLAY | touch::PLAYER_LIST
+    )
+}
+
 /// Applies touch events in arrival order, so an id Android reuses after a lift starts a fresh
 /// contact. A press on a screen-opening control stops and returns that control.
 fn apply_touch_events(
@@ -39,14 +47,21 @@ fn apply_touch_events(
         match phase {
             TouchPhase::Started => {
                 let region = region(position);
-                if let Some(hit_id) = region
-                    .map(|region| region.hit_id)
-                    .filter(|hit_id| matches!(*hit_id, touch::INVENTORY | touch::MENU))
-                {
+                if let Some(hit_id) = region.map(|region| region.hit_id).filter(|hit_id| {
+                    matches!(
+                        *hit_id,
+                        touch::INVENTORY
+                            | touch::MENU
+                            | touch::CHAT
+                            | touch::UTILITIES
+                            | touch::DISMISS_UTILITIES
+                    )
+                }) {
                     return Err(hit_id);
                 }
                 if state.begin(id, position, 0, region)
                     && let Some(region) = region
+                    && !utility_choice(region.hit_id)
                 {
                     frame.pressed.push(region.hit_id);
                 }
@@ -57,6 +72,12 @@ fn apply_touch_events(
             TouchPhase::Ended => {
                 state.move_to(id, position, 0);
                 if let Some(sample) = state.end(id) {
+                    if let Some(hit_id) = sample.hit_id.filter(|id| utility_choice(*id)) {
+                        if region(position).map(|hit| hit.hit_id) == Some(hit_id) {
+                            return Err(hit_id);
+                        }
+                        continue;
+                    }
                     // A reused id may lift twice in one frame; a frame carries each id once.
                     frame
                         .lifted
@@ -107,6 +128,7 @@ pub(crate) fn drive_gameplay_touch_targets(
     let (Some(window), Some(mut player)) = (gameplay, player) else {
         state.clear();
         presentation.set_touch_contacts(Vec::new());
+        presentation.close_touch_utilities();
         return;
     };
     let size = [window.width().max(1.0), window.height().max(1.0)];
@@ -122,14 +144,36 @@ pub(crate) fn drive_gameplay_touch_targets(
     }) {
         Ok(frame) => frame,
         Err(hit_id) => {
-            if hit_id == touch::INVENTORY {
-                let authority = world
-                    .as_deref()
-                    .and_then(|world| world.stream.as_ref())
-                    .map(|stream| stream.authority());
-                let _ = ui.toggle_inventory(&mut player, authority);
-            } else if let Some(menu) = menu.as_mut() {
-                menu.open_pause();
+            match hit_id {
+                touch::INVENTORY => {
+                    let authority = world
+                        .as_deref()
+                        .and_then(|world| world.stream.as_ref())
+                        .map(|stream| stream.authority());
+                    let _ = ui.toggle_inventory(&mut player, authority);
+                }
+                touch::CHAT => {
+                    ui.open_chat(&mut player);
+                }
+                touch::UTILITIES => presentation.toggle_touch_utilities(),
+                touch::DEBUG_OVERLAY => {
+                    presentation.request_touch_debug_toggle();
+                    presentation.close_touch_utilities();
+                }
+                touch::PLAYER_LIST => {
+                    ui.toggle_touch_player_list();
+                    presentation.close_touch_utilities();
+                }
+                touch::DISMISS_UTILITIES => presentation.close_touch_utilities(),
+                touch::EMOTE => {
+                    ui.emotes_mut().open();
+                    presentation.close_touch_utilities();
+                }
+                _ => {
+                    if let Some(menu) = menu.as_mut() {
+                        menu.open_pause();
+                    }
+                }
             }
             // The opened screen must not read this frame's presses as its own taps.
             let started: Vec<_> = touches
@@ -162,7 +206,12 @@ pub(crate) fn drive_gameplay_touch_targets(
             sample
         }
     };
-    for sample in held.iter().cloned().map(look_scaled) {
+    for sample in held
+        .iter()
+        .filter(|sample| !sample.hit_id.is_some_and(utility_choice))
+        .cloned()
+        .map(look_scaled)
+    {
         targets.set_sample(&sample);
     }
     // A lifted contact whose id already carries a new press routes as that press instead.
@@ -302,23 +351,87 @@ mod tests {
         assert!(!targets.pressed(touch::USE));
     }
 
-    /// Pause and inventory presses stop processing and open their screens.
+    /// Screen-opening touches stop processing before a later contact can drive gameplay.
     #[test]
     fn screen_controls_open_instead_of_capturing() {
-        let mut state = TouchControlState::default();
-        let pause = |_| {
-            Some(TouchControlRegion {
-                hit_id: touch::MENU,
-                bounds: TouchBounds {
-                    min: [0.0; 2],
-                    max: [1.0; 2],
-                },
-            })
-        };
-        assert_eq!(
-            apply_touch_events(&mut state, [(1, TouchPhase::Started, [0.5; 2])], pause),
-            Err(touch::MENU)
-        );
-        assert!(state.sample().is_empty());
+        for hit_id in [
+            touch::MENU,
+            touch::INVENTORY,
+            touch::CHAT,
+            touch::UTILITIES,
+            touch::DISMISS_UTILITIES,
+        ] {
+            let mut state = TouchControlState::default();
+            let screen = |_| {
+                Some(TouchControlRegion {
+                    hit_id,
+                    bounds: TouchBounds {
+                        min: [0.0; 2],
+                        max: [1.0; 2],
+                    },
+                })
+            };
+            assert_eq!(
+                apply_touch_events(
+                    &mut state,
+                    [
+                        (1, TouchPhase::Started, [0.5; 2]),
+                        (2, TouchPhase::Started, [0.8; 2]),
+                    ],
+                    screen
+                ),
+                Err(hit_id)
+            );
+            assert!(state.sample().is_empty());
+        }
+    }
+
+    #[test]
+    fn utility_choices_hold_until_release_and_cancel_outside_or_on_focus_loss() {
+        for hit_id in [touch::EMOTE, touch::DEBUG_OVERLAY, touch::PLAYER_LIST] {
+            let region = |position: [f32; 2]| {
+                (position[0] < 0.5).then_some(TouchControlRegion {
+                    hit_id,
+                    bounds: TouchBounds {
+                        min: [0.; 2],
+                        max: [0.5, 1.],
+                    },
+                })
+            };
+            let mut state = TouchControlState::default();
+            let at = [0.25, 0.5];
+            let frame =
+                apply_touch_events(&mut state, [(1, TouchPhase::Started, at)], region).unwrap();
+            assert!(frame.pressed.is_empty());
+            assert_eq!(state.sample()[0].hit_id, Some(hit_id));
+            assert_eq!(
+                apply_touch_events(&mut state, [(1, TouchPhase::Ended, at)], region),
+                Err(hit_id)
+            );
+            assert!(
+                apply_touch_events(&mut state, [(1, TouchPhase::Ended, at)], region)
+                    .unwrap()
+                    .lifted
+                    .is_empty()
+            );
+            for phase in [TouchPhase::Ended, TouchPhase::Canceled] {
+                apply_touch_events(&mut state, [(1, TouchPhase::Started, at)], region).unwrap();
+                assert!(
+                    apply_touch_events(&mut state, [(1, phase, [0.75, 0.5])], region)
+                        .unwrap()
+                        .lifted
+                        .is_empty()
+                );
+                assert!(state.sample().is_empty());
+            }
+            apply_touch_events(&mut state, [(1, TouchPhase::Started, at)], region).unwrap();
+            state.clear();
+            assert!(
+                apply_touch_events(&mut state, [(1, TouchPhase::Ended, at)], region)
+                    .unwrap()
+                    .lifted
+                    .is_empty()
+            );
+        }
     }
 }

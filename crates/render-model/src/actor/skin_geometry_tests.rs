@@ -1,6 +1,49 @@
 use super::*;
 
 #[test]
+fn shrinking_a_thin_skin_cube_preserves_signed_faces_and_authored_uvs() {
+    let source = serde_json::json!({
+        "format_version":"1.12.0",
+        "minecraft:geometry":[{
+            "description":{"identifier":"geometry.fixture","texture_width":64,"texture_height":64},
+            "bones":[{"name":"body","cubes":[{
+                "origin":[0,0,0],"size":[3,7,1],"inflate":-0.75,"uv":[4,8]
+            }]}]
+        }]
+    });
+    let geometry = assets::parse_skin_geometry(
+        r#"{"geometry":{"default":"geometry.fixture"}}"#,
+        &source.to_string(),
+    )
+    .unwrap()
+    .unwrap();
+    let mesh = skin_geometry(&geometry, EntityRigId(0)).unwrap();
+    assert_eq!(mesh.vertices.len(), 36);
+    assert!(
+        mesh.vertices[..6]
+            .iter()
+            .all(|vertex| vertex.position[2] == 0.75 / 16.0)
+    );
+    assert!(
+        mesh.vertices[6..12]
+            .iter()
+            .all(|vertex| vertex.position[2] == 0.25 / 16.0)
+    );
+    assert!(
+        mesh.vertices
+            .iter()
+            .all(|vertex| vertex.normal.iter().all(|value| value.is_finite()))
+    );
+
+    let mut uninflated = geometry.clone();
+    uninflated.bones[0].cubes[0].inflate = assets::EntityGeometryScalar::ZERO;
+    let ordinary = skin_geometry(&uninflated, EntityRigId(1)).unwrap();
+    for (shrunk, ordinary) in mesh.vertices.iter().zip(ordinary.vertices.iter()) {
+        assert_eq!(shrunk.uv, ordinary.uv);
+    }
+}
+
+#[test]
 fn inherited_skin_parts_can_be_redeclared_visible_without_revealing_hidden_parts() {
     let cube = serde_json::json!({"origin":[0,0,0],"size":[2,3,4],"uv":[0,0]});
     for hidden in [None, Some(false), Some(true)] {

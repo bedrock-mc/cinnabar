@@ -11,11 +11,59 @@ mod riptide;
 
 #[test]
 fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_input() {
+    assert_respawn_input_lifecycle(
+        0,
+        WorldEvent::Respawn(RespawnEvent {
+            position: [300.5, 32_767.0, 400.5],
+            state: 0,
+            runtime_entity_id: 0,
+        }),
+    );
+}
+
+#[test]
+fn local_death_without_respawn_search_withholds_input_across_dimensions() {
+    for dimension in [0, 1, 2] {
+        for death in [
+            WorldEvent::Ui(protocol::UiEvent::Hud(protocol::HudEvent::Health {
+                health: 0,
+            })),
+            WorldEvent::Actor(protocol::ActorEvent::Status(protocol::ActorStatusEvent {
+                runtime_id: 1,
+                kind: protocol::ActorStatusKind::Death,
+                data: 0,
+            })),
+            WorldEvent::Actor(protocol::ActorEvent::Attributes(
+                protocol::ActorAttributesUpdateEvent {
+                    runtime_id: 1,
+                    dimension,
+                    tick: 100,
+                    attributes: std::sync::Arc::from([protocol::ActorAttribute {
+                        name: protocol_ids::Attribute::Health.wire_name().into(),
+                        min: 0.0,
+                        max: 20.0,
+                        current: 0.0,
+                        default: None,
+                        modifiers: Default::default(),
+                    }]),
+                },
+            )),
+        ] {
+            assert_respawn_input_lifecycle(dimension, death);
+        }
+    }
+}
+
+/// Exercises the production input FIFO from death through a cross-dimension respawn.
+fn assert_respawn_input_lifecycle(dimension: i32, death: WorldEvent) {
+    let life_death = !matches!(death, WorldEvent::Respawn(_));
     let initial = [0.0, 70.0, 0.0];
     let destination = [8.5, 71.620_01, -4.25];
     let mut physics = LocalPhysicsController::default();
     physics.reanchor_network_position(initial, 100, false);
     let mut app = wiring_app(authorized_ticker(false), physics);
+    app.world_mut().resource_mut::<ClientWorld>().stream =
+        Some(fixture_stream_in_dimension(dimension));
     let (network, mut captured) = NetworkHandle::<PackApplication>::stub_capturing_packets();
     app.insert_resource(network)
         .insert_resource(client_presentation::camera::AutoFly::new(false))
@@ -29,15 +77,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
                 .chain()
                 .after(reconcile_world_stream_before_physics),
         );
-    submit(
-        &mut app,
-        1,
-        WorldEvent::Respawn(RespawnEvent {
-            position: [300.5, 32_767.0, 400.5],
-            state: 0,
-            runtime_entity_id: 0,
-        }),
-    );
+    submit(&mut app, 1, death);
     app.world_mut()
         .resource_mut::<bevy::prelude::Time<bevy::time::Real>>()
         .advance_by(std::time::Duration::from_millis(100));
@@ -76,7 +116,7 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
         &mut app,
         2,
         WorldEvent::ChangeDimension(ChangeDimensionEvent {
-            dimension: 1,
+            dimension: if dimension == 0 { 1 } else { 0 },
             position: destination,
             respawn: true,
             loading_screen_id: None,
@@ -124,6 +164,18 @@ fn respawn_search_dimension_and_ready_preserve_the_clock_and_complete_before_inp
             .pending_command_count(),
         2
     );
+    if life_death {
+        // Health can lag readiness; a repeated zero must not start another input hold.
+        submit(
+            &mut app,
+            4,
+            WorldEvent::Ui(protocol::UiEvent::Hud(protocol::HudEvent::Health {
+                health: 0,
+            })),
+        );
+        app.update();
+        assert!(!app.world().resource::<ClientWorld>().respawn.input_held());
+    }
     // The existing transfer hold still permits zero-motion input after native Action7.
     app.world_mut()
         .resource_mut::<bevy::prelude::Time<bevy::time::Real>>()

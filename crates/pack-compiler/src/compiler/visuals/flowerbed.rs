@@ -165,6 +165,25 @@ pub(in crate::compiler) fn flowerbed_quads(
     growth: u32,
     orientation: u32,
 ) -> Result<Vec<ModelQuad>, AssetError> {
+    ground_cover_quads(materials, growth, orientation, true)
+}
+
+/// Draws leaf litter with the shared patch ordering, without elevated flowers or stems.
+pub(in crate::compiler) fn leaf_litter_quads(
+    material: u32,
+    growth: u32,
+    orientation: u32,
+) -> Result<Vec<ModelQuad>, AssetError> {
+    ground_cover_quads([material; 2], growth, orientation, false)
+}
+
+/// Resolves patch geometry while preserving each corner's texture coordinates.
+fn ground_cover_quads(
+    materials: [u32; 2],
+    growth: u32,
+    orientation: u32,
+    flowers: bool,
+) -> Result<Vec<ModelQuad>, AssetError> {
     let patch_count = usize::try_from(growth + 1).map_err(|_| AssetError::BlobSizeOverflow {
         section: "flowerbed patch count",
     })?;
@@ -179,16 +198,25 @@ pub(in crate::compiler) fn flowerbed_quads(
             detail: format!("flowerbed orientation {orientation} is not cardinal").into(),
         });
     }
-    let quad_count = patches.iter().map(|patch| patch.quads.len()).sum();
+    let sources = || {
+        patches
+            .iter()
+            .flat_map(|patch| patch.quads)
+            .filter(|quad| flowers || !quad.stem)
+    };
+    let quad_count = sources().count();
     if quad_count > 32 {
         return Err(AssetError::InvalidCompiledAssets {
             detail: format!("flowerbed template has {quad_count} quads").into(),
         });
     }
     let mut quads = Vec::with_capacity(quad_count);
-    for source in patches.iter().flat_map(|patch| patch.quads) {
+    for source in sources() {
         let mut positions = source.positions;
         for position in &mut positions {
+            if !flowers {
+                position[1] = 4;
+            }
             *position = rotate_flowerbed_position(*position, orientation)?;
             if position[1] >= 64 {
                 return Err(AssetError::InvalidCompiledAssets {

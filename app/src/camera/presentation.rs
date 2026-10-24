@@ -161,7 +161,6 @@ pub(crate) fn apply_camera_presentation(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     instructions: Option<Res<ServerCameraInstructions>>,
-    hand: Res<FirstPersonHandMotion>,
     portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
     client_world: Option<Res<ClientWorld>>,
@@ -173,7 +172,6 @@ pub(crate) fn apply_camera_presentation(
         time,
         settings,
         instructions,
-        hand,
         portal,
         view,
         client_world.as_deref().map(

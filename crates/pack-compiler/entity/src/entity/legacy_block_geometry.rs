@@ -28,7 +28,11 @@ pub(super) fn select(value: &Value) -> Value {
         assets::BED_GEOMETRY_IDENTIFIER,
         assets::CAPE_GEOMETRY_IDENTIFIER,
         assets::ELYTRA_GEOMETRY_IDENTIFIER,
-    ] {
+    ]
+    .into_iter()
+    .chain(
+        assets::block_entity_geometry::chalkboard::ChalkboardSize::ALL.map(|size| size.geometry()),
+    ) {
         if let Some(geometry) = value.get(identifier) {
             selected.insert(identifier.into(), geometry.clone());
         }

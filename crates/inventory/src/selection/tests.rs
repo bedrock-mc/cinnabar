@@ -346,6 +346,62 @@ fn unknown_hotbar_cell_can_announce_empty_equipment() {
     );
 }
 
+#[test]
+fn server_mob_equipment_forces_the_local_hotbar_slot() {
+    let mode = Some(PlayerGameMode::Survival);
+    let mut session = InventorySession::new(1);
+    session.set_local_selected_slot(2);
+    session.queue_local_hotbar_selection(5, mode);
+
+    session.retain_local_selected_equipment(
+        7,
+        EquipmentEvent {
+            actor_runtime_id: 42,
+            stack: protocol::NetworkItemStack::empty(),
+            inventory_slot: 7,
+            selected_slot: 7,
+            window_id: protocol::PLAYER_INVENTORY_WINDOW_ID as u8,
+            handedness: Some(protocol::ActorHandedness::Right),
+        },
+    );
+
+    assert_eq!(session.selected_hotbar_slot(mode), Some(7));
+    assert_eq!(session.pending_hotbar_selection(), None);
+}
+
+#[test]
+fn offhand_or_sentinel_mob_equipment_does_not_force_the_local_hotbar_slot() {
+    let mode = Some(PlayerGameMode::Survival);
+    let mut session = InventorySession::new(1);
+    session.set_local_selected_slot(2);
+
+    session.retain_local_selected_equipment(
+        7,
+        EquipmentEvent {
+            actor_runtime_id: 42,
+            stack: protocol::NetworkItemStack::empty(),
+            inventory_slot: 6,
+            selected_slot: 6,
+            window_id: protocol::OFFHAND_WINDOW_ID as u8,
+            handedness: Some(protocol::ActorHandedness::Left),
+        },
+    );
+    assert_eq!(session.selected_hotbar_slot(mode), Some(2));
+
+    session.retain_local_selected_equipment(
+        8,
+        EquipmentEvent {
+            actor_runtime_id: 42,
+            stack: protocol::NetworkItemStack::empty(),
+            inventory_slot: 255,
+            selected_slot: u8::MAX,
+            window_id: protocol::PLAYER_INVENTORY_WINDOW_ID as u8,
+            handedness: Some(protocol::ActorHandedness::Right),
+        },
+    );
+    assert_eq!(session.selected_hotbar_slot(mode), Some(2));
+}
+
 /// A local drop publishes backing only after its transaction enters transport.
 #[test]
 fn backing_hotbar_descriptor_waits_for_a_local_backing_mutation() {

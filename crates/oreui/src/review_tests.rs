@@ -41,6 +41,55 @@ fn friends_view() -> MenuView {
 }
 
 #[test]
+fn touch_hosts_keep_picker_actions_for_resources_mods_skins_and_worlds() {
+    use launcher::menu::{LocalWorldAction, settings_sections::SettingSection};
+    use std::sync::Arc;
+
+    for (section, import) in [
+        (
+            SettingSection::GlobalTexturePack,
+            MenuAction::GlobalResources(launcher::global_resources::Action::Import),
+        ),
+        (
+            SettingSection::Mods,
+            MenuAction::Mods(launcher::mods::Action::Import),
+        ),
+    ] {
+        let mut view = crate::test_support::settings_view(section.definition().name);
+        let storage = Arc::make_mut(&mut view.storage);
+        storage.accepts_file_drops = false;
+        storage.opens_folders = false;
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            settings::draw(
+                canvas,
+                &view,
+                [1280.0, 720.0],
+                &|_| None,
+                None,
+                &mut Default::default(),
+            )
+            .unwrap();
+        });
+        assert!(hits.iter().any(|(action, _)| *action == import));
+    }
+    let view = crate::test_support::dressing_room_view(0);
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        dressing_room::draw(canvas, &view, [1280.0, 720.0]).unwrap();
+    });
+    assert!(hits.iter().any(|(action, _)| {
+        *action == MenuAction::DressingRoom(launcher::dressing_room::Action::Import)
+    }));
+    let view = MenuView::new(true, "Test".into());
+    let (_, hits, _) = paint(HashMap::new(), |canvas| {
+        play::draw_tab(canvas, &view, [1280.0, 720.0], &HashMap::new(), 0).unwrap();
+    });
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::LocalWorld(LocalWorldAction::Import))
+    );
+}
+
+#[test]
 fn review_friend_list_registers_its_full_scroll_extent() {
     let view = friends_view();
     let (scrolls, _, _) = paint(HashMap::new(), |c| {
@@ -151,6 +200,7 @@ fn review_short_world_settings_are_scrollable() {
     use launcher::local_worlds::world::{Difficulty, Generator, World};
     let mut worlds = launcher::local_worlds::WorldsMenu::default();
     worlds.apply(launcher::local_worlds::Event::Listed(vec![World {
+        options: Default::default(),
         id: "test".into(),
         name: "World".into(),
         game_mode: GameMode::Survival,
@@ -160,6 +210,7 @@ fn review_short_world_settings_are_scrollable() {
         seed: 1,
         created_unix: 0,
         last_played_unix: 0,
+        options_unavailable: false,
         size_bytes: 0,
     }]));
     worlds.update(launcher::local_worlds::Input::BeginEdit(0));

@@ -120,14 +120,9 @@ pub(super) fn equipment(
     icon_frames: &ItemIconFrames,
 ) -> EquipmentCapture {
     let runtime = items.runtime;
-    let offhand_durability = runtime
-        .gameplay_hud()
-        .offhand_stack()
-        .and_then(|stack| items.durability(stack, None));
-    let offhand_icon = runtime
-        .gameplay_hud()
-        .offhand_stack()
-        .and_then(|stack| items.icon(stack, None));
+    let offhand = runtime.local_offhand_stack(player_runtime);
+    let offhand_durability = offhand.and_then(|stack| items.durability(stack, None));
+    let offhand_icon = offhand.and_then(|stack| items.icon(stack, None));
     let (armor_icons, armor_durability) = {
         let armor = runtime.local_armor(player_runtime);
         let worn = [

@@ -174,8 +174,8 @@ func TestV2193PhysicsArtifactBindsPinnedBREGWithNeutralReservedAndExactFacts(t *
 			t.Fatalf("reserved runtime ID %d is not exactly neutral: %+v", index, entry)
 		}
 	}
-	if reserved != v2193PhysicsReservedCount {
-		t.Fatalf("neutral reserved records = %d, want exactly %d", reserved, v2193PhysicsReservedCount)
+	if reserved != v2193PhysicsReservedCount() {
+		t.Fatalf("neutral reserved records = %d, want exactly %d", reserved, v2193PhysicsReservedCount())
 	}
 
 	fluidHeights := func(name string, wantStates int, fluidBit uint8) map[uint32]int {
@@ -368,8 +368,8 @@ func TestProjectV2193PhysicsRecordsAppliesSharedFactsAtNewIdentifiers(t *testing
 			t.Fatalf("reserved runtime ID %d is not neutral: %+v", index, entry)
 		}
 	}
-	if reserved != v2193PhysicsReservedCount {
-		t.Fatalf("reserved records = %d, want exactly %d", reserved, v2193PhysicsReservedCount)
+	if reserved != v2193PhysicsReservedCount() {
+		t.Fatalf("reserved records = %d, want exactly %d", reserved, v2193PhysicsReservedCount())
 	}
 
 	water := physics[v2193RecordsNamed(records, "minecraft:water")[0]]
@@ -518,16 +518,16 @@ func TestV2193PhysicsManifestCrossCheckRejectsDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	projection := generic["projection"].(map[string]any)
-	projection["denied_count"] = v2193PhysicsReservedCount - 1
+	projection["denied_count"] = v2193PhysicsReservedCount() - 1
 	mutated, err := json.Marshal(generic)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := crossCheckV2193PhysicsManifest(mutated); err == nil || !strings.Contains(err.Error(), fmt.Sprint(v2193PhysicsReservedCount)) {
+	if err := crossCheckV2193PhysicsManifest(mutated); err == nil || !strings.Contains(err.Error(), fmt.Sprint(v2193PhysicsReservedCount())) {
 		t.Fatalf("drifted denial count rejection = %v", err)
 	}
 
-	projection["denied_count"] = float64(v2193PhysicsReservedCount)
+	projection["denied_count"] = float64(v2193PhysicsReservedCount())
 	generic["output"].(map[string]any)["sha256"] = "0000000000000000000000000000000000000000000000000000000000000000"
 	rebound, err := json.Marshal(generic)
 	if err != nil {

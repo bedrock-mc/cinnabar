@@ -14,12 +14,14 @@ mod mining;
 fn hashed_states_enumerate_axes_and_hash_distinctly() {
     let block = CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
         player_interact: false,
         name: "ns:b".into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count: 6,
         collides: true,
         collision_boxes: None,
@@ -54,6 +56,7 @@ fn hashed_states_enumerate_axes_and_hash_distinctly() {
     assert_eq!(hashes.len(), 6);
     let plain = CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
@@ -92,6 +95,7 @@ fn block_target_tags_survive_wire_decode_and_odd_entries_are_counted() {
         [std::sync::Arc::from("test:target")]
     );
     assert_eq!(blocks.skipped, 1);
+    assert!(!blocks.blocks[0].tags_complete);
 
     let mut nbt = named(10, "");
     nbt.extend(named(8, "blockTags"));
@@ -101,6 +105,26 @@ fn block_target_tags_survive_wire_decode_and_odd_entries_are_counted() {
     assert_eq!(blocks.blocks.len(), 1);
     assert!(blocks.blocks[0].tags.is_empty());
     assert_eq!(blocks.skipped, 1);
+}
+
+#[test]
+fn custom_tag_completeness_tracks_dropped_entries() {
+    let tags = |entries| compound(vec![("blockTags", Nbt::List(entries))]);
+    for (root, complete, retained) in [
+        (compound(vec![]), true, 0),
+        (tags(vec![]), true, 0),
+        (tags(vec![text("test:tag"), text("test:tag")]), true, 1),
+        (tags((0..256).map(|_| text("test:tag")).collect()), true, 1),
+        (tags((0..257).map(|_| text("test:tag")).collect()), false, 1),
+        (tags(vec![text(&"x".repeat(256))]), true, 1),
+        (tags(vec![text(&"x".repeat(257))]), false, 0),
+        (tags(vec![text("test:tag"), Nbt::Int(1)]), false, 1),
+        (compound(vec![("blockTags", text("not a list"))]), false, 0),
+    ] {
+        let definition = super::parse_definition(&root).unwrap();
+        assert_eq!(definition.tags_complete, complete);
+        assert_eq!(definition.tags.len(), retained);
+    }
 }
 
 #[test]
@@ -123,7 +147,9 @@ fn placement_trait_and_enum_properties_multiply_states() {
     let mut nbt = named(10, "");
     nbt.extend(named(9, "properties"));
     nbt.extend([10, 4]);
-    for values in [2_u8, 3] {
+    for (name, values) in [("test:two", 2_u8), ("test:three", 3)] {
+        nbt.extend(named(8, "name"));
+        nbt.extend(string(name));
         nbt.extend(named(9, "enum"));
         nbt.extend([8, values * 2]);
         for index in 0..values {
@@ -145,8 +171,12 @@ fn placement_trait_and_enum_properties_multiply_states() {
         (2 * 3 * 4, false)
     );
     let axes = &definition.visual.state_axes;
-    assert_eq!(axes.len(), 1, "unnamed properties carry no axis");
-    assert_eq!(axes[0].name.as_ref(), "minecraft:cardinal_direction");
+    let names: Vec<_> = axes.iter().map(|axis| axis.name.as_ref()).collect();
+    assert_eq!(
+        names,
+        ["minecraft:cardinal_direction", "test:two", "test:three"],
+        "trait states lead the properties"
+    );
     assert_eq!(
         axes[0].values[0],
         super::CustomStateValue::String("south".into())
@@ -206,12 +236,14 @@ fn custom_block(name: &str, root: &Nbt) -> CustomBlock {
     let definition = super::parse_definition(root).expect("definition");
     CustomBlock {
         mining: definition.mining,
+        sound: definition.sound,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
         player_interact: definition.player_interact,
         name: name.into(),
         tags: definition.tags,
+        tags_complete: definition.tags_complete,
         state_count: definition.state_count,
         collides: definition.collides,
         collision_boxes: definition.collision_boxes,
@@ -345,9 +377,29 @@ fn hashed_states_follow_palette_order() {
     }
 }
 
-// Unnamed properties still count toward the palette but cannot be decoded.
 #[test]
-fn states_the_axes_cannot_account_for_are_not_decoded() {
+fn sound_component_material_is_retained_from_the_base_definition() {
+    let root = compound(vec![(
+        "components",
+        compound(vec![(
+            "minecraft:sound",
+            compound(vec![("sound", text("wood"))]),
+        )]),
+    )]);
+    let definition = super::parse_definition(&root).expect("definition");
+    assert_eq!(definition.sound.as_deref(), Some("wood"));
+
+    let scalar = compound(vec![(
+        "components",
+        compound(vec![("minecraft:sound", text("metal"))]),
+    )]);
+    let definition = super::parse_definition(&scalar).expect("scalar definition");
+    assert_eq!(definition.sound.as_deref(), Some("metal"));
+}
+
+// A nameless property is the client's empty-named state.
+#[test]
+fn nameless_properties_decode_under_the_empty_name() {
     let block = custom_block(
         "ns:b",
         &compound(vec![(
@@ -358,7 +410,11 @@ fn states_the_axes_cannot_account_for_are_not_decoded() {
             )])]),
         )]),
     );
-    assert_eq!((block.state_count, block.state_values(0)), (2, None));
+    assert_eq!(block.state_count, 2);
+    assert_eq!(
+        block.state_values(1).as_deref(),
+        Some([CustomStateValue::Int(1)].as_slice())
+    );
 }
 
 #[test]
@@ -651,7 +707,10 @@ fn experience_blocks_fit_the_client_bounds() {
     let limits: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let limit = |name: &str| limits[name].as_u64().unwrap();
-    assert!(limit("max_state_combinations") <= super::MAX_STATES_PER_BLOCK);
+    assert_eq!(
+        limit("max_state_bits"),
+        u64::from(super::states::STATE_BITS)
+    );
     assert!(limit("max_permutations") <= super::MAX_PERMUTATIONS as u64);
 }
 
@@ -660,7 +719,9 @@ fn aggregate_admission_retains_rejected_palette_runs_without_expanding_states() 
     let mut large = named(10, "");
     large.extend(named(9, "properties"));
     large.extend([10, 32]);
-    for _ in 0..16 {
+    for index in 0..16 {
+        large.extend(named(8, "name"));
+        large.extend(string(&format!("test:bit{index}")));
         large.extend(named(9, "enum"));
         large.extend([1, 4, 0, 1, 0]);
     }
@@ -702,6 +763,7 @@ fn aggregate_admission_retains_rejected_palette_runs_without_expanding_states() 
     // Rejected runs retain their names and counts without expanded states.
     for block in &admitted.blocks[first_rejected..] {
         assert!(block.visual.materialization_disabled);
+        assert!(!block.tags_complete);
         assert!(block.hashed_states().is_empty());
         assert!(block.state_physics.is_empty());
         assert!(
@@ -939,7 +1001,7 @@ fn connection_axes_follow_placement_traits_and_precede_properties() {
     );
 }
 
-/// Only a `minecraft:custom_components` that sets `hasPlayerInteract` declares the handler.
+/// Crafting tables and explicit interact components declare the handler alongside legacy flags.
 #[test]
 fn custom_components_declare_a_player_interact_handler() {
     let root = |components: Vec<(&str, Nbt)>| compound(vec![("components", compound(components))]);
@@ -957,4 +1019,56 @@ fn custom_components_declare_a_player_interact_handler() {
         "minecraft:custom_components",
         compound(vec![("hasPlayerPlacing", Nbt::Byte(1))]),
     )])));
+    assert!(parsed(root(vec![(
+        "minecraft:on_interact",
+        compound(vec![
+            ("condition", text("")),
+            ("event", text("")),
+            ("target", text("self")),
+        ]),
+    )])));
+    assert!(!parsed(root(vec![("minecraft:on_interact", Nbt::Byte(1))])));
+}
+
+// Packs alias faces to shared instances; dropping the alias would draw the `*` texture there.
+#[test]
+fn material_mappings_alias_faces_to_named_instances() {
+    let material = |texture: &str| compound(vec![("texture", text(texture))]);
+    let alias = |target: &str| compound(vec![("value", text(target))]);
+    let root = compound(vec![(
+        "components",
+        compound(vec![(
+            "minecraft:material_instances",
+            compound(vec![
+                (
+                    "materials",
+                    compound(vec![
+                        ("*", material("test_side")),
+                        ("top", material("test_top")),
+                        ("up", material("test_replaced")),
+                    ]),
+                ),
+                (
+                    "mappings",
+                    compound(vec![
+                        ("up", alias("top")),
+                        ("down", alias("top")),
+                        ("north", alias("test:missing")),
+                    ]),
+                ),
+            ]),
+        )]),
+    )]);
+    let block = custom_block("test:aliased", &root);
+    let materials = block.visual.base.materials.as_deref().unwrap();
+    let texture = |name: &str| {
+        materials
+            .iter()
+            .find(|material| material.name.as_ref() == name)
+            .map(|material| material.texture.as_ref())
+    };
+    assert_eq!(texture("up"), Some("test_top"));
+    assert_eq!(texture("down"), Some("test_top"));
+    assert_eq!(texture("north"), None);
+    assert_eq!(materials.len(), 4);
 }

@@ -1,8 +1,6 @@
-use bevy::camera::RenderTarget;
-
 use super::*;
 use crate::chunk::gpu_cull::app_tests::{
-    KEYS, camera_transform, chunk_app, frame, insert_meshes, noop_render_plugin,
+    KEYS, camera_transform, chunk_app, frame, insert_meshes, noop_render_plugin, spawn_camera,
 };
 
 /// Builds a visible class in the main-entity order required by Bevy's lookup.
@@ -235,27 +233,6 @@ fn a_still_direct_view_rebuilds_its_lists_only_for_visible_changes() {
     }
     assert!(stats(&app).lists_rebuilt > still.lists_rebuilt);
     assert!(queued_terrain(&app) > queued);
-}
-
-fn spawn_camera(app: &mut App, transform: Transform, order: isize) -> Entity {
-    let image = app
-        .world_mut()
-        .resource_mut::<Assets<Image>>()
-        .add(Image::new_target_texture(
-            64,
-            48,
-            TextureFormat::Rgba8Unorm,
-            None,
-        ));
-    app.world_mut()
-        .spawn((
-            Camera3d::default(),
-            Camera { order, ..default() },
-            RenderTarget::Image(image.into()),
-            Msaa::Off,
-            transform,
-        ))
-        .id()
 }
 
 /// The CPU-planned indirect path: a still view rebuilds no pass, a move inside one facing cell

@@ -269,6 +269,7 @@ fn static_clock_survives_invalid_first_eval_but_requires_real_tick_after_reset_o
                 head_yaw: None,
                 on_ground: None,
                 teleported: true,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: Some(2),
                 interpolation: Default::default(),

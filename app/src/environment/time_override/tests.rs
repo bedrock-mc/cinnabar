@@ -199,3 +199,48 @@ fn override_replaces_atmosphere_and_light_and_clearing_restores_server() {
         assert_eq!(*app.world().resource::<WorldClock>(), clock);
     }
 }
+
+/// Local rain/thunder change render inputs while authoritative weather keeps advancing.
+#[test]
+fn weather_override_restores_current_server_presentation_without_mutation() {
+    let mut app = atmosphere_app(true);
+    let mut control = atmosphere_app(true);
+    output(&mut control);
+    app.init_resource::<environment::VisualWeatherOverride>();
+    let server = *app.world().resource::<WeatherState>();
+    for levels in [[0., 0.], [1., 0.], [1., 1.]] {
+        app.world_mut()
+            .resource_mut::<environment::VisualWeatherOverride>()
+            .0 = Some(levels);
+        let (frame, _) = output(&mut app);
+        assert_eq!(frame.rain_level(), levels[0]);
+        assert_eq!(frame.thunder_level(), levels[1]);
+        assert_eq!(*app.world().resource::<WeatherState>(), server);
+    }
+    // Simulate a newly arrived server target while the local clear preset is active.
+    let wet = server.with_visual_weather([1., 1.]);
+    app.insert_resource(wet);
+    control.insert_resource(wet);
+    app.world_mut()
+        .resource_mut::<environment::VisualWeatherOverride>()
+        .0 = Some([0., 0.]);
+    for _ in 0..3 {
+        for app in [&mut app, &mut control] {
+            app.world_mut()
+                .resource_mut::<Time<Real>>()
+                .advance_by(simulation_clock::TICK_DURATION);
+        }
+        let (frame, _) = output(&mut app);
+        assert_eq!(frame.rain_level(), 0.);
+        assert_eq!(frame.thunder_level(), 0.);
+        output(&mut control);
+    }
+    app.world_mut()
+        .resource_mut::<environment::VisualWeatherOverride>()
+        .0 = None;
+    let expected = output(&mut control);
+    assert!(expected.0.rain_level() > 0. && expected.0.rain_level() < 1.);
+    assert!(expected.0.thunder_level() > 0. && expected.0.thunder_level() < 1.);
+    assert_eq!(output(&mut app), expected);
+    assert_eq!(*app.world().resource::<WeatherState>(), wet);
+}

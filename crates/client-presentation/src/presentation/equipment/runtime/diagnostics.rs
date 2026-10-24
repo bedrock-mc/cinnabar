@@ -49,8 +49,12 @@ impl EquipmentRuntime {
                 };
             };
             let category = self.effective_category(&item.identifier, binding.category);
-            if category != (EquipmentCategory::Armor { slot })
-                && category != EquipmentCategory::Elytra
+            if !matches!(
+                category,
+                EquipmentCategory::Armor { slot: admitted }
+                    | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                    if admitted == slot
+            ) && category != EquipmentCategory::Elytra
             {
                 return "attachable binding is not armor for this slot";
             }

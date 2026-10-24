@@ -58,7 +58,7 @@ fn replay_request_without_a_retained_tick_falls_back_to_a_current_snap() {
             PhysicsCorrectionMode::ReplayIfRetained,
             &VersionedFloor(1),
         ),
-        Ok(PhysicsCorrectionOutcome::Snapped { tick: 103 })
+        Ok(PhysicsCorrectionOutcome::Snapped { tick: 102 })
     );
     assert!(physics.is_active());
     assert!(ticker.physics_is_authorized());

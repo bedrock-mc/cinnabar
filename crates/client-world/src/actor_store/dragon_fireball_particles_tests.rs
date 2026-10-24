@@ -58,6 +58,7 @@ fn trails_follow_fixed_tick_interpolation_and_frame_batching_preserves_origins()
         head_yaw: None,
         on_ground: None,
         teleported: false,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: Default::default(),

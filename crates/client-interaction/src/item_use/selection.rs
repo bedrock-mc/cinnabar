@@ -140,7 +140,7 @@ pub fn needs_met(
         let ledger = ui.inventory_ledger(player_runtime);
         (0..protocol::PLAYER_INVENTORY_SLOTS)
             .filter_map(|slot| ledger.backing_stack(slot))
-            .chain(ui.gameplay_hud().offhand_stack())
+            .chain(ui.local_backing_offhand_stack(player_runtime))
             .any(|stack| is(stack, assets::item_use::ItemProjectileRole::Arrow))
     };
     match needs {
@@ -149,8 +149,7 @@ pub fn needs_met(
         Needs::ArrowOrOffhandRocket => {
             arrow_in_inventory()
                 || ui
-                    .gameplay_hud()
-                    .offhand_stack()
+                    .local_backing_offhand_stack(player_runtime)
                     .is_some_and(|stack| is(stack, assets::item_use::ItemProjectileRole::Firework))
         }
         // Peaceful difficulty's always-edible rule is not modeled.
@@ -179,7 +178,7 @@ pub fn loading_projectile(
                 .projectile
         }
     };
-    if let Some(offhand) = ui.gameplay_hud().offhand_stack() {
+    if let Some(offhand) = ui.local_backing_offhand_stack(player_runtime) {
         match role(offhand) {
             assets::item_use::ItemProjectileRole::Firework => {
                 return Some(assets::item_use::ItemProjectileRole::Firework);

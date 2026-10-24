@@ -28,6 +28,12 @@ impl HudEditor {
         ] {
             data.set_global(name, Scalar::Bool(value));
         }
+        for (name, available) in ["undo", "redo"].into_iter().zip(self.history.available()) {
+            data.set_global(
+                format!("#hud_{name}_alpha"),
+                Scalar::Num(if available { 1. } else { 0.35 }),
+            );
+        }
         data.set_global("#hud_toast", Scalar::Text(self.toast.text.clone()));
         data.set_global("#hud_viewport_w", Scalar::Num(self.viewport[0]));
         data.set_global("#hud_viewport_h", Scalar::Num(self.viewport[1]));
@@ -260,7 +266,8 @@ mod tests {
         assert_eq!(editor.editor_label(), "Select a widget");
         editor.selected = Some(0);
         assert_eq!(editor.editor_label(), "Frame rate");
-        let catalog = template::catalog(&editor.draft, [400., 250.]).unwrap();
+        let catalog =
+            template::catalog(&editor.draft, [400., 250.], editor.history_buttons).unwrap();
         let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
             .control
             .unwrap();

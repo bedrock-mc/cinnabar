@@ -49,12 +49,17 @@ fn requests(
 ) -> BTreeMap<Box<str>, Vec<Request>> {
     let mut requests = BTreeMap::<Box<str>, Vec<Request>>::new();
     for (binding, attachable) in attachables.iter_mut().enumerate() {
-        let slots: &'static [Option<&'static str>] =
-            match category(&attachable.item_identifier, &attachable.geometry) {
-                EquipmentCategory::Elytra => &[None],
-                EquipmentCategory::Shield => &[Some("main_hand"), Some("off_hand")],
-                _ => &[],
-            };
+        let slots: &'static [Option<&'static str>] = match category_with_script_slot(
+            &attachable.item_identifier,
+            &attachable.geometry,
+            attachable.script_armor_slot,
+            attachable.script_held,
+        ) {
+            EquipmentCategory::Elytra => &[None],
+            EquipmentCategory::Shield => &[Some("main_hand"), Some("off_hand")],
+            EquipmentCategory::ArmorAndHeld { .. } => &[Some("main_hand"), Some("off_hand")],
+            _ => &[],
+        };
         for (alias, clip) in std::mem::take(&mut attachable.animations) {
             if slots.is_empty()
                 && !matches!(alias.as_str(), "wield_first_person" | "wield_third_person")

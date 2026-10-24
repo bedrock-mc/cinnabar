@@ -94,18 +94,3 @@ func (c *flySpeedConn) ReadPacket() (packet.Packet, error) {
 	}
 	return pk, err
 }
-
-// WritePacketImmediate preserves immediate disconnect delivery through the wrapper.
-func (c *flySpeedConn) WritePacketImmediate(packets ...packet.Packet) error {
-	if immediate, ok := c.Conn.(interface {
-		WritePacketImmediate(...packet.Packet) error
-	}); ok {
-		return immediate.WritePacketImmediate(packets...)
-	}
-	for _, pk := range packets {
-		if err := c.Conn.WritePacket(pk); err != nil {
-			return err
-		}
-	}
-	return c.Conn.Flush()
-}

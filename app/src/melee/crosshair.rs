@@ -320,7 +320,10 @@ fn resolve_frame(
         .as_ref()
         .and_then(|observed| observed.value.as_ref())
         .map(|block| block.hit_distance());
-    let hover = match classify(actor, block_distance, actor_reach) {
+    // Hover, attack and interaction share one target: the pick ray finds actors along the
+    // whole pick range, but only a hit within the game-mode cap becomes the targeted actor.
+    let crosshair = classify(actor, block_distance, attack_reach);
+    let hover = match crosshair {
         Crosshair::Actor(hit) => Some(gameplay::entity_hover::HoveredActor {
             unique_id: world.actor(hit.runtime_id)?.unique_id,
             runtime_id: hit.runtime_id,
@@ -330,7 +333,7 @@ fn resolve_frame(
     };
     let value = ResolvedTarget {
         hover,
-        crosshair: classify(actor, block_distance, attack_reach),
+        crosshair,
         action_rotation: frame.action_rotation,
         direction: ray.direction().to_array(),
         reach,

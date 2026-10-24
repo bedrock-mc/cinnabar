@@ -24,7 +24,7 @@ pub(super) fn block_tile(
     })
 }
 
-/// Resolves stage colour before consulting the biome at `block`; white when untinted.
+/// Resolves stage or biome colour, using the dimension fallback until its column arrives.
 pub(super) fn biome_tint(stream: &WorldStream, flags: u32, block: [i32; 3]) -> [f32; 4] {
     if let Some(tint) = material_stage_tint(flags) {
         return tint;
@@ -33,15 +33,19 @@ pub(super) fn biome_tint(stream: &WorldStream, flags: u32, block: [i32; 3]) -> [
         return [1.0; 4];
     }
     let center = block.map(|c| c as f32 + 0.5);
-    let Some(raw) = stream.camera_biome_id(center) else {
-        return [1.0; 4];
-    };
+    let raw = stream
+        .camera_biome_id(center)
+        .unwrap_or_else(|| client_world::ingestion::default_biome_id(stream.current_dimension()));
     let tints = stream.resolved_biome_tints_snapshot();
     let Some(record) = tints.records.get(tints.dense_index(raw) as usize) else {
         return [1.0; 4];
     };
     material_tint(record, flags)
 }
+
+#[cfg(test)]
+#[path = "tiles/biome_tests.rs"]
+mod biome_tests;
 
 #[cfg(test)]
 mod tests {

@@ -645,6 +645,8 @@ fn append_dialog(
         )?,
         PANEL,
     );
+    let shader_removal = matches!(dialog, MenuDialog::RemoveShaderPack(..))
+        .then(|| launcher::menu::dialogs::dialog(view, dialog, &|_| None));
     let (title, description, confirm) = match dialog {
         MenuDialog::MinecraftImport => (
             view.minecraft_import.title(),
@@ -695,6 +697,12 @@ fn append_dialog(
             "Your saved servers and account cache will remain available.",
             MenuAction::ConfirmExit,
         ),
+        MenuDialog::RemoveShaderPack(..) => {
+            let popup = shader_removal
+                .as_ref()
+                .expect("shader removal wording was prepared");
+            (popup.title.as_str(), popup.body.as_str(), popup.confirm)
+        }
         MenuDialog::RemoveSaved(index) => (
             "Remove saved server?",
             view.servers

@@ -99,8 +99,8 @@ pub struct UseFrame {
 pub struct UseOutcome {
     pub packets: Vec<protocol::Packet>,
     pub started: bool,
-    /// A projectile use swung the arm; its swing packet precedes `packets`.
-    pub swung: bool,
+    /// Why an item use swung the arm; its swing packet precedes `packets`.
+    pub swung: Option<protocol::SwingSource>,
     used: bool,
     released: bool,
 }
@@ -138,6 +138,8 @@ pub struct ItemUseRuntime {
     last_air_use_tick: Option<u64>,
     last_frame_tick: Option<u64>,
     active: Option<ActiveUse>,
+    /// Latest accepted local or server write to the reported UsingItem flag.
+    reported_using_item: Option<bool>,
     session: Option<u64>,
     rearm_millis: Option<u64>,
     /// Cooldown category and the tick it ends.
@@ -154,12 +156,37 @@ pub struct ItemUseRuntime {
     riptide_launch: Option<RiptideLaunch>,
     /// Selection, eligibility and facing captured together at the first release edge.
     riptide_release: Option<RiptideRelease>,
+    /// A gliding rocket's use was admitted; its boost is predicted before the server answers.
+    rocket_boost: bool,
 }
 
 impl ItemUseRuntime {
+    /// Returns the last accepted flag write without deriving it from local-use activity.
+    pub fn reported_using_item(&self) -> Option<bool> {
+        self.reported_using_item
+    }
+
+    /// Adopts a supplied server flag without starting or cancelling a local use.
+    pub fn adopt_server_using_item(&mut self, value: Option<bool>) {
+        if value.is_some() {
+            self.reported_using_item = value;
+        }
+    }
+
+    /// A local use end clears its flag only when a use was active.
+    fn stop_active_use(&mut self) {
+        if self.active.take().is_some() {
+            self.reported_using_item = Some(false);
+        }
+    }
+
     /// Takes one admitted launch for the next successful movement tick.
     pub fn take_riptide_launch(&mut self) -> Option<RiptideLaunch> {
         self.riptide_launch.take()
+    }
+    /// Takes one admitted gliding rocket use, whose glide boost the client predicts.
+    pub fn take_rocket_boost(&mut self) -> bool {
+        std::mem::take(&mut self.rocket_boost)
     }
     /// Allows one immediate air use after each slot change; item cooldowns remain authoritative.
     pub fn set_delay_fix(&mut self, enabled: bool) {
@@ -188,7 +215,7 @@ impl ItemUseRuntime {
             .as_ref()
             .is_some_and(|active| active.selection.slot != slot)
         {
-            self.active = None;
+            self.stop_active_use();
             self.riptide_release = None;
             self.release_pending = false;
         }
@@ -260,7 +287,7 @@ impl ItemUseRuntime {
             return false;
         }
         if active.release_selection_changed(selection, !self.release_pending) {
-            self.active = None;
+            self.stop_active_use();
             self.release_pending = false;
             self.riptide_release = None;
         } else if self.riptide_release.is_none() {
@@ -312,11 +339,12 @@ impl ItemUseRuntime {
     /// Drops old-life charges and unsent use actions, preserving inventory and cooldown policy.
     pub fn cancel_for_respawn(&mut self) {
         self.cancel_pending_input();
-        self.active = None;
+        self.stop_active_use();
         self.last_frame_tick = None;
         self.release_pending = false;
         self.riptide_launch = None;
         self.riptide_release = None;
+        self.rocket_boost = false;
     }
 
     /// Clears session-owned use state after disconnect or session replacement.
@@ -326,6 +354,7 @@ impl ItemUseRuntime {
         self.slot_change_pending = false;
         self.last_air_use_tick = None;
         self.cancel_for_respawn();
+        self.reported_using_item = None;
         self.rearm_millis = None;
         self.cooldowns.clear();
         self.predicted = None;
@@ -411,7 +440,7 @@ impl ItemUseRuntime {
                 ) =>
             {
                 // Switching away stops the use without a release, as vanilla does.
-                self.active = None;
+                self.stop_active_use();
                 self.riptide_release = None;
                 return;
             }
@@ -432,7 +461,7 @@ impl ItemUseRuntime {
                     frame.charge_projectile,
                 );
             }
-            self.active = None;
+            self.stop_active_use();
             return;
         }
         if frame.held && !release_pending {
@@ -445,7 +474,7 @@ impl ItemUseRuntime {
                 rotation: release.facing.rotation,
             })
         });
-        self.active = None;
+        self.stop_active_use();
         if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
             outcome.packets.push(packet);
             outcome.released = true;
@@ -504,7 +533,7 @@ impl ItemUseRuntime {
         let mut change = None;
         let mut active_use = None;
         let mut predicted_stack = None;
-        let mut swung = false;
+        let mut swung = None;
         match air_use {
             Some(AirUse::Hold {
                 max_ticks,
@@ -527,7 +556,7 @@ impl ItemUseRuntime {
                 });
             }
             Some(AirUse::Throw { .. }) if !on_cooldown => {
-                swung = true;
+                swung = Some(protocol::SwingSource::ThrowItem);
                 if !frame.creative {
                     let to = selection.item.less_one(legacy_request_id);
                     predicted_stack = frame.selection.as_ref().map(|server| PredictedStack {
@@ -542,7 +571,12 @@ impl ItemUseRuntime {
                     });
                 }
             }
-            Some(AirUse::GlideRocket) if frame.ready => swung = true,
+            Some(AirUse::Swing) => {
+                swung = Some(protocol::SwingSource::UseItem);
+            }
+            Some(AirUse::GlideRocket) if frame.ready => {
+                swung = Some(protocol::SwingSource::UseItem);
+            }
             _ => {}
         }
         let inventory_change = change.as_ref().and_then(|change| {
@@ -554,14 +588,18 @@ impl ItemUseRuntime {
             outcome.packets.push(packet);
             outcome.used = true;
             outcome.started = active_use.is_some();
+            if active_use.is_some() {
+                self.reported_using_item = Some(true);
+            }
             self.active = active_use;
             outcome.swung = swung;
-            if (outcome.started || swung)
+            if (outcome.started || swung.is_some())
                 && let Some(Cooldown { category, ticks }) = cooldown
             {
                 self.cooldowns
                     .push((category, frame.tick.saturating_add(u64::from(ticks))));
             }
+            self.rocket_boost |= swung.is_some() && matches!(air_use, Some(AirUse::GlideRocket));
             if predicted_stack.is_some() {
                 self.predicted = predicted_stack;
             }

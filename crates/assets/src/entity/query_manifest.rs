@@ -109,7 +109,7 @@ query_manifest! {
     DeathTicks => ("query.death_ticks", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
     DeltaTime => ("query.delta_time", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
     DistanceFromCamera => ("query.distance_from_camera", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
-    EquipmentCount => ("query.equipment_count", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented),
+    EquipmentCount => ("query.equipment_count", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented),
     EquippedItemAnyTag => ("query.equipped_item_any_tag", MolangQueryHandler::Evaluator, 2, MAX_MOLANG_QUERY_ARGUMENTS, Number, Provisional),
     EyeTargetXRotation => ("query.eye_target_x_rotation", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented),
     EyeTargetYRotation => ("query.eye_target_y_rotation", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented),

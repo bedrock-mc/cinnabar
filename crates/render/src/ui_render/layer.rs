@@ -25,6 +25,8 @@ pub(super) struct UiLayerDraw<'a> {
     pub(super) layer: &'a super::composite::UiLayerTexture,
     pub(super) model_depth: Option<&'a super::model_depth::UiModelDepth>,
     pub(super) viewport: Option<&'a Viewport>,
+    /// Publication extent before an opt-in reduction of the render target.
+    pub(super) output_extent: Option<[u32; 2]>,
     pub(super) skip: Option<&'a Range<u32>>,
     pub(super) clear: Option<&'a RenderPipeline>,
     /// Keeps the layer's earlier pixels instead of clearing it before a full redraw.
@@ -84,6 +86,7 @@ pub(super) fn draw_ui_layer(
             None => {
                 return LayerDrawn {
                     encoded: false,
+                    nonempty: false,
                     complete: true,
                 };
             }
@@ -91,6 +94,7 @@ pub(super) fn draw_ui_layer(
         None => None,
     };
     let mut encoded = false;
+    let mut nonempty = false;
     let mut complete = true;
     let mut start = 0;
     while let Some((_, first, _)) = batches.get(start) {
@@ -160,13 +164,14 @@ pub(super) fn draw_ui_layer(
             }
         }
         pass.set_render_pipeline(pipeline);
-        draw_batches(
+        nonempty |= draw_batches(
             &mut pass,
             draw.gpu,
             draw.vertices,
             draw.indices,
             draw.viewport,
             extent,
+            draw.output_extent,
             group,
             draw.skip,
             damage,
@@ -188,10 +193,16 @@ pub(super) fn draw_ui_layer(
         }
         encoded = true;
     }
-    LayerDrawn { encoded, complete }
+    LayerDrawn {
+        encoded,
+        nonempty,
+        complete,
+    }
 }
 
 pub(super) struct LayerDrawn {
+    /// Whether at least one nonempty content command survived clipping and range removal.
+    pub(super) nonempty: bool,
     pub(super) encoded: bool,
     /// False when a still-compiling pipeline left a group out, so the layer must not be retained.
     pub(super) complete: bool,
@@ -206,25 +217,33 @@ pub(super) fn draw_batches<'w>(
     indices: &'w Buffer,
     viewport: Option<&Viewport>,
     extent: [u32; 2],
+    output_extent: Option<[u32; 2]>,
     batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
     skip: Option<&Range<u32>>,
     damage: Option<UiScissor>,
     profile: Option<(&super::profile::UiProfile, render_scene::RuntimeStage)>,
-) {
+) -> bool {
+    let mut nonempty = false;
     if let Some((profile, stage)) = profile {
         profile.record_pass(stage);
     }
     if let Some(viewport) = viewport {
         let Some(viewport) = crate::render_bounds::viewport(viewport, extent) else {
-            return;
+            return false;
         };
         pass.set_camera_viewport(&viewport);
     }
     pass.set_vertex_buffer(0, vertices.slice(..));
     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
     for (_, batch, location) in batches {
-        let Some(scissor) = clipped_scissor(batch.scissor, damage)
-            .and_then(|rect| crate::render_bounds::scissor(rect, extent))
+        let mut clipped = **batch;
+        if let Some(output) = output_extent {
+            let Some(scissor) = scaled_scissor(batch.scissor, output, extent) else {
+                continue;
+            };
+            clipped.scissor = scissor;
+        }
+        let Some((scissor, ranges)) = content_commands(&clipped, extent, skip, damage, viewport)
         else {
             continue;
         };
@@ -234,13 +253,72 @@ pub(super) fn draw_batches<'w>(
             .unwrap();
         pass.set_bind_group(0, binding, &[]);
         pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);
-        for range in retained_batch_ranges(batch, skip).into_iter().flatten() {
+        for range in ranges.into_iter().flatten() {
             if let Some((profile, stage)) = profile {
                 profile.record_draw(stage, range.end - range.start);
             }
-            pass.draw_indexed(range, 0, location.layer..location.layer + 1);
+            if !range.is_empty() {
+                pass.draw_indexed(range, 0, location.layer..location.layer + 1);
+                nonempty = true;
+            }
         }
     }
+    nonempty
+}
+
+/// Produces content commands only for surviving attachment coverage and index ranges.
+fn content_commands(
+    batch: &UiRenderBatch,
+    extent: [u32; 2],
+    skip: Option<&Range<u32>>,
+    damage: Option<UiScissor>,
+    viewport: Option<&Viewport>,
+) -> Option<(UiScissor, [Option<Range<u32>>; 2])> {
+    let scissor = clipped_scissor(batch.scissor, damage)
+        .and_then(|rect| crate::render_bounds::scissor(rect, extent))?;
+    let scissor = if let Some(viewport) = viewport {
+        let viewport = crate::render_bounds::viewport(viewport, extent)?;
+        clipped_scissor(
+            scissor,
+            Some(UiScissor::new(
+                viewport.physical_position.x,
+                viewport.physical_position.y,
+                viewport.physical_size.x,
+                viewport.physical_size.y,
+            )),
+        )?
+    } else {
+        scissor
+    };
+    let ranges = retained_batch_ranges(batch, skip);
+    ranges
+        .iter()
+        .flatten()
+        .any(|range| !range.is_empty())
+        .then_some((scissor, ranges))
+}
+
+/// Maps authored clipping to a reduced target, rounding outward to retain edge coverage.
+pub(super) fn scaled_scissor(
+    rect: UiScissor,
+    output: [u32; 2],
+    extent: [u32; 2],
+) -> Option<UiScissor> {
+    let rect = crate::render_bounds::scissor(rect, output)?;
+    if extent.contains(&0) {
+        return None;
+    }
+    let floor = |pixel, axis: usize| {
+        (u64::from(pixel) * u64::from(extent[axis]) / u64::from(output[axis])) as u32
+    };
+    let ceil = |pixel, axis: usize| {
+        (u64::from(pixel) * u64::from(extent[axis])).div_ceil(u64::from(output[axis])) as u32
+    };
+    let left = floor(rect.x, 0);
+    let top = floor(rect.y, 1);
+    let right = ceil(rect.x + rect.width, 0);
+    let bottom = ceil(rect.y + rect.height, 1);
+    Some(UiScissor::new(left, top, right - left, bottom - top))
 }
 
 /// Partial replay needs an ordinary first pass and every pipeline ready before preserving pixels.

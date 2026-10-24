@@ -7,10 +7,7 @@ pub use use_profile::{
     EffectiveItemUse, ResolvedUseCooldown, UseCooldownCategory, resolve_item_use,
 };
 
-use assets::{
-    BlockVisualId, ItemStackIdentity, ItemVisualDefinitionRoute, ItemVisualId, ItemVisualKey,
-    ItemVisualRoute, RuntimeEntityAssets,
-};
+use assets::{ItemStackIdentity, ItemVisualRoute, RuntimeEntityAssets};
 use protocol::{
     ActorHandedness, ArmorEquipmentEvent, EquipmentEvent, ItemRegistryEntry, ItemRegistryEvent,
     ItemRegistryVersion, NetworkItemStack,
@@ -28,7 +25,10 @@ mod animation_tests;
 mod glint;
 mod grip;
 #[cfg(test)]
+mod map_tests;
+#[cfg(test)]
 mod presentation_tests;
+mod visual;
 
 pub const MAX_ITEM_REGISTRY_RECORDS: usize = protocol::MAX_ITEM_REGISTRY_ENTRIES;
 pub const MAX_PENDING_ITEM_RESOLUTIONS: usize = 1_024;
@@ -48,6 +48,8 @@ pub struct CanonicalItemStack {
     pub visual: ItemVisualRoute,
     /// Projectile a loaded crossbow holds; `None` for any uncharged stack.
     pub charged_projectile: Option<Arc<str>>,
+    /// Signed image identity retained independently of visual metadata.
+    pub map_id: Option<i64>,
     /// Projectile drawing facts resolved when this stack enters canonical admission.
     pub charged_projectile_role: assets::item_use::ItemProjectileRole,
     /// Durability damage retained separately from the stack's visual metadata.
@@ -60,6 +62,8 @@ pub struct CanonicalItemStack {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalItemRegistryRecord {
+    /// Checked native throwable use with no registry component payload override.
+    pub(crate) unmodified_throwable: bool,
     /// Descriptor after the current component payload has been admitted.
     pub grip: assets::item::grip::ItemGrip,
     /// Intrinsic shine resolved for the current numeric registry generation.
@@ -107,6 +111,27 @@ pub struct ActorArmorSnapshot {
     pub leggings: ActorArmorPiece,
     pub boots: ActorArmorPiece,
     pub body: ActorArmorPiece,
+}
+
+impl ActorArmorSnapshot {
+    /// Worn stacks in wire order, including the separate body slot.
+    pub fn pieces(&self) -> [&ActorArmorPiece; 5] {
+        [
+            &self.helmet,
+            &self.chestplate,
+            &self.leggings,
+            &self.boots,
+            &self.body,
+        ]
+    }
+
+    /// Counts occupied slots independently of registry and drawable-model resolution.
+    pub fn equipment_count(&self) -> u8 {
+        self.pieces()
+            .iter()
+            .filter(|piece| !piece.item.identity.is_empty())
+            .count() as u8
+    }
 }
 
 /// Where one MobEquipment or MobArmorEquipment landed, for diagnostics.
@@ -452,12 +477,14 @@ impl ItemStateStore {
                 let charged = piece.item.charged_projectile.take();
                 let damage = piece.item.damage;
                 let enchanted = piece.item.enchanted;
+                let map_id = piece.item.map_id;
                 piece.item = self.resolve_identity(piece.item.identity);
                 piece.item.charged_projectile = charged;
                 piece.item.charged_projectile_role =
                     self.projectile_role(piece.item.charged_projectile.as_deref());
                 piece.item.damage = damage;
                 piece.item.enchanted = enchanted;
+                piece.item.map_id = map_id;
             }
             self.armor.insert(runtime_id, snapshot);
         }
@@ -486,6 +513,10 @@ impl ItemStateStore {
                 .equipment
                 .get(&key)
                 .is_some_and(|equipment| equipment.item.enchanted);
+            item.map_id = self
+                .equipment
+                .get(&key)
+                .and_then(|equipment| equipment.item.map_id);
             let unresolved = !item.identity.is_empty() && item.identifier.is_none();
             if let Some(equipment) = self.equipment.get_mut(&key) {
                 equipment.item = item;
@@ -541,6 +572,7 @@ impl ItemStateStore {
         item.charged_projectile_role = self.projectile_role(item.charged_projectile.as_deref());
         item.damage = protocol::item_stack_damage(stack);
         item.enchanted = protocol::item_has_enchantment_list(&stack.extra_data);
+        item.map_id = protocol::item_map_id(&stack.extra_data);
         Some(item)
     }
 
@@ -576,6 +608,7 @@ impl ItemStateStore {
                 identity,
                 identifier: None,
                 visual: ItemVisualRoute::EmptyHand,
+                map_id: None,
                 charged_projectile: None,
                 damage: None,
                 durability: assets::item::durability::ItemDurability::NotDamageable,
@@ -586,11 +619,11 @@ impl ItemStateStore {
             .registry
             .get(&identity.network_id)
             .map(|record| Arc::clone(&record.identifier));
-        let visual = classify_retained_block(
+        let visual = visual::classify_retained_block(
             identifier
                 .as_deref()
                 .map_or(ItemVisualRoute::Missing, |identifier| {
-                    self.resolve_visual(identifier, identity.metadata)
+                    self.resolve_visual(identifier, identity.metadata, identity.block_runtime_id)
                 }),
             identity.block_runtime_id,
         );
@@ -608,48 +641,12 @@ impl ItemStateStore {
             identity,
             identifier,
             visual,
+            map_id: None,
             charged_projectile: None,
             damage: None,
             durability: self.item_durability(identity.network_id),
             enchanted: false,
         }
-    }
-
-    /// Visual route for an item identifier with no stack context (e.g. the TNT block).
-    pub(crate) fn visual_for_identifier(&self, identifier: &str) -> ItemVisualRoute {
-        self.resolve_visual(identifier, 0)
-    }
-
-    fn resolve_visual(&self, identifier: &str, metadata: u32) -> ItemVisualRoute {
-        let Some(assets) = self.assets.as_ref() else {
-            return ItemVisualRoute::Missing;
-        };
-        let key = ItemVisualKey {
-            identifier: identifier.into(),
-            metadata,
-        };
-        if let Ok(index) = assets
-            .item_visuals()
-            .binary_search_by(|visual| visual.key.cmp(&key))
-        {
-            return match assets.item_visuals()[index].route {
-                ItemVisualDefinitionRoute::Sprite { .. } => {
-                    ItemVisualRoute::Compiled(ItemVisualId(index as u32))
-                }
-                ItemVisualDefinitionRoute::BlockItem { block_visual } => {
-                    ItemVisualRoute::BlockItem(BlockVisualId(block_visual.0))
-                }
-                ItemVisualDefinitionRoute::EmptyHand => ItemVisualRoute::EmptyHand,
-                ItemVisualDefinitionRoute::Missing => ItemVisualRoute::Missing,
-            };
-        }
-        assets
-            .item_visual_aliases()
-            .binary_search_by(|alias| alias.key.cmp(&key))
-            .ok()
-            .map_or(ItemVisualRoute::Missing, |index| {
-                ItemVisualRoute::Compiled(assets.item_visual_aliases()[index].visual)
-            })
     }
 
     fn retain_pending(&mut self, key: EquipmentKey) {
@@ -693,47 +690,13 @@ fn built_in_registry(
         .collect()
 }
 
-/// Keeps compiled item visuals authoritative, including sprites for items that place blocks.
-/// A retained block identity supplies geometry only when no compiled visual resolves.
-fn classify_retained_block(route: ItemVisualRoute, block_runtime_id: i32) -> ItemVisualRoute {
-    if block_runtime_id == 0
-        || matches!(
-            route,
-            ItemVisualRoute::Compiled(_) | ItemVisualRoute::BlockItem(_)
-        )
-    {
-        return route;
-    }
-    ItemVisualRoute::RetainedBlock { block_runtime_id }
-}
-
-#[cfg(test)]
-mod visual_route_tests {
-    use super::*;
-
-    #[test]
-    fn sprite_items_keep_their_visual_when_the_stack_carries_a_placed_block() {
-        let sprite = ItemVisualRoute::Compiled(ItemVisualId(7));
-        for block_runtime_id in [1, i32::MIN] {
-            assert_eq!(classify_retained_block(sprite, block_runtime_id), sprite);
-        }
-        let block = ItemVisualRoute::BlockItem(BlockVisualId(3));
-        assert_eq!(classify_retained_block(block, 1), block);
-        assert_eq!(
-            classify_retained_block(ItemVisualRoute::Missing, i32::MIN),
-            ItemVisualRoute::RetainedBlock {
-                block_runtime_id: i32::MIN,
-            }
-        );
-    }
-}
-
 /// Resolves item-owned facts once for this registry generation.
 fn registry_record(
     entry: &ItemRegistryEntry,
     assets: Option<&RuntimeEntityAssets>,
 ) -> CanonicalItemRegistryRecord {
     CanonicalItemRegistryRecord {
+        unmodified_throwable: use_profile::unmodified_throwable(entry, assets),
         grip: grip::resolve(entry, assets),
         glint: glint::resolve(entry, assets),
         identifier: Arc::clone(&entry.identifier),

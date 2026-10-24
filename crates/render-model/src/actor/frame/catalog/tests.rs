@@ -486,3 +486,74 @@ fn prepared_aliases_release_duplicate_source_allocations() {
     assert_eq!(HASHED_VERTEX_BYTES.with(std::cell::Cell::get), 0);
     assert_spans(&catalog);
 }
+
+thread_local! {
+    static COMPARED_VERTEX_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Counts vertex bytes compared against a candidate page during catalog publication.
+pub(super) fn record_vertex_compare(bytes: usize) {
+    COMPARED_VERTEX_BYTES.with(|count| count.set(count.get() + bytes));
+}
+
+/// Bytes compared and hashed while publishing `entities` over a catalog holding `startup`.
+fn session_pack_byte_work(
+    startup: ActorRigGeometry,
+    entities: Vec<ActorRigGeometry>,
+) -> (usize, usize) {
+    let mut builder = crate::ActorRigFrameBuilder::new([startup]).unwrap();
+    COMPARED_VERTEX_BYTES.with(|count| count.set(0));
+    HASHED_VERTEX_BYTES.with(|count| count.set(0));
+    let (entities, equipment) = builder.replace_session_pack_geometries(entities, Vec::new());
+    entities.unwrap();
+    equipment.unwrap();
+    (
+        COMPARED_VERTEX_BYTES.with(std::cell::Cell::get),
+        HASHED_VERTEX_BYTES.with(std::cell::Cell::get),
+    )
+}
+
+/// Pack meshes repeating one startup model compare its bytes once, not once per binding.
+#[test]
+fn repeated_pack_meshes_compare_each_allocation_once() {
+    let model = geometry(7, 64);
+    let startup = ActorRigGeometry::new(
+        EntityRigId(1),
+        model.vertices.to_vec(),
+        model.bone_pivots.to_vec(),
+    )
+    .unwrap();
+    let bytes = std::mem::size_of_val(model.vertices.as_ref());
+    let entities = (0..32)
+        .map(|index| model.with_id(crate::pack_rig_id(index)))
+        .collect();
+    assert_eq!(session_pack_byte_work(startup, entities), (bytes, 0));
+}
+
+/// Duplicates the pack worker already shared publish without any vertex byte compares.
+#[test]
+fn worker_shared_pack_meshes_publish_without_byte_compares() {
+    let model = geometry(7, 64);
+    let copies = || -> Vec<_> {
+        (0..32)
+            .map(|index| {
+                ActorRigGeometry::new(
+                    crate::pack_rig_id(index),
+                    model.vertices.to_vec(),
+                    model.bone_pivots.to_vec(),
+                )
+                .unwrap()
+            })
+            .collect()
+    };
+    let (unshared, _) = session_pack_byte_work(geometry(1, 3), copies());
+    assert!(unshared > 0);
+    let mut shared = copies();
+    crate::share_identical_vertices(&mut shared);
+    assert!(
+        shared
+            .iter()
+            .all(|geometry| Arc::ptr_eq(&geometry.vertices, &shared[0].vertices))
+    );
+    assert_eq!(session_pack_byte_work(geometry(1, 3), shared), (0, 0));
+}

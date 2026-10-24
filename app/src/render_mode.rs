@@ -198,6 +198,7 @@ impl Plugin for RenderModePlugin {
                 shader_pack_revision: 0,
             })
             .init_resource::<ShaderPackRequest>()
+            .add_message::<bevy::window::WindowFocused>()
             .init_resource::<shader_pack::reload::ShaderPackReloadReport>()
             .add_systems(Startup, seed_render_mode)
             .add_systems(
@@ -223,7 +224,10 @@ impl Plugin for RenderModePlugin {
                 shader_options::drive_shader_options.after(apply_menu_render_mode),
             );
         #[cfg(feature = "shaderpacks")]
-        shader_pack::import::configure(app);
+        {
+            shader_pack::import::configure(app);
+            shader_pack::removal::configure(app);
+        }
     }
 }
 
@@ -251,7 +255,9 @@ fn seed_render_mode(
             shader_pack: saved.and_then(|saved| saved.shader_pack),
         },
     );
-    if let Some(menu) = menu.as_deref_mut() {
+    if mode == RenderMode::ShaderPack
+        && let Some(menu) = menu.as_deref_mut()
+    {
         shader_pack::refresh(&mut config, menu);
     }
 }

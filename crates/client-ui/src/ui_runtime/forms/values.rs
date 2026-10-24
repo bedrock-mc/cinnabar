@@ -53,15 +53,20 @@ pub struct FormEngineState {
 impl FormEngineState {
     /// Drops transient input without changing the retained form or its draft.
     pub fn cancel_pointer_input(&mut self) {
+        self.clear_pointer_activation();
+        self.scroll_clock = None;
+        for scroll in self.view.scroll_state.values_mut() {
+            scroll.motion = None;
+        }
+    }
+
+    /// Clears control capture after a pan while preserving its released scroll motion.
+    pub(super) fn clear_pointer_activation(&mut self) {
         self.view.hovered = None;
         self.view.pressed = None;
         self.view.pointer = None;
         self.drag = None;
         self.scroll_touch = None;
-        self.scroll_clock = None;
-        for scroll in self.view.scroll_state.values_mut() {
-            scroll.motion = None;
-        }
         // The dispatcher also retains slider tracks, gestures and button edges.
         // Reset them without dispatching a release that could submit the form.
         self.dispatcher = json_ui::Dispatcher::default();

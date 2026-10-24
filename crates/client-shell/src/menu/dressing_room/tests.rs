@@ -488,6 +488,27 @@ fn custom_skin_focus_keeps_item_edits_without_classic_arm_choices() {
 }
 
 #[test]
+fn cosmetic_keyboard_focus_skips_unowned_items() {
+    let free = render_model::hats::fixture::bunny();
+    let locked = render_model::hats::fixture::locked_bunny();
+    let mut menu = MenuRuntime::new(false, 2, "fixture".into());
+    Arc::make_mut(&mut menu.dressing_room).section =
+        launcher::dressing_room::DressingRoomSection::Cosmetics;
+    let actions = menu.dressing_room_focus();
+    assert!(
+        actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            free
+        ))))
+    );
+    assert!(
+        !actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(
+            locked
+        ))))
+    );
+    assert!(actions.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(None))));
+}
+
+#[test]
 fn cosmetic_selection_updates_local_presentation_without_sending_a_skin_change() {
     use launcher::dressing_room::{CosmeticCategory, DressingRoomSection};
     let mut menu = MenuRuntime::new(false, 2, "fixture".to_owned());
@@ -601,4 +622,98 @@ fn pet_filter_lists_the_parrot_without_changing_equipped_cosmetics() {
     assert!(focus.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(pet)))));
     assert!(!focus.contains(&MenuAction::DressingRoom(Action::SelectCosmetic(Some(hat)))));
     assert_eq!(menu.dressing_room.selected_cosmetics, equipped);
+}
+
+/// A menu launch without optional skin inputs retains the default when world assets arrive.
+#[test]
+fn deferred_default_skin_replaces_the_retained_fallback_and_late_catalog_results() {
+    let layout = launcher::test_support::scratch("deferred-default");
+    assert!(!layout.player_skin_asset().exists());
+    assert!(!layout.starter_skins_asset().exists());
+    let mut local = crate::player_skin::LocalPlayerSkin::load(&layout, "fixture");
+    let mut menu =
+        MenuRuntime::new_with_layout(true, None, "fixture".into(), layout, local.clone());
+    // Hold a catalog publication made before the validated default was available.
+    let view = crate::player_skin::catalog::load(&menu.layout, &local);
+    let result = Outcome::new(
+        &view,
+        Some(local.standard_skin()),
+        Some((
+            local.model(),
+            local.engine_version.clone(),
+            local.skin_id.clone(),
+        )),
+        local.local_uuid,
+        true,
+    );
+    let (commands, _incoming) = crossbeam_channel::bounded(1);
+    let (outgoing, results) = crossbeam_channel::unbounded();
+    menu.dressing_room_worker = Some(Worker {
+        commands,
+        results,
+        pending: 1,
+        #[cfg(target_arch = "wasm32")]
+        alive: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+    });
+    let mut carrier = local.standard_skin();
+    carrier.rgba8 = [19, 89, 157, 255]
+        .repeat((carrier.width * carrier.height) as usize)
+        .into();
+    assert_ne!(carrier.rgba8, local.rgba8);
+    menu.skin_packet_pending = Some(protocol::player_skin_packet(
+        local.local_uuid,
+        &local.standard_skin(),
+        local.model().arm_size(),
+        &local.skin_id,
+        "Current skin",
+    ));
+    menu.refresh_default_player_skin(carrier.clone());
+    assert!(menu.skin_packet_pending.is_none());
+    assert_eq!(
+        menu.player_skin().to_client_skin().rgba8,
+        carrier.rgba8.as_ref()
+    );
+    outgoing.send(result).unwrap();
+    menu.show_connecting();
+    menu.poll_dressing_room(Some(&mut local), None, None, 0);
+    assert!(!menu.skin_update_pending);
+    assert_eq!(local.standard_skin(), carrier);
+    assert_eq!(menu.dressing_room.selected_skin().unwrap().skin, carrier);
+    assert_eq!(
+        menu.player_skin().to_client_skin().rgba8,
+        carrier.rgba8.as_ref()
+    );
+}
+
+/// A real player image and an import selected while loading both survive default publication.
+#[test]
+fn deferred_default_skin_preserves_player_images_and_new_selections() {
+    for has_player_image in [false, true] {
+        let layout = launcher::test_support::scratch("default-preserves-selection");
+        let source = layout.user_data_root.join("selected.png");
+        fs::create_dir_all(&layout.user_data_root).unwrap();
+        let side = render_api::CLASSIC_SKIN_SIDE as u32;
+        let image = image::RgbaImage::from_pixel(side, side, image::Rgba([91, 43, 11, 255]));
+        image.save(&source).unwrap();
+        if has_player_image {
+            fs::create_dir_all(layout.player_skin_asset().parent().unwrap()).unwrap();
+            image.save(layout.player_skin_asset()).unwrap();
+        }
+        let mut local = crate::player_skin::LocalPlayerSkin::load(&layout, "fixture");
+        let mut menu =
+            MenuRuntime::new_with_layout(true, None, "fixture".into(), layout, local.clone());
+        if !has_player_image {
+            menu.import_skin_path(source);
+            wait(&mut menu, &mut local, &mut None);
+        }
+        let selected = menu.player_skin().standard_skin();
+        let identity = menu.player_skin().skin_id.clone();
+        let mut carrier = selected.clone();
+        carrier.rgba8 = [1, 2, 3, 255].repeat((side * side) as usize).into();
+        menu.refresh_default_player_skin(carrier);
+        menu.poll_dressing_room(Some(&mut local), None, None, 0);
+        assert_eq!(menu.player_skin().standard_skin(), selected);
+        assert_eq!(local.standard_skin(), selected);
+        assert_eq!(menu.player_skin().skin_id, identity);
+    }
 }

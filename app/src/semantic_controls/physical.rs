@@ -30,6 +30,20 @@ pub(crate) struct PendingDeviceFrame {
 }
 
 impl PendingDeviceFrame {
+    /// Edits a collected desktop batch for input-routing tests, preserving held controls.
+    #[cfg(test)]
+    pub(crate) fn edit_desktop_events(
+        &mut self,
+        edit: impl FnOnce(&mut semantic_input::DesktopEvents),
+    ) {
+        edit(
+            self.frame
+                .as_mut()
+                .and_then(|frame| frame.desktop_events.as_mut())
+                .expect("collected desktop events"),
+        );
+    }
+
     /// Replaces the current platform sample before the common semantic router runs.
     pub(crate) fn replace(&mut self, frame: DeviceFrame) {
         self.frame = Some(frame);

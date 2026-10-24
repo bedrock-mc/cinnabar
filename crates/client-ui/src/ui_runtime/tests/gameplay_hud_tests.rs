@@ -1,5 +1,5 @@
 //! Authoritative gameplay-HUD state coverage: effects, metadata, armor,
-//! mounts, hotbar/offhand mirroring, and the derived heart variants.
+//! mounts, hotbar and offhand authority, and the derived heart variants.
 
 use launcher::menu::settings_options::SettingId;
 use protocol::{
@@ -419,8 +419,10 @@ fn finite_effects_expire_on_the_session_clock_without_new_packets() {
     assert_eq!(runtime.gameplay_hud().effects()[0].effect_id, 10);
 }
 
+/// Like vanilla's local-player MobEquipment handling, a main-hand echo selects its hotbar slot
+/// while an offhand echo neither selects a slot nor changes the offhand.
 #[test]
-fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
+fn local_offhand_echo_neither_selects_nor_changes_the_offhand() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -450,20 +452,15 @@ fn offhand_equipment_echo_does_not_clobber_the_main_hand_slot() {
             handedness: Some(ActorHandedness::Left),
         },
     );
-    // The offhand echo landed in the offhand mirror, not the slot echo.
     assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
-    assert_eq!(
-        runtime
-            .gameplay_hud()
-            .offhand_stack()
-            .map(|stack| stack.network_id),
-        Some(60)
-    );
+    assert_eq!(runtime.local_offhand_stack(&player_runtime), None);
+    assert_eq!(runtime.local_offhand_is_empty(&player_runtime), None);
 }
 
-/// Unrelated inventory traffic must not replay an older offhand snapshot over equipment.
+/// The local offhand follows only inventory authority: local echoes and unrelated inventory
+/// traffic leave it alone, and the next offhand update replaces it.
 #[test]
-fn newer_offhand_equipment_survives_unrelated_inventory_events() {
+fn local_offhand_follows_inventory_authority_only() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     let update = |id| {
@@ -473,31 +470,36 @@ fn newer_offhand_equipment_survives_unrelated_inventory_events() {
             storage_item: NetworkItemStack::empty(),
         })
     };
+    let offhand = |runtime: &UiRuntime, player: &player_state::PlayerState| {
+        runtime
+            .local_offhand_stack(player)
+            .map(|stack| stack.network_id)
+    };
     runtime
         .enqueue_inventory_event(&mut player, 1, 1, update(50))
         .unwrap();
     runtime.drain_pending_inventory(&mut player);
-    assert_eq!(
-        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
-        50
-    );
-    runtime.retain_local_selected_equipment(
-        &mut player,
-        2,
-        EquipmentEvent {
-            actor_runtime_id: 7,
-            stack: stack(60),
-            inventory_slot: 0,
-            selected_slot: 0,
-            window_id: protocol::OFFHAND_WINDOW_ID as u8,
-            handedness: Some(ActorHandedness::Left),
-        },
-    );
+    assert_eq!(offhand(&runtime, &player), Some(50));
+    for (sequence, echoed) in [(2, stack(60)), (3, NetworkItemStack::empty())] {
+        runtime.retain_local_selected_equipment(
+            &mut player,
+            sequence,
+            EquipmentEvent {
+                actor_runtime_id: 7,
+                stack: echoed,
+                inventory_slot: 0,
+                selected_slot: 0,
+                window_id: protocol::OFFHAND_WINDOW_ID as u8,
+                handedness: Some(ActorHandedness::Left),
+            },
+        );
+        assert_eq!(offhand(&runtime, &player), Some(50));
+    }
     runtime
         .enqueue_inventory_event(
             &mut player,
             1,
-            3,
+            4,
             InventoryEvent::SelectedSlot(SelectedSlotEvent {
                 container: inventory_container(0),
                 slot: 2,
@@ -506,18 +508,12 @@ fn newer_offhand_equipment_survives_unrelated_inventory_events() {
         )
         .unwrap();
     runtime.drain_pending_inventory(&mut player);
-    assert_eq!(
-        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
-        60
-    );
+    assert_eq!(offhand(&runtime, &player), Some(50));
     runtime
-        .enqueue_inventory_event(&mut player, 1, 4, update(70))
+        .enqueue_inventory_event(&mut player, 1, 5, update(70))
         .unwrap();
     runtime.drain_pending_inventory(&mut player);
-    assert_eq!(
-        runtime.gameplay_hud().offhand_stack().unwrap().network_id,
-        70
-    );
+    assert_eq!(offhand(&runtime, &player), Some(70));
 }
 
 // The local player's armor is window 120's content, whatever container name
@@ -1109,29 +1105,25 @@ fn malformed_absorption_preserves_the_last_authoritative_stat() {
 
 #[test]
 fn empty_offhand_content_preserves_known_equipment() {
-    let mut state = crate::ui_runtime::gameplay_hud::GameplayHudState::default();
-    let container = ContainerIdentity {
-        window_id: Some(119),
-        slot_type: None,
-        dynamic_id: None,
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    let content = |slots: Arc<[NetworkItemStack]>| {
+        InventoryEvent::Content(InventoryContentEvent {
+            container: inventory_container(protocol::OFFHAND_WINDOW_ID),
+            slots,
+            storage_item: NetworkItemStack::empty(),
+        })
     };
-    let mut ledger = inventory::PlayerInventoryLedger::default();
-    let initial = InventoryEvent::Content(InventoryContentEvent {
-        container,
-        slots: vec![stack(77)].into(),
-        storage_item: NetworkItemStack::empty(),
-    });
-    ledger.apply(&initial);
-    state.apply_inventory(&initial, &ledger);
-    assert!(state.offhand_stack().is_some());
-    let empty = InventoryEvent::Content(InventoryContentEvent {
-        container,
-        slots: Arc::from([]),
-        storage_item: NetworkItemStack::empty(),
-    });
-    ledger.apply(&empty);
-    state.apply_inventory(&empty, &ledger);
-    assert_eq!(state.offhand_stack().unwrap().network_id, 77);
+    runtime
+        .enqueue_inventory_event(&mut player, 1, 1, content(Arc::from([stack(77)])))
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert!(runtime.local_offhand_stack(&player).is_some());
+    runtime
+        .enqueue_inventory_event(&mut player, 1, 2, content(Arc::from([])))
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
+    assert_eq!(runtime.local_offhand_stack(&player).unwrap().network_id, 77);
 }
 
 #[path = "item_names_tests.rs"]

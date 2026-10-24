@@ -98,6 +98,11 @@ pub fn definitions() -> Value {
             "inputSchema": { "type": "object", "properties": { "path": text }, "required": ["path"], "additionalProperties": false }
         },
         {
+            "name": "import_cape",
+            "description": "Import and equip a PNG cape through the Dressing Room worker; in a world it is sent to the server as a skin update. The path is resolved against the checkout.",
+            "inputSchema": { "type": "object", "properties": { "path": text }, "required": ["path"], "additionalProperties": false }
+        },
+        {
             "name": "chat",
             "description": "Send a chat line as the player; a leading / sends a command (e.g. /showcase souls).",
             "inputSchema": { "type": "object", "properties": { "text": text }, "required": ["text"] }
@@ -179,7 +184,7 @@ pub fn definitions() -> Value {
         },
         {
             "name": "record_stop",
-            "description": "Stop recording and wait for the encode (and audio mux) to finish; returns the path and frame count.",
+            "description": "Stop recording and wait for the encode (and audio mux) to finish; returns the path, frame count, and dropped_frames/filled_frames: real-time slots the lagging encoder had no room for, which repeat the previous frame.",
             "inputSchema": { "type": "object", "properties": {} }
         },
         {

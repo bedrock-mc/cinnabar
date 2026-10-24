@@ -30,6 +30,7 @@ pub mod minecraft_import;
 pub mod mods;
 pub mod shader_options;
 pub mod skin_import;
+pub mod startup;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 

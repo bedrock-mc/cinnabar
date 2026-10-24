@@ -3,12 +3,13 @@
 //!
 //! | Intent | Mode, best first |
 //! | --- | --- |
-//! | Synchronized (VSync on) | FIFO |
-//! | LowLatency (VSync off) | Immediate, Mailbox, FIFO |
+//! | Synchronized (VSync On) | FIFO |
+//! | LowLatency (VSync Off, `--no-vsync` flag) | Immediate, Mailbox, FIFO |
+//! | TearFree (VSync Off (no tearing)) | Mailbox, Immediate, FIFO |
 //! | Unpaced (hidden developer surfaces only) | Immediate, Mailbox, FIFO |
 //!
-//! VSync-off presentation may tear: Immediate is the only mode that cannot be backpressured by
-//! the display refresh. Mailbox remains the non-tearing fallback when Immediate is unavailable.
+//! Low latency prefers Immediate: on some Windows setups Mailbox throughput is bounded at
+//! display refresh × frame latency, so it is the explicit tear-free choice instead.
 
 use render_api::{FrameRateLimit, VrrPreference};
 
@@ -24,8 +25,10 @@ const VRR_ERROR_MARGIN_NANOS: u64 = 100_000;
 pub enum PresentationIntent {
     /// Display-paced, tear-free delivery.
     Synchronized,
-    /// Fresh input and the shortest queue, allowing tearing to avoid display-rate backpressure.
+    /// Uncapped, freshest frames: prefers Immediate, accepting tearing.
     LowLatency,
+    /// Unpaced but tear-free where possible: prefers Mailbox.
+    TearFree,
     /// Diagnostic only: a hidden developer surface never reaches a display, so it never waits
     /// for one. No setting selects it.
     Unpaced,
@@ -136,6 +139,11 @@ impl FromIterator<PresentModeKind> for SurfacePresentModes {
 const fn preference_order(intent: PresentationIntent) -> &'static [PresentModeKind] {
     match intent {
         PresentationIntent::Synchronized => &[PresentModeKind::Fifo],
+        PresentationIntent::TearFree => &[
+            PresentModeKind::Mailbox,
+            PresentModeKind::Immediate,
+            PresentModeKind::Fifo,
+        ],
         PresentationIntent::LowLatency | PresentationIntent::Unpaced => &[
             PresentModeKind::Immediate,
             PresentModeKind::Mailbox,
@@ -149,7 +157,9 @@ const fn preference_order(intent: PresentationIntent) -> &'static [PresentModeKi
 pub const fn initial_present_mode(intent: PresentationIntent) -> PresentModeKind {
     match intent {
         PresentationIntent::Unpaced => PresentModeKind::Immediate,
-        PresentationIntent::Synchronized | PresentationIntent::LowLatency => PresentModeKind::Fifo,
+        PresentationIntent::Synchronized
+        | PresentationIntent::LowLatency
+        | PresentationIntent::TearFree => PresentModeKind::Fifo,
     }
 }
 
@@ -172,12 +182,24 @@ pub fn frame_rate_target(
     intent: PresentationIntent,
     limit: FrameRateLimit,
     display: DisplayTiming,
+    context: FrameRateContext,
 ) -> Option<FrameRate> {
     let requested = match limit {
         FrameRateLimit::Unlimited => None,
         FrameRateLimit::Fixed(fps) => FrameRate::from_hz(u32::from(fps.get())),
     };
-    let ceiling = (intent == PresentationIntent::LowLatency && display.vrr == VrrStatus::Active)
+    let requested = if context == FrameRateContext::Menus {
+        match (requested, display.refresh) {
+            (Some(requested), Some(refresh)) => Some(requested.min(refresh)),
+            (requested, refresh) => requested.or(refresh),
+        }
+    } else {
+        requested
+    };
+    let ceiling = (matches!(
+        intent,
+        PresentationIntent::LowLatency | PresentationIntent::TearFree
+    ) && display.vrr == VrrStatus::Active)
         .then_some(display.refresh)
         .flatten()
         .map(|refresh| vrr_ceiling(refresh, None));
@@ -185,6 +207,13 @@ pub fn frame_rate_target(
         (Some(requested), Some(ceiling)) => Some(requested.min(ceiling)),
         (requested, ceiling) => requested.or(ceiling),
     }
+}
+
+/// Whether gameplay or menus determine the frame-rate ceiling.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameRateContext {
+    Menus,
+    Gameplay,
 }
 
 /// The highest rate that keeps variable refresh in range: 97% of the maximum, rounded down to

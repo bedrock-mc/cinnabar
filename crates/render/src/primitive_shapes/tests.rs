@@ -390,6 +390,71 @@ fn arena_growth_partitions_at_the_storage_binding_limit() {
     assert_eq!(grown.skipped_slots, 0);
 }
 
+/// Running out of memory while growing keeps the old slots drawable and restores the rest later.
+#[test]
+fn failed_arena_growth_keeps_old_slots_and_rewrites_after_recovery() {
+    let Some((mut world, mut prepare)) = limited_prepare(1 << 20) else {
+        return;
+    };
+    apply(&world, vec![line_update(0, 0.0)]);
+    prepare.run((), &mut world).unwrap();
+    let before = world.resource::<gpu::ShapeGpu>().work;
+    apply(
+        &world,
+        (1..10).map(|id| line_update(id, id as f32)).collect(),
+    );
+    {
+        let _failure = crate::gpu_allocation::inject(|label, _| label == "primitive shape slots");
+        prepare.run((), &mut world).unwrap();
+    }
+    let gpu = world.resource::<gpu::ShapeGpu>();
+    assert_eq!(gpu.batches[0].slots.capacity(), 1);
+    assert_eq!(gpu.batches[0].instances, 1);
+    assert_eq!(gpu.work.skipped_slots - before.skipped_slots, 9);
+
+    prepare.run((), &mut world).unwrap();
+    let gpu = world.resource::<gpu::ShapeGpu>();
+    assert_eq!(gpu.batches[0].instances, 10);
+    assert!(gpu.batches[0].slots.capacity() >= 10);
+    assert_eq!(gpu.work.bytes - before.bytes, 10 * gpu::INSTANCE_BYTES);
+}
+
+/// Growth that recovers only partly still rewrites the skipped slots it now has storage for.
+#[test]
+fn partial_growth_recovery_rewrites_the_slots_it_exposes() {
+    let Some((mut world, mut prepare)) = limited_prepare(4 * gpu::INSTANCE_BYTES) else {
+        return;
+    };
+    apply(&world, vec![line_update(0, 0.0)]);
+    prepare.run((), &mut world).unwrap();
+    apply(
+        &world,
+        (1..10).map(|id| line_update(id, id as f32)).collect(),
+    );
+    {
+        let _failure = crate::gpu_allocation::inject(|label, _| label == "primitive shape slots");
+        prepare.run((), &mut world).unwrap();
+    }
+    let before = world.resource::<gpu::ShapeGpu>().work;
+    {
+        // The last chunk grows and its copy succeeds; appending the next chunk fails.
+        let mut calls = 0;
+        let _failure = crate::gpu_allocation::inject(move |label, _| {
+            calls += usize::from(label == "primitive shape slots");
+            label == "primitive shape slots" && calls >= 3
+        });
+        prepare.run((), &mut world).unwrap();
+    }
+    let gpu = world.resource::<gpu::ShapeGpu>();
+    assert_eq!(gpu.batches[0].instances, 4);
+    assert_eq!(gpu.work.bytes - before.bytes, 4 * gpu::INSTANCE_BYTES);
+
+    prepare.run((), &mut world).unwrap();
+    let gpu = world.resource::<gpu::ShapeGpu>();
+    assert_eq!(gpu.batches[0].instances, 10);
+    assert_eq!(gpu.work.bytes - before.bytes, 14 * gpu::INSTANCE_BYTES);
+}
+
 #[test]
 fn cross_referenced_arena_stays_in_one_binding_and_counts_excess() {
     let actor_slots = 4;

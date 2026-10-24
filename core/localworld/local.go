@@ -38,10 +38,11 @@ const (
 
 // World identifies the open world to Xbox friends.
 type World struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	GameMode string `json:"game_mode"`
-	Backend  string `json:"backend"`
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	GameMode            string `json:"game_mode"`
+	Backend             string `json:"backend"`
+	MultiplayerDisabled bool   `json:"multiplayer_disabled,omitempty"`
 }
 
 // Status is the launcher's report of its open world; Error never carries paths.

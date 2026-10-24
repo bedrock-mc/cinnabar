@@ -4,6 +4,20 @@ use super::{CameraDelta, ModHost};
 use anyhow::Result;
 
 impl ModHost {
+    /// Successfully committed local weather target, in rain/thunder channel order.
+    pub fn weather_override(&self) -> Option<[f32; 2]> {
+        use crate::runtime::cinnabar::extension::environment::Weather;
+        self.instance.weather_override().map(|value| match value {
+            Weather::Clear => [0., 0.],
+            Weather::Rain => [1., 0.],
+            Weather::Thunder => [1., 1.],
+        })
+    }
+    /// Retained attack/use caps; an absent channel leaves ordinary input unchanged.
+    pub fn click_limits(&self) -> [Option<u32>; 2] {
+        self.instance.click_limits()
+    }
+
     /// Current-frame ordinary input modes; absence restores the player's saved preferences.
     pub fn movement_toggles(&self) -> Option<&crate::MovementToggles> {
         self.instance.movement_toggles()

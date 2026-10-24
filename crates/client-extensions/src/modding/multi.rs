@@ -176,7 +176,9 @@ impl ModHosts {
             self.host(earlier).is_active() && self.host(earlier).has_camera_output()
         });
         let environment = (0..index).any(|earlier| {
-            self.host(earlier).is_active() && self.host(earlier).time_override().is_some()
+            self.host(earlier).is_active()
+                && (self.host(earlier).time_override().is_some()
+                    || self.host(earlier).weather_override().is_some())
         });
         let budget = self.budget.clone();
         let claims = self.hud_claims.clone();
@@ -526,6 +528,8 @@ pub struct Merged {
     pub item_use_delay_fix: Option<(u64, i32)>,
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
+    pub weather_override: Option<[f32; 2]>,
+    pub click_limits: [Option<u32>; 2],
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     pub jump_pulse: bool,
@@ -550,6 +554,13 @@ impl Merged {
         self.hurt_style = self.hurt_style.or(host.camera_hurt_style());
         self.item_use_delay_fix = self.item_use_delay_fix.or(host.item_use_delay_fix());
         self.time_override = self.time_override.or(host.time_override());
+        self.weather_override = self.weather_override.or(host.weather_override());
+        for (cap, next) in self.click_limits.iter_mut().zip(host.click_limits()) {
+            *cap = match (*cap, next) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
     }

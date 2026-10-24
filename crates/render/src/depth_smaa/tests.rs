@@ -112,6 +112,7 @@ fn depth_smaa_prewarm_queues_and_reuses_every_sample_variant() {
                     msaa,
                     hdr,
                     enhanced: false,
+                    shader_pack: false,
                     output: None,
                 };
                 let mut before = Vec::new();

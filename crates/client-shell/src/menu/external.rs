@@ -103,8 +103,13 @@ impl MenuRuntime {
         Some((self.servers.to_vec(), self.gui_scale_offset))
     }
 
-    /// Makes external storage/admission failures visible in the menu that requested them.
-    pub fn external_error(&mut self, message: &str) {
+    /// Whether a dialog currently covers the menu screen.
+    pub fn dialog_open(&self) -> bool {
+        self.dialog.is_some()
+    }
+
+    /// Shows a dismissible notice over the current menu screen.
+    pub fn show_notice(&mut self, message: &str) {
         self.message = Some(message.to_owned());
         self.dialog = Some(launcher::menu::MenuDialog::Notice);
         self.focused = 0;
@@ -136,10 +141,10 @@ impl MenuRuntime {
             }
             MenuAction::OpenSignInLink => {} // The host opens it within the browser gesture.
             MenuAction::AddAccount | MenuAction::SwitchAccount(_) => {
-                self.external_error("Sign out before using another account in this browser tab.");
+                self.show_notice("Sign out before using another account in this browser tab.");
             }
             MenuAction::PlayRealm(_) | MenuAction::PlayFriend(_) => {
-                self.external_error(SERVICE_JOINS_UNAVAILABLE);
+                self.show_notice(SERVICE_JOINS_UNAVAILABLE);
             }
             _ => return false,
         }
@@ -152,11 +157,11 @@ impl MenuRuntime {
             super::target_for(&address),
             bridge::contract::ConnectTarget::RakNet(_)
         ) {
-            self.external_error(SERVICE_JOINS_UNAVAILABLE);
+            self.show_notice(SERVICE_JOINS_UNAVAILABLE);
             return;
         }
         if address.trim().is_empty() {
-            self.external_error("That server has no address.");
+            self.show_notice("That server has no address.");
             return;
         }
         bridge::join_profile::JoinProfile::begin();

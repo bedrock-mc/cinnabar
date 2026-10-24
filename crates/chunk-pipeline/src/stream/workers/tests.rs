@@ -399,3 +399,14 @@ fn summary_submission_wakes_background_waiters() {
         pool.shared.ready.notify_all();
     });
 }
+
+/// A core cap only ever shrinks the pools; malformed or zero caps keep the machine's count.
+#[test]
+fn core_cap_shrinks_pools_and_ignores_invalid_values() {
+    assert_eq!(capped_cores(12, None), 12);
+    assert_eq!(capped_cores(12, Some("2")), 2);
+    assert_eq!(capped_cores(12, Some(" 4 ")), 4);
+    assert_eq!(capped_cores(4, Some("16")), 4);
+    assert_eq!(capped_cores(12, Some("0")), 12);
+    assert_eq!(capped_cores(12, Some("two")), 12);
+}

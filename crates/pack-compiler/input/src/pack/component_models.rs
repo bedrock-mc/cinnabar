@@ -5,7 +5,10 @@ use super::{
 };
 use assets::{
     AssetError, RegistryRecord,
-    facts::{BlockRenderKind, block_render_fact},
+    facts::{
+        BlockProperty, BlockRenderKind, StateValue, block_render_fact,
+        pack::{PackBlock, PackTexture},
+    },
 };
 use serde_json::Value;
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
@@ -155,6 +158,44 @@ fn resolve(
     })
 }
 
+/// Resolves built-in straw-bed components against the current pack's geometry.
+fn native_model(
+    record: &RegistryRecord,
+    models: &BTreeMap<String, Arc<Value>>,
+) -> Option<ComponentModel> {
+    if record.name.as_ref() != PackBlock::StrawBed.identifier() {
+        return None;
+    }
+    let StateValue::Bool(head) = record.property(BlockProperty::HeadPieceBit)? else {
+        return None;
+    };
+    let identifier = if *head {
+        "minecraft:geometry.straw_bed_head"
+    } else {
+        "minecraft:geometry.straw_bed_foot"
+    };
+    let StateValue::String(direction) =
+        record.property(BlockProperty::MinecraftCardinalDirection)?
+    else {
+        return None;
+    };
+    let rotation = match direction.as_ref() {
+        "south" => 0,
+        "east" => 1,
+        "north" => 2,
+        "west" => 3,
+        _ => return None,
+    };
+    Some(ComponentModel {
+        identifier: identifier.into(),
+        document: models.get(identifier)?.clone(),
+        texture: PackTexture::StrawBed.key().into(),
+        material_instance: "all".into(),
+        flags: assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        rotation,
+    })
+}
+
 /// Imports model-bearing behavior definitions only for explicitly admitted render identities.
 pub(super) fn install(
     root: &Path,
@@ -215,6 +256,26 @@ pub(super) fn install(
                     });
                 }
             }
+        }
+    }
+    for record in admitted {
+        if pack
+            .blocks
+            .component_models
+            .contains_key(&record.sequential_id)
+        {
+            continue;
+        }
+        if let Some(model) = native_model(record, &models) {
+            if pack.terrain.get(&model.texture).is_none() {
+                return Err(AssetError::MissingTerrainKey {
+                    block: record.name.clone(),
+                    key: model.texture,
+                });
+            }
+            pack.blocks
+                .component_models
+                .insert(record.sequential_id, model);
         }
     }
     Ok(())

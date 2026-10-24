@@ -112,6 +112,13 @@ pub fn trace_server_control(
             "position": movement.position, "pitch": movement.pitch, "yaw": movement.yaw,
             "on_ground": movement.on_ground, "teleported": movement.mode.is_teleport(),
         }),
+        CommittedControlEvent::LocalActorMove {
+            movement, resolved, ..
+        } => json!({
+            "kind": "local_actor_move", "position": resolved.position,
+            "on_ground": movement.on_ground, "teleported": movement.teleported,
+            "force_local_move": movement.force_local_move,
+        }),
         _ => return,
     };
     record["schema"] = json!("rust-mcbe-movement-control-v1");

@@ -10,6 +10,9 @@ const MANIFEST: &[u8] = include_bytes!("../../../../assets/vanilla-source.json")
 #[path = "block_icons/carried.rs"]
 mod carried;
 
+#[path = "block_icons/coverage.rs"]
+mod coverage;
+
 fn write(root: &Path, path: &str, bytes: &[u8]) {
     let path = root.join(path);
     fs::create_dir_all(path.parent().unwrap()).unwrap();

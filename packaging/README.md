@@ -84,6 +84,13 @@ The update manifest points to the MSI. No Mojang artwork is embedded. Local pack
 ImageMagick and `dotnet tool install --global wix --version 5.0.2`, followed by
 `wix extension add -g WixToolset.BootstrapperApplications.wixext/5.0.2`.
 
+Windows payloads also install Microsoft's `dxcompiler.dll` beside `cinnabar.exe`; DX12 compiles
+shaders with it instead of the much slower FXC. `packaging/windows/fetch-dxc.ps1` downloads the
+release that `packaging/windows/dxc.json` pins, caches it under `.local/downloads`, and installs the
+library only when both the archive and the library match their pinned SHA-256; `make play` runs it
+for development builds. The client uses only that copy and falls back to FXC, logging why, when it
+is missing or fails to load. `WGPU_DX12_COMPILER=fxc` also selects FXC.
+
 The game, core, crash monitor and update helper do not request administrator rights or reject
 an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,
 so they inherit the launching process's permissions. Installation may still require administrator

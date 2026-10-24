@@ -517,3 +517,56 @@ fn anvil_copy_combination_preserves_native_and_component_registry_aliases() {
         assert_eq!(outcome.cost, 2);
     }
 }
+
+/// User data with a root integer `Damage`, as the stack's extra data carries it.
+fn damaged_extra(damage: i32) -> Arc<[u8]> {
+    let mut extra = (-1_i16).to_le_bytes().to_vec();
+    extra.push(1);
+    extra.extend([10, 0, 0, 3]);
+    extra.extend(6_u16.to_le_bytes());
+    extra.extend(b"Damage");
+    extra.extend(damage.to_le_bytes());
+    extra.push(0);
+    extra.into()
+}
+
+#[test]
+fn damaged_humanoid_armour_keys_its_stored_damage() {
+    let helmet = entry("minecraft:iron_helmet");
+    let sword = entry("minecraft:iron_sword");
+    let mut component_helmet = entry("minecraft:diamond_helmet");
+    component_helmet.component_based = true;
+    component_helmet.version = ItemRegistryVersion::DataDriven;
+    component_helmet.components = Some(Arc::new(protocol::ItemComponents::default()));
+    let facts = SessionItemFacts::from_registry(
+        pinned(),
+        &event(vec![
+            helmet.clone(),
+            sword.clone(),
+            component_helmet.clone(),
+        ]),
+    )
+    .unwrap();
+    let stack = |network_id| protocol::NetworkItemStack {
+        network_id,
+        metadata: 0,
+        count: 1,
+        extra_data: damaged_extra(7),
+        ..Default::default()
+    };
+    assert!(facts.humanoid_armour(helmet.network_id));
+    assert_eq!(
+        facts.id_aux(&stack(helmet.network_id)),
+        (helmet.network_id << 16) | 7
+    );
+    // Other damageable items, and component armour, keep the wire metadata.
+    assert_eq!(
+        facts.id_aux(&stack(sword.network_id)),
+        sword.network_id << 16
+    );
+    assert!(!facts.humanoid_armour(component_helmet.network_id));
+    assert_eq!(
+        facts.id_aux(&stack(component_helmet.network_id)),
+        component_helmet.network_id << 16
+    );
+}

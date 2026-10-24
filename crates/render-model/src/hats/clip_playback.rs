@@ -39,7 +39,7 @@ struct Track {
     rotation: Keys,
     position: Keys,
 }
-struct Clip {
+pub(super) struct Clip {
     length: f32,
     tracks: Vec<Track>,
 }
@@ -116,8 +116,26 @@ fn rotation_delta(from: Vec3, to: Vec3) -> Vec3 {
 }
 
 impl Clip {
+    /// Samples a named controller clip without imposing sequence seam constraints.
+    pub(super) fn sample_at(&self, bone: usize, seconds: f32) -> (Vec3, Vec3) {
+        let time = seconds.clamp(0.0, self.length);
+        self.tracks
+            .get(bone)
+            .map_or((Vec3::ZERO, Vec3::ZERO), |track| {
+                (
+                    sample_rotation(&track.rotation, time),
+                    sample(&track.position, time),
+                )
+            })
+    }
+
+    /// Duration of one authored gait or idle cycle.
+    pub(super) fn length(&self) -> f32 {
+        self.length
+    }
+
     /// Rejects empty, unknown or oversized bone channels before constructing indexed tracks.
-    fn build(definition: Definition, names: &[&str]) -> Option<Self> {
+    pub(super) fn build(definition: Definition, names: &[&str]) -> Option<Self> {
         let length = definition.animation_length;
         if !length.is_finite()
             || !(0.1..=60.0).contains(&length)

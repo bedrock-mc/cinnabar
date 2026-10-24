@@ -253,3 +253,23 @@ fn position_reads_the_native_player_origin() {
     );
     assert!((actual - (2.0 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-6);
 }
+
+#[test]
+fn equipment_count_reads_worn_slots_independently_of_hands_and_models() {
+    let mut context = ActorTickContext {
+        main_hand: Some("fixture:held".into()),
+        off_hand: Some("fixture:offhand".into()),
+        ..Default::default()
+    };
+    assert_eq!(read(&context, "query.equipment_count", &[]), 0.0);
+    for count in 1..=5 {
+        context.equipment_count = count;
+        assert_eq!(
+            read(&context, "query.equipment_count", &[]),
+            f32::from(count)
+        );
+    }
+    context.main_hand = None;
+    context.off_hand = None;
+    assert_eq!(read(&context, "query.equipment_count", &[]), 5.0);
+}

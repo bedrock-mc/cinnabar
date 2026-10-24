@@ -25,11 +25,7 @@ pub(super) fn compile(
     definitions: &mut Definitions,
 ) -> Result<(), AssetError> {
     let supported_version = version(assets::vanilla_source().tag.trim_start_matches('v'))?;
-    let retail = std::str::from_utf8(assets::item::retail::SOURCE_BYTES)
-        .map_err(|_| invalid("retail item allowlist is not UTF-8"))?
-        .lines()
-        .filter_map(|line| line.split_once('\t').map(|(_, identifier)| identifier))
-        .collect::<BTreeSet<_>>();
+    let registry = assets::item::names::identifiers().collect::<BTreeSet<_>>();
     let mut actors = BTreeMap::<Box<str>, ActorEgg>::new();
     for (index, source) in sources.iter().enumerate() {
         if !source.path.starts_with("entity/") || !source.path.ends_with(".json") {
@@ -45,7 +41,7 @@ pub(super) fn compile(
         let Some(identifier) = description.get("identifier").and_then(Value::as_str) else {
             continue;
         };
-        if !retail.contains(
+        if !registry.contains(
             assets::facts::pack::rules()
                 .egg_identifier(identifier)
                 .as_str(),

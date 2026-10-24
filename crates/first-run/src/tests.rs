@@ -257,6 +257,42 @@ fn a_failing_step_shows_its_underlying_error_in_the_dialog() {
     assert!(alert.contains("first-run.log"), "{alert}");
 }
 
+/// Current carriers and kept textures permit play without a prepared local-world server.
+#[cfg(unix)]
+#[test]
+fn android_game_gate_requires_current_assets_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let data = Dir::new("android-gate");
+    let layout = InstallLayout::android(data.path(), data.path().join("native/core.so"))
+        .with_prepared_assets();
+    let compiler = assets::carriers::kit_compiler(&layout.prep_kit());
+    fs::create_dir_all(compiler.parent().unwrap()).unwrap();
+    for (stale, kept, gated) in [
+        ("[\"world\"]", true, true),
+        ("[]", true, false),
+        ("[]", false, true),
+    ] {
+        let textures = layout.vanilla_pack_dir().join("textures");
+        if kept {
+            fs::create_dir_all(&textures).unwrap();
+        } else {
+            fs::remove_dir_all(&textures).unwrap();
+        }
+        fs::write(
+            &compiler,
+            format!("#!/bin/sh\necho '{{\"stale\":{stale},\"needs_pack\":false}}'\n"),
+        )
+        .unwrap();
+        fs::set_permissions(&compiler, fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            needs_preparation(&layout),
+            gated,
+            "stale carriers: {stale}, kept textures: {kept}"
+        );
+    }
+}
+
 #[test]
 fn native_setup_title_uses_embedding_identity_with_default_fallback() {
     assert_eq!(

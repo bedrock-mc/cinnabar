@@ -7,10 +7,14 @@ use serde_json::{Map, Value};
 
 use super::parse::{BoundedMapIssue, BoundedUniqueMap, MAX_TEXTURE_KEYS, read_json};
 
-#[path = "block/furnace.rs"]
-mod furnace;
+#[path = "block/facing.rs"]
+mod facing;
+#[path = "block/facing_cube.rs"]
+mod facing_cube;
 #[path = "block/leaf_metadata.rs"]
 mod leaf_metadata;
+
+pub use facing_cube::facing_cube_face;
 
 /// A source texture key and the pillar UV transform needed for the face.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,6 +45,9 @@ impl TextureKey {
 #[derive(Debug)]
 pub struct BlockTextureMap {
     pub(super) entries: BTreeMap<Box<str>, BlockSourceEntry>,
+    /// `carried_textures` of blocks that declare no world `textures`, such as the light blocks,
+    /// whose items still show their carried art.
+    pub(super) carried_only: BTreeMap<Box<str>, TextureValue>,
     pub(super) component_crosses: BTreeMap<Box<str>, super::CrossMaterial>,
     pub(super) component_models: BTreeMap<u32, super::ComponentModel>,
 }
@@ -280,8 +287,15 @@ pub fn resolve_texture_key(
     match &entry.textures {
         TextureValue::Key(key) => TextureKey::resolved(key, false),
         TextureValue::Faces(faces) => {
-            if furnace::is_record(record) {
-                return furnace::source_face(record, face)
+            if facing_cube::is_record(record) {
+                return facing_cube_face(record, face)
+                    .and_then(|(source_face, _)| faces.resolve(source_face))
+                    .map_or_else(TextureKey::diagnostic, |key| {
+                        TextureKey::resolved(key, false)
+                    });
+            }
+            if facing::is_record(record) {
+                return facing::source_face(record, face)
                     .and_then(|source_face| faces.resolve(source_face))
                     .map_or_else(TextureKey::diagnostic, |key| {
                         TextureKey::resolved(key, false)
@@ -369,13 +383,25 @@ pub fn resolve_carried_face_key(
     carried_or_world_key(blocks, record, face, false).map(std::borrow::Cow::into_owned)
 }
 
-/// Retains the unrotated carried fallback used when a block has no carried override.
+/// Resolves an unrotated world face independently of partial carried overrides.
 pub fn resolve_carried_fallback_key(
     blocks: &BlockTextureMap,
     record: &RegistryRecord,
     face: BlockFace,
 ) -> Option<Box<str>> {
-    carried_or_world_key(blocks, record, face, true).map(|key| key.into_owned().into_boxed_str())
+    let name = record
+        .name
+        .strip_prefix("minecraft:")
+        .unwrap_or(&record.name);
+    let entry = blocks
+        .entries
+        .get(name)
+        .or_else(|| blocks.entries.get(legacy_resource_pack_block_alias(name)?))?;
+    let key = match &entry.textures {
+        TextureValue::Key(key) => key.as_str(),
+        TextureValue::Faces(faces) => faces.resolve(face)?,
+    };
+    (!key.is_empty()).then(|| key.into())
 }
 
 fn carried_or_world_key<'a>(
@@ -392,11 +418,15 @@ fn carried_or_world_key<'a>(
         blocks
             .entries
             .get(legacy_resource_pack_block_alias(block_name)?)
-    })?;
-    let carried = entry
-        .extra
-        .get("carried_textures")
-        .and_then(|value| serde_json::from_value::<TextureValue>(value.clone()).ok());
+    });
+    let Some(entry) = entry else {
+        let key = match blocks.carried_only.get(block_name)? {
+            TextureValue::Key(key) => key.as_str(),
+            TextureValue::Faces(faces) => faces.resolve(face)?,
+        };
+        return (!key.is_empty()).then_some(key.into());
+    };
+    let carried = carried_textures(&entry.extra);
     let key: std::borrow::Cow<'a, str> = match carried {
         Some(TextureValue::Key(key)) => key.into(),
         Some(TextureValue::Faces(faces)) => faces.resolve(face)?.to_owned().into(),
@@ -407,6 +437,13 @@ fn carried_or_world_key<'a>(
         None => return None,
     };
     (!key.is_empty()).then_some(key)
+}
+
+/// A block entry's `carried_textures`; `None` when absent or not a texture description.
+fn carried_textures(extra: &BTreeMap<String, Value>) -> Option<TextureValue> {
+    extra
+        .get("carried_textures")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
 pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
@@ -435,6 +472,7 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
     }
 
     let mut entries = BTreeMap::new();
+    let mut carried_only = BTreeMap::new();
     for (name, value) in document {
         let entry: BlockEntry =
             serde_json::from_value(value).map_err(|source| AssetError::InvalidBlockEntry {
@@ -443,6 +481,9 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
                 source,
             })?;
         let Some(textures) = entry.textures else {
+            if let Some(carried) = carried_textures(&entry.extra).filter(TextureValue::has_keys) {
+                carried_only.insert(name.into_boxed_str(), carried);
+            }
             continue;
         };
         if !textures.has_keys() {
@@ -459,6 +500,7 @@ pub(super) fn read_blocks(path: &Path) -> Result<BlockTextureMap, AssetError> {
     }
     Ok(BlockTextureMap {
         entries,
+        carried_only,
         component_crosses: BTreeMap::new(),
         component_models: BTreeMap::new(),
     })

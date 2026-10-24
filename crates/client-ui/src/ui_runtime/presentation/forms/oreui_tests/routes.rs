@@ -169,6 +169,7 @@ fn death_immediate_respawn_finishes_the_backdrop_animation() {
 fn home_owns_oreui_actions_and_directional_focus() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.player_preview_icon = Some(ui::IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 64, 64],
         glint: false,
@@ -434,6 +435,33 @@ fn add_server_footer_stays_visible_and_keyboard_reveals_the_port() {
                 .unwrap_or(0.0),
             offset,
             "footer focus must not scroll the draft"
+        );
+    }
+}
+
+/// The same focused field is revealed again when the keyboard changes the usable height.
+#[test]
+fn add_server_port_remains_visible_when_keyboard_shrinks_the_existing_viewport() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::AddServer;
+    view.field = Some(MenuField::Port);
+    view.focused_action = Some(MenuAction::AddPort);
+    for size in [
+        [1280.0, 720.0],
+        [1280.0, 280.0],
+        [1280.0, 720.0],
+        [1280.0, 280.0],
+    ] {
+        let hits = append(&mut presentation, &view, size);
+        let port = hits
+            .iter()
+            .find(|(action, _)| *action == MenuAction::AddPort)
+            .unwrap()
+            .1;
+        assert!(
+            port.min().y() >= 0.0 && port.max().y() <= size[1],
+            "port clipped at {size:?}: {port:?}"
         );
     }
 }

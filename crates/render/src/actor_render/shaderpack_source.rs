@@ -2,7 +2,7 @@
 //! bone buffers the actor pass draws from, with each instance's artwork layer and actor.
 
 use super::*;
-use crate::shaderpack::actors::{LayerTexture, RigBuffers, RigInstance, RigSource};
+use crate::shaderpack::actors::{LayerCompose, LayerTexture, RigBuffers, RigInstance, RigSource};
 
 /// The prepared actor rig, borrowed for one frame.
 pub(crate) struct ShaderpackActors<'a> {
@@ -58,9 +58,9 @@ impl RigSource for ShaderpackActors<'_> {
                 };
                 let layer = data.texture_layer & 0x00ff_ffff;
                 let texture = match page {
-                    Some(page) => Some(page.texture()),
+                    Some(page) => page.raw_texture(),
                     None if span.page == 0 => {
-                        gpu.skins.texture((data.texture_layer >> 24) as usize)
+                        gpu.skins.raw_texture((data.texture_layer >> 24) as usize)
                     }
                     None => None,
                 };
@@ -71,7 +71,13 @@ impl RigSource for ShaderpackActors<'_> {
                     index,
                     data,
                     vertex_count: span.vertex_count,
-                    texture: LayerTexture { texture, layer },
+                    texture: LayerTexture {
+                        texture,
+                        layer,
+                        compose: page.map_or(LayerCompose::Plain, |page| {
+                            LayerCompose::for_page(page.color_mask, page.multitexture, data)
+                        }),
+                    },
                     runtime_id: gpu
                         .manifest
                         .get(index as usize)
@@ -91,7 +97,7 @@ impl RigSource for ShaderpackActors<'_> {
         } else {
             &self.gpu.artwork.glint
         };
-        glint.texture.as_ref().map(|(texture, _)| texture)
+        glint.raw_texture()
     }
 }
 
@@ -121,6 +127,9 @@ mod replacement_tests {
             draw_frame, fixture, publication,
         };
         let mut app = fixture();
+        // A drawing pack lets artwork take the raw views the pack reads.
+        app.sub_app_mut(RenderApp)
+            .insert_resource(crate::actor::gpu::ArtworkRawViews(true));
         let mut frame = publication(1, &[55, 77], 1);
         Arc::make_mut(&mut frame.rig.instances)[1].material =
             render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG;

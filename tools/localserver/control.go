@@ -21,15 +21,13 @@ type commands struct {
 
 // serveCommands runs the stdin protocol until "stop", EOF or ctx ends.
 func serveCommands(ctx context.Context, stdin io.Reader, cmds commands) {
-	lines, _ := readCommands(ctx, stdin)
+	lines := readCommands(ctx, stdin)
 	serveCommandLines(ctx, lines, cmds)
 }
 
-// readCommands reports shutdown immediately while retaining earlier commands for startup.
-func readCommands(ctx context.Context, stdin io.Reader) (<-chan string, <-chan struct{}) {
+// readCommands reads controller lines until shutdown or cancellation.
+func readCommands(ctx context.Context, stdin io.Reader) <-chan string {
 	raw := make(chan string)
-	lines := make(chan string)
-	stopped := make(chan struct{})
 	go func() {
 		defer close(raw)
 		scanner := bufio.NewScanner(stdin)
@@ -45,58 +43,7 @@ func readCommands(ctx context.Context, stdin io.Reader) (<-chan string, <-chan s
 			}
 		}
 	}()
-	go func() {
-		defer close(lines)
-		stoppedOpen := true
-		defer func() {
-			if stoppedOpen {
-				close(stopped)
-			}
-		}()
-		var pending []string
-		for raw != nil || len(pending) > 0 {
-			var output chan string
-			var next string
-			if len(pending) > 0 {
-				output, next = lines, pending[0]
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case line, ok := <-raw:
-				if !ok {
-					if stoppedOpen {
-						close(stopped)
-						stoppedOpen = false
-					}
-					raw = nil
-				} else {
-					pending = append(pending, line)
-					if line == "stop" && stoppedOpen {
-						close(stopped)
-						stoppedOpen = false
-					}
-				}
-			case output <- next:
-				pending[0] = ""
-				pending = pending[1:]
-			}
-		}
-	}()
-	return lines, stopped
-}
-
-// startupContext cancels unfinished generation when its controller requests shutdown.
-func startupContext(ctx context.Context, stopped <-chan struct{}) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-stopped:
-			cancel()
-		}
-	}()
-	return ctx, cancel
+	return raw
 }
 
 // serveCommandLines applies queued commands until shutdown or cancellation.
@@ -139,27 +86,17 @@ func setPaused(worlds []*world.World, paused bool) {
 	}
 }
 
-// pauseState pauses the worlds while the launcher asks or a hold such as the spawn warm-up keeps them still.
+// pauseState serialises pause and resume requests for all dimensions.
 type pauseState struct {
-	mu              sync.Mutex
-	worlds          []*world.World
-	requested, held bool
+	mu     sync.Mutex
+	worlds []*world.World
 }
 
-// request records the launcher's pause or resume.
+// request applies the launcher's pause or resume to every dimension.
 func (p *pauseState) request(paused bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.requested = paused
-	setPaused(p.worlds, p.requested || p.held)
-}
-
-// hold keeps the worlds paused whatever the launcher asks until released.
-func (p *pauseState) hold(held bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.held = held
-	setPaused(p.worlds, p.requested || p.held)
+	setPaused(p.worlds, paused)
 }
 
 // standbyFlag starts a server with no world that waits for a standbyStart line.

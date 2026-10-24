@@ -45,7 +45,14 @@ impl OreUiScreen {
         canvas.transitions = Some(&mut self.transitions);
         let mut buttons = vec![(
             popup.button1.as_str().into(),
-            Variant::Primary,
+            if matches!(
+                popup.confirm,
+                launcher::menu::MenuAction::ConfirmRemoveShaderPack(..)
+            ) {
+                Variant::Destructive
+            } else {
+                Variant::Primary
+            },
             Some(popup.confirm),
         )];
         if popup.dismiss != popup.confirm {

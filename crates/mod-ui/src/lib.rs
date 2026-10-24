@@ -10,6 +10,7 @@ pub mod fonts;
 mod local_player_identity;
 mod mod_hud;
 mod mod_hud_editor;
+pub use mod_hud_editor::HudEditor;
 mod mod_panel;
 pub use mod_panel::prepared::{PanelUiOwner, PreparedPanelUi};
 pub mod mod_screens;

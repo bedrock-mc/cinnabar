@@ -127,11 +127,14 @@ fn an_output_opens_on_its_own_thread_and_drops_there_once_released() {
     let (go, wait) = std::sync::mpsc::channel::<()>();
     let dropped = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&dropped);
-    let (opening, owner) = open_on_owner_thread(move || {
-        wait.recv().unwrap();
-        let owner = std::thread::current().id();
-        Some((Stream(owner, flag), owner))
-    })
+    let (opening, owner) = open_on_owner_thread(
+        move || {
+            wait.recv().unwrap();
+            let owner = std::thread::current().id();
+            Some((Stream(owner, flag), owner))
+        },
+        |_| {},
+    )
     .unwrap();
     // The caller returned while the open is still blocked.
     assert!(matches!(
@@ -150,7 +153,7 @@ fn an_output_opens_on_its_own_thread_and_drops_there_once_released() {
 #[test]
 fn a_failed_background_open_leaves_the_device_disabled() {
     let (opening, owner) =
-        open_on_owner_thread(|| None::<((), (OutputStreamHandle, u32))>).unwrap();
+        open_on_owner_thread(|| None::<((), native::SharedOutput)>, |_| {}).unwrap();
     let mut device = AudioDevice {
         opening: Some(opening),
         ..AudioDevice::disabled()

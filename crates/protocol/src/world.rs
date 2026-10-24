@@ -52,6 +52,7 @@ pub use self::clocks::{
     OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, WorldClockDefinition, WorldClockState,
     WorldClockUpdateEvent,
 };
+pub(crate) use self::custom_blocks::VANILLA_NAMESPACE;
 pub use self::custom_blocks::{
     CustomBlock, CustomBlockMining, CustomBlockPhysics, CustomBlockVisuals, CustomBlocks,
     CustomBox, CustomCollision, CustomHashedState, CustomMaterialInstance, CustomMiningItem,
@@ -359,6 +360,16 @@ world_packets! {
     SetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
     BossEvent(packet) => WorldEvent::Ui(normalize_boss(packet)?),
     ModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
+    ClientboundDataStore(packet) => WorldEvent::Ui(crate::ui::normalize_data_store(packet)),
+    ClientboundDataDrivenUIShowScreen(packet) => {
+        WorldEvent::Ui(crate::ui::normalize_show_screen(packet))
+    },
+    ClientboundDataDrivenUICloseScreen(packet) => {
+        WorldEvent::Ui(crate::ui::normalize_close_screen(packet))
+    },
+    ClientboundDataDrivenUIReload(_) => {
+        WorldEvent::Ui(UiEvent::DataDrivenUi(crate::ui::ddui::DataDrivenUiEvent::Reload))
+    },
     ServerSettingsResponse(packet) => {
         WorldEvent::Ui(crate::ui::normalize_server_settings(packet)?)
     },

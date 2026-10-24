@@ -150,15 +150,16 @@ fn retained_video_settings_apply_and_hotkeys_preserve_other_settings() {
 }
 
 #[test]
-fn fullscreen_changes_preserve_the_automatic_vsync_policy() {
+fn fullscreen_changes_preserve_the_default_presentation_policy() {
     for from_hotkey in [true, false] {
         let (mut app, window) = app(true);
         let initial_mode = app.world().get::<Window>(window).unwrap().present_mode;
-        app.insert_resource(PresentModeRuntime::from_startup(false, false, false, false))
-            .add_systems(
-                Update,
-                apply_present_mode.after(apply_runtime_fullscreen_setting),
-            );
+        let presentation = PresentModeRuntime::from_startup(false, false, false, false);
+        let initial_preference = presentation.policy().preference();
+        app.insert_resource(presentation).add_systems(
+            Update,
+            apply_present_mode.after(apply_runtime_fullscreen_setting),
+        );
         if from_hotkey {
             key(&mut app, window, ButtonState::Pressed, false);
         } else {
@@ -173,7 +174,7 @@ fn fullscreen_changes_preserve_the_automatic_vsync_policy() {
                 .resource::<PresentModeRuntime>()
                 .policy()
                 .preference(),
-            render::PresentModePreference::Auto,
+            initial_preference,
         );
         assert_eq!(
             app.world().get::<Window>(window).unwrap().present_mode,

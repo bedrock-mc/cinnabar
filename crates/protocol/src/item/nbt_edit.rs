@@ -128,6 +128,15 @@ pub fn item_anvil_data(extra_data: &[u8]) -> Option<ItemAnvilData> {
     Some(data)
 }
 
+/// Whether a stack's user data carries an armor trim.
+#[must_use]
+pub fn item_has_trim(extra_data: &[u8]) -> bool {
+    decode_extra_nbt(extra_data).is_some_and(|nbt| {
+        let mut cursor = nbt;
+        root_tag(&mut cursor, TAG_COMPOUND, b"Trim").is_some()
+    })
+}
+
 /// The root `RepairCost` of a stack's user data, `0` when absent or malformed.
 #[must_use]
 pub fn item_repair_cost(extra_data: &[u8]) -> i32 {
@@ -385,6 +394,21 @@ mod tests {
         extra.extend_from_slice(&[0; 8]);
         extra.extend_from_slice(&42i64.to_le_bytes());
         extra
+    }
+
+    /// Only a root `Trim` compound marks trimmed armor; the display compound does not.
+    #[test]
+    fn trims_are_read_from_the_root_compound() {
+        assert!(!item_has_trim(&named_sword()));
+        assert!(!item_has_trim(&[]));
+        let mut extra = vec![0xff, 0xff, 1, TAG_COMPOUND, 0, 0, TAG_COMPOUND];
+        write_string(&mut extra, b"Trim").unwrap();
+        extra.push(TAG_STRING);
+        write_string(&mut extra, b"Material").unwrap();
+        write_string(&mut extra, b"gold").unwrap();
+        extra.extend_from_slice(&[0, 0]);
+        extra.extend_from_slice(&[0; 8]);
+        assert!(item_has_trim(&extra));
     }
 
     #[test]

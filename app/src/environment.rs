@@ -7,6 +7,10 @@ mod atmosphere;
 mod diagnostics;
 mod seasonal_foliage;
 mod time_override;
+
+/// Validated local weather target; authoritative weather continues to receive updates.
+#[derive(Resource, Default)]
+pub(crate) struct VisualWeatherOverride(pub(crate) Option<[f32; 2]>);
 mod weather;
 
 pub(crate) use atmosphere::update_atmosphere_frame;

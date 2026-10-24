@@ -15,3 +15,6 @@ mod macro_tests;
 
 #[cfg(test)]
 mod preset_tests;
+
+#[cfg(test)]
+mod search_tests;

@@ -17,8 +17,8 @@ pub(super) mod mining;
 
 pub use actions::{
     ARMOR_SLOTS, AutoCraftIngredient, CRAFTING_INPUT_SLOTS, CREATED_OUTPUT_SLOT, CraftResult,
-    PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction, StackRequestContainer,
-    StackRequestSlot,
+    MAX_STACK_REQUEST_AMOUNT, PLAYER_INVENTORY_SLOTS, StackItemDescriptor, StackRequestAction,
+    StackRequestContainer, StackRequestSlot,
 };
 
 /// Actions one request may carry.

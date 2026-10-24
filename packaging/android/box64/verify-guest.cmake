@@ -1,0 +1,11 @@
+# Check the device download pin against the source archive already verified by the build.
+file(READ "${MANIFEST}" runtime)
+foreach(field guest_directory guest_library guest_bytes guest_sha256)
+    string(JSON ${field} GET "${runtime}" bds_translation ${field})
+endforeach()
+set(library "${SOURCE_DIR}/${guest_directory}/${guest_library}")
+file(SIZE "${library}" actual_bytes)
+file(SHA256 "${library}" actual_sha256)
+if(NOT actual_bytes EQUAL guest_bytes OR NOT actual_sha256 STREQUAL guest_sha256)
+    message(FATAL_ERROR "Android guest library does not match its pinned size and SHA-256")
+endif()

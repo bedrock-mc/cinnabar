@@ -4,7 +4,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use bevy::prelude::*;
-use launcher::{install_layout::InstallLayout, menu::MenuScreen};
+use launcher::install_layout::InstallLayout;
 use render_model::SHADER_PACKS_ENABLED;
 use render_scene::shaderpack::ShaderPackRequest;
 use ui::RenderMode;
@@ -14,6 +14,8 @@ use super::{MenuRuntime, RenderModeConfig, RuntimeSettings, compiled_render_mode
 #[cfg(feature = "shaderpacks")]
 pub(super) mod import;
 pub(super) mod reload;
+#[cfg(feature = "shaderpacks")]
+pub(super) mod removal;
 pub(super) mod status;
 #[cfg(test)]
 mod tests;
@@ -135,18 +137,24 @@ pub(super) fn refresh(config: &mut RenderModeConfig, menu: &mut MenuRuntime) {
     }
 }
 
-/// Re-lists packs each time Settings opens, so packs added while the client runs appear
-/// without scanning the disk every frame. Startup listing happens in `seed_render_mode`.
+/// Re-lists packs when Shaders opens, and again when the window regains focus on it so
+/// packs copied in from a file manager appear. Other settings pages never scan the pack
+/// folder. A saved shader-pack renderer also lists its packs at startup.
 pub(super) fn refresh_shader_packs(
     mut config: ResMut<RenderModeConfig>,
     menu: Option<ResMut<MenuRuntime>>,
+    mut focus: MessageReader<bevy::window::WindowFocused>,
     mut settings_open: Local<bool>,
 ) {
+    let mut regained = false;
+    for event in focus.read() {
+        regained |= event.focused;
+    }
     let Some(mut menu) = menu else {
         return;
     };
-    let open = menu.is_visible() && menu.screen() == MenuScreen::Settings;
-    if open && !*settings_open {
+    let open = menu.takes_shader_pack_drops();
+    if open && (!*settings_open || regained) {
         refresh(&mut config, &mut menu);
     }
     *settings_open = open;

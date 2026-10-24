@@ -18,6 +18,8 @@ pub enum LocalWorldAction {
     /// Focuses the world name field (create or edit).
     NameField,
     SeedField,
+    OptionField(crate::local_worlds::options::WorldOption),
+    Option(crate::local_worlds::options::WorldOption, i32),
     GameMode(GameMode),
     Difficulty(Difficulty),
     Flat(bool),
@@ -37,6 +39,7 @@ impl LocalWorldAction {
         match self {
             Self::NameField => Some(MenuField::WorldName),
             Self::SeedField => Some(MenuField::WorldSeed),
+            Self::OptionField(id) => Some(MenuField::WorldOption(id)),
             _ => None,
         }
     }
@@ -50,7 +53,8 @@ impl LocalWorldAction {
             Self::Import => Input::Import,
             Self::Back => Input::Back,
             Self::Tab(tab) => Input::SelectTab(tab),
-            Self::NameField | Self::SeedField => return None,
+            Self::NameField | Self::SeedField | Self::OptionField(_) => return None,
+            Self::Option(id, value) => Input::SetOption(id, value),
             Self::GameMode(mode) => Input::SetGameMode(mode),
             Self::Difficulty(difficulty) => Input::SetDifficulty(difficulty),
             Self::Flat(flat) => Input::SetFlat(flat),

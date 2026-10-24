@@ -162,8 +162,7 @@ pub(crate) fn container_frame(frame: &HudFrame) -> ContainerFrame<'_> {
         storage_durability: &frame.durability.storage,
         ui_icons: &frame.window_icons.ui,
         ui_durability: &frame.durability.ui,
-        crafting_icons: &frame.crafting.icons,
-        crafting_output: frame.crafting.output.as_ref(),
+        crafting: &frame.crafting,
         armor_icons: &frame.armor_icons,
         armor_durability: &frame.armor_durability,
         offhand_icon: frame.offhand_icon,
@@ -202,12 +201,20 @@ pub fn engine_screen_for(player_runtime: &player_state::PlayerState, runtime: &U
     screen_layout(player_runtime, runtime, None).is_some()
 }
 
-/// The vanilla screen the open inventory or container draws.
+/// The vanilla screen the open inventory or container draws, including the storage variant
+/// (barrel, shulker box, ender chest) its retained block entity selects.
 pub fn container_screen_reference(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
 ) -> Option<&'static str> {
-    screen_layout(player_runtime, runtime, None).map(|layout| layout.screen().0)
+    let block_entity = runtime
+        .storage_block
+        .as_ref()
+        .filter(|(position, _)| {
+            runtime.inventory_ledger(player_runtime).window_position() == Some(*position)
+        })
+        .map(|(_, id)| &**id);
+    screen_layout(player_runtime, runtime, block_entity).map(|layout| layout.screen().0)
 }
 
 /// The player's main inventory and hotbar rows, as the container screens bind them.
@@ -219,6 +226,33 @@ pub(super) fn player_rows(
     ui_screens::containers::player_rows(player_runtime, &container_frame(frame), icons)
 }
 
+/// The beacon pyramid level under `position`: how many full layers of base blocks, up to four,
+/// sit directly beneath it. `beacon_base` answers `None` for an unreadable cell, and the level
+/// is `None` when such a cell decides it.
+pub fn beacon_pyramid_level(
+    position: [i32; 3],
+    beacon_base: impl Fn([i32; 3]) -> Option<bool>,
+) -> Option<u8> {
+    let [x, y, z] = position;
+    for layer in 1..=4 {
+        let cells = (-layer..=layer)
+            .flat_map(|dx| (-layer..=layer).map(move |dz| [x + dx, y - layer, z + dz]));
+        let mut unknown = false;
+        for cell in cells {
+            match beacon_base(cell) {
+                Some(true) => {}
+                // Every lower layer is complete, so a known gap settles the level.
+                Some(false) => return u8::try_from(layer - 1).ok(),
+                None => unknown = true,
+            }
+        }
+        if unknown {
+            return None;
+        }
+    }
+    Some(4)
+}
+
 /// Reads the open station's block for its screen: the beacon's pyramid level,
 /// the crafter's disabled slots and its `triggered_bit`.
 pub fn observe_station_block(
@@ -226,6 +260,7 @@ pub fn observe_station_block(
     runtime: &mut UiRuntime,
     stream: Option<&chunk_pipeline::WorldStream>,
     station_triggered: impl FnOnce([i32; 3]) -> Option<bool>,
+    beacon_level: impl FnOnce([i32; 3]) -> Option<u8>,
     now_millis: u64,
 ) {
     let ledger = runtime.inventory_ledger(player_runtime);
@@ -254,9 +289,10 @@ pub fn observe_station_block(
     let nbt = stream.block_entity_compound(position);
     let integer = |key: &str| nbt.as_ref().and_then(|nbt| nbt.integer(key));
     match kind {
+        // The level is not part of the beacon's block data; it comes from the blocks below.
         WindowKind::Beacon => {
-            runtime.screen_state_mut().beacon_level =
-                integer("Levels").and_then(|levels| u8::try_from(levels).ok());
+            runtime.screen_state_mut().beacon_level = beacon_level(position)
+                .or_else(|| integer("Levels").and_then(|levels| u8::try_from(levels).ok()));
         }
         WindowKind::Crafter => {
             let disabled = integer("disabled_slots").map_or(0, |mask| mask as u16);
@@ -495,3 +531,6 @@ mod tooltip_tests;
 
 #[cfg(test)]
 mod book_order_tests;
+
+#[cfg(test)]
+mod beacon_level_tests;

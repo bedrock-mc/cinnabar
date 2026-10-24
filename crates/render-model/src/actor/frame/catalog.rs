@@ -24,6 +24,17 @@ use pages::VertexPages;
 mod free_ranges;
 use free_ranges::FreeRanges;
 
+/// Makes geometries with equal vertex bytes share one allocation, so a later catalog layout
+/// matches them by pointer instead of comparing their bytes.
+pub fn share_identical_vertices<'a>(
+    geometries: impl IntoIterator<Item = &'a mut ActorRigGeometry>,
+) {
+    let mut pages = VertexPages::default();
+    for geometry in geometries {
+        pages.intern(geometry);
+    }
+}
+
 /// Distinct for independently constructed catalogs.
 static NEXT_EPOCH: AtomicU64 = AtomicU64::new(1);
 

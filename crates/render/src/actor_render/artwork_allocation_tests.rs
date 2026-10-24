@@ -146,7 +146,7 @@ fn reduced_actor_uploads_sample_every_layer_with_normalized_uvs() {
         multitexture: false,
     };
     let before_texture =
-        upload_or_reduce(&device, &queue, &page, "original fixture", true).unwrap();
+        upload_or_reduce(&device, &queue, &page, "original fixture", true, default()).unwrap();
     let before_view = before_texture.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..default()
@@ -159,7 +159,8 @@ fn reduced_actor_uploads_sample_every_layer_with_normalized_uvs() {
         failed = true;
         true
     });
-    let after_texture = upload_or_reduce(&device, &queue, &page, "reduced fixture", true).unwrap();
+    let after_texture =
+        upload_or_reduce(&device, &queue, &page, "reduced fixture", true, default()).unwrap();
     let after_view = after_texture.create_view(&TextureViewDescriptor {
         dimension: Some(TextureViewDimension::D2Array),
         ..default()
@@ -241,12 +242,29 @@ fn exhausting_all_page_sizes_skips_generic_artwork_without_repeating_allocations
     });
     let pages = publication(1, 2);
     assert!(!gpu.prepare(&pages, &device, &queue));
-    assert!(gpu.pages.is_empty());
+    assert!(gpu.pages.iter().all(Option::is_none));
     assert!(gpu.glint.texture.is_some());
     assert_eq!(attempts.get(), 5);
     assert!(!gpu.prepare(&pages, &device, &queue));
     assert_eq!(attempts.get(), 5);
     assert_eq!(work_tests::upload_count(), uploads);
+}
+
+// A demanded page that ran out of memory retries after a bounded backoff, not never.
+#[test]
+fn a_page_rejected_for_memory_retries_after_backoff() {
+    let (device, queue) = device();
+    let mut gpu = GpuArtwork::default();
+    let pages = publication(1, 2);
+    {
+        let _failure = gpu_allocation::inject(|label, _| label == "immutable actor page");
+        assert!(!gpu.prepare(&pages, &device, &queue));
+    }
+    for _ in 1..gpu_allocation::MIN_RETRY_FRAMES {
+        assert!(!gpu.prepare(&pages, &device, &queue));
+    }
+    assert!(gpu.prepare(&pages, &device, &queue));
+    assert_eq!(gpu.page(0).unwrap()._texture.depth_or_array_layers(), 2);
 }
 
 #[test]

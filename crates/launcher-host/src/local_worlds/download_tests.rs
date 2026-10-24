@@ -7,6 +7,7 @@ use super::*;
 use crate::local_worlds::{
     bds::link_world,
     test_support::{FakeMojang, build_zip, incompressible_zip, scratch},
+    unpack::INSTALL_MANIFEST,
 };
 
 fn sha256(bytes: &[u8]) -> String {
@@ -20,7 +21,7 @@ fn part_path(provisioner: &Provisioner) -> PathBuf {
 }
 
 fn installed_digest(binary: &Path) -> String {
-    let manifest = fs::read(binary.with_file_name("manifest.json")).expect("manifest");
+    let manifest = fs::read(binary.with_file_name(INSTALL_MANIFEST)).expect("manifest");
     let manifest: serde_json::Value = serde_json::from_slice(&manifest).expect("manifest json");
     manifest["zip_sha256"].as_str().expect("digest").to_owned()
 }

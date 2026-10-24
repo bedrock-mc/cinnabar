@@ -13,7 +13,9 @@ const HEIGHT: f32 = 9.6;
 
 /// Whether the home layout must reserve space for an app or mod update notice.
 pub(super) fn available(view: &MenuView) -> bool {
-    view.updates.ready.is_some() || !view.mods.library.updates.is_empty()
+    view.updates.manual_pending
+        || view.updates.ready.is_some()
+        || !view.mods.library.updates.is_empty()
 }
 
 /// Fits the complete card and its inset inside the viewport.
@@ -41,7 +43,13 @@ pub(super) fn notice(
     view: &MenuView,
     size: [f32; 2],
 ) -> Result<(), PaintError> {
-    let (status, label, action) = if let Some(ready) = &view.updates.ready {
+    let (status, label, action) = if view.updates.manual_pending {
+        (
+            format!("Close other {} windows", launcher::PRODUCT_NAME),
+            "Install pending",
+            None,
+        )
+    } else if let Some(ready) = &view.updates.ready {
         let status = if ready.protocol_required {
             "Update required"
         } else {
@@ -54,7 +62,7 @@ pub(super) fn notice(
             } else {
                 "Download update"
             },
-            MenuAction::Update(ready.action()),
+            Some(MenuAction::Update(ready.action())),
         )
     } else {
         let updates = &view.mods.library.updates;
@@ -75,7 +83,7 @@ pub(super) fn notice(
         (
             title,
             "View mod updates",
-            MenuAction::Mods(launcher::mods::Action::ViewUpdates),
+            Some(MenuAction::Mods(launcher::mods::Action::ViewUpdates)),
         )
     };
     if view.over_world {
@@ -103,7 +111,7 @@ pub(super) fn notice(
             [x, bottom - canvas.r(4.4), right, bottom],
             Variant::Secondary,
             label,
-            Some(action),
+            action,
         )
     })
 }
@@ -114,6 +122,20 @@ mod tests {
     use crate::review_tests::paint;
     use launcher::menu::updates::{Action, Ready};
     use std::collections::HashMap;
+
+    #[test]
+    fn a_manual_copy_waiting_for_the_original_client_shows_no_install_action() {
+        for size in [[1280.0, 720.0], [360.0, 240.0]] {
+            let mut view = MenuView::new(true, "Player".into());
+            view.updates.active = false;
+            view.updates.manual_pending = true;
+            assert!(available(&view));
+            let (_, hits, _) = paint(HashMap::new(), |canvas| {
+                notice(canvas, &view, size).unwrap();
+            });
+            assert!(hits.is_empty());
+        }
+    }
 
     #[test]
     fn corner_card_directly_offers_one_update_button_without_later_or_an_extra_opener() {

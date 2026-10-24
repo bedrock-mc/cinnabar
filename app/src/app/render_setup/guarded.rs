@@ -3,18 +3,19 @@
 use std::path::Path;
 
 use super::device::{
-    backends, flags, force_fallback, identity, instance, log, meets_requirements, request_device,
-    requested_adapter_name,
+    backends, dxc_failed, flags, force_fallback, identity, instance, log, meets_requirements,
+    request_device, requested_adapter_name,
 };
 use super::selection::{
-    Candidate, eligible, probe_backend, rank, try_candidates, with_recovery, with_video_fallback,
+    Candidate, VideoFallback, eligible, probe_backend, rank, summary, try_candidates,
+    with_recovery, with_video_fallback,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bevy::{
     app::OnAppExitSystems,
     prelude::{
-        App, AppExit, IntoScheduleConfigs, Last, Local, MessageReader, Res, ResMut, Resource,
-        Update,
+        App, AppExit, Commands, IntoScheduleConfigs, Last, Local, MessageReader, Res, ResMut,
+        Resource, Update, resource_exists,
     },
     render::{
         RenderPlugin,
@@ -22,13 +23,13 @@ use bevy::{
         settings::{RenderCreation, WgpuSettings},
     },
 };
-use launcher::graphics_backend::{Backend, Platform, candidates, default_order};
+use launcher::graphics_backend::{Backend, Platform, candidates};
 use launcher_host::renderer_startup::StartupGuard;
 
 #[derive(Resource)]
 struct RendererGuard(StartupGuard);
 
-/// Applies explicit overrides, vendor defaults and crash recovery before device creation.
+/// Applies explicit overrides, platform defaults and crash recovery before device creation.
 pub(super) fn render_plugin(
     app: &mut App,
     root: &Path,
@@ -37,10 +38,28 @@ pub(super) fn render_plugin(
     settings: WgpuSettings,
 ) -> Result<RenderPlugin> {
     let mut guard = StartupGuard::open(root)?;
-    guard.refresh_settings(graphics_api_revision)?;
+    guard.refresh_settings(graphics_api_revision, video.is_some())?;
     if let Some(previous) = &guard.interrupted {
         log(format_args!("Renderer startup interrupted: {previous:?}"));
     }
+    // Only Windows has a bundled DXC location; DX12 runs nowhere else.
+    if let (wgpu::Dx12Compiler::Fxc, Some(dxc)) = (
+        &settings.dx12_shader_compiler,
+        render::device_settings::bundled_dxc(),
+    ) {
+        if dxc.is_file() {
+            log(format_args!(
+                "Renderer DX12 shader compiler: FXC, as WGPU_DX12_COMPILER requests"
+            ));
+        } else {
+            log(format_args!(
+                "Renderer DX12 shader compiler: FXC, since {} is missing",
+                dxc.display()
+            ));
+        }
+    }
+    // Every probe shares it, so DXC that fails to load is logged once and later probes use FXC.
+    let dx12_shader_compiler = std::cell::RefCell::new(settings.dx12_shader_compiler.clone());
     let platform = Platform::current();
     let supported: Vec<_> = backends(wgpu::Instance::enabled_backend_features())
         .into_iter()
@@ -48,90 +67,164 @@ pub(super) fn render_plugin(
         .collect();
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let defaults = guard
-        .recovery
-        .working
-        .as_ref()
-        .and_then(|attempt| attempt.adapter.as_ref())
-        .map_or_else(
-            || platform.backends().to_vec(),
-            |adapter| default_order(platform, adapter),
-        );
+    let defaults = platform.backends();
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
-    let creation = with_video_fallback(environment.is_some(), video, |video| {
-        let explicit = environment.is_some() || video.is_some();
-        let allowed = candidates(&defaults, &supported, environment.as_deref(), video, &[]);
-        with_recovery(&mut guard, &allowed, explicit, |guard| {
-            let order = candidates(
-                &allowed,
-                &allowed,
+    let crashed = guard.recovery.crashed_choice();
+    let automatic = candidates(defaults, &supported, None, None, &[]);
+    let ((creation, chosen), fallback) = with_video_fallback(
+        environment.is_some(),
+        video,
+        crashed,
+        &automatic,
+        |video, excluded| {
+            let explicit = environment.is_some() || video.is_some();
+            let allowed = candidates(
+                defaults,
+                &supported,
                 environment.as_deref(),
                 video,
-                guard.recovery.failed_backends(),
+                excluded,
             );
-            let mut adapters = Vec::new();
-            for backend in order {
-                let found = probe_backend(guard, backend, explicit, || {
-                    log(format_args!(
-                        "Renderer probing {backend:?}; DX12 shader compiler: {:?}",
-                        settings.dx12_shader_compiler
-                    ));
-                    let display = app
-                        .world()
-                        .get_resource::<bevy::winit::DisplayHandleWrapper>()
-                        .map(|display| {
-                            Box::new(display.0.clone()) as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
-                        });
-                    let instance = instance(backend, &settings, display);
-                    let mut found = Vec::new();
-                    for adapter in
-                        bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
-                    {
-                        if let Err(error) = meets_requirements(&adapter) {
-                            log(format_args!(
-                                "Renderer skipping incompatible adapter {:?}: {error:#}",
-                                adapter.get_info()
-                            ));
-                            continue;
-                        }
-                        let candidate = Candidate {
-                            backend,
-                            identity: identity(&adapter),
-                            device_type: adapter.get_info().device_type,
-                            native: (instance.clone(), adapter),
+            with_recovery(&mut guard, &allowed, explicit, |guard| {
+                let failed = guard.recovery.failed_backends();
+                let order = candidates(&allowed, &allowed, environment.as_deref(), video, failed);
+                log(format_args!(
+                    "Renderer trying {order:?} (allowed {allowed:?}; excluded after interrupted startups: {failed:?})"
+                ));
+                let mut adapters = Vec::new();
+                let mut failures = Vec::new();
+                for backend in order {
+                    let found = probe_backend(guard, backend, explicit, || {
+                        let compiler = dx12_shader_compiler.borrow().clone();
+                        log(format_args!(
+                            "Renderer probing {backend:?}; DX12 shader compiler: {compiler:?}"
+                        ));
+                        let create = |compiler| {
+                            let display = app
+                                .world()
+                                .get_resource::<bevy::winit::DisplayHandleWrapper>()
+                                .map(|display| {
+                                    Box::new(display.0.clone())
+                                        as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
+                                });
+                            instance(backend, &settings, compiler, display)
                         };
-                        if eligible(
-                            &candidate,
-                            platform,
-                            requested_name.as_deref(),
-                            software,
-                            explicit,
-                        ) {
-                            found.push(candidate);
+                        let mut instance = create(compiler.clone());
+                        if dxc_failed(backend, &compiler, &instance) {
+                            log(format_args!(
+                                "Renderer could not load DX12 with {compiler:?}; using FXC"
+                            ));
+                            *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
+                            instance = create(wgpu::Dx12Compiler::Fxc);
                         }
-                    }
-                    Ok(found)
-                });
-                match found {
-                    Ok(found) => adapters.extend(found),
-                    Err(error) => {
-                        log(format_args!("Renderer {backend:?} probe failed: {error:#}"));
+                        let mut found = Vec::new();
+                        for adapter in
+                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
+                        {
+                            if let Err(error) = meets_requirements(&adapter) {
+                                failures.push(format!(
+                                    "{} ({backend:?}): {error:#}",
+                                    adapter.get_info().name
+                                ));
+                                log(format_args!(
+                                    "Renderer skipping incompatible adapter {:?}: {error:#}",
+                                    adapter.get_info()
+                                ));
+                                continue;
+                            }
+                            let candidate = Candidate {
+                                backend,
+                                identity: identity(&adapter),
+                                device_type: adapter.get_info().device_type,
+                                native: (instance.clone(), adapter),
+                            };
+                            if eligible(
+                                &candidate,
+                                platform,
+                                requested_name.as_deref(),
+                                software,
+                                explicit,
+                            ) {
+                                found.push(candidate);
+                            }
+                        }
+                        Ok(found)
+                    });
+                    match found {
+                        Ok(found) => adapters.extend(found),
+                        Err(error) => {
+                            failures.push(format!("{backend:?}: {error:#}"));
+                            log(format_args!("Renderer {backend:?} probe failed: {error:#}"));
+                        }
                     }
                 }
-            }
-            rank(&mut adapters, platform, settings.power_preference);
-            try_candidates(adapters, guard, explicit, |candidate| {
-                let (instance, adapter) = candidate.native;
-                bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
+                rank(&mut adapters, platform, settings.power_preference);
+                try_candidates(adapters, guard, explicit, |candidate| {
+                    let backend = candidate.backend;
+                    let (instance, adapter) = candidate.native;
+                    bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
+                        .map(|creation| (creation, backend))
+                })
+                .with_context(|| {
+                    if failures.is_empty() {
+                        "No compatible graphics adapter could be initialized".to_owned()
+                    } else {
+                        format!(
+                            "Graphics adapters lack required capabilities: {}",
+                            failures.join("; ")
+                        )
+                    }
+                })
             })
-        })
-    })?;
+        },
+    )?;
+    log(format_args!(
+        "{}",
+        summary(environment.as_deref(), video, chosen, fallback.as_ref())
+    ));
     install_guard(app, guard);
+    if let Some(fallback) = fallback {
+        install_notice(app, notice(&fallback, chosen, platform));
+    }
     Ok(RenderPlugin {
         render_creation: creation,
         ..Default::default()
     })
+}
+
+/// A failed saved Graphics API, shown once the menu is on screen.
+#[derive(Resource)]
+struct FallbackNotice(String);
+
+/// Tells the player which API replaced their saved choice and why.
+fn notice(fallback: &VideoFallback, chosen: Backend, platform: Platform) -> String {
+    format!(
+        "{} could not start, so this launch uses {}. Update your graphics driver or choose another Graphics API in Video settings. Reason: {}",
+        fallback.requested.label(platform),
+        chosen.label(platform),
+        fallback.reason
+    )
+}
+
+/// Queues the fallback notice for the menu.
+fn install_notice(app: &mut App, message: String) {
+    app.insert_resource(FallbackNotice(message)).add_systems(
+        Update,
+        show_fallback_notice.run_if(resource_exists::<FallbackNotice>),
+    );
+}
+
+/// Opens the notice once the menu is visible and no other dialog would be replaced.
+fn show_fallback_notice(
+    mut commands: Commands,
+    notice: Res<FallbackNotice>,
+    menu: Option<ResMut<client_shell::menu::MenuRuntime>>,
+) {
+    if let Some(mut menu) = menu.filter(|menu| menu.is_visible() && !menu.dialog_open()) {
+        menu.show_notice(&notice.0);
+        commands.remove_resource::<FallbackNotice>();
+    }
 }
 
 /// Tracks presentation and cancels startup on a controlled exit before window teardown.
@@ -160,7 +253,11 @@ async fn create_renderer(
 ) -> Result<RenderCreation> {
     let info = adapter.get_info();
     log(format_args!("Renderer creating device: {info:?}"));
+    let started = std::time::Instant::now();
     let (device, queue) = request_device(&adapter, settings).await?;
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.record("device", started.elapsed());
+    }
     log(format_args!(
         "Renderer device ready; awaiting first presentation: {info:?}"
     ));
@@ -184,7 +281,8 @@ fn mark_presented(
             Ok(()) => {
                 *done = true;
                 log(format_args!(
-                    "Renderer first frame completed; saved working backend and adapter"
+                    "Renderer first frame completed {:.1} ms after launch; saved working backend and adapter",
+                    crate::lifecycle::launched_at().elapsed().as_secs_f64() * 1e3
                 ));
             }
             Err(error) => {

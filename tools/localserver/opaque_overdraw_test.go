@@ -36,22 +36,14 @@ func TestOpaqueOverdrawSettingsAreOptInAndRepeatable(t *testing.T) {
 	}
 }
 
-func TestOpaqueOverdrawTakesPrecedenceOverNormalGeneration(t *testing.T) {
+func TestOpaqueOverdrawConfiguresEveryDimension(t *testing.T) {
 	s, err := parseSettings([]string{
-		"-dir", "fixture", "-addr", "127.0.0.1:0", "-generator", "normal", "-opaque-overdraw",
+		"-dir", "fixture", "-addr", "127.0.0.1:0", "-opaque-overdraw",
 	}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var conf server.Config
-	generators, err := s.configureGenerators(&conf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer generators.close()
-	if len(generators) != 0 || conf.Generator != nil {
-		t.Fatal("opaque-overdraw fixture initialized normal generators or their spawn source")
-	}
 	s.configureOpaqueOverdraw(&conf)
 	g, ok := conf.Generator(world.Overworld).(opaqueOverdrawGenerator)
 	if !ok {

@@ -26,6 +26,7 @@ fn committed_actor_names_preserve_login_chat_identity_and_credits_name() {
         pitch: 0.0,
         main_hand: None,
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,

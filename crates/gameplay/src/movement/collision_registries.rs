@@ -31,6 +31,7 @@ struct InteractionBlock {
     build_intention: bool,
     shape_flags: assets::block_shapes::ShapeFlags,
     tags: Arc<[Arc<str>]>,
+    states: Option<protocol::DiggerStates>,
     connections: Option<(
         assets::ModelFamily,
         assets::ContributorRole,
@@ -219,6 +220,7 @@ impl PhysicsCollisionRegistries {
                     .iter()
                     .map(|tag| Arc::from(tag.as_ref()))
                     .collect(),
+                states: mining::native_states(states.as_ref()),
                 connections: Some((
                     record.model_family,
                     record.contributor_role,
@@ -396,6 +398,7 @@ impl PhysicsCollisionRegistries {
                 continue;
             }
             let definition = Arc::new(block.clone());
+            let state_values = block.hashed_states();
             for state in 0..block.state_count {
                 let effective = block.physics_for_state(state);
                 Arc::make_mut(&mut self.interaction_blocks).insert(
@@ -408,6 +411,7 @@ impl PhysicsCollisionRegistries {
                         build_intention: false,
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
                         tags: Arc::clone(&block.tags),
+                        states: mining::custom_states(block, state_values.get(state as usize)),
                         connections: None,
                         second_part: None,
                         bed_rotation: None,
@@ -463,6 +467,7 @@ impl PhysicsCollisionRegistries {
                             build_intention: false,
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
                             tags: Arc::clone(&block.tags),
+                            states: mining::custom_states(block, Some(&state)),
                             connections: None,
                             second_part: None,
                             bed_rotation: None,
@@ -504,6 +509,21 @@ impl PhysicsCollisionRegistries {
             assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
         };
         map.get(&runtime_id).map(|block| block.identifier.as_ref())
+    }
+
+    /// Returns a custom block's `minecraft:sound` material for one admitted state.
+    pub fn block_sound_material(
+        &self,
+        mode: assets::NetworkIdMode,
+        runtime_id: u32,
+    ) -> Option<&str> {
+        let map = match mode {
+            assets::NetworkIdMode::Sequential => &self.interaction_blocks,
+            assets::NetworkIdMode::Hashed => &self.hashed_interaction_blocks,
+        };
+        map.get(&runtime_id)
+            .and_then(|block| block.custom_state.as_ref())
+            .and_then(|(definition, _state)| definition.sound.as_deref())
     }
 
     /// The offset from `runtime_id`'s block to the other block of its two-block structure

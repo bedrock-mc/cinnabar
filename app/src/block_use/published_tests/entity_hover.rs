@@ -181,3 +181,24 @@ fn entity_hover_follows_attack_and_swing_and_precedes_its_movement() {
         point
     );
 }
+
+#[test]
+fn entity_hover_reports_only_an_actor_within_the_survival_cap() {
+    for (z, within) in [(5.6, true), (4.1, false)] {
+        let (mut world, mut captured) = attack_hit_position_tests::unpublished_attack_fixture(z);
+        actor_use_tests::clear_line(&mut world);
+        let (point, distance) = actor_use_tests::ray_hit(&world);
+        assert_eq!(distance + 0.1 < 3.0, within, "distance {distance}");
+        world
+            .run_system_cached(crate::melee::prepare_melee)
+            .unwrap();
+        buttons(&mut world, vec![]);
+        let mut app = interaction_app(world);
+        let expected = if within {
+            vec![(99, Some(point))]
+        } else {
+            vec![(0, None)]
+        };
+        assert_eq!(hover_tick(&mut app, &mut captured, 102), expected);
+    }
+}

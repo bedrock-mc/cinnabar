@@ -1,8 +1,8 @@
 //! Source-owned retirement. Cancellation NEVER releases a submitted reservation.
 use assets::RuntimeAudioPcm;
-use rodio::Source;
 #[cfg(not(target_arch = "wasm32"))]
-use rodio::{OutputStream, OutputStreamHandle};
+use native::{Opening, Output, open_default_output, open_on_owner_thread};
+use rodio::Source;
 #[cfg(target_arch = "wasm32")]
 mod browser;
 #[cfg(target_arch = "wasm32")]
@@ -10,7 +10,9 @@ pub use browser::BrowserAudio;
 #[cfg(target_arch = "wasm32")]
 use browser::Output;
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::TryRecvError;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+use std::sync::mpsc::{self, Sender};
 use std::{
     sync::{
         Arc,
@@ -18,6 +20,9 @@ use std::{
     },
     time::Duration,
 };
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(not(target_arch = "wasm32"))]
 mod priority;
 
 pub(super) const VOICE_LIMIT: usize = 16;
@@ -158,31 +163,9 @@ impl Source for CancelablePcm {
     }
 }
 
-const MIXER_RATE: u32 = 48_000;
+const MIXER_RATE: u32 = crate::audio::OUTPUT_RATE;
 
-/// Keeps the default output alive on the platform that owns its callbacks.
-#[cfg(not(target_arch = "wasm32"))]
-struct Output {
-    handle: OutputStreamHandle,
-    _release: Sender<()>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl Output {
-    /// Submits one source to the retained native output handle.
-    fn play_raw(
-        &self,
-        source: impl Source<Item = f32> + Send + 'static,
-    ) -> Result<(), rodio::PlayError> {
-        self.handle.play_raw(source)
-    }
-}
-
-/// The shared output half from its owner thread, with a sender whose drop releases the stream.
-#[cfg(not(target_arch = "wasm32"))]
-type Opening<H = (OutputStreamHandle, u32)> = Receiver<Option<(H, Sender<()>)>>;
-
-/// Main-thread owner. No automatic reopen, alternate device enumeration or Sink.
+/// Main-thread access to the default output, capture or an in-memory test mixer.
 pub struct AudioDevice {
     /// The default output while its owner thread is still opening it.
     #[cfg(not(target_arch = "wasm32"))]
@@ -209,7 +192,7 @@ impl AudioDevice {
     /// Starts opening the default output on its own thread; later uses poll without waiting.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_default_once() -> Self {
-        match open_on_owner_thread(open_default_stream) {
+        match open_on_owner_thread(open_default_output, native::refresh_output) {
             Ok((opening, _owner)) => Self {
                 opening: Some(opening),
                 ..Self::disabled()
@@ -239,7 +222,7 @@ impl AudioDevice {
     pub fn browser_audio(&self) -> Option<BrowserAudio> {
         self.output.as_ref().and_then(Output::control)
     }
-    /// Takes the output once its owner thread finishes opening it; a failed open stays disabled.
+    /// Takes the shared mixer once its owner thread finishes the initial output attempt.
     fn resolve(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -247,10 +230,10 @@ impl AudioDevice {
                 return;
             };
             match opening.try_recv() {
-                Ok(Some(((handle, sample_rate), release))) => {
-                    self.sample_rate = sample_rate;
+                Ok(Some((mixer, release))) => {
+                    self.sample_rate = MIXER_RATE;
                     self.output = Some(Output {
-                        handle,
+                        mixer,
                         _release: release,
                     });
                 }
@@ -274,10 +257,13 @@ impl AudioDevice {
     #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) fn delayed_open() -> (Self, Sender<()>, std::thread::JoinHandle<()>) {
         let (release, wait) = mpsc::channel();
-        let (opening, owner) = open_on_owner_thread(move || {
-            let _ = wait.recv();
-            None::<((), (OutputStreamHandle, u32))>
-        })
+        let (opening, owner) = open_on_owner_thread(
+            move || {
+                let _ = wait.recv();
+                None::<((), native::SharedOutput)>
+            },
+            |_| {},
+        )
         .expect("start test output owner");
         (
             Self {
@@ -289,7 +275,7 @@ impl AudioDevice {
         )
     }
 
-    /// Output rate that streaming sources should produce to avoid a second conversion.
+    /// Mixer rate that streaming sources should produce before hardware-format conversion.
     pub fn sample_rate(&mut self) -> u32 {
         if self.capture.is_some() {
             return crate::audio::OUTPUT_RATE;
@@ -306,7 +292,11 @@ impl AudioDevice {
             return true;
         }
         self.resolve();
-        self.output.is_some()
+        // Native availability belongs to the retained mixer, including hardware handoffs.
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.output.is_some();
+        #[cfg(target_arch = "wasm32")]
+        self.output.as_ref().is_some_and(Output::available)
     }
     /// Only replaces hardware transport; admission and source ownership are real.
     #[cfg(any(test, feature = "test-support"))]
@@ -347,11 +337,7 @@ impl AudioDevice {
         let Some(output) = &self.output else {
             return false;
         };
-        if output
-            .play_raw(priority::CallbackSource::new(source))
-            .is_err()
-        {
-            self.output = None;
+        if output.play_raw(source).is_err() {
             return false;
         }
         true
@@ -370,64 +356,12 @@ impl AudioDevice {
         let Some(output) = &self.output else {
             return false;
         };
-        if output
-            .play_raw(priority::CallbackSource::new(
-                source.convert_samples::<f32>(),
-            ))
-            .is_err()
-        {
+        if output.play_raw(source.convert_samples::<f32>()).is_err() {
             // The rejected owned source drops normally. No permit is manually freed.
-            self.output = None;
             return false;
         }
         true
     }
-}
-
-/// Opens the default output at its default rate, or `None` with a logged reason.
-#[cfg(not(target_arch = "wasm32"))]
-fn open_default_stream() -> Option<(OutputStream, (OutputStreamHandle, u32))> {
-    use rodio::cpal::traits::{DeviceTrait, HostTrait};
-    let Some(device) = rodio::cpal::default_host().default_output_device() else {
-        bevy::log::warn!("named audio disabled: no default output device");
-        return None;
-    };
-    // Rodio may negotiate formats on this same device, never another device.
-    // Rodio opens the device at its default config first; match that rate.
-    let sample_rate = device
-        .default_output_config()
-        .map_or(MIXER_RATE, |config| config.sample_rate().0);
-    match OutputStream::try_from_device(&device) {
-        Ok((stream, handle)) => Some((stream, (handle, sample_rate))),
-        Err(error) => {
-            bevy::log::warn!("named audio disabled: default output initialization failed: {error}");
-            None
-        }
-    }
-}
-
-/// Runs `open` on a new thread that keeps the stream it opened until the sender sent back with
-/// the shared half drops; the stream never leaves that thread. `None` reports a failed open.
-#[cfg(not(target_arch = "wasm32"))]
-fn open_on_owner_thread<S: 'static, H: Send + 'static>(
-    open: impl FnOnce() -> Option<(S, H)> + Send + 'static,
-) -> std::io::Result<(Opening<H>, std::thread::JoinHandle<()>)> {
-    let (opened, opening) = mpsc::channel();
-    let owner = std::thread::Builder::new()
-        .name("audio-output".to_owned())
-        .spawn(move || {
-            let Some((stream, shared)) = open() else {
-                let _ = opened.send(None);
-                return;
-            };
-            let (release, released) = mpsc::channel::<()>();
-            if opened.send(Some((shared, release))).is_ok() {
-                // Ends once the device drops its sender.
-                let _ = released.recv();
-            }
-            drop(stream);
-        })?;
-    Ok((opening, owner))
 }
 
 #[cfg(test)]

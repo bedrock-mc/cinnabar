@@ -119,6 +119,7 @@ fn spawn_remotes(stream: &mut WorldStream) {
                     head_yaw: Some(if id == 2 { 90.0 } else { -90.0 }),
                     on_ground: Some(true),
                     teleported: false,
+                    force_local_move: false,
                     player_mode: None,
                     source_tick: None,
                     interpolation: protocol::ActorInterpolation {
@@ -798,7 +799,12 @@ fn emissive_cosmetics_draw_their_world_raster_fullbright_and_place_emitters() {
         placement.key,
         super::super::CosmeticEmitterKey {
             runtime_id: 2,
-            spawn_revision,
+            spawn_revision: stream
+                .authority()
+                .actor(2)
+                .unwrap()
+                .render_spawn_revision
+                .get(),
             item: glowing,
             emitter: 0,
         }

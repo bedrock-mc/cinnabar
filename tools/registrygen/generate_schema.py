@@ -63,7 +63,7 @@ def rust_properties(schema):
     lines += [f'            Self::{name} => {json.dumps(p["name"])},' for name, p in zip(names, properties)]
     lines += ["        }", "    }", "    /// Resolves a key once while admitting a registry record.", "    pub fn from_name(name: &str) -> Option<Self> {", "        match name {"]
     lines += [f'            {json.dumps(p["name"])} => Some(Self::{name}),' for name, p in zip(names, properties)]
-    lines += ["            _ => None,", "        }", "    }", "    /// Returns the complete pinned domain for this state key.", "    pub const fn domain(self) -> super::PropertyDomain {", "        match self {"]
+    lines += ["            _ => None,", "        }", "    }", "    /// Returns the complete pinned domain across all blocks; one block may admit fewer values.", "    pub const fn domain(self) -> super::PropertyDomain {", "        match self {"]
     for name, p in zip(names, properties):
         values = [v["value"] for v in p["values"]]
         if p["type"] == "bool":
@@ -74,6 +74,22 @@ def rust_properties(schema):
             domain = "String(&[" + ",".join(json.dumps(v) for v in values) + "])"
         lines.append(f"            Self::{name} => super::PropertyDomain::{domain},")
     lines += ["        }", "    }", "}"]
+    narrowed = {}
+    for name, p in zip(names, properties):
+        for group in p.get("block_domains", []):
+            if p["type"] == "bool":
+                raise ValueError(f"boolean property narrows per block: {p['name']}")
+            values = ",".join(json.dumps(v) for v in group["values"])
+            kind = "Int" if p["type"] == "int" else "String"
+            for block in group["blocks"]:
+                narrowed.setdefault(block, []).append(f"(BlockProperty::{name}, super::PropertyDomain::{kind}(&[{values}]))")
+    arms = {}
+    for block, entries in sorted(narrowed.items()):
+        arms.setdefault(tuple(entries), []).append(block)
+    lines += ["/// Returns the narrower domains one block's states admit, in key order.", "pub fn block_domains(block: &str) -> &'static [(BlockProperty, super::PropertyDomain)] {", "    match block {"]
+    for entries, blocks in sorted(arms.items(), key=lambda arm: arm[1]):
+        lines.append(f"        {' | '.join(json.dumps(b) for b in blocks)} => &[{', '.join(entries)}],")
+    lines += ["        _ => &[],", "    }", "}"]
     return lines
 
 

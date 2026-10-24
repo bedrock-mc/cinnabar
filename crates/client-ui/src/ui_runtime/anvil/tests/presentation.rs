@@ -677,36 +677,27 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
         assert_eq!(ledger.cursor_stack().unwrap().count, 1);
         assert_eq!(ledger.pending_request_count(), 1);
         use protocol::{
-            CraftResult, StackRequestAction as Action, StackRequestContainer as Container,
-            StackRequestSlot,
+            StackRequestAction as Action, StackRequestContainer as Container, StackRequestSlot,
         };
         let (packet, requests) = ledger.pending_batch().unwrap().unwrap();
         assert_eq!(requests, 1);
         let request_id = ledger.pending_request_id().unwrap();
+        // The prefilled book name is not the enchanted book's default name, so it is sent.
+        let typed = runtime.screen_state().anvil_name.clone();
         let expected = protocol::item_stack_request_packet_filtered(
             request_id,
             &[
                 Action::CraftRecipeOptional {
                     recipe_network_id: 0,
-                    filtered_string_index: -1,
-                },
-                Action::CraftResultsDeprecated {
-                    results: Arc::from([CraftResult {
-                        identifier: Arc::from("minecraft:enchanted_book"),
-                        aux: 0,
-                        count: 1,
-                        block_runtime_id: 0,
-                        user_data: Arc::clone(&preview.stack.extra_data),
-                    }]),
-                    crafts: 1,
-                },
-                Action::Consume {
-                    amount: u8::try_from(count).unwrap(),
-                    source: target,
+                    filtered_string_index: 0,
                 },
                 Action::Consume {
                     amount: 1,
                     source: material,
+                },
+                Action::Consume {
+                    amount: u8::try_from(count).unwrap(),
+                    source: target,
                 },
                 Action::Take {
                     amount: 1,
@@ -722,13 +713,10 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
                     },
                 },
             ],
-            &[],
+            &[typed],
         )
         .unwrap();
-        assert_eq!(
-            packet, expected,
-            "the result declaration and take both carry a single book"
-        );
+        assert_eq!(packet, expected, "the take carries a single book");
     }
 }
 

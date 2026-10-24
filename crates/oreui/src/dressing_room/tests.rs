@@ -9,6 +9,37 @@ use launcher::dressing_room::{
 use {super::*, launcher::menu::MenuAction};
 
 #[test]
+fn unowned_cosmetics_stay_visible_without_pointer_or_focus_targets() {
+    let free = render_model::hats::fixture::bunny();
+    let locked = render_model::hats::fixture::locked_bunny();
+    let mut view = view(STARTER_SKIN_NAMES.len());
+    Arc::make_mut(&mut view.dressing_room).section = DressingRoomSection::Cosmetics;
+    for size in [[1280.0, 10_000.0], [480.0, 10_000.0]] {
+        let mut visible = Vec::new();
+        let mut focus = Vec::new();
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            canvas.capture_focus = true;
+            visible = draw(canvas, &view, size).unwrap().visible_cosmetics;
+            focus = canvas.focus_hits.clone();
+        });
+        let items = cosmetics::Item::all();
+        assert!(visible.iter().any(|index| items[*index] == locked));
+        for targets in [&hits, &focus] {
+            assert!(
+                targets
+                    .iter()
+                    .any(|(action, _)| { *action == command(Action::SelectCosmetic(Some(free))) })
+            );
+            assert!(
+                !targets.iter().any(|(action, _)| {
+                    *action == command(Action::SelectCosmetic(Some(locked)))
+                })
+            );
+        }
+    }
+}
+
+#[test]
 fn cosmetic_categories_filter_tiles_and_keep_original_thumbnail_indices() {
     let head = render_model::hats::fixture::bunny();
     let back = render_model::hats::fixture::dragon_wings();

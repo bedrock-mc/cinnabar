@@ -218,6 +218,9 @@ fn referenced_textures(files: &[UiFile]) -> BTreeSet<String> {
             visit(&value, &mut paths);
         }
     }
+    let builtin =
+        pack_json::parse_jsonc(assets::TOUCH_LAYOUT).expect("built-in touch layout parses");
+    visit(&builtin, &mut paths);
     paths
 }
 
@@ -774,6 +777,25 @@ mod tests {
                 face.as_slice()
             );
         }
+    }
+
+    #[test]
+    fn built_in_touch_images_survive_without_the_extracted_pack() {
+        let pack = synthetic_pack();
+        write(
+            pack.path(),
+            "textures/gui/gui.png",
+            &png(256, 256, [80, 90, 100, 204]),
+        );
+        let compiled = compile_ui_assets(pack.path(), MANIFEST).unwrap();
+        let carrier = decode_ui_carrier(&compiled.bytes).unwrap();
+        std::fs::remove_dir_all(pack.path()).unwrap();
+        let texture = carrier
+            .texture("textures/gui/gui")
+            .expect("built-in touch atlas retained");
+        let page = &carrier.atlas_pages()[usize::from(texture.page)];
+        let at = (usize::from(texture.y) * page.width as usize + usize::from(texture.x)) * 4;
+        assert_eq!(&page.rgba8[at..at + 4], &[80, 90, 100, 204]);
     }
 
     #[test]

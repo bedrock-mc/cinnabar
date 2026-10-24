@@ -63,6 +63,22 @@ player's Creative-to-Survival transition. The user tested the rebuilt client and
 confirmed that breaking and dropped-item testing now work correctly. The
 capability matrix and retained-evidence transition regressions also pass.
 
+## Adventure block permission
+
+Before a destroy starts or a placement is predicted, the vanilla client runs its
+block-permission check. In Adventure that check does not read the Build or Mine grant
+first: with an empty hand it needs the PrivilegedBuilder ability, and while holding an
+item it needs that item's CanDestroy (destroying) or CanPlaceOn (placing) list to name
+the target block. Only then does the Mine or Build grant apply. Survival and Creative
+use the grants alone. A server that grants Mine to Adventure players therefore does
+not let a vanilla client start mining; Cinnabar previously did and sent destroy
+actions the server could only explain as a different game mode.
+
+List entries without a namespace name `minecraft:` blocks. The immutable-world
+setting, the WorldBuilder bypass, allow/deny and border blocks, and what a denied
+press sends (a DenyDestroyBlock action, an Attack swing and a missed swing) are not
+yet modeled.
+
 ## Incomplete historical replay
 
 The vanilla client applies a tick-zero `UpdatePlayerGameType` immediately. With a nonzero tick and

@@ -44,6 +44,7 @@ fn feed(main_hand: &str, first_person: bool) -> LocalPlayerFeed {
         pitch: 0.0,
         main_hand: Some(Arc::from(main_hand)),
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,

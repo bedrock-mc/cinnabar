@@ -71,6 +71,8 @@ func joinFailureKey(err error) string {
 		return bridgecontract.DisconnectKeyResourcePack
 	case errors.Is(err, jwt.ErrIssuedInTheFuture), errors.Is(err, jwt.ErrNotValidYet):
 		return bridgecontract.DisconnectKeyDeviceClock
+	case errors.Is(err, errLocalServerNoRoute):
+		return bridgecontract.DisconnectKeyLocalWorldOffline
 	case errors.As(err, &realm):
 		return bridgecontract.DisconnectKeyCantConnectToRealm
 	default:

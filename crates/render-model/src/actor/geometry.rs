@@ -92,9 +92,6 @@ fn append_cube_vertices(
     }
     let min = std::array::from_fn(|axis| (origin[axis] - inflate) / 16.0);
     let max = std::array::from_fn(|axis| (origin[axis] + size[axis] + inflate) / 16.0);
-    if (0..3).any(|axis| min[axis] > max[axis]) {
-        return Err(ActorRigGeometryError::InvalidAssetGeometry);
-    }
     let mut corners = cuboid_corners(min, max);
     let pivot = cube.pivot.map(|value| value.get() / 16.0);
     let cube_rotation = cube.rotation.map(|value| value.get());

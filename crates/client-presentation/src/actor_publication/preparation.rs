@@ -217,7 +217,16 @@ pub fn advance_actor_frame(
         *published_pack = pack.clone();
         *published_items = items.clone();
         *published_artwork = prepared.clone();
-        let staged = StagedSessionIcons::stage(items.as_deref());
+        let placed = crate::prepared_actor_artwork::session_icons(
+            &artwork,
+            pack.as_ref(),
+            items.as_ref().and_then(|items| items.icons.as_ref()),
+            prepared.as_deref(),
+        );
+        let icons = match placed {
+            Some(placed) => SessionIconInput::Placed(placed),
+            None => SessionIconInput::Staged(StagedSessionIcons::stage(items.as_deref())),
+        };
         if new_session || pack_changed {
             *pack_geometry_ready = SessionGeometryReady::default();
         }
@@ -235,7 +244,7 @@ pub fn advance_actor_frame(
             &mut scene,
             &resources,
             pack.as_deref(),
-            staged,
+            icons,
             pack_geometry_ready,
             equipment.as_deref_mut(),
             profiler.as_deref(),

@@ -16,7 +16,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world/chunk"
 )
 
-// TestTerrainFixtureOptIn preserves the normal generators and validates the offline generation flags.
+// TestTerrainFixtureOptIn preserves the default generators and validates the offline generation flags.
 func TestTerrainFixtureOptIn(t *testing.T) {
 	base := []string{"-dir", "unused", "-addr", "127.0.0.1:0"}
 	for _, enabled := range []bool{false, true} {
@@ -47,30 +47,6 @@ func TestTerrainFixtureOptIn(t *testing.T) {
 	for _, radius := range []int{terrainMinRadius - 1, terrainMaxRadius + 1} {
 		if _, err := parseSettings(append(base, "-terrain-fixture-radius", fmt.Sprint(radius)), io.Discard); err == nil {
 			t.Fatalf("invalid radius %d accepted", radius)
-		}
-	}
-}
-
-func TestTerrainFixtureTakesPrecedenceOverNormalGeneration(t *testing.T) {
-	s, err := parseSettings([]string{
-		"-dir", "unused", "-addr", "127.0.0.1:0", "-generator", "normal", "-terrain-fixture",
-	}, io.Discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var conf server.Config
-	generators, err := s.configureGenerators(&conf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer generators.close()
-	if len(generators) != 0 || conf.Generator != nil {
-		t.Fatal("fixture terrain initialized normal generators or their spawn source")
-	}
-	s.configureTerrainFixture(&conf)
-	for _, dim := range []world.Dimension{world.Overworld, world.Nether, world.End} {
-		if _, ok := conf.Generator(dim).(terrainFixture); !ok {
-			t.Fatalf("fixture generation lost precedence in %v", dim)
 		}
 	}
 }

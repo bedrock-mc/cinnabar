@@ -435,7 +435,7 @@ fn simultaneous_crossing(left: f32, right: f32) -> bool {
     left.to_bits().abs_diff(right.to_bits()) <= SIMULTANEOUS_CROSSING_ULPS
 }
 
-/// Clips a single box while rejecting rays parallel to an exposed face.
+/// Clips a single box with closed face bounds.
 fn ray_box(
     origin: Vec3,
     direction: Vec3,
@@ -452,7 +452,8 @@ fn ray_box(
     )
 }
 
-/// Clips one piece, admitting parallel faces only where the surrounding union is solid.
+/// Clips one piece with closed face bounds; a ray that starts on an exposed face plane and slides
+/// along it misses unless the surrounding union is solid there.
 fn ray_union_box(
     origin: Vec3,
     direction: Vec3,
@@ -536,14 +537,18 @@ fn ray_union_box(
     if distance == 0.0 && union_covers_parallel_neighbourhood(origin, Vec3::ZERO, pieces, offset) {
         return Some((0.0, 0.0, opposite_dominant_face(direction), origin));
     }
-    let delta = Vec3::new(
-        f64::from(ray.delta[0]),
-        f64::from(ray.delta[1]),
-        f64::from(ray.delta[2]),
-    );
-    if parallel_face && !union_covers_parallel_neighbourhood(geometric_point, delta, pieces, offset)
-    {
-        return None;
+    // Vanilla clips each face plane the segment crosses with closed bounds, so a ray lying in an
+    // exposed face plane still meets a face it crosses. It only misses when it starts on that
+    // plane and never crosses a face.
+    if parallel_face && entry <= 0.0 {
+        let delta = Vec3::new(
+            f64::from(ray.delta[0]),
+            f64::from(ray.delta[1]),
+            f64::from(ray.delta[2]),
+        );
+        if !union_covers_parallel_neighbourhood(geometric_point, delta, pieces, offset) {
+            return None;
+        }
     }
     let face = if pieces.len() > 1 && entry_faces.count_ones() > 1 {
         exposed_entry_face(

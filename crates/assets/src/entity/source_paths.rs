@@ -8,6 +8,16 @@ pub const GLINT_TEXTURE_IDENTIFIERS: [&str; 2] = [
     ACTOR_GLINT_TEXTURE_IDENTIFIER,
     ITEM_GLINT_TEXTURE_IDENTIFIER,
 ];
+/// Paper artwork sampled behind a filled map's server image.
+pub const MAP_BACKGROUND_TEXTURE_IDENTIFIER: &str = "textures/map/map_background";
+
+/// Shared equipment images retained alongside authored attachable textures.
+pub fn shared_equipment_textures() -> impl Iterator<Item = &'static str> {
+    GLINT_TEXTURE_IDENTIFIERS
+        .into_iter()
+        .chain([MAP_BACKGROUND_TEXTURE_IDENTIFIER])
+}
+
 pub const BED_GEOMETRY_IDENTIFIER: &str = "geometry.bed";
 pub const CAPE_GEOMETRY_IDENTIFIER: &str = "geometry.cape";
 pub const ELYTRA_GEOMETRY_IDENTIFIER: &str = "geometry.elytra";

@@ -155,7 +155,7 @@ impl PreviewParticles {
                 seed: u64::from(item.index()) << 8 | index as u64,
                 tile: emitter.sprite.as_ref().map(|sprite| TileRequest {
                     key: sprite.key,
-                    size: hats::COSMETIC_SPRITE_SIDE,
+                    size: sprite.side,
                     pixels: Arc::clone(&sprite.pixels),
                 }),
                 ..Default::default()

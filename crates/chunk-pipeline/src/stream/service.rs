@@ -5,6 +5,7 @@
 use std::{
     any::Any,
     panic::{AssertUnwindSafe, catch_unwind, resume_unwind},
+    sync::Mutex,
     thread::JoinHandle,
 };
 
@@ -19,55 +20,59 @@ const SERVICE_SLICE: Duration = Duration::from_micros(250);
 const SERVICE_IDLE_WAIT: Duration = Duration::from_millis(16);
 
 impl WorldStream {
-    /// Polls in slices until `yield_request` is raised, sleeping on worker results whenever a
-    /// slice finds nothing to do. Returns the work done and the time spent polling.
-    fn service_until_yield(
+    /// Polls one slice and reports whether it found nothing to do, so the caller may sleep.
+    fn service_slice(
         &mut self,
         camera_position: [f32; 3],
         max_mesh_jobs: usize,
         yield_request: &Arc<AtomicBool>,
-        wake: &Receiver<()>,
-    ) -> (WorldStreamPoll, Duration) {
-        #[cfg(feature = "tracy")]
-        let _zone = tracing::info_span!("stream.service").entered();
+    ) -> (WorldStreamPoll, bool) {
         self.service_yield = Some(Arc::clone(yield_request));
-        let mut total = WorldStreamPoll::default();
-        let mut busy = Duration::ZERO;
-        while !yield_request.load(Ordering::Acquire) {
-            let started = Instant::now();
-            self.frame_deadline = Some(started + SERVICE_SLICE);
-            let report = self.poll(camera_position, max_mesh_jobs);
-            busy += started.elapsed();
-            total.accumulate(report);
-            // Commits, worker activity and queued publications all count as progress.
-            // Only a slice that made none sleeps until a worker result can change that.
-            if !self.retention_due
-                && !self.has_pending_full_detail()
-                && report == WorldStreamPoll::default()
-                && self.decode_rx.is_empty()
-                && self.lighting.rx.is_empty()
-            {
-                // Queued mesh results here wait on capacity only the frame frees.
-                self.wait_for_worker_result(wake, self.mesh_rx.is_empty(), SERVICE_IDLE_WAIT);
-            }
-        }
+        self.frame_deadline = Some(Instant::now() + SERVICE_SLICE);
+        let report = self.poll(camera_position, max_mesh_jobs);
         self.service_yield = None;
-        (total, busy)
+        // Commits, worker activity and queued publications all count as progress.
+        // Only a slice that made none sleeps until a worker result can change that.
+        let idle = !self.retention_due
+            && !self.has_pending_full_detail()
+            && report == WorldStreamPoll::default()
+            && self.decode_rx.is_empty()
+            && self.lighting.rx.is_empty();
+        (report, idle)
     }
 
-    /// Blocks until a decode or light result, a mesh result when `mesh` is set, or a wake
-    /// signal is ready, or until `timeout`.
-    fn wait_for_worker_result(&self, wake: &Receiver<()>, mesh: bool, timeout: Duration) {
+    /// Worker result channels an idle service sleeps on; mesh results only while none queue,
+    /// since queued ones wait on capacity only the frame frees.
+    fn idle_wait(&self) -> IdleWait {
+        IdleWait {
+            decode: self.decode_rx.clone(),
+            light: self.lighting.rx.clone(),
+            mesh: self.mesh_rx.is_empty().then(|| self.mesh_rx.clone()),
+        }
+    }
+}
+
+/// Clones of the lent stream's worker channels, so the service sleeps without holding it.
+struct IdleWait {
+    decode: Receiver<DecodeCompletion>,
+    light: Receiver<LightCompletion>,
+    mesh: Option<Receiver<MeshCompletion>>,
+}
+
+impl IdleWait {
+    /// Blocks until a worker result or a wake is ready, or until `timeout`, consuming the wake.
+    fn wait(&self, wake: &Receiver<()>, yield_requested: bool, timeout: Duration) {
         let mut select = Select::new();
-        select.recv(&self.decode_rx);
-        select.recv(&self.lighting.rx);
-        if mesh {
-            select.recv(&self.mesh_rx);
+        select.recv(&self.decode);
+        select.recv(&self.light);
+        if let Some(mesh) = &self.mesh {
+            select.recv(mesh);
         }
         select.recv(wake);
         let ready = {
             #[cfg(feature = "tracy")]
-            let _zone = tracing::info_span!("stream.service_wait", mesh).entered();
+            let _zone =
+                tracing::info_span!("stream.service_wait", mesh = self.mesh.is_some()).entered();
             select.ready_timeout(timeout)
         };
         #[cfg(feature = "tracy")]
@@ -75,19 +80,17 @@ impl WorldStream {
             let source = match ready {
                 Ok(0) => "decode",
                 Ok(1) => "light",
-                Ok(2) if mesh => "mesh",
+                Ok(2) if self.mesh.is_some() => "mesh",
                 Ok(_) => "reclaim",
                 Err(_) => "timeout",
             };
-            let _zone = tracing::info_span!(
-                "stream.service_woke",
-                source,
-                yield_requested = self.service_yield_requested(),
-            )
-            .entered();
+            let _zone =
+                tracing::info_span!("stream.service_woke", source, yield_requested).entered();
         }
         #[cfg(not(feature = "tracy"))]
-        let _ = ready;
+        let _ = (ready, yield_requested);
+        // A wake only asks for a state check; left queued, it would cut every later wait short.
+        let _ = wake.try_recv();
     }
 }
 
@@ -106,18 +109,41 @@ impl WorldStreamPoll {
     }
 }
 
-struct ServiceLaunch {
+/// A stream lent to the service and the work done on it; either thread may hold it.
+struct Lent {
     handoff_id: u64,
     stream: WorldStream,
     camera_position: [f32; 3],
     max_mesh_jobs: usize,
+    report: WorldStreamPoll,
+    busy: Duration,
+    /// When the service first polled this loan; `None` while it has not run.
+    serving_since: Option<Instant>,
 }
 
-// Keep successful handoffs inline: boxing the stream would allocate on every frame.
-#[allow(clippy::large_enum_variant)]
-enum ServiceResult {
-    Done(ServicedStream),
-    Panicked(Box<dyn Any + Send>),
+#[derive(Default)]
+struct Slot {
+    lent: Option<Lent>,
+    panic: Option<Box<dyn Any + Send>>,
+    shutdown: bool,
+}
+
+/// State both threads lock. The service holds the lock only while it polls a slice, so a
+/// reclaim never waits for an idle or descheduled service thread to wake up.
+struct Shared {
+    slot: Mutex<Slot>,
+    yield_request: Arc<AtomicBool>,
+    /// Lets tests keep the service thread from taking any turn.
+    #[cfg(test)]
+    turns: Mutex<()>,
+}
+
+impl Shared {
+    fn slot(&self) -> std::sync::MutexGuard<'_, Slot> {
+        self.slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 }
 
 /// A stream handed back by [`WorldStreamService::reclaim`], with the work done meanwhile.
@@ -127,22 +153,20 @@ pub struct ServicedStream {
     pub report: WorldStreamPoll,
     /// Time the service thread spent polling, excluding idle waits for worker results.
     pub busy: Duration,
-    /// Time from launch until the service yielded the stream.
+    /// Time from the service's first poll of this loan until the reclaim; zero if it never ran.
     pub held: Duration,
 }
 
-/// Owns one service thread that polls a checked-out [`WorldStream`] between frames.
+/// Owns one service thread that polls a lent [`WorldStream`] between frames.
 ///
-/// The frame thread hands the stream over with [`launch`](Self::launch) once nothing else in
-/// the frame needs it, and takes it back with [`reclaim`](Self::reclaim) before anything does.
-/// Reclaim waits for the active poll to yield; work already running can exceed its slice.
+/// The frame thread lends the stream with [`launch`](Self::launch) once nothing else in the
+/// frame needs it, and takes it back with [`reclaim`](Self::reclaim) before anything does.
+/// Reclaim waits only for a poll slice in progress; work already running can exceed its slice.
 /// A panic on the service thread resumes on the reclaiming thread, as it would have had the
 /// poll run there.
 pub struct WorldStreamService {
-    launches: Option<Sender<ServiceLaunch>>,
-    results: Receiver<ServiceResult>,
+    shared: Arc<Shared>,
     wake: Sender<()>,
-    yield_request: Arc<AtomicBool>,
     servicing: bool,
     handoff_id: u64,
     thread: Option<JoinHandle<()>>,
@@ -151,22 +175,23 @@ pub struct WorldStreamService {
 impl WorldStreamService {
     /// Starts the service thread, named `stream-service`.
     pub fn spawn() -> std::io::Result<Self> {
-        // One-slot channels keep the hand-off allocation-free after startup.
-        let (launches, launch_rx) = bounded::<ServiceLaunch>(1);
-        let (result_tx, results) = bounded(1);
+        // One-slot channel and a preallocated slot keep the hand-off allocation-free.
         let (wake, wake_rx) = bounded(1);
-        let yield_request = Arc::new(AtomicBool::new(false));
+        let shared = Arc::new(Shared {
+            slot: Mutex::new(Slot::default()),
+            yield_request: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            turns: Mutex::new(()),
+        });
         let thread = std::thread::Builder::new()
             .name("stream-service".to_owned())
             .spawn({
-                let yield_request = Arc::clone(&yield_request);
-                move || serve(&launch_rx, &result_tx, &wake_rx, &yield_request)
+                let shared = Arc::clone(&shared);
+                move || serve(&shared, &wake_rx)
             })?;
         Ok(Self {
-            launches: Some(launches),
-            results,
+            shared,
             wake,
-            yield_request,
             servicing: false,
             handoff_id: 0,
             thread: Some(thread),
@@ -179,11 +204,11 @@ impl WorldStreamService {
         self.servicing
     }
 
-    /// Hands `stream` to the service thread, which polls it until the next reclaim.
+    /// Lends `stream` to the service thread, which polls it until the next reclaim.
     ///
     /// # Panics
     ///
-    /// If the service already holds a stream or its thread has exited.
+    /// If the service already holds a stream.
     pub fn launch(
         &mut self,
         mut stream: WorldStream,
@@ -197,25 +222,28 @@ impl WorldStreamService {
         #[cfg(feature = "tracy")]
         let _zone =
             tracing::info_span!("stream.service_launch", handoff_id = self.handoff_id).entered();
-        self.yield_request.store(false, Ordering::Release);
-        self.launches
-            .as_ref()
-            .expect("service is live until dropped")
-            .send(ServiceLaunch {
+        {
+            let mut slot = self.shared.slot();
+            self.shared.yield_request.store(false, Ordering::Release);
+            slot.lent = Some(Lent {
                 handoff_id: self.handoff_id,
                 stream,
                 camera_position,
                 max_mesh_jobs,
-            })
-            .unwrap_or_else(|_| panic!("stream service thread exited"));
+                report: WorldStreamPoll::default(),
+                busy: Duration::ZERO,
+                serving_since: None,
+            });
+        }
+        let _ = self.wake.try_send(());
         self.servicing = true;
     }
 
-    /// Asks the service to yield and waits for the stream; `None` when it holds none.
+    /// Asks the service to yield and takes the stream back; `None` when it holds none.
     ///
     /// # Panics
     ///
-    /// Resumes a panic raised while servicing, or panics if the service thread exited.
+    /// Resumes a panic raised while servicing.
     pub fn reclaim(&mut self) -> Option<ServicedStream> {
         if !self.servicing {
             return None;
@@ -224,106 +252,128 @@ impl WorldStreamService {
         #[cfg(feature = "tracy")]
         let _zone =
             tracing::info_span!("stream.service_reclaim", handoff_id = self.handoff_id,).entered();
-        self.yield_request.store(true, Ordering::Release);
-        let _ = self.wake.try_send(());
-        let received = {
+        self.shared.yield_request.store(true, Ordering::Release);
+        let taken = {
             #[cfg(feature = "tracy")]
             let _zone =
                 tracing::info_span!("stream.service_receive", handoff_id = self.handoff_id,)
                     .entered();
-            self.results.recv()
-        };
-        match received {
-            Ok(ServiceResult::Done(serviced)) => {
-                #[cfg(feature = "tracy")]
-                let _zone = tracing::info_span!(
-                    "stream.service_received",
-                    handoff_id = self.handoff_id,
-                    service_item_max_ms = serviced.report.service_item_max.as_secs_f64() * 1000.0,
-                    maintenance_items = serviced.report.maintenance_items,
-                    commit_steps = serviced.report.commit_steps,
-                )
-                .entered();
-                Some(serviced)
+            let mut slot = self.shared.slot();
+            if let Some(payload) = slot.panic.take() {
+                drop(slot);
+                resume_unwind(payload);
             }
-            Ok(ServiceResult::Panicked(payload)) => resume_unwind(payload),
-            Err(_) => panic!("stream service thread exited while servicing"),
-        }
+            slot.lent.take()
+        };
+        let lent = taken.expect("a lent stream stays in the slot until reclaimed");
+        let held = lent
+            .serving_since
+            .map_or(Duration::ZERO, |since| since.elapsed());
+        let mut stream = lent.stream;
+        stream.service_window = held;
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!(
+            "stream.service_received",
+            handoff_id = lent.handoff_id,
+            service_item_max_ms = lent.report.service_item_max.as_secs_f64() * 1000.0,
+            maintenance_items = lent.report.maintenance_items,
+            commit_steps = lent.report.commit_steps,
+        )
+        .entered();
+        #[cfg(not(feature = "tracy"))]
+        let _ = lent.handoff_id;
+        Some(ServicedStream {
+            stream,
+            report: lent.report,
+            busy: lent.busy,
+            held,
+        })
     }
 }
 
 impl Drop for WorldStreamService {
     fn drop(&mut self) {
-        if self.servicing {
-            self.servicing = false;
-            self.yield_request.store(true, Ordering::Release);
-            let _ = self.wake.try_send(());
-            // Drops a held stream here rather than on a detached thread; a service panic
-            // already ended its run, so only the payload is discarded.
-            let _ = self.results.recv();
-        }
-        drop(self.launches.take());
+        self.shared.yield_request.store(true, Ordering::Release);
+        // Waits for at most one slice in progress; a held stream drops with the service.
+        let lent = {
+            let mut slot = self.shared.slot();
+            slot.shutdown = true;
+            slot.lent.take()
+        };
+        drop(lent);
+        let _ = self.wake.try_send(());
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
 }
 
-fn serve(
-    launches: &Receiver<ServiceLaunch>,
-    results: &Sender<ServiceResult>,
-    wake: &Receiver<()>,
-    yield_request: &Arc<AtomicBool>,
-) {
-    while let Ok(ServiceLaunch {
-        handoff_id,
-        mut stream,
-        camera_position,
-        max_mesh_jobs,
-    }) = launches.recv()
-    {
-        #[cfg(feature = "tracy")]
-        let _zone = tracing::info_span!("stream.service_run", handoff_id).entered();
-        #[cfg(not(feature = "tracy"))]
-        let _ = handoff_id;
-        // A wake left by an earlier reclaim must not cut this run's first idle wait short.
-        while wake.try_recv().is_ok() {}
-        let started = Instant::now();
-        let serviced = catch_unwind(AssertUnwindSafe(|| {
-            stream.service_until_yield(camera_position, max_mesh_jobs, yield_request, wake)
-        }));
-        let result = match serviced {
-            Ok((report, busy)) => {
-                let held = started.elapsed();
-                stream.service_window = held;
-                ServiceResult::Done(ServicedStream {
-                    stream,
-                    report,
-                    busy,
-                    held,
-                })
-            }
-            Err(payload) => ServiceResult::Panicked(payload),
-        };
-        #[cfg(feature = "tracy")]
-        let _zone = match &result {
-            ServiceResult::Done(serviced) => tracing::info_span!(
-                "stream.service_return",
-                handoff_id,
-                service_item_max_ms = serviced.report.service_item_max.as_secs_f64() * 1000.0,
-                maintenance_items = serviced.report.maintenance_items,
-                commit_steps = serviced.report.commit_steps,
-            ),
-            ServiceResult::Panicked(_) => {
-                tracing::info_span!("stream.service_panicked", handoff_id)
-            }
-        }
-        .entered();
-        if results.send(result).is_err() {
+/// Sleeps until woken, then polls whatever stream is lent until it is reclaimed.
+fn serve(shared: &Shared, wake: &Receiver<()>) {
+    while wake.recv().is_ok() {
+        if service_lent(shared, wake) {
             return;
         }
     }
 }
+
+/// Polls the lent stream in slices until it is reclaimed or yield is requested; returns
+/// whether the service is shutting down.
+fn service_lent(shared: &Shared, wake: &Receiver<()>) -> bool {
+    loop {
+        #[cfg(test)]
+        let _turn = shared
+            .turns
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut slot = shared.slot();
+        if slot.shutdown {
+            return true;
+        }
+        if shared.yield_request.load(Ordering::Acquire) {
+            return false;
+        }
+        let Some(lent) = slot.lent.as_mut() else {
+            return false;
+        };
+        #[cfg(feature = "tracy")]
+        let _zone =
+            tracing::info_span!("stream.service_run", handoff_id = lent.handoff_id).entered();
+        let started = Instant::now();
+        lent.serving_since.get_or_insert(started);
+        let polled = catch_unwind(AssertUnwindSafe(|| {
+            lent.stream.service_slice(
+                lent.camera_position,
+                lent.max_mesh_jobs,
+                &shared.yield_request,
+            )
+        }));
+        match polled {
+            Ok((report, idle)) => {
+                lent.busy += started.elapsed();
+                lent.report.accumulate(report);
+                if idle {
+                    let wait = lent.stream.idle_wait();
+                    drop(slot);
+                    wait.wait(
+                        wake,
+                        shared.yield_request.load(Ordering::Acquire),
+                        SERVICE_IDLE_WAIT,
+                    );
+                }
+            }
+            Err(payload) => {
+                // The stream may be inconsistent; it drops here and the panic resumes on reclaim.
+                slot.lent = None;
+                slot.panic = Some(payload);
+                return false;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 #[cfg(all(test, feature = "tracy"))]
 mod trace_tests;

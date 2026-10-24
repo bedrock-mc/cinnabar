@@ -580,7 +580,9 @@ fn face_facing() -> protocol::CustomBlocks {
     protocol::CustomBlocks {
         blocks: Arc::from([protocol::CustomBlock {
             name: Arc::from("test:face_facing"),
+            sound: None,
             tags: Arc::default(),
+            tags_complete: true,
             state_count: 6,
             collides: true,
             collision_boxes: Some([base].into()),
@@ -593,7 +595,7 @@ fn face_facing() -> protocol::CustomBlocks {
                 item_visual: None,
                 permutations: Box::default(),
                 components_incomplete: false,
-                mining_incomplete: false,
+                mining_truncated: false,
                 state_axes: Box::new([CustomStateAxis {
                     name: Arc::from("minecraft:block_face"),
                     values: ["down", "up", "north", "south", "west", "east"]

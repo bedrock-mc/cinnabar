@@ -28,7 +28,7 @@ pub(crate) fn facing_states(
     if !only_keys(&states, keys) {
         return None;
     }
-    crate::placement_state::valid_property(&states, P::FacingDirection)?;
+    crate::placement_state::valid_property(fact, &states, P::FacingDirection)?;
     let direction = body_facing(position, player, yaw, rotation)?;
     set_value(
         &mut states,

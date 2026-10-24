@@ -2,14 +2,8 @@
 
 use bevy::ecs::system::RunSystemOnce;
 use bevy::{
-    core_pipeline::core_3d::{Opaque3d, Transparent3d},
     prelude::*,
-    render::{
-        ExtractSchedule, Render, RenderApp, RenderStartup,
-        render_phase::DrawFunctions,
-        render_resource::PipelineCache,
-        renderer::{RenderDevice, RenderGraph, RenderQueue},
-    },
+    render::{RenderApp, renderer::RenderDevice},
 };
 use std::sync::Arc;
 
@@ -56,26 +50,7 @@ pub(crate) fn metal_device() -> Option<(RenderDevice, wgpu::Queue)> {
 /// Installs the real owner and startup systems on Metal without a window or render submission.
 pub(crate) fn app(plugin: impl Plugin) -> Option<App> {
     let (device, queue) = metal_device()?;
-    let mut render_app = SubApp::new();
-    render_app
-        .insert_resource(PipelineCache::new(device.clone(), true))
-        .insert_resource(device)
-        .insert_resource(RenderQueue::new(queue))
-        .add_schedule(RenderGraph::base_schedule())
-        .init_resource::<DrawFunctions<Opaque3d>>()
-        .init_resource::<DrawFunctions<Transparent3d>>()
-        .add_schedule(Schedule::new(RenderStartup))
-        .add_schedule(Render::base_schedule())
-        .add_schedule(Schedule::new(ExtractSchedule));
-    let mut app = App::new();
-    app.insert_resource(Assets::<Shader>::default())
-        .insert_sub_app(RenderApp, render_app);
-    app.add_plugins(plugin);
-    app.finish();
-    app.sub_app_mut(RenderApp)
-        .world_mut()
-        .run_schedule(RenderStartup);
-    Some(app)
+    Some(crate::render_test_support::owner_app(device, queue, plugin))
 }
 
 /// Counts all live Metal buffers, including queue staging hidden from destination handles.

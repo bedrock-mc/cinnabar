@@ -7,8 +7,9 @@ publish = false
 
 [package.metadata.cinnabar]
 reads = [
+    ".gitattributes",
     "crates/server-experience/schema",
-    "tools/localserver/extension",
+    "tools/localserver/cinnabarext",
 ]
 
 [dependencies]

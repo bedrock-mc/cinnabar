@@ -14,6 +14,21 @@ pub fn sample_actor_liquids(
     world: &impl CollisionWorld,
     body: Aabb,
 ) -> Result<(bool, bool), WorldQueryError> {
+    sample_liquid_contacts(body, |block| {
+        let mut bits = 0;
+        world.visit_block_materials(block, &mut |layer| bits |= layer.flags.bits())?;
+        Ok(
+            BlockPhysicsFlags::from_bits(bits & BlockPhysicsFlags::KNOWN_BITS)
+                .expect("known physics flag mask stays valid"),
+        )
+    })
+}
+
+/// Samples both native contact probes using the caller's material cache or world reads.
+pub(crate) fn sample_liquid_contacts(
+    body: Aabb,
+    mut materials: impl FnMut([i32; 3]) -> Result<BlockPhysicsFlags, WorldQueryError>,
+) -> Result<(bool, bool), WorldQueryError> {
     crate::world::validate_collision_query(body)?;
     let min = [body.min.x, body.min.y, body.min.z].map(|value| value.floor() as i32);
     let max = [body.max.x, body.max.y, body.max.z].map(|value| value.floor() as i32);
@@ -32,10 +47,9 @@ pub fn sample_actor_liquids(
                     return Err(WorldQueryError::QueryExtentExceeded);
                 }
                 samples += 1;
-                world.visit_block_materials(block, &mut |layer| {
-                    water |= water_contact && layer.flags.contains(BlockPhysicsFlags::WATER);
-                    lava |= lava_contact && layer.flags.contains(BlockPhysicsFlags::LAVA);
-                })?;
+                let flags = materials(block)?;
+                water |= water_contact && flags.contains(BlockPhysicsFlags::WATER);
+                lava |= lava_contact && flags.contains(BlockPhysicsFlags::LAVA);
             }
         }
     }
@@ -53,15 +67,19 @@ pub(crate) fn material_submersion(
     if !liquids.iter().any(|liquid| facts.flags.contains(*liquid)) {
         return false;
     }
+    (point.y as f32) < liquid_surface_y(facts, block[1])
+}
+
+/// Height of a liquid block's surface: the block top lowered by its depth state, where a
+/// falling (full-height) liquid counts as a source.
+pub(crate) fn liquid_surface_y(facts: BlockPhysicsFacts, block_y: i32) -> f32 {
     let level = if facts.fluid_height_blocks >= 1.0 {
         1.0
     } else {
         (LIQUID_LEVEL_DIVISOR - (facts.fluid_height_blocks as f32 * LIQUID_LEVEL_DIVISOR).round())
             .clamp(1.0, 8.0)
     };
-    let surface =
-        (i64::from(block[1]) + 1) as f32 - (level / LIQUID_LEVEL_DIVISOR + HEAD_SURFACE_OFFSET);
-    (point.y as f32) < surface
+    (i64::from(block_y) + 1) as f32 - (level / LIQUID_LEVEL_DIVISOR + HEAD_SURFACE_OFFSET)
 }
 
 /// Native liquid fetch shrinks each probe and clamps it to the body's center.

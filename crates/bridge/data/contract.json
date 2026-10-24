@@ -129,7 +129,8 @@
     {"rust_name": "DISCONNECT_KEY_OUTDATED_SERVER", "go_name": "DisconnectKeyOutdatedServer", "value": "disconnectionScreen.outdatedServer", "rust_type": "str", "doc": "Core disconnect message: The client's protocol is newer than the core's."},
     {"rust_name": "DISCONNECT_KEY_INVALID_SKIN", "go_name": "DisconnectKeyInvalidSkin", "value": "disconnectionScreen.invalidSkin", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its skin."},
     {"rust_name": "DISCONNECT_KEY_INVALID_NAME", "go_name": "DisconnectKeyInvalidName", "value": "disconnectionScreen.invalidName", "rust_type": "str", "doc": "Core disconnect message: The client's login data is invalid only because of its player name."},
-    {"rust_name": "DISCONNECT_KEY_DEVICE_CLOCK", "go_name": "DisconnectKeyDeviceClock", "value": "cinnabar.disconnect.deviceClock", "rust_type": "str", "doc": "Core disconnect message: The sign-in token was rejected because this device's clock is behind."}
+    {"rust_name": "DISCONNECT_KEY_DEVICE_CLOCK", "go_name": "DisconnectKeyDeviceClock", "value": "cinnabar.disconnect.deviceClock", "rust_type": "str", "doc": "Core disconnect message: The sign-in token was rejected because this device's clock is behind."},
+    {"rust_name": "DISCONNECT_KEY_LOCAL_WORLD_OFFLINE", "go_name": "DisconnectKeyLocalWorldOffline", "value": "cinnabar.disconnect.localWorldOffline", "rust_type": "str", "doc": "Core disconnect message: The local Bedrock Dedicated Server world cannot be reached without a network connection."}
   ],
   "string_lists": [
     {"rust_name": "INBOX_CATEGORIES", "go_name": "InboxCategories", "values": ["News", "Realms", "Invites", "Feedback"], "doc": "Inbox category names in display order."},

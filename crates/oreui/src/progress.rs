@@ -193,8 +193,12 @@ fn draw_fitted(
         logo = None;
         logo_height = 0.0;
     }
-    let height = (pad * 2.0 + body_height + progress_height + footer_height)
-        .min(size[1] - margin * 2.0 - logo_height);
+    let natural = pad * 2.0 + body_height + progress_height + footer_height;
+    let limit = size[1] - margin * 2.0 - logo_height;
+    // Decided before the subtractions below, whose rounding could otherwise report a
+    // sub-pixel overflow and show a scrollbar on status that fits.
+    let overflows = natural > limit;
+    let height = natural.min(limit);
     let group_top = (size[1] - height - logo_height) * 0.5;
     if let Some(icon) = logo {
         let x = (size[0] - logo_size[0]) * 0.5;
@@ -212,18 +216,19 @@ fn draw_fitted(
     let right = x + width - pad;
     let body_bottom = bounds[3] - pad - progress_height - footer_height;
     let viewport = [left, y + pad, right, body_bottom];
-    let content_width = inner
-        - if body_height > viewport[3] - viewport[1] {
-            canvas.r(1.6)
-        } else {
-            0.0
-        };
+    let content_width = inner - if overflows { canvas.r(1.6) } else { 0.0 };
     if content_width < inner {
         [title_height, detail_height, _] =
             progress.status_heights(canvas, content_width, &title)?;
         body_height = loader_height + title_height + detail_height;
     }
-    let max = (body_height - (viewport[3] - viewport[1])).max(0.0);
+    // Status that fits reports exactly the viewport's height, so it never scrolls.
+    let scrolled_height = if overflows {
+        body_height
+    } else {
+        viewport[3] - viewport[1]
+    };
+    let max = (scrolled_height - (viewport[3] - viewport[1])).max(0.0);
     if let Some(offset) = canvas.offsets.get_mut("loading_status") {
         *offset = offset.clamp(0.0, max);
     }
@@ -256,7 +261,7 @@ fn draw_fitted(
             TEXT_DIMMER,
         )?;
     }
-    canvas.end_scroll(scroll, body_height)?;
+    canvas.end_scroll(scroll, scrolled_height)?;
     if progress_height > 0.0 {
         let at = body_bottom + canvas.r(theme::SPACE[3]);
         track(

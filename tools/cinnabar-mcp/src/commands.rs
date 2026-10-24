@@ -58,19 +58,20 @@ pub fn command(
             Command::Input(parse::<InputCommand>(arguments, "input")?),
             CALL_TIMEOUT,
         ),
-        "import_skin" => {
+        "import_skin" | "import_cape" => {
             #[derive(serde::Deserialize)]
             #[serde(deny_unknown_fields)]
             struct Import {
                 path: String,
             }
-            let import: Import = parse(arguments, "skin import")?;
-            (
-                Command::ImportSkin {
-                    path: resolve(repo, &import.path),
-                },
-                CALL_TIMEOUT,
-            )
+            let import: Import = parse(arguments, name)?;
+            let path = resolve(repo, &import.path);
+            let command = if name == "import_cape" {
+                Command::ImportCape { path }
+            } else {
+                Command::ImportSkin { path }
+            };
+            (command, CALL_TIMEOUT)
         }
         "chat" => {
             let text = arguments

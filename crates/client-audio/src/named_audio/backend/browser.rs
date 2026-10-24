@@ -81,6 +81,11 @@ impl Output {
         })
     }
 
+    /// Reports whether the retained browser stream is still alive.
+    pub(super) fn available(&self) -> bool {
+        self.stream.borrow().is_some()
+    }
+
     /// Adds an admitted source to the same mixer used by the native audio engine.
     pub(super) fn play_raw(
         &self,

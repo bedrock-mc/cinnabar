@@ -60,7 +60,7 @@ func (h *friendHosting) run(ctx context.Context) {
 			observed, retry = session, nil
 		}
 		host, hosted := h.current()
-		hostable := running && session.World.Backend == localworld.BackendBDS && !h.account.Closed()
+		hostable := running && session.World.Backend == localworld.BackendBDS && !session.World.MultiplayerDisabled && !h.account.Closed()
 		if host != nil && (!hostable || hosted != session) {
 			h.stop()
 			host = nil
@@ -84,7 +84,7 @@ func (h *friendHosting) run(ctx context.Context) {
 		case <-retry:
 			retry = nil
 		case <-dropped:
-			h.log.Warn("friends: signaling dropped; hosting again")
+			h.log.Warn("friends: hosting stopped; hosting again")
 			h.stop()
 		}
 	}
@@ -92,7 +92,7 @@ func (h *friendHosting) run(ctx context.Context) {
 
 // start installs a host only while its original local opening remains current.
 func (h *friendHosting) start(ctx context.Context, session localworld.Session) error {
-	if !session.Current() {
+	if !session.Current() || session.World.MultiplayerDisabled {
 		return localworld.ErrNotOpen
 	}
 	startCtx, cancel := context.WithTimeout(ctx, time.Minute)

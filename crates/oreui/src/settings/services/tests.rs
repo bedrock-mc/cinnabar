@@ -10,6 +10,41 @@ fn account_panel(view: &MenuView) -> (Vec<String>, Vec<MenuAction>) {
     panel(view, account)
 }
 
+#[test]
+fn french_account_keeps_gamertags_verbatim() {
+    let mut view = MenuView::new(true, "Player".into());
+    view.auth_state = AuthState::Authenticated;
+    assert!(std::sync::Arc::make_mut(&mut view.settings_options).set_language("fr_FR"));
+    for name in ["High", "Automatic", "options.fullscreen"] {
+        view.feeds.profile.gamertag = name.into();
+        let (labels, _) = account_panel(&view);
+        assert!(labels.iter().any(|label| label == name), "{labels:?}");
+    }
+}
+
+#[test]
+fn french_storage_keeps_world_and_cache_names_verbatim() {
+    use launcher::menu::settings_storage::StorageItem;
+    let mut view = MenuView::new(true, "Player".into());
+    assert!(std::sync::Arc::make_mut(&mut view.settings_options).set_language("fr_FR"));
+    let storage_view = std::sync::Arc::make_mut(&mut view.storage);
+    storage_view.expanded.fill(true);
+    storage_view.worlds = vec![StorageItem {
+        name: "High".into(),
+        ..Default::default()
+    }];
+    storage_view.cached = vec![StorageItem {
+        name: "options.fullscreen".into(),
+        ..Default::default()
+    }];
+    let (labels, actions) = panel(&view, storage);
+    for name in ["High", "options.fullscreen"] {
+        assert!(labels.iter().any(|label| label == name), "{labels:?}");
+    }
+    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::SelectWorld(0))));
+    assert!(actions.contains(&MenuAction::SettingsStorage(StorageAction::Select(0))));
+}
+
 /// Draws one settings panel and returns its visible text and available actions.
 fn panel(
     view: &MenuView,
@@ -87,6 +122,48 @@ fn account_settings_follow_profile_saved_account_and_local_fallback() {
     assert!(!actions.contains(&MenuAction::SignOut));
 }
 
+/// A signed-in account lists only rows that do something; the inert Privacy and Realms
+/// invitation buttons are gone.
+#[test]
+fn signed_in_account_rows_all_have_actions() {
+    let mut view = MenuView::new(true, launcher::PRODUCT_NAME.into());
+    view.auth_state = AuthState::Authenticated;
+    let (labels, actions) = account_panel(&view);
+    let buttons = ["Open", "Manage", "Sign Out"];
+    let drawn = labels
+        .iter()
+        .filter(|label| buttons.contains(&label.as_str()))
+        .count();
+    assert_eq!(drawn, actions.len(), "{labels:?} {actions:?}");
+    assert_eq!(
+        actions,
+        [
+            MenuAction::SettingsSupport(SupportAction::Open(SupportLink::Gamertag)),
+            MenuAction::SettingsSupport(SupportAction::Open(SupportLink::Account)),
+            MenuAction::SignOut,
+        ]
+    );
+}
+
+/// Storage lists only the categories the client fills, so no row is permanently empty.
+#[test]
+fn storage_lists_only_categories_the_client_keeps() {
+    use launcher::menu::settings_storage::StorageAction;
+    let view = MenuView::new(true, launcher::PRODUCT_NAME.into());
+    let (_, actions) = panel(&view, storage);
+    let toggles: Vec<_> = CATEGORIES
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| {
+            actions.contains(&MenuAction::SettingsStorage(StorageAction::Toggle(
+                *index as u8,
+            )))
+        })
+        .map(|(_, category)| *category)
+        .collect();
+    assert_eq!(toggles, ["world", "cache"]);
+}
+
 #[test]
 fn storage_offers_folder_buttons_only_when_the_host_can_open_folders() {
     use launcher::menu::settings_storage::{StorageAction, StorageFolder};
@@ -160,4 +237,27 @@ fn checked_language_radio_has_the_primary_diamond_face() {
             *color == theme::PRIMARY_ROLE.fill,
         _ => false,
     }));
+}
+
+/// Touch availability selects editable controls while desktop-only hosts retain their hint.
+#[test]
+fn touch_settings_offer_the_live_sensitivity_on_touch_devices() {
+    let mut view = MenuView::new(true, "Player".into());
+    for available in [false, true] {
+        view.touch_available = available;
+        let (labels, actions) = panel(&view, touch);
+        let sensitivity =
+            launcher::menu::settings_options::SettingId::TouchSensitivity.index() as u16;
+        assert_eq!(
+            actions.iter().any(|action| matches!(action,
+            MenuAction::SettingsOption(index, _) if *index == sensitivity)),
+            available
+        );
+        assert_eq!(
+            labels
+                .iter()
+                .any(|label| label == "Use a touch device to customize controls"),
+            !available
+        );
+    }
 }

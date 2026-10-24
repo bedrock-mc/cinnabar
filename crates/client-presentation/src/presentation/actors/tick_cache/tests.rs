@@ -211,6 +211,7 @@ fn step(runtime_id: u64, x: f32, yaw: f32) -> WorldEvent {
         head_yaw: Some(yaw + 20.0),
         on_ground: Some(true),
         teleported: false,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: Default::default(),

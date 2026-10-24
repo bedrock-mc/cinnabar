@@ -157,10 +157,10 @@ fn animated_display_sprites_show_the_clock_frame_after_an_update() {
             authored.then(|| AuthoredPbr::new([&normals, &normals], [&normals, &normals], &refs));
         let (plan, images) = fixture.with_inputs(pbr, |inputs| {
             let plan = plan_atlas(inputs, gpu.device.limits().max_texture_dimension_2d).unwrap();
-            let images = build_images(inputs, &plan);
+            let images = build_images(inputs, &plan, &|| false).unwrap();
             (plan, images)
         });
-        let uploaded = upload_atlas(&gpu.device, &gpu.queue, &plan, &images);
+        let uploaded = upload_atlas(&gpu.device, &gpu.queue, &plan, &images, &|| false).unwrap();
         let mut animations = AtlasAnimations::new(
             &uploaded,
             &fixture.animations,
@@ -240,7 +240,9 @@ fn blends_preserve_encoded_colour_and_decode_no_emission_codes() {
     let plan = fixture.with_inputs(None, |inputs| plan_atlas(inputs, 4096).unwrap());
     let display = plan.animations[1].as_ref().unwrap();
     for (a, b, wanted) in [(0, 255, 0), (255, 128, 64), (128, 255, 64), (64, 192, 128)] {
-        let mut images = fixture.with_inputs(None, |inputs| build_images(inputs, &plan));
+        let mut images = fixture.with_inputs(None, |inputs| {
+            build_images(inputs, &plan, &|| false).unwrap()
+        });
         let frames = images.frames.as_mut().unwrap();
         frames.pbr = Some([
             MipImages::filled(
@@ -273,7 +275,7 @@ fn blends_preserve_encoded_colour_and_decode_no_emission_codes() {
                 );
             }
         }
-        let uploaded = upload_atlas(&gpu.device, &gpu.queue, &plan, &images);
+        let uploaded = upload_atlas(&gpu.device, &gpu.queue, &plan, &images, &|| false).unwrap();
         let mut animations = AtlasAnimations::new(
             &uploaded,
             &fixture.animations,

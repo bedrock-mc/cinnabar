@@ -167,20 +167,27 @@ impl HudEditor {
                         } else {
                             (c.anchor, c.offset)
                         };
+                        let factory_preview = c.editor_size.is_some()
+                            && c.position.is_none()
+                            && c.anchor == c.reset_anchor.unwrap_or(c.anchor)
+                            && c.offset == c.reset_offset.unwrap_or(c.offset)
+                            && c.scale == c.reset_scale.unwrap_or(c.scale);
                         Placement {
                             id: c.id.clone(),
                             anchor,
                             offset,
-                            position: Some(c.position.unwrap_or_else(|| {
-                                std::array::from_fn(|axis| {
-                                    let available = (self.viewport[axis] - size[axis]).max(0.);
-                                    if available > 0. {
-                                        (at[axis] / available) as f32
-                                    } else {
-                                        0.
-                                    }
+                            position: (!factory_preview).then(|| {
+                                c.position.unwrap_or_else(|| {
+                                    std::array::from_fn(|axis| {
+                                        let available = (self.viewport[axis] - size[axis]).max(0.);
+                                        if available > 0. {
+                                            (at[axis] / available) as f32
+                                        } else {
+                                            0.
+                                        }
+                                    })
                                 })
-                            })),
+                            }),
                             scale: c.scale,
                         }
                     })

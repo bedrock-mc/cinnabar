@@ -148,6 +148,13 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                         uv,
                         repeated && flags & u16::from(render_api::UI_STYLE_BILINEAR) != 0,
                     );
+                    if corners[0].style_flags & render_api::UI_STYLE_SPRITE_COLOR_MASK != 0 {
+                        texel = assets::color_mask_texel(
+                            texel,
+                            [overlay[0], overlay[1], overlay[2]]
+                                .map(|channel| (channel * 255.0).round() as u8),
+                        );
+                    }
                     if u32::from(ui::UI_STYLE_GRAYSCALE) & corners[0].style_flags != 0 {
                         let luma = (0.299 * f32::from(texel[0])
                             + 0.587 * f32::from(texel[1])

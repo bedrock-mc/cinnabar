@@ -23,6 +23,7 @@ pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
                 && left.scale == right.scale
                 && left.row_layout == right.row_layout
                 && left.width == right.width
+                && left.editor_size == right.editor_size
                 && left.row_height == right.row_height
                 && left.icon_size == right.icon_size
                 && left.text_scale == right.text_scale
@@ -471,6 +472,9 @@ pub(super) fn card_data(
 
 /// Shared card geometry for gameplay publication and native layout editing.
 pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
+    if let Some(size) = card.editor_size {
+        return size.map(|side| f64::from(side) * f64::from(card.scale));
+    }
     if card.crosshair.is_some() {
         return [f64::from(card.width * card.scale); 2];
     }
@@ -520,5 +524,9 @@ pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
     if let Some(position) = card.position {
         return std::array::from_fn(|axis| f64::from(position[axis]) * available[axis]);
     }
-    card.anchor.origin(card.offset, size, viewport)
+    if card.editor_size.is_some() {
+        card.anchor.origin_unclamped(card.offset, size, viewport)
+    } else {
+        card.anchor.origin(card.offset, size, viewport)
+    }
 }

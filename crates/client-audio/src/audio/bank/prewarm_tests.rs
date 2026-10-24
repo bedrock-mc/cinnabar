@@ -114,3 +114,67 @@ fn prewarming_bounds_each_group_and_skips_oversized_inputs() {
     drop(bank);
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn prewarming_prepares_every_alternative_of_routed_combat_sounds() {
+    let mut attack = definition("fixture.hit", "player", false);
+    attack.alternatives = (0..PREWARM_SOUNDS_PER_GROUP + 2)
+        .map(|index| AudioAlternative {
+            name: format!("sounds/strike{index}").into(),
+            ..attack.alternatives[0].clone()
+        })
+        .collect();
+    let definitions = [
+        attack,
+        definition("fixture.hurt", "player", false),
+        definition("fixture.unrelated", "player", false),
+    ];
+    let files: Vec<_> = definitions
+        .iter()
+        .flat_map(|definition| &definition.alternatives)
+        .map(|alternative| (alternative.name.to_string(), tone()))
+        .collect();
+    let (mut bank, path) = bank("combat", &definitions, &files);
+    bank.tables = SoundEventTables::from_json(
+        &serde_json::json!({
+            "entity_sounds": {
+                "defaults": {"events": {"attack.strong": "fixture.unrelated"}},
+                "entities": {"player": {"events": {
+                    "attack.strong": "fixture.hit", "hurt": "fixture.hurt"
+                }}}
+            }
+        }),
+        &serde_json::json!({}),
+    );
+    bank.prewarm_common();
+    for definition in &definitions[..2] {
+        for alternative in &definition.alternatives {
+            assert!(bank.is_decoding(&alternative.name), "{}", alternative.name);
+        }
+    }
+    assert!(!bank.is_decoding("sounds/fixture.unrelated"));
+    test_time::eventually("combat sounds prepared before input", || {
+        bank.poll();
+        definitions[..2].iter().all(|definition| {
+            definition
+                .alternatives
+                .iter()
+                .all(|alternative| bank.cache.contains_key(&alternative.name))
+        })
+    });
+    let mut engine = crate::audio::engine::AudioEngine::new(Some(bank));
+    for definition in &definitions[..2] {
+        engine.enqueue(crate::audio::engine::SoundRequest::new(
+            &*definition.identifier,
+        ));
+    }
+    assert_eq!(
+        engine
+            .pump(None, 0.0, &crate::audio::settings::AudioSettings::default())
+            .len(),
+        2,
+        "the first combat cues must start without a later decode pump"
+    );
+    drop(engine);
+    std::fs::remove_file(path).unwrap();
+}

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -39,6 +40,7 @@ func TestProxyRustStartupHarness(t *testing.T) {
 	packs := rustStartupPacks(t, scenario)
 	upstream, err := (minecraft.ListenConfig{
 		AuthenticationDisabled: true, FlushRate: -1, ErrorLog: slog.New(slog.DiscardHandler),
+		EnableBatchReading: true,
 		PrepareResourcePackOffer: func(_ context.Context, conn *minecraft.Conn) error {
 			return conn.ConfigureResourcePackOffer(packs, packs != nil)
 		},
@@ -109,6 +111,7 @@ func rustStartupPacks(t *testing.T, scenario string) []*resource.Pack {
 
 // runRustStartupScript asserts each client message at the upstream end of the session.
 func runRustStartupScript(conn *minecraft.Conn, scenario string, radius *packet.RequestChunkRadius) error {
+	reader := rustStartupReader{readBatch: conn.ReadBatch}
 	startup := relayFixtureStartup()
 	transfer := &packet.Transfer{Address: "next.example.test", Port: 19133}
 	switch scenario {
@@ -127,7 +130,7 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string, radius *packet.
 		return conn.WritePacketImmediate(&packet.Disconnect{Message: "fixture kicked during spawn"})
 	}
 	for _, expected := range []packet.Packet{radius, &packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeStart}} {
-		if err := expectStartupPacket(conn, expected); err != nil {
+		if err := reader.expect(expected); err != nil {
 			return err
 		}
 	}
@@ -135,14 +138,14 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string, radius *packet.
 	if err := conn.WritePacketImmediate(startup[1:]...); err != nil {
 		return err
 	}
-	if err := expectStartupPacket(conn, &packet.NetworkStackLatency{Timestamp: 100}); err != nil {
+	if err := reader.expect(&packet.NetworkStackLatency{Timestamp: 100}); err != nil {
 		return fmt.Errorf("initialized before presentation readiness: %w", err)
 	}
 	if err := conn.WritePacketImmediate(&packet.SetTime{Time: 200}); err != nil {
 		return err
 	}
 	for _, expected := range []packet.Packet{&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd}, &packet.SetLocalPlayerAsInitialised{EntityRuntimeID: 42}, &packet.NetworkStackLatency{Timestamp: 300}} {
-		if err := expectStartupPacket(conn, expected); err != nil {
+		if err := reader.expect(expected); err != nil {
 			return err
 		}
 	}
@@ -152,7 +155,7 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string, radius *packet.
 	if scenario == "framing" {
 		for _, payload := range [][]byte{{0, 0xfe, 0, 1, 0xff, 0}, rustFramingPayload()} {
 			expected := &packet.ScriptMessage{Identifier: "framing", Data: payload}
-			if err := expectStartupPacket(conn, expected); err != nil {
+			if err := reader.expect(expected); err != nil {
 				return err
 			}
 			if err := conn.WritePacketImmediate(expected); err != nil {
@@ -167,16 +170,51 @@ func runRustStartupScript(conn *minecraft.Conn, scenario string, radius *packet.
 	return conn.WritePacketImmediate(&packet.Transfer{Address: "play.example.test", Port: 19134})
 }
 
-// expectStartupPacket compares complete decoded packets, including order and runtime identity.
-func expectStartupPacket(conn *minecraft.Conn, expected packet.Packet) error {
-	actual, err := conn.ReadPacket()
-	if err != nil {
-		return err
+// rustStartupReader retains wire order within and between the fixture's incoming batches.
+type rustStartupReader struct {
+	readBatch func() ([]packet.Packet, error)
+	pending   []packet.Packet
+}
+
+// expect compares the next complete packet, keeping the rest of its batch for later checks.
+func (reader *rustStartupReader) expect(expected packet.Packet) error {
+	for len(reader.pending) == 0 {
+		batch, err := reader.readBatch()
+		if err != nil {
+			return err
+		}
+		reader.pending = batch
 	}
+	actual := reader.pending[0]
+	reader.pending = reader.pending[1:]
 	if !reflect.DeepEqual(actual, expected) {
 		return fmt.Errorf("received %#v, want %#v", actual, expected)
 	}
 	return nil
+}
+
+// TestRustStartupReaderPreservesPacketOrder checks assertions spanning several wire batches.
+func TestRustStartupReaderPreservesPacketOrder(t *testing.T) {
+	source := newFakeSession()
+	source.useBatchReads = true
+	expected := []packet.Packet{
+		&packet.ServerBoundLoadingScreen{Type: packet.LoadingScreenTypeEnd},
+		&packet.SetLocalPlayerAsInitialised{EntityRuntimeID: 42},
+		&packet.NetworkStackLatency{Timestamp: 300},
+	}
+	source.batchReads <- batchResult{}
+	source.batchReads <- batchResult{packets: expected[:2]}
+	source.batchReads <- batchResult{packets: expected[2:]}
+	source.batchReads <- batchResult{err: io.EOF}
+	reader := rustStartupReader{readBatch: source.ReadBatch}
+	for _, value := range expected {
+		if err := reader.expect(value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := reader.expect(expected[0]); !errors.Is(err, io.EOF) {
+		t.Fatalf("read after final batch: got %v, want EOF", err)
+	}
 }
 
 // rustFramingPayload exercises multi-write frames and varied binary bytes on the real session path.

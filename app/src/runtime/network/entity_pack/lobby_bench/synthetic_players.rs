@@ -191,6 +191,7 @@ fn move_mobs(world: &mut World, mut sequence: u64, mobs: u64, tick: u64) -> u64 
                     head_yaw: Some(yaw),
                     on_ground: Some(true),
                     teleported: false,
+                    force_local_move: false,
                     player_mode: None,
                     source_tick: None,
                     interpolation: Default::default(),

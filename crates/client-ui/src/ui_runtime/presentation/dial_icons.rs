@@ -143,6 +143,7 @@ mod tests {
             identity: assets::ItemStackIdentity::empty(),
             identifier: Some(identifier.into()),
             visual: assets::ItemVisualRoute::Missing,
+            map_id: None,
             charged_projectile: None,
             charged_projectile_role: assets::item_use::ItemProjectileRole::None,
             damage: None,

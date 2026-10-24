@@ -11,7 +11,7 @@ fn source(runtime_id: u64, x: f32, yaw_degrees: f32) -> ActorRenderSource {
     ActorRenderSource {
         runtime_id,
         unique_id: i64::try_from(runtime_id).unwrap_or(i64::MAX),
-        spawn_revision: 1,
+        spawn_revision: std::num::NonZeroU64::MIN,
         movement_revision: 0,
         previous_position: [x, 64.0, 0.0],
         previous_pitch_degrees: 0.0,

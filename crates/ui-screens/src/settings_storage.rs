@@ -21,7 +21,7 @@ pub(super) fn bind(view: &MenuView, data: &mut DataSource, translate: &dyn Fn(&s
     );
     let mut categories = Vec::new();
     for (index, category) in CATEGORIES.iter().enumerate() {
-        let items = view.storage.items(category);
+        let items = view.storage.items(category).unwrap_or_default();
         let bytes = items
             .iter()
             .fold(0_u64, |sum, item| sum.saturating_add(item.bytes));

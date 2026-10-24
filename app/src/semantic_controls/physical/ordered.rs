@@ -4,7 +4,7 @@ use super::*;
 use bevy::{
     ecs::message::MessageCursor, input::ButtonState, prelude::Messages, window::WindowEvent,
 };
-use semantic_input::{DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS, PhysicalControl};
+use semantic_input::{DesktopEvent, DesktopEvents, PhysicalControl};
 
 #[cfg(test)]
 mod tests;
@@ -52,16 +52,8 @@ pub(super) fn collect(
             _ => false,
         };
         if relevant {
-            if batch.len() == MAX_PENDING_ACTION_EVENTS {
-                output.invalidate();
-            } else {
-                batch.push(event.clone());
-            }
+            batch.push(event.clone());
         }
-    }
-    if output.overflowed() {
-        bevy::log::warn!("desktop input burst exceeded the pending action budget");
-        return Some((output, lost));
     }
     let mut keys = (*inputs.keys).clone();
     for event in batch.iter().rev() {

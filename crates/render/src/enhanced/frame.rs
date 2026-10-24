@@ -19,6 +19,20 @@ pub(crate) const FEATURE_SHAFTS: u32 = 1 << 2;
 pub(crate) const FEATURE_WAVING: u32 = 1 << 3;
 pub(crate) const FEATURE_WATER: u32 = 1 << 4;
 
+/// `features` without those whose input target is unavailable this frame, so no pass samples
+/// stale or placeholder data: water reads the depth-resolved snapshots, and shadows and light
+/// shafts read the shadow map.
+pub(crate) fn available_features(features: u32, resolved_depth: bool, shadow_map: bool) -> u32 {
+    let mut features = features;
+    if !resolved_depth {
+        features &= !FEATURE_WATER;
+    }
+    if !shadow_map {
+        features &= !(FEATURE_SHADOWS | FEATURE_SHAFTS);
+    }
+    features
+}
+
 /// Mirrors `EnhancedFrame` in `enhanced/common.wesl`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
@@ -319,6 +333,22 @@ pub(crate) fn build_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Water and shadows drop their flags while their input targets are unavailable.
+    #[test]
+    fn features_without_their_input_targets_are_masked() {
+        let all = FEATURE_SHADOWS | FEATURE_BLOOM | FEATURE_SHAFTS | FEATURE_WAVING | FEATURE_WATER;
+        assert_eq!(available_features(all, true, true), all);
+        assert_eq!(available_features(all, false, true), all & !FEATURE_WATER);
+        assert_eq!(
+            available_features(all, true, false),
+            FEATURE_BLOOM | FEATURE_WAVING | FEATURE_WATER
+        );
+        assert_eq!(
+            available_features(all, false, false),
+            FEATURE_BLOOM | FEATURE_WAVING
+        );
+    }
 
     const SLOPE: f32 = 1.147;
 

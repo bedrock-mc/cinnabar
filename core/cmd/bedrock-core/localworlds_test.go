@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/hashimthearab/rust-mcbe/core/control"
@@ -31,5 +33,20 @@ func TestControlWorldsRunTheOpenHookOncePerOpenedWorld(t *testing.T) {
 	}
 	if err := worlds.Invite(context.Background(), "2535400000000000"); !errors.Is(err, control.ErrWorldNotOpen) {
 		t.Fatalf("Invite() without hosting = %v", err)
+	}
+}
+
+func TestLocalWorldReportPreservesMultiplayerDenial(t *testing.T) {
+	bytes, err := os.ReadFile("../../../crates/bridge/data/local-world-single-player.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report control.LocalWorld
+	if err := json.Unmarshal(bytes, &report); err != nil {
+		t.Fatal(err)
+	}
+	status := localStatus(report)
+	if status.World == nil || !status.World.MultiplayerDisabled {
+		t.Fatal("multiplayer denial was lost")
 	}
 }

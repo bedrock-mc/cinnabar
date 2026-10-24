@@ -237,6 +237,56 @@ mod tests {
         }
     }
 
+    /// Rounded block-pixel bounds of each cube after projection into the block frame.
+    fn cube_bounds(bones: &Value) -> Vec<[[f32; 2]; 3]> {
+        parse_bones(bones, [16.0; 2])
+            .cubes
+            .iter()
+            .map(|cube| {
+                let points = cube
+                    .quads()
+                    .into_iter()
+                    .flat_map(|(quad, _)| quad.positions)
+                    .collect::<Vec<_>>();
+                std::array::from_fn(|axis| {
+                    let values = points.iter().map(|point| point[axis]);
+                    [
+                        values.clone().fold(f32::INFINITY, f32::min).round(),
+                        values.fold(f32::NEG_INFINITY, f32::max).round(),
+                    ]
+                })
+            })
+            .collect()
+    }
+
+    /// Mirroring authored X must not mirror the turn direction: a closed gate's Y-turned slats
+    /// stay in its bars' plane, and a positive Z turn swings an authored +X arm downward.
+    #[test]
+    fn authored_rotations_keep_their_turn_direction_in_the_block_frame() {
+        let cube = |origin: [i32; 3], size: [i32; 3], pivot: [f32; 3], rotation: [i32; 3]| {
+            json!({
+                "origin": origin, "size": size, "pivot": pivot, "rotation": rotation, "uv": [0, 0]
+            })
+        };
+        let gate = json!([{"name": "closed", "cubes": [
+            cube([3, 6, -4], [2, 3, 4], [5.0, 10.5, -1.0], [0, 90, 0]),
+            cube([0, 6, -1], [2, 9, 2], [0.0, 0.0, 0.0], [0, 0, 0]),
+            cube([-5, 6, 0], [2, 3, 4], [-5.0, 10.5, 1.0], [0, 90, 0])
+        ]}]);
+        assert_eq!(
+            cube_bounds(&gate),
+            [
+                [[2.0, 6.0], [6.0, 9.0], [7.0, 9.0]],
+                [[6.0, 8.0], [6.0, 15.0], [7.0, 9.0]],
+                [[10.0, 14.0], [6.0, 9.0], [7.0, 9.0]],
+            ]
+        );
+        let arm = json!([{"name": "arm", "cubes": [
+            cube([0, 0, 0], [4, 1, 1], [0.0, 0.0, 0.0], [0, 0, 90])
+        ]}]);
+        assert_eq!(cube_bounds(&arm), [[[7.0, 8.0], [-4.0, 0.0], [8.0, 9.0]]]);
+    }
+
     #[test]
     fn inheritance_depth_is_bounded_without_rejecting_the_limit() {
         let mut catalog = BlockGeometryCatalog::default();

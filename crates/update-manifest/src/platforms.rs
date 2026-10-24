@@ -9,6 +9,19 @@ struct ReleaseAssets {
     update_assets: BTreeMap<String, BTreeMap<String, String>>,
     update_channels: BTreeMap<String, ChannelRelease>,
     update_payload_prefix: String,
+    linux_install: LinuxInstall,
+}
+
+/// The per-user Linux installation pointer shared by the installer and client.
+#[derive(Deserialize)]
+pub struct LinuxInstall {
+    pub app_dir: String,
+    pub current: String,
+}
+
+/// Locates the installer's managed AppDir without depending on the running image's path.
+pub fn linux_install() -> &'static LinuxInstall {
+    &RELEASE.linux_install
 }
 
 /// Where the release pipeline publishes one channel's signed manifest.

@@ -55,6 +55,8 @@ pub enum ItemUseAnimation {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ItemUseKind {
     Hold,
+    /// Sends the use transaction and swings the local arm without consuming the stack.
+    Swing,
     Throw,
     Crossbow,
     None,

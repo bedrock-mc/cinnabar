@@ -24,9 +24,16 @@ fn recipe() -> protocol::RecipeHandle {
     catalog.recipe(77).unwrap()
 }
 
-/// Checks both the predicted cursor and the outbound result declaration.
+/// Checks both the predicted output and the outbound result declaration.
 fn assert_output(ledger: &PlayerInventoryLedger, recipe: &protocol::RecipeHandle) {
-    let cursor = ledger.cursor_stack().expect("crafted output on cursor");
+    let placed = placed_outputs(ledger);
+    let cursor = match placed.first() {
+        Some((_, stack)) => stack.clone(),
+        None => ledger
+            .cursor_stack()
+            .expect("crafted output on cursor")
+            .clone(),
+    };
     assert_eq!(cursor.network_id, recipe.output().network_id);
     assert_eq!(cursor.count, u16::from(recipe.output().count));
     assert_eq!(
@@ -63,7 +70,7 @@ fn crafting_accepts_high_bit_block_output_identities() {
                     storage_item: None,
                 }));
                 assert!(ledger.can_auto_craft(&recipe));
-                ledger.begin_auto_craft(&recipe).unwrap();
+                ledger.begin_auto_craft(&recipe, false).unwrap();
                 assert!(
                     ledger
                         .displayed_stack(protocol::HOTBAR_SLOT_COUNT)
@@ -86,15 +93,13 @@ fn station_crafting_preserves_high_bit_block_output_identities() {
     let mut ledger = ledger(WORKBENCH_WINDOW_TYPE);
     ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
         container: ContainerIdentity::window(7),
-        window_type: protocol::WINDOW_TYPE_STONECUTTER,
+        window_type: protocol::WINDOW_TYPE_SMITHING_TABLE,
         position: [0, 64, 0],
         runtime_entity_id: -1,
     }));
-    assert_eq!(
-        ledger.window_kind(),
-        Some(protocol::WindowKind::Stonecutter)
-    );
-    ledger.apply(&craft_slot(3, stack(LOG, 101, 1)));
+    // The smithing table declares its result; the stonecutter's server derives it.
+    assert_eq!(ledger.window_kind(), Some(protocol::WindowKind::Smithing));
+    ledger.apply(&craft_slot(51, stack(LOG, 101, 1)));
     ledger
         .begin_screen_output(&ScreenCraft::Predicted {
             recipe_network_id: recipe.network_id(),

@@ -10,6 +10,33 @@ use super::{
 
 const PACK_ID: Uuid = Uuid::from_u128(0x11111111_2222_3333_4444_555555555555);
 
+#[test]
+fn server_handoff_keeps_wire_identity_when_manifest_identity_differs() {
+    let wire_id = Uuid::from_u128(2);
+    let bytes = pack_zip(PACK_ID, &[("texts/en_US.lang", b"fixture.value=accepted")]);
+    let handoff = handoff(vec![ResourcePackArchive::unencrypted(
+        wire_id,
+        "9.8.7".into(),
+        String::new(),
+        bytes,
+    )])
+    .with_required(true);
+    let stack = validate_handoff(handoff);
+    assert!(stack.rejections().is_empty(), "{:?}", stack.rejections());
+    assert_eq!(stack.packs().len(), 1);
+    assert_eq!(stack.packs()[0].pack_id(), wire_id);
+    assert_eq!(stack.packs()[0].version(), "9.8.7");
+    let view = LayeredPackView::new(stack);
+    assert_eq!(
+        view.read("texts/en_US.lang").unwrap().as_ref(),
+        b"fixture.value=accepted"
+    );
+    let manifest = view.read("manifest.json").unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest).unwrap();
+    assert_eq!(manifest["header"]["uuid"], PACK_ID.to_string());
+    assert_eq!(manifest["header"]["version"], serde_json::json!([1, 2, 3]));
+}
+
 fn pack_zip(id: Uuid, entries: &[(&str, &[u8])]) -> Vec<u8> {
     let manifest = format!(
         r#"{{"format_version":2,"header":{{"name":"test","description":"test","uuid":"{id}","version":[1,2,3]}},"modules":[{{"type":"resources","uuid":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","version":[1,2,3]}}]}}"#

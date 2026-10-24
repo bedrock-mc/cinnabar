@@ -7,6 +7,7 @@ set -eu
 repository='@REPOSITORY@'
 checksum_asset='@CHECKSUM_ASSET@'
 linux_x86_64_asset='@LINUX_X86_64_ASSET@'
+current_pointer='@LINUX_CURRENT@'
 channel='@TAGGED_CHANNEL@'
 version=
 work=
@@ -78,7 +79,7 @@ done
 while [ "${data_home%/}" != "$data_home" ]; do data_home=${data_home%/}; done
 while [ "${bin_dir%/}" != "$bin_dir" ]; do bin_dir=${bin_dir%/}; done
 # Pruning and the launcher would otherwise remove or shadow each other.
-app_dir="$data_home/cinnabar/app"
+app_dir="$data_home/cinnabar/@LINUX_APP_DIR@"
 case "$bin_dir/" in
     "$app_dir/"*) fail "CINNABAR_BIN_DIR must not be inside the app folder: $bin_dir" ;;
 esac
@@ -214,17 +215,19 @@ read_pointer() {
     printf '%s' "$value"
 }
 # Read under the lock. Reinstalling the current build keeps the recorded previous build, which may still be running.
-previous=$(read_pointer current)
+previous=$(read_pointer "$current_pointer")
 [ "$previous" != "$build" ] || previous=$(read_pointer previous)
 quote_shell() { printf "'"; printf '%s' "$1" | sed "s/'/'\\\\''/g"; printf "'"; }
 {
     printf '#!/bin/sh\napp_dir='
     quote_shell "$app_dir"
+    printf '\ncurrent_pointer='
+    quote_shell "$current_pointer"
     cat <<'EOF'
 
 # The installer and updater publish the unpacked build named in "current".
 build=
-IFS= read -r build 2>/dev/null < "$app_dir/current" || true
+IFS= read -r build 2>/dev/null < "$app_dir/$current_pointer" || true
 case "$build" in
     ''|*/*|.|..) build= ;;
 esac
@@ -263,7 +266,7 @@ chmod 644 "$desktop_stage"
 cp "$app_dir/$build/cinnabar.png" "$icon_stage"
 chmod 644 "$icon_stage"
 mv -f "$stage/previous" "$app_dir/previous"
-mv -f "$stage/current" "$app_dir/current"
+mv -f "$stage/current" "$app_dir/$current_pointer"
 mv -f "$launcher_stage" "$bin_dir/cinnabar"
 mv -f "$desktop_stage" "$desktop_dir/cinnabar.desktop"
 mv -f "$icon_stage" "$icon_dir/cinnabar.png"

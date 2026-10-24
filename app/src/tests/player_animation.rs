@@ -463,6 +463,7 @@ fn local_feed(main_hand: Option<&str>) -> LocalPlayerFeed {
         pitch: 40.0,
         main_hand: main_hand.map(Arc::from),
         off_hand: None,
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         main_hand_metadata: 0,
@@ -754,6 +755,7 @@ fn a_local_attack_sends_the_swing_and_swings_the_vanilla_pack_arm() {
     };
     let empty = protocol::NetworkItemStack::empty();
     let press = PressContext {
+        refused_destroy: None,
         tick: 101,
         player_position: [0.0, 65.62, 0.0],
         input_mode: protocol::PlayerInputMode::Mouse,

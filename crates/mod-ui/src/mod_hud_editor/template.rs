@@ -25,7 +25,11 @@ fn button(action: &str, size: [f64; 2], offset: [f64; 2], controls: Vec<Value>) 
 }
 
 /// Builds stable card previews and a bounded grid with editor controls.
-pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> {
+pub(super) fn catalog(
+    hud: &Hud,
+    viewport: [f64; 2],
+    history_buttons: bool,
+) -> Result<Catalog, String> {
     let style = hud.editor_style.unwrap_or_default();
     let color = |value: [f32; 4]| value.map(f64::from);
     let mut controls = Vec::new();
@@ -224,6 +228,16 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
                 ("grid", "#grid_label"),
                 ("snap", "#snap_label"),
             ]
+        } else if history_buttons {
+            &[
+                ("save", "Save"),
+                ("cancel", "Cancel"),
+                ("undo", "Undo"),
+                ("redo", "Redo"),
+                ("reset", "Reset"),
+                ("grid", "#grid_label"),
+                ("snap", "#snap_label"),
+            ]
         } else {
             &[
                 ("save", "Save"),
@@ -246,15 +260,18 @@ pub(super) fn catalog(hud: &Hud, viewport: [f64; 2]) -> Result<Catalog, String> 
             if matches!(action, "grid" | "snap") {
                 textnode["bindings"] = json!([{"binding_name":text}]);
             }
-            toolbar.push(named(
-                action,
-                button(
-                    &format!("hud.{action}"),
-                    [slot, 24.],
-                    [4. + index as f64 * slot, 2.],
-                    vec![named("text", textnode)],
-                ),
-            ));
+            let mut control = button(
+                &format!("hud.{action}"),
+                [slot, 24.],
+                [4. + index as f64 * slot, 2.],
+                vec![named("text", textnode)],
+            );
+            if matches!(action, "undo" | "redo") {
+                control["bindings"] = json!([
+                    {"binding_name":format!("#hud_can_{action}"),"binding_name_override":"#enabled"},
+                    {"binding_name":format!("#hud_{action}_alpha"),"binding_name_override":"#alpha"}]);
+            }
+            toolbar.push(named(action, control));
         }
         controls.push(named(
             "toolbar",

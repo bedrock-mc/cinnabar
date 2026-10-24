@@ -113,6 +113,34 @@ fn furnace_cells_are_addressed_by_role() {
 }
 
 #[test]
+fn station_cells_return_into_the_hotbar_before_the_main_inventory() {
+    // A full first hotbar slot leaves the second as the first that can take the result.
+    let mut ledger = ledger_with(&[(0, stack(10, protocol::ITEM_DEFAULT_MAX_STACK_SIZE.into()))]);
+    open(&mut ledger, 3, WINDOW_TYPE_FURNACE);
+    ledger.apply(&content(
+        ContainerIdentity::window(3),
+        vec![
+            NetworkItemStack::default(),
+            NetworkItemStack::default(),
+            stack(22, 5),
+        ],
+    ));
+    ledger
+        .begin_quick_move(InventoryTarget::Storage(2))
+        .unwrap();
+    let Some(StackRequestAction::Place { destination, .. }) = ledger.newest_action() else {
+        panic!("a place from the result cell");
+    };
+    assert_eq!(destination.slot, 1);
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 5);
+    assert!(
+        ledger
+            .displayed_stack(protocol::HOTBAR_SLOT_COUNT)
+            .is_none()
+    );
+}
+
+#[test]
 fn named_window_refreshes_keep_taken_slots_empty_after_rejection() {
     for admission in 0..3 {
         let mut ledger = ledger_with(&[]);
@@ -323,19 +351,15 @@ fn enchant_selection_needs_an_offered_option() {
     let mut ledger = ledger_with(&[]);
     open(&mut ledger, 7, WINDOW_TYPE_ENCHANTMENT);
     ledger.apply(&slot_update(named(124, 22), 14, stack(50, 1)));
+    ledger.apply(&slot_update(named(124, 23), 15, stack(51, 5)));
     assert_eq!(
-        ledger.begin_enchant(3),
+        ledger.begin_enchant(3, false),
         Err(InventoryGestureError::InvalidRequest)
     );
     ledger.apply(&InventoryEvent::EnchantOptions(EnchantOptionsEvent {
-        options: Arc::from([EnchantOption {
-            cost: 2,
-            name: Arc::from("abc"),
-            network_id: 3,
-            enchants: Arc::from([(15, 2)]),
-        }]),
+        options: Arc::from([offer(4, (9, 1)), offer(3, (15, 2))]),
     }));
-    ledger.begin_enchant(3).unwrap();
+    ledger.begin_enchant(3, false).unwrap();
     assert!(matches!(
         ledger.newest_action(),
         Some(StackRequestAction::CraftRecipe {
@@ -343,6 +367,115 @@ fn enchant_selection_needs_an_offered_option() {
             crafts: 1
         })
     ));
+}
+
+/// One enchanting option offering `enchant` under recipe `network_id`.
+fn offer(network_id: u32, enchant: (u8, u8)) -> EnchantOption {
+    EnchantOption {
+        cost: 2,
+        name: Arc::from("offer"),
+        network_id,
+        enchants: Arc::from([enchant]),
+    }
+}
+
+/// Enchanting sends the option craft, the enchanted result, the input's consume and the
+/// result placed back, then pays the option's rank in lapis; a rejection restores both cells.
+#[test]
+fn enchanting_sends_the_native_request_and_rolls_back_on_rejection() {
+    for creative in [false, true] {
+        let mut ledger = ledger_with(&[]);
+        open(&mut ledger, 7, WINDOW_TYPE_ENCHANTMENT);
+        ledger.apply(&slot_update(named(124, 22), 14, stack(50, 1)));
+        ledger.apply(&slot_update(named(124, 23), 15, stack(51, 5)));
+        ledger.apply(&InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+            options: Arc::from([offer(4, (9, 1)), offer(3, (15, 2))]),
+        }));
+        let request_id = ledger.begin_enchant(3, creative).unwrap();
+        let enchanted = protocol::edit_item_extra(
+            &[],
+            &protocol::ItemNbtEdit {
+                enchantments: Some(vec![(15, 2)]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let slot = |name, slot, stack_network_id| protocol::StackRequestSlot {
+            container: StackRequestContainer::OpenWindow {
+                name,
+                dynamic_id: None,
+            },
+            slot,
+            stack_network_id,
+        };
+        let mut expected = vec![
+            StackRequestAction::CraftRecipe {
+                recipe_network_id: 3,
+                crafts: 1,
+            },
+            StackRequestAction::CraftResultsDeprecated {
+                results: Arc::from([protocol::CraftResult {
+                    identifier: Arc::from("minecraft:apple"),
+                    aux: 0,
+                    count: 1,
+                    block_runtime_id: 0,
+                    user_data: Arc::clone(&enchanted),
+                }]),
+                crafts: 1,
+            },
+            StackRequestAction::Consume {
+                amount: 1,
+                source: slot(22, 14, 50),
+            },
+            StackRequestAction::Place {
+                amount: 1,
+                source: protocol::StackRequestSlot {
+                    container: StackRequestContainer::CreatedOutput,
+                    slot: protocol::CREATED_OUTPUT_SLOT,
+                    stack_network_id: request_id,
+                },
+                destination: slot(22, 14, 0),
+            },
+        ];
+        if !creative {
+            expected.push(StackRequestAction::Consume {
+                amount: 2,
+                source: slot(23, 15, 51),
+            });
+        }
+        assert_eq!(ledger.newest_request().unwrap().actions, expected);
+        let input = ledger.target_stack(InventoryTarget::Craft(14)).unwrap();
+        assert_eq!(input.extra_data, enchanted);
+        assert_eq!(
+            ledger
+                .target_stack(InventoryTarget::Craft(15))
+                .unwrap()
+                .count,
+            if creative { 5 } else { 3 }
+        );
+        ledger.apply(&InventoryEvent::Response(
+            protocol::ItemStackResponseEvent {
+                responses: Arc::from([protocol::StackResponse {
+                    request_id,
+                    status: protocol::StackResponseStatus::Rejected,
+                    containers: Arc::from([]),
+                }]),
+            },
+        ));
+        assert_eq!(ledger.pending_request_count(), 0);
+        assert_eq!(
+            ledger.target_stack(InventoryTarget::Craft(14)),
+            Some(&stack(50, 1))
+        );
+        assert_eq!(
+            ledger.target_stack(InventoryTarget::Craft(15)),
+            Some(&stack(51, 5))
+        );
+        assert!(
+            ledger.begin_enchant(3, creative).is_ok(),
+            "the table works again"
+        );
+    }
 }
 
 fn personal_ledger(slots: &[(usize, NetworkItemStack)]) -> PlayerInventoryLedger {
@@ -620,7 +753,7 @@ fn enchanting_restatement_survives_a_later_count_response() {
             enchants: Arc::from([(15, 2)]),
         }]),
     }));
-    let request = ledger.begin_enchant(3).unwrap();
+    let request = ledger.begin_enchant(3, true).unwrap();
     assert!(ledger.mark_transport_enqueued(1));
     let extra = protocol::edit_item_extra(
         &[0; 10],
@@ -698,9 +831,73 @@ fn server_previewed_grindstone_result_can_be_taken() {
             .begin_screen_output(&ScreenCraft::Grindstone {
                 recipe_network_id: 50,
                 repair_cost: 0,
+                output: None,
             })
             .unwrap();
         assert_eq!(ledger.cursor_stack().unwrap().count, 1);
         assert!(ledger.target_stack(InventoryTarget::Craft(16)).is_none());
     }
 }
+
+/// An enchantment queued while its input's placement awaits acknowledgement places its result
+/// into the slot its consume empties, both when sent first and when rebound after that
+/// acknowledgement arrives.
+#[test]
+fn unsent_enchants_rebind_after_an_earlier_transfer_is_acknowledged() {
+    let mut ledger = ledger_with(&[(0, stack(60, 1))]);
+    open(&mut ledger, 7, WINDOW_TYPE_ENCHANTMENT);
+    ledger.apply(&InventoryEvent::EnchantOptions(EnchantOptionsEvent {
+        options: Arc::from([offer(3, (15, 2))]),
+    }));
+    let placement = ledger.begin_quick_move(InventoryTarget::Player(0)).unwrap();
+    assert!(ledger.mark_transport_enqueued(1));
+    assert!(ledger.target_stack(InventoryTarget::Craft(14)).is_some());
+    ledger.begin_enchant(3, true).unwrap();
+    assert_eq!(ledger.pending_request_count(), 2);
+    // Before the acknowledgement, the consume names the placement and the place an empty slot.
+    let actions = &ledger.newest_request().unwrap().actions;
+    let Some(StackRequestAction::Consume { source, .. }) = actions.get(2) else {
+        panic!("the input is consumed: {actions:?}");
+    };
+    assert_eq!(source.stack_network_id, placement);
+    let Some(StackRequestAction::Place { destination, .. }) = actions.get(3) else {
+        panic!("the result is placed: {actions:?}");
+    };
+    assert_eq!((destination.slot, destination.stack_network_id), (14, 0));
+    ledger.apply(&InventoryEvent::Response(
+        protocol::ItemStackResponseEvent {
+            responses: Arc::from([protocol::StackResponse {
+                request_id: placement,
+                status: protocol::StackResponseStatus::Accepted,
+                containers: Arc::from([protocol::StackResponseContainer {
+                    container: ContainerIdentity {
+                        window_id: None,
+                        slot_type: Some(22),
+                        dynamic_id: None,
+                    },
+                    slots: Arc::from([protocol::StackResponseSlot {
+                        slot: 14,
+                        hotbar_slot: 14,
+                        count: 1,
+                        item_stack_id: 61,
+                        custom_name: Arc::from(""),
+                        filtered_custom_name: Arc::from(""),
+                        durability_correction: 0,
+                    }]),
+                }]),
+            }]),
+        },
+    ));
+    assert_eq!(ledger.pending_request_count(), 1);
+    let actions = &ledger.newest_request().unwrap().actions;
+    let Some(StackRequestAction::Consume { source, .. }) = actions.get(2) else {
+        panic!("the input is consumed: {actions:?}");
+    };
+    assert_eq!(source.stack_network_id, 61);
+    let Some(StackRequestAction::Place { destination, .. }) = actions.get(3) else {
+        panic!("the result is placed: {actions:?}");
+    };
+    assert_eq!((destination.slot, destination.stack_network_id), (14, 0));
+}
+
+mod workstations;

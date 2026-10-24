@@ -30,7 +30,7 @@ pub use witness::{ActorMainWitness, ActorRuntimeWitness};
 pub struct ActorRenderSource {
     pub runtime_id: u64,
     pub unique_id: i64,
-    pub spawn_revision: u64,
+    pub spawn_revision: std::num::NonZeroU64,
     pub movement_revision: u64,
     pub previous_position: [f32; 3],
     pub previous_pitch_degrees: f32,
@@ -74,6 +74,8 @@ pub struct ActorRenderInstance {
 pub struct ActorRenderFrame {
     /// Actors prepared for mask coverage without appearing in the scene's main passes.
     pub mask_only_runtime_ids: Arc<[u64]>,
+    /// Visible prefix after coverage-only layers are partitioned; independent layers stay here.
+    pub main_pass_instance_count: Option<u32>,
     pub instances: Arc<[ActorRenderInstance]>,
     pub skins: Arc<ActorSkinResidency>,
     pub instance_revision: u64,
@@ -114,6 +116,7 @@ impl Default for ActorRenderFrame {
     fn default() -> Self {
         Self {
             mask_only_runtime_ids: Arc::from([]),
+            main_pass_instance_count: None,
             instances: Arc::from([]),
             skins: Arc::default(),
             instance_revision: 0,
@@ -439,7 +442,7 @@ impl ActorRenderScene {
                     previous_bones: Arc::from(posed_bones),
                     current_bones: Arc::from(posed_bones),
                     completed_tick: source.movement_revision,
-                    reset_generation: source.spawn_revision.max(1),
+                    reset_generation: source.spawn_revision.get(),
                 },
                 world_from_actor: [
                     [cosine, 0.0, sine, pose.position[0]],

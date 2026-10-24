@@ -208,6 +208,7 @@ fn lobby() -> HudModel {
                 count: 1,
                 selected: index == 0,
                 durability: None,
+                ..Default::default()
             })
             .collect(),
         sidebar: Some(Sidebar {

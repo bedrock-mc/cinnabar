@@ -43,6 +43,8 @@ pub struct EngineInput<'a> {
     /// Keys held this frame.
     pub keys: &'a [KeyboardKey],
     pub pointer: PointerButtons,
+    /// A touch interacts on release; mouse and controller input retain their own edges.
+    pub touch: bool,
     pub pointer_edges: Vec<bool>,
     pub wheel: Vec<(f32, ScrollUnit)>,
     /// Pressed keys this frame with their produced text.
@@ -92,7 +94,11 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
         let pointer = PointerInput {
             point,
             held: input.pointer.held,
-            mode: InputMode::Mouse,
+            mode: if input.touch {
+                InputMode::Touch
+            } else {
+                InputMode::Mouse
+            },
             now: input.now,
         };
         events.extend(
@@ -118,6 +124,13 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
     } else {
         std::mem::take(&mut input.pointer_edges)
     };
+    if input.touch && point.is_none() && edges.contains(&false) {
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        return;
+    }
     // Vanilla sends pointer deltas to active components; a scroll view
     // consumes them while capture is still down.
     // Move the existing capture once before any release, even when the final state is up.
@@ -133,12 +146,22 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
             if let Some(point) = point {
                 let region = hit_test(&frame.hits, point);
                 engine_scroll::press(runtime, frame, region, point);
-                events.extend(button(runtime, frame, SELECT, true, Some(point), input.now).events);
+                events.extend(
+                    pointer_button(runtime, frame, true, Some(point), input.now, input.touch)
+                        .events,
+                );
             }
         } else {
             runtime.server_forms_mut().engine_mut().drag = None;
             // A touch pan past the tap slop presses nothing.
             let tapped = engine_scroll::release(runtime);
+            if input.touch && !tapped {
+                runtime
+                    .server_forms_mut()
+                    .engine_mut()
+                    .clear_pointer_activation();
+                continue;
+            }
             let pressed = runtime
                 .server_forms()
                 .engine()
@@ -146,7 +169,7 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
                 .pressed
                 .clone()
                 .filter(|_| tapped);
-            let up = button(runtime, frame, SELECT, false, point, input.now).events;
+            let up = pointer_button(runtime, frame, false, point, input.now, input.touch).events;
             releases.push((events.len()..events.len() + up.len(), pressed));
             events.extend(up);
         }
@@ -250,6 +273,33 @@ fn button(
     engine
         .dispatcher
         .button(&frame.hits, &mut engine.view, input)
+}
+
+/// Dispatches a pointer edge with its original device, so touch controls activate on release.
+fn pointer_button(
+    runtime: &mut UiRuntime,
+    frame: &EngineFrame,
+    down: bool,
+    point: Option<[f64; 2]>,
+    now: f64,
+    touch: bool,
+) -> Dispatch {
+    let engine = runtime.server_forms_mut().engine_mut();
+    engine.dispatcher.button(
+        &frame.hits,
+        &mut engine.view,
+        EngineButton {
+            id: SELECT,
+            down,
+            point,
+            now,
+            mode: if touch {
+                InputMode::Touch
+            } else {
+                InputMode::Mouse
+            },
+        },
+    )
 }
 
 /// Whether the selected component is an edit box taking typed text.

@@ -64,9 +64,10 @@ fn primitive_text_centers_lines_and_gives_each_its_own_background() {
     style.use_rotation = true;
     let output = records(&style, &lines);
     assert_eq!(output.len(), 4);
+    // The 5.5-pixel line rounds up to 6 before centring, keeping its right padding.
     assert_eq!(
         output[0].rect,
-        [-3.0, -1.0, 3.0, NAMETAG_LINE_PITCH_PX - 1.0]
+        [-4.0, -1.0, 4.0, NAMETAG_LINE_PITCH_PX - 1.0]
     );
     assert_eq!(
         output[1].rect,
@@ -79,7 +80,7 @@ fn primitive_text_centers_lines_and_gives_each_its_own_background() {
     );
     assert_eq!(output[0].color, style.background_color.unwrap());
     assert_eq!(output[1].color, style.background_color.unwrap());
-    assert_eq!(output[2].rect[0], -2.0);
+    assert_eq!(output[2].rect[0], -3.0);
     assert_eq!(output[2].rect[1], -1.0);
     assert_eq!(output[3].rect[0], -1.0);
     assert_eq!(output[3].rect[1], NAMETAG_LINE_PITCH_PX);

@@ -77,6 +77,7 @@ fn upload_images(
 }
 
 /// Uploads one image set; neutral PBR levels are generated only when `neutral_pbr` asks.
+/// `None` once `cancelled`, checked before each texture.
 fn upload_layer(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -84,15 +85,12 @@ fn upload_layer(
     images: &LayerImages,
     usage: wgpu::TextureUsages,
     neutral_pbr: bool,
-) -> LayerTextures {
-    let color = upload_images(
-        device,
-        queue,
-        labels[0],
-        &images.color,
-        COLOR_STORAGE_FORMAT,
-        usage,
-    );
+    cancelled: &dyn Fn() -> bool,
+) -> Option<LayerTextures> {
+    let upload = |label, images: &MipImages, format| {
+        (!cancelled()).then(|| upload_images(device, queue, label, images, format, usage))
+    };
+    let color = upload(labels[0], &images.color, COLOR_STORAGE_FORMAT)?;
     let neutral = || {
         let levels = images.color.levels.len() as u32;
         let (width, height) = (images.color.width, images.color.height);
@@ -103,29 +101,30 @@ fn upload_layer(
     };
     let pbr = match &images.pbr {
         Some([normals, specular]) => Some([
-            upload_images(device, queue, labels[1], normals, PBR_FORMAT, usage),
-            upload_images(device, queue, labels[2], specular, PBR_FORMAT, usage),
+            upload(labels[1], normals, PBR_FORMAT)?,
+            upload(labels[2], specular, PBR_FORMAT)?,
         ]),
         None if neutral_pbr => {
             let [normals, specular] = neutral();
             Some([
-                upload_images(device, queue, labels[1], &normals, PBR_FORMAT, usage),
-                upload_images(device, queue, labels[2], &specular, PBR_FORMAT, usage),
+                upload(labels[1], &normals, PBR_FORMAT)?,
+                upload(labels[2], &specular, PBR_FORMAT)?,
             ])
         }
         None => None,
     };
-    LayerTextures { color, pbr }
+    Some(LayerTextures { color, pbr })
 }
 
 /// Uploads the atlas (sampled, copied into and rendered into by animation updates), its frame
-/// store, and the remap table.
+/// store, and the remap table; `None` once `cancelled`, checked before each texture.
 pub(crate) fn upload_atlas(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     plan: &AtlasPlan,
     images: &AtlasImages,
-) -> UploadedAtlas {
+    cancelled: &dyn Fn() -> bool,
+) -> Option<UploadedAtlas> {
     let atlas = upload_layer(
         device,
         queue,
@@ -140,9 +139,10 @@ pub(crate) fn upload_atlas(
             | wgpu::TextureUsages::COPY_SRC
             | wgpu::TextureUsages::RENDER_ATTACHMENT,
         true,
-    );
-    let frames = images.frames.as_ref().map(|frames| {
-        upload_layer(
+        cancelled,
+    )?;
+    let frames = match &images.frames {
+        Some(frames) => Some(upload_layer(
             device,
             queue,
             [
@@ -155,18 +155,23 @@ pub(crate) fn upload_atlas(
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::COPY_DST,
             false,
-        )
-    });
+            cancelled,
+        )?),
+        None => None,
+    };
+    if cancelled() {
+        return None;
+    }
     let remap = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("shader-pack atlas remap"),
         contents: bytemuck::cast_slice(&plan.remap),
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     });
-    UploadedAtlas {
+    Some(UploadedAtlas {
         atlas,
         frames,
         remap,
-    }
+    })
 }
 
 /// Java's `NEAREST_MIPMAP_LINEAR` terrain filtering, clamped to the atlas levels.

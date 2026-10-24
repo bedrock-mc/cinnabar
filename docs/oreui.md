@@ -173,5 +173,6 @@ Create New World uses the installed preview and category art, solid form rows an
 choice faces as Settings. Sidebar/form tabs scroll independently and retain their surrounding
 screen during quick category changes. The world backend's unsupported categories, Hardcore and
 Realm creation remain disabled; the Realms action keeps the owner's quieter commerce treatment.
-Advanced separates Backend (Dragonfly/BDS) from World generator (Normal/Flat). Dragonfly is the
+Advanced separates Backend (Dragonfly/BDS) from World generator (Normal/Flat). BDS is the
 default; selecting unavailable BDS shows its detected Docker warning without changing the generator.
+Dragonfly supports only Flat; creating a Normal world with it shows a validation message.

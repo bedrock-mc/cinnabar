@@ -43,7 +43,10 @@ pub(super) use resources::controller_resources;
 use resources::{ControllerResources, named_resource};
 use textures::compile_texture_identifiers_with;
 pub use textures::decode_raster as decode_equipment_raster;
-pub use textures::{compile_textures_for_assets, compile_textures_for_assets_with};
+pub use textures::{
+    compile_textures_for_assets, compile_textures_for_assets_with,
+    compile_textures_for_assets_with_priorities,
+};
 
 /// Literal transforms an item's attachable exposed, keyed by item identifier.
 pub(super) struct ItemTransforms {
@@ -57,6 +60,8 @@ struct ParsedAttachable {
     item_identifier: Box<str>,
     attachable_identifier: Box<str>,
     geometry: Box<str>,
+    script_armor_slot: Option<ArmorSlot>,
+    script_held: bool,
     texture: Box<str>,
     material: Box<str>,
     render_controller: Box<str>,
@@ -215,7 +220,12 @@ fn binding(
     texture_symbols: &BTreeMap<&str, ()>,
     materials: &super::materials::MaterialStates,
 ) -> Result<EquipmentBinding, AttachableError> {
-    let category = category(&parsed.item_identifier, &parsed.geometry);
+    let category = category_with_script_slot(
+        &parsed.item_identifier,
+        &parsed.geometry,
+        parsed.script_armor_slot,
+        parsed.script_held,
+    );
     Ok(EquipmentBinding {
         geometry: reference(parsed.geometry, geometry_symbols),
         texture: reference(parsed.texture, texture_symbols),
@@ -246,10 +256,25 @@ fn reference(identifier: Box<str>, catalog: &BTreeMap<&str, ()>) -> EquipmentRef
     }
 }
 
+#[cfg(test)]
 fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
-    let fact = assets::facts::ItemFacts::builtin()
-        .ok()
-        .and_then(|facts| facts.by_identifier(item_identifier));
+    category_with_script_slot(item_identifier, geometry, None, false)
+}
+
+/// Prefers item and geometry slot facts, then the supported authored script branches.
+fn category_with_script_slot(
+    item_identifier: &str,
+    geometry: &str,
+    script_armor_slot: Option<ArmorSlot>,
+    script_held: bool,
+) -> EquipmentCategory {
+    let facts = assets::facts::ItemFacts::builtin().ok();
+    let fact = facts.and_then(|facts| facts.by_identifier(item_identifier));
+    if let Some(tag) = facts.and_then(|facts| facts.tag(assets::facts::HARNESS_TAG))
+        && fact.is_some_and(|fact| fact.tags.contains(tag))
+    {
+        return EquipmentCategory::Body;
+    }
     if fact.is_some_and(|fact| fact.traits.contains(assets::facts::ItemTraits::SHIELD))
         || geometry == "geometry.shield"
     {
@@ -261,17 +286,82 @@ fn category(item_identifier: &str, geometry: &str) -> EquipmentCategory {
         return EquipmentCategory::Elytra;
     }
     use assets::item::armour::ItemArmourSlot as S;
-    match fact.and_then(|fact| fact.armour_slot) {
-        Some(slot) => EquipmentCategory::Armor {
-            slot: match slot {
-                S::Head => ArmorSlot::Helmet,
-                S::Chest => ArmorSlot::Chestplate,
-                S::Legs => ArmorSlot::Leggings,
-                S::Feet => ArmorSlot::Boots,
-            },
-        },
-        None => EquipmentCategory::Held,
+    let native_slot = fact
+        .and_then(|fact| fact.armour_slot)
+        .map(|slot| match slot {
+            S::Head => ArmorSlot::Helmet,
+            S::Chest => ArmorSlot::Chestplate,
+            S::Legs => ArmorSlot::Leggings,
+            S::Feet => ArmorSlot::Boots,
+        })
+        .or_else(|| player_armor_slot(geometry));
+    match (native_slot, script_armor_slot) {
+        (Some(slot), _) => EquipmentCategory::Armor { slot },
+        (None, Some(slot)) if script_held => EquipmentCategory::ArmorAndHeld { slot },
+        (None, Some(slot)) => EquipmentCategory::Armor { slot },
+        (None, None) => EquipmentCategory::Held,
     }
+}
+
+/// Reads the explicit worn slot used by custom attachables with a non-vanilla geometry.
+fn armor_slot_from_scripts(scripts: Option<&Value>) -> Option<ArmorSlot> {
+    scripts
+        .filter(|scripts| {
+            contains_head_item_slot(scripts) && contains_thirdperson_head_branch(scripts)
+        })
+        .map(|_| ArmorSlot::Helmet)
+}
+
+/// Finds the explicit head-slot comparison across Bedrock's accepted script value shapes.
+fn contains_head_item_slot(value: &Value) -> bool {
+    match value {
+        Value::String(expression) => {
+            let compact = expression
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .collect::<String>();
+            ["c.item_slot=='head'", "context.item_slot=='head'"]
+                .iter()
+                .any(|needle| compact.contains(needle))
+        }
+        Value::Array(values) => values.iter().any(contains_head_item_slot),
+        Value::Object(values) => values.values().any(contains_head_item_slot),
+        _ => false,
+    }
+}
+
+/// A head context alone is common in held-item attachables; the authored render branch is the
+/// evidence that the same definition is actually intended to draw as a worn helmet.
+fn contains_thirdperson_head_branch(value: &Value) -> bool {
+    match value {
+        Value::Array(values) => values.iter().any(contains_thirdperson_head_branch),
+        Value::Object(values) => values.iter().any(|(key, value)| {
+            key == "thirdperson_head" || contains_thirdperson_head_branch(value)
+        }),
+        _ => false,
+    }
+}
+
+/// Finds the authored third-person hand branch used by dual-purpose attachables.
+fn contains_thirdperson_hand_branch(value: &Value) -> bool {
+    match value {
+        Value::Array(values) => values.iter().any(contains_thirdperson_hand_branch),
+        Value::Object(values) => values.iter().any(|(key, value)| {
+            key == "thirdperson_hand" || contains_thirdperson_hand_branch(value)
+        }),
+        _ => false,
+    }
+}
+
+/// Custom resource packs identify player armor by the vanilla player armor geometry family.
+fn player_armor_slot(geometry: &str) -> Option<ArmorSlot> {
+    Some(match geometry {
+        "geometry.player.armor.helmet" => ArmorSlot::Helmet,
+        "geometry.player.armor.chestplate" => ArmorSlot::Chestplate,
+        "geometry.player.armor.leggings" => ArmorSlot::Leggings,
+        "geometry.player.armor.boots" => ArmorSlot::Boots,
+        _ => return None,
+    })
 }
 
 fn parse_attachable(
@@ -293,6 +383,10 @@ fn parse_attachable(
         .flatten()
         .filter_map(|(alias, value)| Some((alias.clone(), Box::from(value.as_str()?))))
         .collect();
+    let script_armor_slot = armor_slot_from_scripts(description.get("scripts"));
+    let script_held = description
+        .get("scripts")
+        .is_some_and(contains_thirdperson_hand_branch);
     let geometry = named_resource(
         description,
         "geometry",
@@ -303,6 +397,8 @@ fn parse_attachable(
         animations,
         resources: resources::aliases(description)?,
         geometry,
+        script_armor_slot,
+        script_held,
         texture: named_resource(
             description,
             "textures",

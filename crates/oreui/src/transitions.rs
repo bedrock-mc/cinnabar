@@ -25,6 +25,7 @@ enum Control {
     Fullscreen,
     Permission(u64, usize),
     ShowAllPermissions(u64),
+    WorldOption(launcher::local_worlds::options::WorldOption),
 }
 
 impl Control {
@@ -37,6 +38,12 @@ impl Control {
             }
             MenuAction::Mods(launcher::mods::Action::ShowAllPermissions(id)) => {
                 Some(Self::ShowAllPermissions(id))
+            }
+            MenuAction::LocalWorld(launcher::menu::LocalWorldAction::Option(id, _))
+            | MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(id, _))
+                if id.definition().control == launcher::local_worlds::options::Control::Toggle =>
+            {
+                Some(Self::WorldOption(id))
             }
             _ => None,
         }

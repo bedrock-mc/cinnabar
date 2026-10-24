@@ -41,10 +41,10 @@ fn sulfur_cube_native_shell_pixels_survive_actor_compilation() {
             .iter()
             .find(|texture| entities.sources[texture.source as usize].path.as_ref() == path)
             .unwrap_or_else(|| panic!("missing sulfur cube shell {path}"));
-        let source = &entities.sources[texture.source as usize];
-        assert!(assets::native_actor_texture_preserves_fractional_alpha(
-            source
-        ));
+        assert!(
+            assets::actor_sources_keeping_alpha(runtime_entities.render_data(), &entities.sources)
+                .contains(&texture.source)
+        );
         let raster = image::open(root.join(&path))
             .unwrap()
             .into_rgba8()
@@ -61,9 +61,6 @@ fn sulfur_cube_native_shell_pixels_survive_actor_compilation() {
 }
 
 #[test]
-fn custom_sulfur_material_does_not_admit_unverified_fractional_alpha() {
-    let fixture = pack(127, "sulfur_cube_outer", false);
-    let compiled = compile_actor_assets(fixture.path(), MANIFEST).unwrap();
-    assert_eq!(compiled.report.bindings, 0);
-    assert_eq!(compiled.report.textures, 0);
+fn custom_art_drawn_by_the_blended_sulfur_shell_keeps_its_alpha() {
+    assert_eq!(probe_alpha(127, "sulfur_cube_outer"), (1, 127));
 }

@@ -37,6 +37,7 @@ fn animation_strip_waits_for_original_texels_instead_of_a_resized_preview() {
     set.set_full_res(HashMap::from([(
         path.into(),
         IconRef {
+            color_mask: None,
             page: 7,
             uv: [0, 0, 640, 8],
             glint: false,
@@ -81,6 +82,7 @@ fn animation_larger_than_an_art_page_still_draws_its_settled_artwork() {
     set.set_full_res(HashMap::from([(
         path.into(),
         IconRef {
+            color_mask: None,
             page: 7,
             uv: [0, 0, 1022, 3],
             glint: false,

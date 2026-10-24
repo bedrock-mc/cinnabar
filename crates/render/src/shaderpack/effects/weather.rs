@@ -1,8 +1,9 @@
 //! Rain and snow for packs. Rain is Java's `WeatherEffectRenderer` columns: one 1-block quad
 //! per column within [`RAIN_RADIUS`] of the camera, turned to face it, from the column's
 //! surface (or `RAIN_RADIUS` below the camera) to `RAIN_RADIUS` above, scrolling down the
-//! rain sheet. Packs displace and slant these quads (Photon's `SLANTED_RAIN`), so their shape
-//! matters. Snow keeps Cinnabar's precipitation layers (`PrecipitationScene`), placed as
+//! rain sheet ([`rain_sheet`]), which spans the quad's width and four blocks of its height as
+//! `rain.png` does. Packs displace and slant these quads (Photon's `SLANTED_RAIN`), so their
+//! shape matters. Snow keeps Cinnabar's precipitation layers (`PrecipitationScene`), placed as
 //! `weather.wesl` places them: each layer wraps the shared particle mesh in a 30-block box
 //! ahead of the camera and stretches every particle along its velocity. Vanilla's streak
 //! width is a constant `dimensions.x / 1.778` blocks across the view; the vanilla fragment
@@ -28,6 +29,12 @@ pub(super) const RAIN_KIND: u32 = 0;
 const RAIN_RADIUS: i32 = 10;
 /// Blocks of column per repeat of the rain sheet (Java's `v = y / 4`).
 const RAIN_SHEET_BLOCKS: f32 = 4.0;
+/// Size of the rain sheet, Java's `rain.png`: a texel is 1/64 block across a column.
+pub(super) const RAIN_SHEET_SIZE: [u32; 2] = [64, 256];
+/// Streaks scattered over the rain sheet, about as many streak texels as `rain.png` holds.
+const RAIN_SHEET_STREAKS: u32 = 40;
+/// Seed of the streak placement on the rain sheet.
+const RAIN_SHEET_SEED: i64 = 0x5241_494E;
 
 static PARTICLES: LazyLock<Vec<[f32; 4]>> = LazyLock::new(|| particle_mesh(PARTICLE_MESH_SEED));
 
@@ -50,14 +57,52 @@ fn surface(grid: &OcclusionGrid, kind: u32, position: Vec3) -> Option<i32> {
     grid.heights.get(index).copied()
 }
 
-/// Appends Java's rain columns around `camera`: `uv_rect` is the rain sheet in the weather
-/// texture (sprites side by side along u), `level` the rain level and `ticks` the game time.
-/// Each column's `v` runs over whole repeats of the sheet, so a quad splits where the sheet
-/// wraps and the clamped weather texture needs no repeat sampler.
+/// The rain sheet packs sample as `gtexture`, [`RAIN_SHEET_SIZE`] RGBA texels. Java's
+/// `rain.png` is a sparse field of thin streaks that each column samples across its whole
+/// width, while the Bedrock weather sheet (`size`, `rgba`) holds one streak per sprite cell:
+/// sampled across a column, one cell draws a band a quarter of a block wide. This scatters
+/// the cells of `rect` (sprites side by side along `u`, as in
+/// [`render_model::PrecipitationParams::uv_rect`]) over the sheet at fixed places, wrapping
+/// at its edges so it tiles, and keeps the more opaque texel where streaks overlap.
+pub(super) fn rain_sheet(size: [u32; 2], rgba: &[u8], rect: [f32; 4]) -> Vec<u8> {
+    let [width, height] = RAIN_SHEET_SIZE;
+    let mut sheet = vec![0; (width * height * 4) as usize];
+    let texels = |fraction: f32, side: u32| (fraction * side as f32).round().max(0.0) as u32;
+    let (x0, y0) = (texels(rect[0], size[0]), texels(rect[1], size[1]));
+    let (cell_width, cell_height) = (texels(rect[2], size[0]), texels(rect[3], size[1]));
+    let cells = size[0]
+        .saturating_sub(x0)
+        .checked_div(cell_width)
+        .unwrap_or(0);
+    if cells == 0 {
+        return sheet;
+    }
+    let mut random = JavaRandom::new(RAIN_SHEET_SEED);
+    for streak in 0..RAIN_SHEET_STREAKS {
+        let left = x0 + streak % cells * cell_width;
+        let at = [width, height].map(|side| (random.next_float() * side as f32) as u32);
+        for y in 0..cell_height {
+            for x in 0..cell_width {
+                let source = (((y0 + y) * size[0] + left + x) * 4) as usize;
+                let Some(texel) = rgba.get(source..source + 4) else {
+                    continue;
+                };
+                let target = ((((at[1] + y) % height) * width + (at[0] + x) % width) * 4) as usize;
+                if texel[3] > sheet[target + 3] {
+                    sheet[target..target + 4].copy_from_slice(texel);
+                }
+            }
+        }
+    }
+    sheet
+}
+
+/// Appends Java's rain columns around `camera` over the rain sheet ([`rain_sheet`]): `level`
+/// is the rain level and `ticks` the game time. Each column's `v` runs over whole repeats of
+/// the sheet, so a quad splits where the sheet wraps and every coordinate stays in `0..=1`.
 pub(super) fn rain_columns(
     mesh: &mut Mesh,
     grid: &OcclusionGrid,
-    uv_rect: [f32; 4],
     camera: Vec3,
     level: f32,
     ticks: f32,
@@ -65,7 +110,6 @@ pub(super) fn rain_columns(
     if level <= 0.0 || !level.is_finite() || !ticks.is_finite() {
         return;
     }
-    let [sheet_u, sheet_v, sheet_width, sheet_height] = uv_rect;
     let column = |axis: f32| axis.floor() as i32;
     let (cam_x, cam_y, cam_z) = (column(camera.x), column(camera.y), column(camera.z));
     let whole_ticks = ticks.floor();
@@ -118,13 +162,12 @@ pub(super) fn rain_columns(
             while start < v_bottom {
                 let repeat = start.floor();
                 let end = (repeat + 1.0).min(v_bottom);
-                let sheet = |v: f64| sheet_v + (v - repeat) as f32 * sheet_height;
                 let corner = |side: f32, v: f64| Vertex {
                     position: Vec3::new(relative.x, y_at(v), relative.z) + half * side,
                     colour: [1.0, 1.0, 1.0, alpha],
                     normal,
-                    uv: [sheet_u + (side + 1.0) * 0.5 * sheet_width, sheet(v)],
-                    mid_uv: [sheet_u + 0.5 * sheet_width, sheet_v + 0.5 * sheet_height],
+                    uv: [(side + 1.0) * 0.5, (v - repeat) as f32],
+                    mid_uv: [0.5; 2],
                     light: LIGHT,
                 };
                 mesh.quad([

@@ -17,12 +17,14 @@ reads = [
     "assets/geyser-mappings-source.json",
     "assets/oreui-icons-source.json",
     "assets/vanilla-source.json",
+    "assets/touch-controls.json",
     "crates/protocol/data/retail_biomes_1_26_50.txt",
     "crates/protocol/data/retail_actors_1_26_50.txt",
     "crates/protocol/data/retail_items_1_26_50.tsv",
     "crates/protocol/data/item_capacity_1_26_50.tsv",
     "crates/protocol/data/item_tags_native.tsv",
     "crates/asset-compiler/data/*",
+    "tools/localserver/painting_motives.json",
 ]
 
 [features]

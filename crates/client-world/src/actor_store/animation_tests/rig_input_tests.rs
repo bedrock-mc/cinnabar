@@ -8,6 +8,27 @@ use super::actor_with_metadata;
 use actor_animation::{AnimatedActor, test_support};
 
 #[test]
+fn local_equipment_count_tracks_the_inventory_feed_instead_of_remote_armor() {
+    let assets = test_support::counting_random_assets_for("minecraft:player");
+    let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
+    store.exclude_remote_state_for(1);
+    let mut feed = crate::actor_store::local_tests::local_feed(0.0, 0.0);
+    feed.main_hand = Some("fixture:held".into());
+    feed.off_hand = Some("fixture:offhand".into());
+    for count in [0, 1, 4, 0] {
+        feed.equipment_count = count;
+        store.sync_local_player(1, -1, &feed);
+        store.advance_interpolation_ticks(1);
+        let rig = store.actor_rig(1).unwrap();
+        assert_eq!(
+            rig.particle_queries(store.get(1).unwrap(), 1.0, 0)
+                .query("equipment_count"),
+            f32::from(count)
+        );
+    }
+}
+
+#[test]
 fn sleeping_player_metadata_does_not_spoof_sneaking() {
     let actor = actor_with_metadata(HashMap::from([(26, ActorMetadataValue::Byte(2))]));
     assert!(AnimatedActor::is_sleeping(&actor));
@@ -173,6 +194,7 @@ fn local_flight_freezes_cape_walk_phase_but_keeps_chase_and_resumes_walking() {
     let mut store = ActorStore::new_with_entity_assets(1, 0, assets);
     store.exclude_remote_state_for(1);
     let mut feed = crate::LocalPlayerFeed {
+        equipment_count: 0,
         held_network_ids: [0; 2],
         held_variants: Default::default(),
         game_mode: None,

@@ -242,7 +242,7 @@ fn frame(blended: &[bool]) -> ActorRenderFrame {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: index as u64 + 10,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,
@@ -405,13 +405,13 @@ fn queued_batch_capture_rejects_wrong_views_and_replaced_prepared_revisions() {
         gpu.frame_generation += 1;
         assert!(gpu.draw_batch(view).is_none());
         gpu.frame_generation -= 1;
-        let manifest = Arc::clone(&gpu.manifest);
-        gpu.manifest = gpu.manifest.to_vec().into();
+        let manifest = Arc::clone(&gpu.main_manifest);
+        gpu.main_manifest = gpu.main_manifest.to_vec().into();
         assert!(
             gpu.draw_batch(view).is_none(),
             "equal manifest contents are a distinct prepared identity"
         );
-        gpu.manifest = manifest;
+        gpu.main_manifest = manifest;
         assert!(gpu.draw_batch(view).is_some());
     }
     world.run_system_once(prepare_actor_resources).unwrap();

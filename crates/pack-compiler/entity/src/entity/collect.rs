@@ -62,6 +62,54 @@ pub(super) fn collect_optional_file(
     }
 }
 
+/// Collects the block-texture rasters the item atlas names, so an item drawn from block art keeps
+/// its sprite. Only plain `textures/blocks/` paths are admitted.
+pub(super) fn collect_atlas_block_rasters(
+    root: &Path,
+    output: &mut Vec<(Box<str>, PathBuf)>,
+) -> Result<(), AssetError> {
+    let atlas = root.join("textures/item_texture.json");
+    if !atlas.is_file() {
+        return Ok(());
+    }
+    let atlas = parse_semantic_json(&atlas, &read_bounded_source(root, &atlas)?)?;
+    let Some(texture_data) = atlas.get("texture_data").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    let mut stems = BTreeSet::new();
+    for definition in texture_data.values() {
+        let textures = match definition.get("textures") {
+            Some(Value::String(texture)) => vec![texture.as_str()],
+            Some(Value::Array(textures)) => textures.iter().filter_map(Value::as_str).collect(),
+            _ => continue,
+        };
+        for texture in textures {
+            let texture = texture.replace('\\', "/");
+            let stem = texture
+                .strip_suffix(".png")
+                .or_else(|| texture.strip_suffix(".tga"))
+                .unwrap_or(&texture);
+            let plain = stem.strip_prefix("textures/blocks/").is_some_and(|rest| {
+                rest.split('/').all(|part| {
+                    !part.is_empty()
+                        && part
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+                })
+            });
+            if plain {
+                stems.insert(stem.to_owned());
+            }
+        }
+    }
+    for stem in stems {
+        for extension in ["png", "tga"] {
+            collect_optional_file(root, &format!("{stem}.{extension}"), output)?;
+        }
+    }
+    Ok(())
+}
+
 fn collect_directory(
     root: &Path,
     directory: &Path,

@@ -50,6 +50,18 @@ func TestTotemFixtureKeepsEquipActivationConsumptionInOrder(t *testing.T) {
 	}
 }
 
+func TestTotemFixtureStaleEchoSendsOnlyAnEmptyLocalOffhandEcho(t *testing.T) {
+	t.Parallel()
+	packets := totemFixturePackets("staleecho", 42, mgl32.Vec3{})
+	if len(packets) != 1 {
+		t.Fatalf("got %d packets, want only the offhand echo", len(packets))
+	}
+	echo := packets[0].(*packet.MobEquipment)
+	if echo.EntityRuntimeID != 42 || echo.WindowID != 119 || echo.NewItem.Stack.Count != 0 {
+		t.Fatal("echo is not the local player's empty offhand")
+	}
+}
+
 func TestTotemFixtureTracksInitialisedPlayerAndPreservesUnknownCommands(t *testing.T) {
 	t.Parallel()
 	initialised := &packet.SetLocalPlayerAsInitialised{EntityRuntimeID: 42}

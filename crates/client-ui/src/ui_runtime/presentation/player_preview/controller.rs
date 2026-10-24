@@ -244,6 +244,9 @@ impl UiPresentationRuntime {
                 .bounds
                 .unwrap_or_else(super::fitting::standard);
             for &item in &self.menu_preview_model.cosmetics {
+                if render_model::hats::rig(item).is_ground_effect() {
+                    continue;
+                }
                 if let Some(frame) = render_model::hats::thumbnail::prepared_frame(item) {
                     bounds = bounds.with_box(frame.model_bounds());
                 }

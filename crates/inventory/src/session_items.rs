@@ -113,6 +113,22 @@ impl SessionItemFacts {
         self.record(network_id).is_some_and(|record| record.banner)
     }
 
+    /// Whether the item is vanilla humanoid armour with durability, the items the client keys in
+    /// its UI by stored damage. The pinned armour table lists exactly the vanilla items registered as
+    /// humanoid armour; component items never are.
+    pub fn humanoid_armour(&self, network_id: i32) -> bool {
+        self.record(network_id).is_some_and(|record| {
+            record.retail_id.is_some()
+                && matches!(record.fact.armour, ItemArmour::Wearable { .. })
+                && matches!(record.fact.durability, ItemDurability::Maximum { maximum } if maximum > 0)
+        })
+    }
+
+    /// The stack's vanilla `#item_id_aux` UI key, with armour keyed by its stored damage.
+    pub fn id_aux(&self, stack: &protocol::NetworkItemStack) -> i32 {
+        protocol::item_id_aux(stack, self.humanoid_armour(stack.network_id))
+    }
+
     /// Returns the negotiated output identity for enchanting a plain book.
     pub fn enchanted_book_id(&self) -> Option<i32> {
         self.enchanted_book_id

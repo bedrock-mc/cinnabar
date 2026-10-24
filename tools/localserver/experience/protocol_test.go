@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 // fixtureLimits mirrors the limits fixture: the constants the Go adapter must share with Rust.
@@ -24,15 +26,15 @@ type fixtureLimits struct {
 	MaxClientSendBytes int    `json:"max_client_send_bytes"`
 	MaxValueDepth      int    `json:"max_value_depth"`
 	// The bounds on a block type, which the adapter checks again at registration.
-	MaxNameBytes         int `json:"max_name_bytes"`
-	MaxStateValues       int `json:"max_state_values"`
-	MaxStateCombinations int `json:"max_state_combinations"`
-	MaxBones             int `json:"max_bones"`
-	MaxPermutations      int `json:"max_permutations"`
-	MaxMaterials         int `json:"max_materials"`
-	MaxConditionTests    int `json:"max_condition_tests"`
-	MaxFlipbookFrames    int `json:"max_flipbook_frames"`
-	MaxGeometryBytes     int `json:"max_geometry_bytes"`
+	MaxNameBytes      int `json:"max_name_bytes"`
+	MaxStateValues    int `json:"max_state_values"`
+	MaxStateBits      int `json:"max_state_bits"`
+	MaxBones          int `json:"max_bones"`
+	MaxPermutations   int `json:"max_permutations"`
+	MaxMaterials      int `json:"max_materials"`
+	MaxConditionTests int `json:"max_condition_tests"`
+	MaxFlipbookFrames int `json:"max_flipbook_frames"`
+	MaxGeometryBytes  int `json:"max_geometry_bytes"`
 	// The network bounds, which the adapter's flood keeps.
 	MaxNetworkBlocks    int `json:"max_network_blocks"`
 	MaxNetworkDataBytes int `json:"max_network_data_bytes"`
@@ -278,12 +280,12 @@ func TestUnknownFieldRejected(t *testing.T) {
 		{new(Response), `{"type":"result","seq":1,"outcome":{"type":"exploded"}}`},
 		{new(Response), `{"type":"result","seq":1,"outcome":null}`},
 		{new(Response), `null`},
-		{new(Scalar), `{"type":"float","value":1.5}`},
-		{new(Scalar), `{"type":"text"}`},
-		{new(Scalar), `{"type":"text","value":null}`},
-		{new(Scalar), `{"type":"bool","value":1}`},
-		{new(Scalar), `{"type":"choice","value":65536}`},
-		{new(Scalar), `{"type":"integer","value":1.5}`},
+		{new(cinnabarext.Scalar), `{"type":"float","value":1.5}`},
+		{new(cinnabarext.Scalar), `{"type":"text"}`},
+		{new(cinnabarext.Scalar), `{"type":"text","value":null}`},
+		{new(cinnabarext.Scalar), `{"type":"bool","value":1}`},
+		{new(cinnabarext.Scalar), `{"type":"choice","value":65536}`},
+		{new(cinnabarext.Scalar), `{"type":"integer","value":1.5}`},
 	} {
 		if err := decodeStrict([]byte(bad.json), bad.into); err == nil {
 			t.Errorf("%T decoded %s", bad.into, bad.json)
@@ -291,11 +293,11 @@ func TestUnknownFieldRejected(t *testing.T) {
 	}
 }
 
-// A Scalar has the client wire protocol's form, whose canonical bytes escape no HTML, so its
+// A cinnabarext.Scalar has the client wire protocol's form, whose canonical bytes escape no HTML, so its
 // encoder decides: one that escapes HTML escapes it, one that does not leaves it as written.
 func TestScalarLeavesHTMLEscapingToEncoder(t *testing.T) {
 	text := "<a & b>"
-	payload := []Scalar{{Text: &text}}
+	payload := []cinnabarext.Scalar{{Text: &text}}
 	var raw bytes.Buffer
 	encoder := json.NewEncoder(&raw)
 	encoder.SetEscapeHTML(false)
@@ -370,7 +372,7 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		{"maxClientSends", maxClientSends, rust.MaxClientSends},
 		{"maxNameBytes", maxNameBytes, rust.MaxNameBytes},
 		{"maxStateValues", maxStateValues, rust.MaxStateValues},
-		{"maxStateCombinations", maxStateCombinations, rust.MaxStateCombinations},
+		{"maxStateBits", maxStateBits, rust.MaxStateBits},
 		{"maxBones", maxBones, rust.MaxBones},
 		{"maxPermutations", maxPermutations, rust.MaxPermutations},
 		{"maxMaterials", maxMaterials, rust.MaxMaterials},

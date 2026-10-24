@@ -72,11 +72,9 @@ fn read_json(path: &Path, required: bool) -> Result<Vec<u8>, AudioBankCompileErr
         ));
     }
     let bytes = fs::read(path).map_err(io_error(path))?;
-    pack_json::parse_jsonc::<serde::de::IgnoredAny>(&bytes).map_err(|source| {
-        AudioBankCompileError::JsonFile {
-            path: path.to_path_buf(),
-            source,
-        }
+    pack_json::validate_jsonc(&bytes).map_err(|source| AudioBankCompileError::JsonFile {
+        path: path.to_path_buf(),
+        source,
     })?;
     Ok(bytes)
 }
@@ -86,7 +84,10 @@ fn block_materials(blocks: &[u8]) -> Result<Vec<u8>, AudioBankCompileError> {
     let root: Value = pack_json::parse_jsonc(blocks)?;
     let mut map = Map::new();
     for (name, value) in root.as_object().into_iter().flatten() {
-        if let Some(material) = value.get("sound").and_then(Value::as_str) {
+        let material = value
+            .as_str()
+            .or_else(|| value.get("sound").and_then(Value::as_str));
+        if let Some(material) = material {
             map.insert(name.clone(), Value::String(material.to_owned()));
         }
     }
@@ -179,7 +180,7 @@ mod tests {
         fs::write(root.join("sounds.json"), r#"{"block_sounds":{}}"#).unwrap();
         fs::write(
             root.join("blocks.json"),
-            r#"{"stone":{"sound":"stone"},"air":{}}"#,
+            r#"{"stone":{"sound":"stone"},"legacy":"wood","air":{}}"#,
         )
         .unwrap();
         fs::write(root.join("sounds/random/click.fsb"), [1, 2, 3]).unwrap();
@@ -192,6 +193,7 @@ mod tests {
         assert!(index.entry("sounds/random/click").is_some());
         let materials: Value = serde_json::from_slice(index.materials_json()).unwrap();
         assert_eq!(materials["stone"], "stone");
+        assert_eq!(materials["legacy"], "wood");
         assert!(materials.get("air").is_none());
     }
 

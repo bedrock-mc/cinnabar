@@ -111,10 +111,6 @@ const PRESET_OPTIONS: &[PresetOption] = &[
         id: SettingId::TransparentLeaves,
         values: [Fixed(0), Default, Fixed(1)],
     },
-    PresetOption {
-        id: SettingId::BubbleParticles,
-        values: [Fixed(0), Default, Fixed(1)],
-    },
 ];
 
 impl PresetOption {

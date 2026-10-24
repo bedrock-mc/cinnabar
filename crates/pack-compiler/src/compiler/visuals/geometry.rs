@@ -19,6 +19,28 @@ pub(in crate::compiler) fn vanilla_cuboid_quads(
     quads
 }
 
+/// Full-cube native quads with each face's UVs flipped by its native `Flip` value
+/// (1 and 2 are opposite quarter turns, 3 a half turn), keeping each quad's own face culling.
+pub(in crate::compiler) fn flipped_cube_quads(
+    materials: [u32; 6],
+    flips: [u8; 6],
+) -> [ModelQuad; 6] {
+    let mut quads = vanilla_cuboid_quads(materials, [0; 3], [256; 3]);
+    for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
+        for uv in &mut quad.uvs {
+            let [u, v] = *uv;
+            *uv = match flips[face as usize] {
+                1 => [v, 4096 - u],
+                2 => [4096 - v, u],
+                3 => [4096 - u, 4096 - v],
+                _ => [u, v],
+            };
+        }
+        quad.flags |= (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4;
+    }
+    quads
+}
+
 pub(in crate::compiler) fn cuboid_quads(
     materials: [u32; 6],
     min: [i16; 3],

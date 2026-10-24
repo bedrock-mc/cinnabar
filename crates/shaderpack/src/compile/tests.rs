@@ -12,6 +12,37 @@ fn fragment(glsl: &str) -> Result<CompiledStage, Vec<Diagnostic>> {
             lines: &LineMap::default(),
         },
     )
+    .map_err(|failure| failure.diagnostics)
+}
+
+#[test]
+fn unresolved_variables_are_distinct_from_other_parser_failures() {
+    for (body, variable) in [
+        ("color=vec4(missingValue);", Some("missingValue")),
+        ("color=missingFunction();", None),
+    ] {
+        let glsl =
+            format!("#version 450\nlayout(location=0) out vec4 color; void main() {{ {body} }}");
+        let failure = compile(
+            StageKind::Fragment,
+            &OutputMap {
+                glsl: &glsl,
+                origins: &[],
+                lines: &LineMap::default(),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(
+            failure.unknown_variables,
+            variable.into_iter().map(str::to_owned).collect()
+        );
+        assert!(
+            failure
+                .diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.phase == Phase::Parse)
+        );
+    }
 }
 
 #[test]
@@ -92,4 +123,55 @@ fn recursive_function_dependencies_are_rejected() {
             error.phase == Phase::Validate && error.message.contains("recursive function calls")
         }));
     }
+}
+
+#[test]
+fn stage_transport_rebuilds_validation_information_from_the_module() {
+    let mut stage = fragment(
+        "#version 450\nlayout(location=0) out vec4 color;
+        void main() { color = vec4(1.0); }",
+    )
+    .unwrap();
+    let mut bytes = Vec::new();
+    ciborium::into_writer(&stage, &mut bytes).unwrap();
+    let fields: ciborium::Value = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert!(
+        fields
+            .as_map()
+            .unwrap()
+            .iter()
+            .all(|(key, _)| key.as_text() != Some("info"))
+    );
+    let decoded: CompiledStage = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert_eq!(decoded.stage, stage.stage);
+    assert_eq!(
+        ciborium::Value::serialized(&decoded.module).unwrap(),
+        ciborium::Value::serialized(&stage.module).unwrap()
+    );
+    for (handle, _) in stage.module.global_variables.iter() {
+        assert_eq!(
+            decoded.info.get_entry_point(0)[handle],
+            stage.info.get_entry_point(0)[handle]
+        );
+    }
+
+    let scalar = stage.module.types.insert(
+        naga::Type {
+            name: None,
+            inner: naga::TypeInner::Scalar(naga::Scalar::F32),
+        },
+        naga::Span::UNDEFINED,
+    );
+    stage.module.entry_points[0]
+        .function
+        .result
+        .as_mut()
+        .unwrap()
+        .ty = scalar;
+    bytes.clear();
+    ciborium::into_writer(&stage, &mut bytes).unwrap();
+    assert!(
+        ciborium::from_reader::<CompiledStage, _>(bytes.as_slice()).is_err(),
+        "stale validation information cannot make an invalid module usable"
+    );
 }

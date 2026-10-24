@@ -2,7 +2,9 @@
 //! with each instance's skin or held-item atlas layer, the hand's light and its field of view.
 
 use super::*;
-use crate::shaderpack::actors::{Hand, LayerTexture, RigBuffers, RigInstance, RigSource};
+use crate::shaderpack::actors::{
+    Hand, LayerCompose, LayerTexture, RigBuffers, RigInstance, RigSource,
+};
 
 /// The uploaded first-person rig, borrowed for one frame.
 pub(crate) struct ShaderpackHand<'a> {
@@ -54,10 +56,24 @@ impl RigSource for ShaderpackHand<'_> {
                 Hand::Main
             };
             let held = item.then_some(hand);
-            let texture = match held {
-                Some(Hand::Main) => self.gpu.atlases[0].as_ref().map(|atlas| &atlas._texture),
-                Some(Hand::Off) => self.gpu.atlases[1].as_ref().map(|atlas| &atlas._texture),
-                None => self.gpu.skin.as_ref().map(|skin| &skin._texture),
+            let texture = if flags & render_model::hand::HAND_MAP_BACKGROUND_FLAG != 0 {
+                raw(self.gpu.atlases[2]
+                    .as_ref()
+                    .map(|atlas| (&atlas._texture, atlas.raw_views)))
+            } else {
+                match held {
+                    Some(Hand::Main) => raw(self.gpu.atlases[0]
+                        .as_ref()
+                        .map(|a| (&a._texture, a.raw_views))),
+                    Some(Hand::Off) => raw(self.gpu.atlases[1]
+                        .as_ref()
+                        .map(|a| (&a._texture, a.raw_views))),
+                    None => raw(self
+                        .gpu
+                        .skin
+                        .as_ref()
+                        .map(|skin| (&skin._texture, skin.raw_views))),
+                }
             };
             let Some(texture) = texture else {
                 continue;
@@ -69,6 +85,7 @@ impl RigSource for ShaderpackHand<'_> {
                 texture: LayerTexture {
                     texture,
                     layer: flags & HAND_TEXTURE_LAYER_MASK,
+                    compose: LayerCompose::Plain,
                 },
                 runtime_id: None,
                 camera: true,
@@ -82,6 +99,11 @@ impl RigSource for ShaderpackHand<'_> {
     fn glint(&self, item: bool) -> Option<&Texture> {
         item.then_some(())
             .and(self.gpu.glint.as_ref())
-            .map(|glint| &glint._texture)
+            .and_then(|glint| raw(Some((&glint._texture, glint.raw_views))))
     }
+}
+
+/// A texture the pack can read through a raw gamma-byte view.
+fn raw(texture: Option<(&Texture, crate::actor::gpu::ArtworkRawViews)>) -> Option<&Texture> {
+    texture.and_then(|(texture, raw_views)| raw_views.0.then_some(texture))
 }

@@ -172,7 +172,9 @@ pub(crate) fn early_cull(
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
     let render_context = &mut render_context;
-    let cull = world.resource::<GpuCull>();
+    let Some(cull) = world.get_resource::<GpuCull>() else {
+        return Ok(());
+    };
     if cull.prepared_view != Some(view_entity) {
         return Ok(());
     }
@@ -207,7 +209,9 @@ pub(crate) fn late_cull(
     let view_entity = query.entity();
     let (camera, target, scene_target, depth, resolution_override) = query.into_inner();
     let render_context = &mut render_context;
-    let cull = world.resource::<GpuCull>();
+    let Some(cull) = world.get_resource::<GpuCull>() else {
+        return Ok(());
+    };
     let frame = world.resource::<GpuCullFrame>();
     let (Some(groups), Some(view)) = (&cull.bind_groups, frame.view) else {
         return Ok(());
@@ -273,6 +277,10 @@ pub(crate) fn late_cull(
             compute_pass_timestamps(world, RuntimeStage::GpuCullLate),
         );
     });
+    cull.encode_feedback(
+        encoder,
+        world.resource::<super::feedback::GpuCullFeedback>(),
+    );
     within_span(spans[2].as_ref(), encoder, |encoder| {
         let pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("terrain late cull pass"),

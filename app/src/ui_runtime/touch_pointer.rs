@@ -7,17 +7,25 @@
 use std::collections::VecDeque;
 
 use bevy::{
+    ecs::message::MessageCursor,
     input::{
         ButtonState,
         mouse::{MouseButton, MouseButtonInput},
         touch::{TouchInput, TouchPhase},
     },
     math::Vec2,
-    prelude::{DetectChangesMut, Entity, Local, MessageReader, MessageWriter, Query, Res, With},
+    prelude::{
+        DetectChangesMut, Entity, Local, MessageReader, Messages, Query, Res, ResMut, Resource,
+        With,
+    },
     window::{PrimaryWindow, Window},
 };
 use client_shell::{menu::MenuRuntime, ui_resources::UiRuntimeResource};
 use client_ui::ui_runtime::{UiRuntime, presentation::forms::scene_policy::MenuScene};
+
+/// Source of the pointer edge delivered to the active UI, including queued touch releases.
+#[derive(Resource, Default)]
+pub(crate) struct UiPointerSource(pub(crate) bool);
 
 /// What one delivered step does to the emulated pointer's button.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,15 +115,26 @@ fn takes_touch_pointer(
 }
 
 /// Runs before Bevy's input systems, so the emitted button edge reaches `ButtonInput` this frame.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The Bevy system receives pointer messages, ownership and window input state separately."
+)]
 pub(crate) fn emulate_ui_pointer(
     mut touch_input: MessageReader<TouchInput>,
-    mut buttons: MessageWriter<MouseButtonInput>,
+    mut buttons: ResMut<Messages<MouseButtonInput>>,
+    mut mouse_cursor: Local<MessageCursor<MouseButtonInput>>,
+    mut source: Option<ResMut<UiPointerSource>>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     ui: Option<Res<UiRuntimeResource>>,
     player: Option<Res<client_state::PlayerRuntime>>,
     menu: Option<Res<MenuRuntime>>,
     mut pointer: Local<TouchPointer>,
 ) {
+    if mouse_cursor.read(&buttons).next().is_some()
+        && let Some(source) = source.as_deref_mut()
+    {
+        source.0 = false;
+    }
     let Ok((entity, mut window)) = windows.single_mut() else {
         return;
     };
@@ -131,6 +150,11 @@ pub(crate) fn emulate_ui_pointer(
         let edge = pointer.lose_screen();
         (edge.map(|_| None), edge)
     };
+    if (cursor.is_some() || edge.is_some())
+        && let Some(source) = source.as_deref_mut()
+    {
+        source.0 = true;
+    }
     if let Some(cursor) = cursor {
         // Bypassed so the window backend is not asked to warp a cursor touchscreens lack.
         window.bypass_change_detection().set_cursor_position(cursor);
@@ -146,6 +170,7 @@ pub(crate) fn emulate_ui_pointer(
             window: entity,
         });
     }
+    mouse_cursor.clear(&buttons);
 }
 
 #[cfg(test)]

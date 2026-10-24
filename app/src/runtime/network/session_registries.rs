@@ -46,6 +46,7 @@ impl RegistryBase {
         generation: SessionGeneration,
         hashed: bool,
         custom: &protocol::CustomBlocks,
+        items: Option<&protocol::ItemRegistryEvent>,
         packs: &PackApplication,
         cancelled: &(dyn Fn() -> bool + Sync),
     ) -> Option<PreparedSessionRegistries> {
@@ -85,6 +86,11 @@ impl RegistryBase {
             packs.block_overlay.as_ref(),
         );
         let mining_filters = Arc::new(pack_runtime::CustomMiningFilters::new(custom));
+        let digger_filters = Arc::new(pack_runtime::DiggerFilters::new(
+            items
+                .into_iter()
+                .flat_map(|registry| registry.entries.iter()),
+        ));
         (!cancelled()).then_some(PreparedSessionRegistries {
             generation,
             hashed,
@@ -95,6 +101,7 @@ impl RegistryBase {
             identities,
             assets,
             mining_filters,
+            digger_filters,
         })
     }
 }
@@ -111,6 +118,7 @@ pub(super) struct PreparedSessionRegistries {
     pub(super) identities: client_world::PreparedBlockIdentities,
     pub(super) assets: Arc<assets::RuntimeAssets>,
     pub(super) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
+    pub(super) digger_filters: Arc<pack_runtime::DiggerFilters>,
 }
 
 impl std::fmt::Debug for PreparedSessionRegistries {

@@ -24,6 +24,14 @@ use {
 
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
 
+/// Sampled frame inputs shared by dropped-item and rope publication.
+#[derive(Default)]
+pub(crate) struct DroppedItemFrame<'a> {
+    pub(crate) partial_tick: f32,
+    pub(crate) fishing_line_anchors:
+        &'a [crate::actor_publication::fishing_line::FishingLineAnchor],
+}
+
 mod dials;
 mod lighting;
 mod preparation;
@@ -92,15 +100,32 @@ fn tint_rgba(flags: u32) -> u32 {
     rope_color(r, g, b)
 }
 
-fn item_block_id(stream: &WorldStream, visual: ItemVisualRoute) -> Option<(NetworkIdMode, u32)> {
-    match visual {
+/// Resolves item blocks while keeping carried-sprite families off the placed-model path.
+fn item_block_id(
+    stream: &WorldStream,
+    visual: ItemVisualRoute,
+    identifier: Option<&str>,
+    assets: Option<&RuntimeAssets>,
+) -> Option<(NetworkIdMode, u32)> {
+    let block = match visual {
         ItemVisualRoute::BlockItem(id) => Some((NetworkIdMode::Sequential, id.0)),
         ItemVisualRoute::RetainedBlock { block_runtime_id } => Some((
             stream.network_id_mode(),
             stream.resolve_block_network_id(u32::from_ne_bytes(block_runtime_id.to_ne_bytes())),
         )),
         _ => None,
+    }?;
+    if identifier.is_some_and(|identifier| {
+        matches!(
+            assets::facts::block_render_fact(identifier).kind,
+            assets::facts::BlockRenderKind::Lantern | assets::facts::BlockRenderKind::Chain
+        )
+    }) {
+        return None;
     }
+    assets
+        .is_none_or(|assets| assets.resolve(block.0, block.1).kind() != VisualKind::Cross)
+        .then_some(block)
 }
 
 fn entity_block_id(
@@ -376,18 +401,23 @@ impl DroppedItemPublisher<'_, '_> {
         )
     }
 
+    /// Publishes sampled item and rope geometry for the current frame.
     pub(super) fn publish(
         &mut self,
         icons: Option<&UiPresentationRuntime>,
         stream: Option<&WorldStream>,
         collisions: Option<&dyn crate::observations::CollisionLookup>,
         camera: (Option<([f32; 3], f32)>, Option<ActorCullView>),
-        partial_tick: f32,
+        frame: DroppedItemFrame<'_>,
         glint: (
             Option<render_model::EquipmentRaster>,
             render_model::ActorGlint,
         ),
     ) {
+        let DroppedItemFrame {
+            partial_tick,
+            fishing_line_anchors,
+        } = frame;
         let (camera, cull_view) = camera;
         let frustum = self.culling_view(cull_view);
         let (Some(scene), Some(icons)) = (self.scene.as_mut(), icons) else {
@@ -413,7 +443,10 @@ impl DroppedItemPublisher<'_, '_> {
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
-        let assets = self.textures.as_ref().map(|textures| textures.assets());
+        let assets = self
+            .textures
+            .as_ref()
+            .map(|textures| textures.assets().as_ref());
         instances.clear();
         terrain_instances.clear();
         placement_icons.clear();
@@ -431,7 +464,12 @@ impl DroppedItemPublisher<'_, '_> {
             {
                 cache.request(&ModelKey::session_block(sheet));
             }
-            if let Some((mode, id)) = item_block_id(stream, view.item.visual) {
+            if let Some((mode, id)) = item_block_id(
+                stream,
+                view.item.visual,
+                view.item.identifier.as_deref(),
+                assets,
+            ) {
                 let hashed = mode == NetworkIdMode::Hashed;
                 cache.request(&ModelKey::CarriedBlock { hashed, id });
                 cache.request(&ModelKey::Block { hashed, id });
@@ -475,7 +513,7 @@ impl DroppedItemPublisher<'_, '_> {
             let Some(identifier) = view.item.identifier.as_ref() else {
                 continue;
             };
-            let block_id = item_block_id(stream, view.item.visual);
+            let block_id = item_block_id(stream, view.item.visual, Some(identifier), assets);
             let preparation = DropPreparation {
                 view,
                 native_origin: stream.authority().actor(view.runtime_id).map_or(
@@ -640,8 +678,17 @@ impl DroppedItemPublisher<'_, '_> {
         if let Some((camera, _)) = camera {
             stream.authority().ropes_into(partial_tick, ropes);
             for rope in ropes.iter() {
-                let length = rope
-                    .from
+                let from = (rope.kind == RopeKind::FishingLine)
+                    .then_some(rope.owner_runtime_id)
+                    .flatten()
+                    .and_then(|runtime_id| {
+                        fishing_line_anchors
+                            .iter()
+                            .find(|anchor| anchor.runtime_id == runtime_id)
+                            .map(|anchor| anchor.from)
+                    })
+                    .unwrap_or(rope.from);
+                let length = from
                     .iter()
                     .zip(&rope.to)
                     .map(|(a, b)| (a - b) * (a - b))
@@ -662,7 +709,7 @@ impl DroppedItemPublisher<'_, '_> {
                     ),
                 };
                 rope_ribbon(
-                    rope.from, rope.to, camera, segments, sag, half_width, color, lines,
+                    from, rope.to, camera, segments, sag, half_width, color, lines,
                 );
             }
         }

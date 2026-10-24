@@ -14,7 +14,7 @@ use super::theme::{
     NEUTRAL100, OUTLINE, OVERLAY_MODAL, Rgba, TEXT,
 };
 use super::widgets::{MenuItem, Variant, button, menu_item};
-use launcher::local_worlds::{PromptButton, Screen, WorldsView};
+use launcher::local_worlds::{Screen, WorldsView};
 use launcher::menu::view::SettingsFocusAxis;
 use launcher::menu::{LocalWorldAction, MenuAction, MenuView};
 use ui_engine::engine::screen::PaintError;
@@ -423,10 +423,12 @@ pub(super) fn local_world_modal(view: &WorldsView) -> Option<Modal<'_>> {
                 buttons: prompt
                     .buttons()
                     .iter()
-                    .map(|button| {
-                        let variant = match button {
-                            PromptButton::UseDragonfly | PromptButton::Retry => Variant::Primary,
-                            _ => Variant::Secondary,
+                    .enumerate()
+                    .map(|(index, button)| {
+                        let variant = if index == 0 {
+                            Variant::Primary
+                        } else {
+                            Variant::Secondary
                         };
                         (
                             button.label().into(),

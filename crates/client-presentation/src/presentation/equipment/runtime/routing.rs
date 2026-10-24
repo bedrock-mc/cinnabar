@@ -42,7 +42,9 @@ impl EquipmentRuntime {
                                 &item.identifier,
                                 source.catalog.bindings()[source.index].category
                             ),
-                            EquipmentCategory::Held | EquipmentCategory::Shield
+                            EquipmentCategory::Held
+                                | EquipmentCategory::ArmorAndHeld { .. }
+                                | EquipmentCategory::Shield
                         )
                     });
                 return EquipmentRoute::Held(source);
@@ -67,7 +69,10 @@ impl EquipmentRuntime {
             EquipmentCategory::Elytra if slot == ArmorSlot::Chestplate => {
                 EquipmentRoute::Elytra(source)
             }
-            EquipmentCategory::Armor { slot: admitted } if slot == admitted => {
+            EquipmentCategory::Armor { slot: admitted }
+            | EquipmentCategory::ArmorAndHeld { slot: admitted }
+                if slot == admitted =>
+            {
                 EquipmentRoute::Armor(source)
             }
             _ => EquipmentRoute::Hidden,

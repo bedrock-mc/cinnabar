@@ -151,6 +151,12 @@ impl Default for TouchControlLayout {
                 crate::touch::LOOK_SURFACE,
                 crate::touch::JOYSTICK,
                 crate::touch::INVENTORY,
+                crate::touch::CHAT,
+                crate::touch::EMOTE,
+                crate::touch::UTILITIES,
+                crate::touch::DEBUG_OVERLAY,
+                crate::touch::PLAYER_LIST,
+                crate::touch::DISMISS_UTILITIES,
             ]
             .map(|hit_id| TouchControl {
                 hit_id,

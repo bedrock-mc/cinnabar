@@ -91,20 +91,20 @@ fn device_rejections_continue_across_adapters_and_apis_until_success_or_exhausti
 }
 
 #[test]
-fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_ties() {
+fn discrete_vulkan_beats_integrated_or_software_dx12_and_dx12_breaks_ties_for_every_vendor() {
     for kind in [wgpu::DeviceType::IntegratedGpu, wgpu::DeviceType::Cpu] {
         let mut adapters = vec![
-            candidate(Backend::Vulkan, kind, 0),
-            candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, 0),
+            candidate(Backend::Dx12, kind, 0),
+            candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, 0),
         ];
         rank(
             &mut adapters,
             Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
-        assert_eq!(adapters[0].backend, Backend::Dx12);
+        assert_eq!(adapters[0].backend, Backend::Vulkan);
     }
-    for (vendor, preferred) in [(INTEL_PCI_VENDOR, Backend::Dx12), (0, Backend::Vulkan)] {
+    for vendor in [0x10de, 0x1002, INTEL_PCI_VENDOR] {
         let mut adapters = vec![
             candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, vendor),
             candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, vendor),
@@ -114,7 +114,7 @@ fn discrete_dx12_beats_integrated_or_software_vulkan_and_vendor_order_breaks_tie
             Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
-        assert_eq!(adapters[0].backend, preferred);
+        assert_eq!(adapters[0].backend, Backend::Dx12, "{vendor:#x}");
     }
     let mut adapters: Vec<_> = [
         wgpu::DeviceType::Cpu,
@@ -343,20 +343,100 @@ fn working_fallback_and_explicit_selection_do_not_reset_exclusions() {
 }
 
 #[test]
-fn failed_video_choice_retries_auto_only_for_the_current_launch() {
+fn failed_video_choice_falls_back_to_auto_without_that_api_and_reports_why() {
     for auto_succeeds in [false, true] {
         let saved = Some(Backend::Dx12);
         let mut attempts = Vec::new();
-        let result = with_video_fallback(false, saved, |video| {
-            attempts.push(video);
-            if video.is_none() && auto_succeeds {
-                Ok(Backend::Vulkan)
-            } else {
-                bail!("device rejected")
+        let result = with_video_fallback(
+            false,
+            saved,
+            None,
+            Platform::Windows.backends(),
+            |video, excluded| {
+                attempts.push((video, excluded.to_vec()));
+                if video.is_none() && auto_succeeds {
+                    Ok(Backend::Vulkan)
+                } else {
+                    bail!("device rejected")
+                }
+            },
+        );
+        assert_eq!(
+            attempts,
+            [(saved, vec![]), (None, vec![Backend::Dx12])],
+            "Auto must not retry the API that just failed"
+        );
+        match result {
+            Ok((chosen, fallback)) => {
+                assert!(auto_succeeds);
+                assert_eq!(chosen, Backend::Vulkan);
+                let fallback = fallback.expect("a replaced Video choice is reported");
+                assert_eq!(fallback.requested, Backend::Dx12);
+                assert!(fallback.reason.contains("device rejected"));
             }
-        });
-        assert_eq!(attempts, [saved, None]);
-        assert_eq!(result.is_ok(), auto_succeeds);
+            Err(error) => {
+                assert!(!auto_succeeds);
+                assert!(format!("{error:#}").contains("Dx12"));
+            }
+        }
+    }
+}
+
+#[test]
+fn video_choice_that_crashed_an_earlier_startup_goes_straight_to_auto() {
+    let mut attempts = Vec::new();
+    let (chosen, fallback) = with_video_fallback(
+        false,
+        Some(Backend::Dx12),
+        Some(Backend::Dx12),
+        Platform::Windows.backends(),
+        |video, excluded| {
+            attempts.push((video, excluded.to_vec()));
+            Ok(Backend::Vulkan)
+        },
+    )
+    .unwrap();
+    assert_eq!(attempts, [(None, vec![Backend::Dx12])]);
+    assert_eq!(chosen, Backend::Vulkan);
+    assert_eq!(fallback.unwrap().requested, Backend::Dx12);
+    // A different API's crash does not stop the saved choice.
+    let (chosen, fallback) = with_video_fallback(
+        false,
+        Some(Backend::Dx12),
+        Some(Backend::Vulkan),
+        Platform::Windows.backends(),
+        |video, _| Ok(video),
+    )
+    .unwrap();
+    assert_eq!((chosen, fallback), (Some(Backend::Dx12), None));
+}
+
+#[test]
+fn a_platform_with_one_api_always_tries_it_even_after_it_crashed() {
+    for platform in [Platform::Macos, Platform::Linux, Platform::Android] {
+        let only = platform.backends()[0];
+        for (crashed, succeeds) in [(Some(only), true), (Some(only), false), (None, false)] {
+            let mut attempts = Vec::new();
+            let result = with_video_fallback(
+                false,
+                Some(only),
+                crashed,
+                platform.backends(),
+                |video, excluded| {
+                    attempts.push((video, excluded.to_vec()));
+                    if succeeds {
+                        Ok(())
+                    } else {
+                        bail!("device rejected")
+                    }
+                },
+            );
+            assert_eq!(attempts, [(Some(only), vec![])], "{platform:?}");
+            assert_eq!(result.is_ok(), succeeds);
+            if let Ok(((), fallback)) = result {
+                assert!(fallback.is_none());
+            }
+        }
     }
 }
 
@@ -368,16 +448,46 @@ fn environment_is_strict_and_successful_video_choices_do_not_retry() {
         (false, None, false),
         (false, Some(Backend::Dx12), true),
     ] {
-        let mut attempts = Vec::new();
-        let result = with_video_fallback(environment, video, |choice| {
-            attempts.push(choice);
-            if succeeds {
-                Ok(())
-            } else {
-                bail!("device rejected")
+        // The environment ignores a crashed Video choice.
+        for crashed in [None, video.filter(|_| environment)] {
+            let mut attempts = Vec::new();
+            let result = with_video_fallback(
+                environment,
+                video,
+                crashed,
+                Platform::Windows.backends(),
+                |choice, excluded| {
+                    attempts.push((choice, excluded.to_vec()));
+                    if succeeds {
+                        Ok(())
+                    } else {
+                        bail!("device rejected")
+                    }
+                },
+            );
+            assert_eq!(attempts, [(video, vec![])]);
+            assert_eq!(result.is_ok(), succeeds);
+            if let Ok(((), fallback)) = result {
+                assert!(fallback.is_none());
             }
-        });
-        assert_eq!(attempts, [video]);
-        assert_eq!(result.is_ok(), succeeds);
+        }
     }
+}
+
+#[test]
+fn startup_summary_names_the_request_the_api_in_use_and_the_reason() {
+    let fallback = VideoFallback {
+        requested: Backend::Dx12,
+        reason: "device rejected".into(),
+    };
+    let line = summary(None, Some(Backend::Dx12), Backend::Vulkan, Some(&fallback));
+    for expected in [
+        "Dx12 from the Video setting",
+        "using Vulkan",
+        "device rejected",
+    ] {
+        assert!(line.contains(expected), "{line}");
+    }
+    assert!(summary(Some(&[Backend::Dx12]), None, Backend::Dx12, None).contains("WGPU_BACKEND"));
+    assert!(summary(None, None, Backend::Vulkan, None).contains("requested Auto"));
 }

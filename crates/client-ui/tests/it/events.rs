@@ -37,7 +37,7 @@ fn protocol_1001_raw_text_reaches_chat_store_as_human_text_not_json() {
 }
 
 #[test]
-fn local_hotbar_selection_is_client_authoritative_until_session_reset() {
+fn server_hotbar_selection_retires_prediction_until_the_next_local_input() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -47,11 +47,11 @@ fn local_hotbar_selection_is_client_authoritative_until_session_reset() {
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     assert_eq!(player_runtime.selected_hotbar_slot(), Some(0));
 
-    // A local selection (number key / scroll) is predicted immediately and wins.
+    // A local selection (number key / scroll) is predicted immediately.
     player_runtime.inventory.set_local_selected_slot(4);
     assert_eq!(player_runtime.selected_hotbar_slot(), Some(4));
 
-    // A later server equipment event for the local player does not override the local prediction.
+    // A later server equipment event for the local player overrides the local prediction.
     runtime.retain_local_selected_equipment(
         &mut player_runtime,
         7,
@@ -64,7 +64,10 @@ fn local_hotbar_selection_is_client_authoritative_until_session_reset() {
             handedness: None,
         },
     );
-    assert_eq!(player_runtime.selected_hotbar_slot(), Some(4));
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(2));
+
+    player_runtime.inventory.set_local_selected_slot(6);
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(6));
 
     // A new session clears the local prediction (and every other per-session field).
     player_runtime.begin_session(2);

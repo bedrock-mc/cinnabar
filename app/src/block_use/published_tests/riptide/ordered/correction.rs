@@ -3,11 +3,10 @@
 use super::*;
 use protocol::test_support::transactions::observe_transaction;
 
-/// Corrects the current predicted tick without changing the session, dimension or life.
+/// Corrects the current predicted tick without changing the session, dimension or life; the
+/// replay still starts a new transport epoch.
 fn correct_position(world: &mut World) {
-    let before = world
-        .resource::<MovementTicker>()
-        .interaction_authority_identity();
+    let before = world.resource::<MovementTicker>().reanchor_epoch();
     world.resource_scope(|world, mut movement: Mut<MovementTicker>| {
         let mut physics = world.resource_mut::<LocalPhysicsController>();
         let mut position = physics.network_position().unwrap();
@@ -24,11 +23,7 @@ fn correct_position(world: &mut World) {
         )
         .unwrap();
     });
-    let after = world
-        .resource::<MovementTicker>()
-        .interaction_authority_identity();
-    assert_eq!(before.0, after.0);
-    assert_ne!(before.1, after.1);
+    assert_ne!(world.resource::<MovementTicker>().reanchor_epoch(), before);
 }
 
 /// Verifies one release and its launch through both item phases and movement receipts.
@@ -91,11 +86,11 @@ fn ordered_position_correction_preserves_an_active_charge() {
 #[test]
 fn ordered_position_correction_preserves_a_pending_release() {
     let (mut world, mut captured) = observed_release();
-    ordered_frame(&mut world, Default::default(), vec![2]);
+    ordered_frame(&mut world, Default::default(), Vec::new());
     let timing = world.resource::<ItemUseRuntime>().active_timing().unwrap();
     let facing = world.resource::<ItemUseRuntime>().riptide_release_facing();
     correct_position(&mut world);
-    ordered_frame(&mut world, Default::default(), vec![2]);
+    ordered_frame(&mut world, Default::default(), Vec::new());
     let runtime = world.resource::<ItemUseRuntime>();
     assert!(runtime.has_pending_release());
     assert_eq!(runtime.active_timing(), Some(timing));

@@ -92,7 +92,7 @@ fn known_selected_ledger_state_overrides_the_equipment_bootstrap() {
 }
 
 #[test]
-fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
+fn server_equipment_selects_its_matching_hotbar_slot() {
     let mut player_runtime = player_state::PlayerState::new(1);
 
     let mut runtime = UiRuntime::new(1);
@@ -109,7 +109,11 @@ fn equipment_bootstrap_requires_a_matching_valid_selected_slot() {
             handedness: Some(ActorHandedness::Right),
         },
     );
-    assert_eq!(player_runtime.selected_stack(), None);
+    assert_eq!(player_runtime.selected_hotbar_slot(), Some(3));
+    assert_eq!(
+        player_runtime.selected_stack().map(|item| item.network_id),
+        Some(41)
+    );
 
     let mut player_runtime = player_state::PlayerState::new(1);
     let mut equipment_only = UiRuntime::new(1);

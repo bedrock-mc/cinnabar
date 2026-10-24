@@ -1,10 +1,12 @@
-//! Builds a mining target from the current interaction facts for ordered attack admission.
+//! Builds a mining target, or the refusal of a block press, from the current interaction facts
+//! for ordered attack admission.
 
 use crate::interaction_authority::observe_block;
 use client_interaction::mining::hand_interaction_selection;
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use gameplay::{
     interaction_authority::within_pick_range,
+    melee::{RefusedDestroy, RefusedDestroyReason},
     mining::{creative_reach, protocol_input_mode, survival_reach},
     survival_mining::{
         DestroyTarget, ToolWear, destroys_in_creative, exempt_from_airborne_penalty, eyes_in_water,
@@ -12,8 +14,14 @@ use gameplay::{
     },
 };
 use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
-use sim::{DestroyConditions, HeldTool, PaletteWorld};
+use sim::{ComponentDigger, DestroyConditions, HeldTool, PaletteWorld};
 use simulation_clock::identity::PositionAuthorityGeneration;
+
+/// What an attack on the reached block does: start destroying it, or fail at the start.
+pub(crate) enum DestroyObservation {
+    Target(DestroyTarget),
+    Refused(RefusedDestroy),
+}
 
 /// Reads the destroy facts used for this frame's block press.
 pub(crate) fn observe_destroy_target(
@@ -24,10 +32,9 @@ pub(crate) fn observe_destroy_target(
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
     position_authority_generation: PositionAuthorityGeneration,
-) -> Option<DestroyTarget> {
+) -> Option<DestroyObservation> {
     let ui = &context.ui;
-    // The capability gate in the producer already confirmed this mode edits;
-    // here only an open UI blocks the pick.
+    // Producers apply the Mine grant to targets; refusals are reported regardless of it.
     let caps = caps?;
     if context.focus.ui_focused {
         return None;
@@ -56,25 +63,41 @@ pub(crate) fn observe_destroy_target(
         return None;
     }
     let stream = context.client_world.stream.as_ref()?;
+    let held = stream.authority().held_edit_item(
+        &observed.selection.item,
+        protocol::ItemBlockList::CanDestroy,
+        observed.target.runtime_id,
+    );
+    let refused = |reason| {
+        Some(DestroyObservation::Refused(RefusedDestroy {
+            position: observed.target.position,
+            face: observed.target.face,
+            reason,
+        }))
+    };
+    if !caps.permits_edit(held) {
+        return refused(RefusedDestroyReason::Denied);
+    }
     let mode = stream.network_id_mode();
-    let mut destroy_facts = stream
+    let native_destroy_facts = stream
         .runtime_assets()
         .resolve(mode, observed.target.runtime_id)
         .destroy();
+    let mut destroy_facts = native_destroy_facts;
     let item = &observed.selection.item;
     let fact = ui
         .inventory_ledger(player_runtime)
         .item_facts()
         .get(item.network_id());
+    let entry = ui
+        .inventory_ledger(player_runtime)
+        .negotiated_item_entry(item.network_id());
     if let Some((mining, effective_tools)) = context
         .collisions
         .custom_block_mining(mode, observed.target.runtime_id)
     {
-        let entry = ui
-            .inventory_ledger(player_runtime)
-            .negotiated_item_entry(item.network_id());
         let builtin = assets::facts::ItemFacts::builtin().ok();
-        destroy_facts = pack_runtime::custom_mining_seconds(
+        let seconds = pack_runtime::custom_mining_seconds(
             mining,
             &context.client_world.mining_filters,
             entry.map(|entry| entry.identifier.as_ref()),
@@ -86,21 +109,50 @@ pub(crate) fn observe_destroy_target(
                         .and_then(|facts| facts.tag(tag))
                         .is_some_and(|tag| fact.tags.contains(tag))
             },
-        )
-        .map_or(
-            assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
-            |seconds| assets::compiled::block_destroy::BlockDestroyFacts::Custom {
-                seconds_to_destroy_bits: seconds.to_bits(),
-                effective_tools,
-            },
         );
+        destroy_facts = assets::compiled::block_destroy::BlockDestroyFacts::Custom {
+            seconds_to_destroy_bits: seconds.to_bits(),
+            effective_tools,
+        };
     }
     let block = sim::BlockDestroyInfo::from_facts(destroy_facts);
     let instant = caps.instant_break;
     if instant && !destroys_in_creative(fact) {
-        return None;
+        return refused(RefusedDestroyReason::CreativeNoBreak);
     }
     let tool = HeldTool::from_facts(fact);
+    let block_tags = context
+        .collisions
+        .block_tags(mode, observed.target.runtime_id);
+    let has_block_tag = |tag: &str| {
+        if block_tags.iter().any(|value| value.as_ref() == tag) {
+            Some(true)
+        } else if context
+            .collisions
+            .block_tags_complete(mode, observed.target.runtime_id)
+        {
+            Some(false)
+        } else {
+            native_destroy_facts.native_tool_tag(tag)
+        }
+    };
+    let component_digger = entry
+        .and_then(|entry| entry.components.as_ref()?.digger.as_deref())
+        .map(|digger| {
+            component_digger(
+                digger,
+                &context.client_world.digger_filters,
+                context
+                    .collisions
+                    .block_identifier(mode, observed.target.runtime_id),
+                context
+                    .collisions
+                    .block_states(mode, observed.target.runtime_id),
+                &has_block_tag,
+                protocol::item_enchantment_level(item.extra_data(), EFFICIENCY_ENCHANTMENT_ID)
+                    .unwrap_or(0),
+            )
+        });
     let world = PaletteWorld::new(
         stream.collision_store(),
         context.collisions.registry(mode),
@@ -131,7 +183,8 @@ pub(crate) fn observe_destroy_target(
             },
         })
     });
-    Some(DestroyTarget {
+    Some(DestroyObservation::Target(DestroyTarget {
+        local_runtime_id: stream.local_player_runtime_id(),
         position: observed.target.position,
         face: observed.target.face,
         runtime_id: observed.target.runtime_id,
@@ -140,6 +193,7 @@ pub(crate) fn observe_destroy_target(
         block,
         conditions: DestroyConditions {
             tool,
+            component_digger,
             efficiency_level: protocol::item_enchantment_level(
                 item.extra_data(),
                 EFFICIENCY_ENCHANTMENT_ID,
@@ -163,9 +217,208 @@ pub(crate) fn observe_destroy_target(
         selection: observed.selection,
         wear,
         instant,
-    })
+    }))
+}
+
+/// Resolves a component item's digger speed for one block. A digger replaces the item's vanilla
+/// tool rules, so an unmatched entry list, an unknown block or an entry that cannot be decided
+/// all mine like an empty hand.
+fn component_digger(
+    digger: &protocol::ItemDigger,
+    filters: &pack_runtime::DiggerFilters,
+    block: Option<&str>,
+    states: Option<&[(std::sync::Arc<str>, protocol::CustomStateValue)]>,
+    has_tag: &dyn Fn(&str) -> Option<bool>,
+    efficiency_level: u8,
+) -> ComponentDigger {
+    let matched = block.map_or(pack_runtime::DiggerMatch::Unresolved, |block| {
+        pack_runtime::digger_match(digger, filters, block, states, has_tag)
+    });
+    match matched {
+        pack_runtime::DiggerMatch::Speed(speed) => {
+            let level = f32::from(efficiency_level);
+            // The Efficiency bonus applies only when the digger opts in and the item is enchanted.
+            let bonus = if digger.use_efficiency && efficiency_level > 0 {
+                level * level + 1.0
+            } else {
+                0.0
+            };
+            ComponentDigger {
+                speed: speed as f32 + bonus,
+                matched: true,
+            }
+        }
+        pack_runtime::DiggerMatch::None | pack_runtime::DiggerMatch::Unresolved => {
+            ComponentDigger {
+                speed: 1.0,
+                matched: false,
+            }
+        }
+    }
 }
 
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;
 const EFFICIENCY_ENCHANTMENT_ID: i16 = 15;
 const UNBREAKING_ENCHANTMENT_ID: i16 = 17;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::{DiggerBlock, DiggerSpeed, ItemDigger, ItemRegistryEntry};
+    use std::sync::Arc;
+
+    const HAND: ComponentDigger = ComponentDigger {
+        speed: 1.0,
+        matched: false,
+    };
+
+    fn pickaxe_query(use_efficiency: bool) -> ItemDigger {
+        ItemDigger {
+            use_efficiency,
+            destroy_speeds: Arc::new([DiggerSpeed {
+                block: DiggerBlock::Tags(
+                    "q.any_tag('minecraft:is_pickaxe_item_destructible')".into(),
+                ),
+                speed: 8,
+            }]),
+        }
+    }
+
+    fn prepared(digger: &ItemDigger) -> pack_runtime::DiggerFilters {
+        let entry = ItemRegistryEntry {
+            components: Some(Arc::new(protocol::ItemComponents {
+                digger: Some(Arc::new(digger.clone())),
+                ..Default::default()
+            })),
+            ..protocol::vanilla_item_registry()[0].clone()
+        };
+        pack_runtime::DiggerFilters::new([&entry])
+    }
+
+    fn pickaxe_tag(tag: &str) -> Option<bool> {
+        Some(tag == "minecraft:is_pickaxe_item_destructible")
+    }
+
+    #[test]
+    fn truncated_custom_tags_do_not_accelerate_negated_digger_queries() {
+        let mut nbt = b"\x0a\x00\x09\x09blockTags\x08\x82\x04".to_vec();
+        for index in 0..256 {
+            let tag = format!("test:tag{index}");
+            nbt.push(u8::try_from(tag.len()).unwrap());
+            nbt.extend_from_slice(tag.as_bytes());
+        }
+        nbt.push(12);
+        nbt.extend_from_slice(b"test:omitted");
+        nbt.push(0);
+        let definitions =
+            protocol::CustomBlocks::from_definitions([("test:block", nbt.as_slice())]);
+        assert_eq!(definitions.blocks.len(), 1);
+        assert_eq!(definitions.skipped, 1);
+        let breg = assets::pinned_block_registry_bytes();
+        let version = assets::active_content_registry_protocol();
+        let records = assets::read_registry_for_protocol(breg, version).unwrap();
+        let mut collisions = gameplay::movement::PhysicsCollisionRegistries::from_assets(
+            breg,
+            &records,
+            include_bytes!("../../crates/assets/data/block-physics-v2193.bin"),
+            version,
+        )
+        .unwrap();
+        let (range, _) = collisions
+            .begin_session_custom_blocks(&definitions)
+            .unwrap();
+        collisions.begin_session_hashed_custom_blocks(&definitions);
+        let digger = ItemDigger {
+            use_efficiency: true,
+            destroy_speeds: Arc::new([DiggerSpeed {
+                block: DiggerBlock::Tags("!q.any_tag('test:omitted')".into()),
+                speed: 8,
+            }]),
+        };
+        for (mode, id) in [
+            (assets::NetworkIdMode::Sequential, range.start),
+            (
+                assets::NetworkIdMode::Hashed,
+                definitions.blocks[0].hashed_states()[0].hash,
+            ),
+        ] {
+            let has_tag = |tag: &str| {
+                if collisions
+                    .block_tags(mode, id)
+                    .iter()
+                    .any(|value| value.as_ref() == tag)
+                {
+                    Some(true)
+                } else {
+                    collisions.block_tags_complete(mode, id).then_some(false)
+                }
+            };
+            assert_eq!(has_tag("test:tag0"), Some(true));
+            assert_eq!(
+                component_digger(
+                    &digger,
+                    &prepared(&digger),
+                    Some("test:block"),
+                    collisions.block_states(mode, id),
+                    &has_tag,
+                    5
+                ),
+                HAND
+            );
+        }
+    }
+
+    #[test]
+    fn undecidable_component_digger_mines_like_a_hand() {
+        let digger = pickaxe_query(true);
+        let unprepared = pack_runtime::DiggerFilters::default();
+        let concrete = Some("minecraft:red_concrete");
+        assert_eq!(
+            component_digger(&digger, &unprepared, concrete, None, &pickaxe_tag, 5),
+            HAND
+        );
+        assert_eq!(
+            component_digger(&digger, &prepared(&digger), None, None, &pickaxe_tag, 5),
+            HAND
+        );
+    }
+
+    #[test]
+    fn matched_component_digger_adds_efficiency_only_when_it_opts_in() {
+        let concrete = Some("minecraft:red_concrete");
+        let opted_in = pickaxe_query(true);
+        assert_eq!(
+            component_digger(
+                &opted_in,
+                &prepared(&opted_in),
+                concrete,
+                None,
+                &pickaxe_tag,
+                2
+            ),
+            ComponentDigger {
+                speed: 13.0,
+                matched: true,
+            }
+        );
+        let plain = pickaxe_query(false);
+        assert_eq!(
+            component_digger(&plain, &prepared(&plain), concrete, None, &pickaxe_tag, 2),
+            ComponentDigger {
+                speed: 8.0,
+                matched: true,
+            }
+        );
+        assert_eq!(
+            component_digger(
+                &plain,
+                &prepared(&plain),
+                concrete,
+                None,
+                &|_| Some(false),
+                2
+            ),
+            HAND
+        );
+    }
+}

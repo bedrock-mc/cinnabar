@@ -42,6 +42,7 @@ impl EquipmentRuntime {
         grip: JavaGrip,
         scale: f32,
         layers: &mut Vec<EquipmentPresentation>,
+        icon_only: bool,
     ) -> bool {
         let Some(arm) = bones.right_arm else {
             return false;
@@ -52,7 +53,12 @@ impl EquipmentRuntime {
         ) else {
             return false;
         };
-        let Some((mesh, location, block, span)) = self.held_mesh(item, true) else {
+        let Some((mesh, location, block, span)) = (if icon_only {
+            self.held_icon_mesh(item)
+                .map(|(mesh, location, span)| (mesh, location, false, span))
+        } else {
+            self.held_mesh(item, true)
+        }) else {
             return false;
         };
         let grip_kind = if block {
@@ -125,6 +131,34 @@ impl EquipmentRuntime {
             java_normal_axis: bevy::math::Vec3::Z,
         })
     }
+
+    /// Uses an ordinary item icon with Java's first-person hand transform.
+    pub fn first_person_java_icon_with_use(
+        &mut self,
+        body: &ActorRigSubmission,
+        item: &WornItem,
+        hand: JavaHand,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<FirstPersonItem> {
+        let (mesh, location, span) = self.held_icon_mesh(item)?;
+        let camera = java::first_person_item(hand, JavaItemMesh::Sprite, item.grip.mirrored_art())
+            * bevy::math::Mat4::from_scale(bevy::math::Vec3::splat(input.main_hand_scale()));
+        let rest = [rest_bone([0.0; 3])];
+        let poses = self
+            .poses
+            .share(body, FIRST_PERSON_ITEM_LAYER, [&rest, &rest]);
+        Some(FirstPersonItem {
+            presentation: super::push::held_glint(
+                layer_presentation(body, FIRST_PERSON_ITEM_LAYER, mesh, poses, location, 0),
+                item,
+                span,
+            ),
+            camera_space: true,
+            alpha_mode: self.first_person_alpha_mode(item, false),
+            java_camera: camera.is_finite().then_some(camera),
+            java_normal_axis: bevy::math::Vec3::Z,
+        })
+    }
 }
 
 /// Removes authored raster placement before scaling the image under Java's first-person stack.
@@ -153,7 +187,9 @@ pub(super) fn keep_authored_hand(
 ) -> bool {
     matches!(
         category,
-        EquipmentCategory::Held | EquipmentCategory::Shield
+        EquipmentCategory::Held
+            | EquipmentCategory::ArmorAndHeld { .. }
+            | EquipmentCategory::Shield
     ) && (from_pack || !java_draws_attachable(identifier))
 }
 

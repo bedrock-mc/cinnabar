@@ -180,6 +180,7 @@ fn installed_xp_orb_publishes_each_server_timed_tick_and_partial_frame() {
                 head_yaw: None,
                 on_ground: Some(false),
                 teleported: false,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: protocol::ActorInterpolation {

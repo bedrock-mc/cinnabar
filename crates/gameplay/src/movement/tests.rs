@@ -214,7 +214,7 @@ fn discarding_a_future_release_drops_its_reserved_facing() {
     assert!(ticker.acknowledge_physics_send(written[0]));
     assert!(ticker.override_action_rotation(102, -30.0, 90.0));
     ticker.hold_release_after_tick(102, vec![protocol::stop_sleeping_packet(42)]);
-    ticker.correction_authority_changed();
+    ticker.correction_authority_changed(false);
     assert!(!ticker.has_held_release());
     let next = completed(102);
     ticker.enqueue_completed_physics(next.clone()).unwrap();

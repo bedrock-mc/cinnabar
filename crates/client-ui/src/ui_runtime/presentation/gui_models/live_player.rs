@@ -165,6 +165,9 @@ impl UiPresentationRuntime {
         live.hat_pose
             .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
         for &hat in &self.menu_preview_model.cosmetics {
+            if render_model::hats::rig(hat).is_ground_effect() {
+                continue;
+            }
             let cache = live.hat_pose.entry(hat).or_default();
             let Some(index) = cache.anchor(hat, rig.attachments, rig.bone_names) else {
                 continue;
@@ -203,7 +206,7 @@ impl UiPresentationRuntime {
             );
             discard_collapsed_faces(vertices);
         }
-        if draw_cape && let Some(cape) = &self.gui_models.cape {
+        if draw_cape && let Some(cape) = &self.gui_models.sources.cape {
             let bindings = rig
                 .attachments
                 .and_then(|bindings| bindings.cape_for(cape))
@@ -301,5 +304,7 @@ fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
 
 #[cfg(test)]
 mod cape_tests;
+#[cfg(test)]
+mod hud_doll_tests;
 #[cfg(test)]
 mod tests;

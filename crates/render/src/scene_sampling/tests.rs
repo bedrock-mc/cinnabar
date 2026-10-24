@@ -27,7 +27,7 @@ fn unchanged_depth_attachments_reuse_sampling_views_and_resolves() {
     for samples in [1, 4] {
         let cached = cached_depth(device, wgpu::TextureFormat::Depth32Float, samples);
         let first = attachment(&cached);
-        let resolved = ResolvedDepth::new(device, &first, RuntimeStage::GpuPost);
+        let resolved = ResolvedDepth::new(device, &first, RuntimeStage::GpuPost).unwrap();
         for _ in 0..3 {
             let next = attachment(&cached);
             assert_ne!(
@@ -369,7 +369,7 @@ fn scene_depth_and_hiz_preserve_nearest_and_conservative_sample_coverage() {
             Some(0.0),
             None,
         );
-        let resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuPost);
+        let resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuPost).unwrap();
         assert!(resolved.matches(&depth));
         for uncovered in [false, true] {
             let (_, commands) =

@@ -212,10 +212,7 @@ fn first_settings_entry_keeps_its_painted_entry_focus() {
     }
     key(&mut app, window, KeyCode::Enter);
     let view = app.world().resource::<MenuRuntime>().view();
-    assert!(matches!(
-        view.focused_action,
-        Some(MenuAction::SettingsSection(_))
-    ));
+    assert_eq!(view.focused_action, Some(MenuAction::SearchSettings));
     assert!(
         app.world()
             .resource::<UiPresentationResource>()

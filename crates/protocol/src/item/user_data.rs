@@ -1,5 +1,6 @@
 //! Bounded comparison of retained item user data.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bedrock_protocol_1_26_51::wire::MAX_NBT_DEPTH;
@@ -14,6 +15,61 @@ use super::{read_i32_le, read_u8, read_u16_le, skip_le_payload, skip_le_string};
 pub fn item_user_data_equal(left: &[u8], right: &[u8]) -> Option<bool> {
     let (left, right) = (read_extra(left)?, read_extra(right)?);
     Some(left.0.reflexive && right.0.reflexive && left == right)
+}
+
+/// One of the two block-restriction lists that trail an item's user-data compound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemBlockList {
+    /// `canPlaceOn`: blocks an adventure player may place this item against.
+    CanPlaceOn,
+    /// `canBreak` (CanDestroy): blocks an adventure player may destroy holding this item.
+    CanDestroy,
+}
+
+/// The block identifiers in one restriction list of an item's user data. A name without a
+/// namespace names a vanilla block, so it gains the `minecraft:` namespace.
+///
+/// Empty user data has empty lists. Malformed data, a non-UTF-8 name, or a list larger than
+/// the remaining bytes returns `None`.
+#[must_use]
+pub fn item_block_list(extra: &[u8], list: ItemBlockList) -> Option<Vec<Cow<'_, str>>> {
+    if extra.len() > crate::MAX_ITEM_NBT_BYTES {
+        return None;
+    }
+    let extra: &[u8] = if extra.is_empty() {
+        &super::nbt_edit::EMPTY_USER_DATA
+    } else {
+        extra
+    };
+    let marker = i16::from_le_bytes(extra.get(..2)?.try_into().ok()?);
+    let mut cursor = extra.get(2..)?;
+    match marker {
+        0 => {}
+        -1 => {
+            if read_u8(&mut cursor)? != 1 || read_u8(&mut cursor)? != 10 {
+                return None;
+            }
+            skip_le_string(&mut cursor)?;
+            skip_le_payload(&mut cursor, 10, 0)?;
+        }
+        _ => return None,
+    }
+    let place = read_restrictions(&mut cursor)?;
+    let names = match list {
+        ItemBlockList::CanPlaceOn => place,
+        ItemBlockList::CanDestroy => read_restrictions(&mut cursor)?,
+    };
+    names
+        .into_iter()
+        .map(|name| {
+            let name = std::str::from_utf8(name).ok()?;
+            Some(if name.contains(':') {
+                Cow::Borrowed(name)
+            } else {
+                Cow::Owned(format!("{}:{name}", crate::world::VANILLA_NAMESPACE))
+            })
+        })
+        .collect()
 }
 
 /// A compact typed fingerprint; NaN-containing data never compares equal.

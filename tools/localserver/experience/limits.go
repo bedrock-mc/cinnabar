@@ -90,9 +90,9 @@ const (
 	maxNameBytes = 64
 	// maxStateValues is the most values of one string state: Rust's MAX_STATE_VALUES.
 	maxStateValues = 16
-	// maxStateCombinations is the most state combinations of one block: Rust's
-	// MAX_STATE_COMBINATIONS.
-	maxStateCombinations = 65_536
+	// maxStateBits is the most state bits one block's axes take, each ceil(log2(values)) bits
+	// and at least one, as the client packs them: Rust's MAX_STATE_BITS.
+	maxStateBits = 16
 	// maxBones is the most bones whose visibility one visual or permutation sets: Rust's
 	// MAX_BONES.
 	maxBones = 64

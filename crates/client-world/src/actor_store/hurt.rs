@@ -1,6 +1,6 @@
 use assets::facts::entity::NativeEntityClass;
-use protocol::{ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
-use protocol_ids::Attribute;
+use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
+use protocol_ids::{ActorDataKey, Attribute};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
@@ -93,6 +93,8 @@ pub struct ActorStatus {
     pub death_time: u8,
     /// Signed death ticks for native camera effects, independent of body animation progress.
     pub(crate) native_death_ticks: i16,
+    /// Whether this death has completed its one-time player visibility transition.
+    pub(super) player_death_completed: bool,
     pub(crate) dragon_death_time: u16,
     pub(crate) cloud_start_tick: Option<u32>,
     pub(crate) cloud_particles_expired: bool,
@@ -179,6 +181,7 @@ impl ActorStatus {
 
     fn die(&mut self) {
         self.creeper_swell.clear();
+        self.player_death_completed = false;
         self.dead = true;
     }
 
@@ -204,6 +207,21 @@ impl ActorSnapshot {
             }
         }
         position
+    }
+
+    /// Counts a boat's synced hurt time down each tick, as the boat's own tick does, so its rock
+    /// settles without further server updates.
+    pub(super) fn tick_boat_hurt(&mut self) {
+        if self.entity_fact.native_class != NativeEntityClass::Boat {
+            return;
+        }
+        match self.metadata.get_mut(&ActorDataKey::Hurt.wire_value()) {
+            Some(ActorMetadataValue::Byte(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Short(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Int(time)) if *time > 0 => *time -= 1,
+            Some(ActorMetadataValue::Long(time)) if *time > 0 => *time -= 1,
+            _ => {}
+        }
     }
 
     /// Marks the actor dead when its health attribute reaches zero and alive when it recovers.
@@ -429,6 +447,54 @@ mod tests {
             kind,
             data: 0,
         })
+    }
+
+    /// A boat's streamed hurt time keeps counting down between server updates, whatever
+    /// integer width the server streams it as.
+    #[test]
+    fn boat_hurt_time_counts_down_without_server_updates() {
+        for (start, after_two, settled) in [
+            (
+                ActorMetadataValue::Byte(3),
+                ActorMetadataValue::Byte(1),
+                ActorMetadataValue::Byte(0),
+            ),
+            (
+                ActorMetadataValue::Short(3),
+                ActorMetadataValue::Short(1),
+                ActorMetadataValue::Short(0),
+            ),
+            (
+                ActorMetadataValue::Int(3),
+                ActorMetadataValue::Int(1),
+                ActorMetadataValue::Int(0),
+            ),
+            (
+                ActorMetadataValue::Long(3),
+                ActorMetadataValue::Long(1),
+                ActorMetadataValue::Long(0),
+            ),
+        ] {
+            let mut store = ActorStore::new(1, 0);
+            let protocol::ActorEvent::Spawn(mut boat) = spawn() else {
+                unreachable!();
+            };
+            boat.kind = protocol::ActorKind::Entity {
+                identifier: assets::facts::VanillaEntity::Boat.identifier().into(),
+            };
+            boat.metadata = std::sync::Arc::from([protocol::ActorMetadata {
+                key: ActorDataKey::Hurt.wire_value(),
+                value: start,
+            }]);
+            store.apply(1, 1, protocol::ActorEvent::Spawn(boat));
+            let hurt = |store: &ActorStore| {
+                store.get(7).unwrap().metadata[&ActorDataKey::Hurt.wire_value()].clone()
+            };
+            store.advance_interpolation_ticks(2);
+            assert_eq!(hurt(&store), after_two);
+            store.advance_interpolation_ticks(3);
+            assert_eq!(hurt(&store), settled);
+        }
     }
 
     #[test]

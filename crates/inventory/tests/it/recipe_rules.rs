@@ -180,7 +180,7 @@ fn recipe_book_survives_prebootstrap_drains_without_unlock_packets() {
         let entries = session.book_recipes(false, search_active, 0, 10);
         assert_eq!(entries.len(), 1);
         assert!(session.book_recipe_selectable(&entries[0].recipe));
-        assert!(session.begin_book_craft(&entries[0].recipe).is_ok());
+        assert!(session.begin_book_craft(&entries[0].recipe, false).is_ok());
         assert_eq!(session.ledger().pending_request_count(), 1);
     }
 }
@@ -206,7 +206,11 @@ fn recipe_book_rule_matrix_keeps_locked_search_results_unselectable() {
         assert_eq!(searched.len(), usize::from(!unlocking || !limited));
         if unlocking && !limited {
             assert!(!session.book_recipe_selectable(&searched[0].recipe));
-            assert!(session.begin_book_craft(&searched[0].recipe).is_err());
+            assert!(
+                session
+                    .begin_book_craft(&searched[0].recipe, false)
+                    .is_err()
+            );
             assert_eq!(session.ledger().pending_request_count(), 0);
         }
     }
@@ -262,7 +266,7 @@ fn recipe_identity_stays_with_its_record_and_unlocks_do_not_spread_between_varia
             CraftingDataFixture::clearing(vec![recipe("test:other", 9, true)]).update(),
         ),
     );
-    assert!(session.begin_book_craft(&stale).is_err());
+    assert!(session.begin_book_craft(&stale, false).is_err());
 }
 
 #[test]
@@ -364,12 +368,12 @@ fn recipe_book_keeps_materials_from_locked_siblings_without_granting_selection()
             assert_eq!(entries[0].recipe.network_id(), 10);
             assert!(entries[0].craftable);
             assert!(session.book_recipe_selectable(&entries[0].recipe));
-            assert!(session.begin_book_craft(&entries[0].recipe).is_err());
+            assert!(session.begin_book_craft(&entries[0].recipe, false).is_err());
         }
     }
     let locked = session.screen_catalog().unwrap().recipe(9).unwrap();
     assert!(!session.book_recipe_selectable(&locked));
-    assert!(session.begin_book_craft(&locked).is_err());
+    assert!(session.begin_book_craft(&locked, false).is_err());
     assert_eq!(session.ledger().pending_request_count(), 0);
     commit(
         &mut session,
@@ -378,6 +382,21 @@ fn recipe_book_keeps_materials_from_locked_siblings_without_granting_selection()
             container: ::protocol::ContainerIdentity::window(0),
             slots: Arc::from([NetworkItemStack::empty()]),
             storage_item: NetworkItemStack::empty(),
+        }),
+    );
+    // The grid's log is a source too, so it has to go as well.
+    commit(
+        &mut session,
+        8,
+        InventoryEvent::Slot(::protocol::InventorySlotEvent {
+            identity: ::protocol::SlotIdentity {
+                container: ::protocol::ContainerIdentity::window(
+                    ::protocol::UI_INVENTORY_WINDOW_ID,
+                ),
+                slot: u16::from(*::protocol::CRAFTING_INPUT_SLOTS.start()),
+            },
+            stack: NetworkItemStack::empty(),
+            storage_item: None,
         }),
     );
     assert!(session.book_recipes(true, false, 0, 10).is_empty());

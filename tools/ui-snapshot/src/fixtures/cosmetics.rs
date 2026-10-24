@@ -19,6 +19,13 @@ pub(super) fn wardrobe() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows free and unowned items together without account data.
+pub(super) fn locked_cosmetics() -> Fixture {
+    let fixture = wardrobe();
+    render_model::hats::fixture::locked_bunny();
+    fixture
+}
+
 /// Shows a filtered cosmetic gallery without changing the equipped character.
 pub(super) fn cosmetic_category(category: launcher::dressing_room::CosmeticCategory) -> Fixture {
     let mut fixture = wardrobe();

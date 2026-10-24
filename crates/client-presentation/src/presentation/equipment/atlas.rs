@@ -29,6 +29,7 @@ impl Placement {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct SpriteAtlas {
     pub(super) layers: Vec<EquipmentRaster>,
     /// Indexed like the icon catalog's sprites; `None` for one that could not be placed.

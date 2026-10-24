@@ -34,6 +34,8 @@ pub struct ItemComponents {
     pub storage_container: bool,
     /// Attack and kinetic presentation facts, when this item declares them.
     pub attack: Option<super::ItemAttackTiming>,
+    /// `minecraft:shooter` draw facts, when declared.
+    pub shooter: Option<super::ItemShooter>,
     /// `item_texture.json` key from `minecraft:icon`.
     pub icon: Option<Arc<str>>,
     /// `minecraft:display_name` value: a localization key or literal text.
@@ -85,6 +87,8 @@ pub struct ItemComponents {
     pub rarity: Option<Arc<str>>,
     /// `minecraft:hover_text_color` format-code name, e.g. `gold`.
     pub hover_text_color: Option<Arc<str>>,
+    /// `minecraft:digger` destroy speeds, when declared.
+    pub digger: Option<Arc<super::ItemDigger>>,
 }
 
 /// One authored use cooldown with bounded owned category text.
@@ -118,6 +122,9 @@ impl ItemComponents {
         .flatten()
         {
             bytes = bytes.saturating_add(text.len()).saturating_add(32);
+        }
+        if let Some(digger) = &self.digger {
+            bytes = bytes.saturating_add(digger.retained_bytes());
         }
         bytes
     }
@@ -262,6 +269,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .into_iter()
             .all(|name| component(name).is_some_and(|value| matches!(value, Nbt::Compound(_)))),
         attack: super::attack::parse_attack(components),
+        shooter: super::shooter::parse_shooter(component("minecraft:shooter")),
         icon: super::icons::icon_key(bytes),
         display_name: text(
             component("minecraft:display_name").and_then(|name| name.field("value")),
@@ -336,6 +344,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         hover_text_color: text(
             component("minecraft:hover_text_color").and_then(|color| color.field("value")),
         ),
+        digger: super::digger::parse_digger(component("minecraft:digger")).map(Arc::new),
     })
 }
 
@@ -590,6 +599,28 @@ mod tests {
         }
         let root = compound("", &[compound("components", &[])]);
         assert!(!parse_components(&root).unwrap().durability_declared);
+    }
+
+    #[test]
+    fn shooter_draw_facts_follow_the_declared_fields() {
+        let shooter = |fields: &[Vec<u8>]| {
+            let root = compound(
+                "",
+                &[compound(
+                    "components",
+                    &[compound("minecraft:shooter", fields)],
+                )],
+            );
+            parse_components(&root).unwrap().shooter.unwrap()
+        };
+        let drawn = shooter(&[byte("charge_on_draw", 0), float("max_draw_duration", 1.0)]);
+        assert!(drawn.starts_held_draw());
+        assert!(!shooter(&[]).starts_held_draw());
+        assert!(!shooter(&[float("max_draw_duration", f32::NAN)]).starts_held_draw());
+        let charged = shooter(&[byte("charge_on_draw", 1), float("max_draw_duration", 1.0)]);
+        assert!(charged.charge_on_draw && !charged.starts_held_draw());
+        let root = compound("", &[compound("components", &[])]);
+        assert_eq!(parse_components(&root).unwrap().shooter, None);
     }
 
     #[test]

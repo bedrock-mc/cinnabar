@@ -230,7 +230,7 @@ impl ParticleSystem {
             TextureSource::Cosmetic => request
                 .tile
                 .as_ref()
-                .and_then(|tile| self.atlas.tile(tile.key, tile.size, &tile.pixels))
+                .and_then(|tile| self.atlas.sprite(tile.key, tile.size, &tile.pixels))
                 .unwrap_or(fallback),
             TextureSource::Terrain | TextureSource::Items => {
                 let Some(tile) = request.tile.as_ref() else {

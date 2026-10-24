@@ -26,15 +26,17 @@ fn settings_storage_has_real_categories_and_confirmed_cache_delete() {
     view.storage = Arc::new(launcher_host::settings_storage::read_storage(&layout));
     assert_eq!(view.storage.cached[0].bytes, 1024);
     let actions = draw(&player_runtime, &mut presentation, &view);
-    for (index, _) in launcher::menu::settings_storage::CATEGORIES
+    for (index, category) in launcher::menu::settings_storage::CATEGORIES
         .iter()
         .enumerate()
     {
-        assert!(
+        // Categories the client never fills (templates, packs, skins) have no row.
+        assert_eq!(
             actions.contains(&MenuAction::SettingsStorage(StorageAction::Toggle(
                 index as u8
             ))),
-            "{actions:?}"
+            view.storage.items(category).is_some(),
+            "{category}: {actions:?}"
         );
     }
     let category = client_ui::test_support::menu_hit_targets(&presentation)

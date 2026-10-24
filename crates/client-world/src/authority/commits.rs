@@ -124,12 +124,38 @@ impl WorldAuthority {
             WorldEvent::Actor(mut event) => {
                 let sequence = sequence.expect("sequenced actor events commit through submit");
                 if let ActorEvent::Move(movement) = &mut event {
+                    self.commit_local_actor_move(sequence, *movement);
                     self.resolve_actor_teleport(movement);
                 }
+                let (local_health_attributes, local_spawn) = match &event {
+                    ActorEvent::Attributes(update)
+                        if update.runtime_id == self.local_player_runtime_id
+                            && update.dimension == self.current_dimension =>
+                    {
+                        (Some(Arc::clone(&update.attributes)), false)
+                    }
+                    ActorEvent::Spawn(spawn)
+                    | ActorEvent::PlayerSpawn { spawn, .. }
+                    | ActorEvent::PaintingSpawn { spawn, .. }
+                        if spawn.runtime_id == self.local_player_runtime_id
+                            && spawn.dimension == self.current_dimension =>
+                    {
+                        (Some(Arc::clone(&spawn.attributes)), true)
+                    }
+                    _ => (None, false),
+                };
+                let local_death_status = matches!(&event, ActorEvent::Status(status)
+                    if status.runtime_id == self.local_player_runtime_id
+                        && status.kind == protocol::ActorStatusKind::Death);
+                let local_spawn_alive = matches!(&event, ActorEvent::Status(status)
+                    if status.runtime_id == self.local_player_runtime_id
+                        && status.kind == protocol::ActorStatusKind::SpawnAlive);
                 let player_list_changed =
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
+                let local_removal = matches!(&event, ActorEvent::Remove(remove)
+                    if remove.unique_id == self.local_player_unique_id && remove.dimension == self.current_dimension);
                 let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
-                if let ActorEvent::Attributes(update) = &event
+                let local_attributes = if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
                 {
@@ -138,53 +164,11 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         attributes: Arc::clone(&update.attributes),
                     });
-                    let movement = update
-                        .attributes
-                        .iter()
-                        .rev()
-                        .filter(|attribute| {
-                            attribute.name.as_ref() == Attribute::Movement.wire_name()
-                        })
-                        .find_map(MovementSpeedAttribute::from_attribute);
-                    let liquid = |name: &str| {
-                        update
-                            .attributes
-                            .iter()
-                            .rev()
-                            .find(|attribute| attribute.name.as_ref() == name)
-                            .map(|attribute| f64::from(attribute.current))
-                    };
-                    let underwater = liquid(Attribute::UnderwaterMovement.wire_name());
-                    let lava = liquid(Attribute::LavaMovement.wire_name());
-                    let air_drag_modifier = update
-                        .attributes
-                        .iter()
-                        .rev()
-                        .find(|attribute| {
-                            attribute.name.as_ref() == Attribute::AirDragModifier.wire_name()
-                        })
-                        .map(|attribute| attribute.current)
-                        .filter(|current| current.is_finite());
-                    if let Some(attribute) = movement {
-                        self.local_movement_speed = Some(attribute.current);
-                    }
-                    // One control per update keeps admission's one-slot reservation exact.
-                    if movement.is_some()
-                        || underwater.is_some()
-                        || lava.is_some()
-                        || air_drag_modifier.is_some()
-                    {
-                        self.push_committed_control(CommittedControlEvent::LocalMovementSpeed {
-                            sequence,
-                            dimension: update.dimension,
-                            movement,
-                            underwater,
-                            lava,
-                            air_drag_modifier,
-                            tick: update.tick,
-                        });
-                    }
-                }
+                    Some((update.tick, Arc::clone(&update.attributes)))
+                } else {
+                    None
+                };
+                let mut local_metadata = None;
                 if let ActorEvent::Metadata(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -194,14 +178,7 @@ impl WorldAuthority {
                         server_tick: update.tick,
                         metadata: Arc::clone(&update.metadata),
                     });
-                    if let Some(flags) = crate::MovementFlagUpdate::from_metadata(&update.metadata)
-                    {
-                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
-                            sequence,
-                            tick: update.tick,
-                            flags,
-                        });
-                    }
+                    local_metadata = Some((update.tick, Arc::clone(&update.metadata)));
                 }
                 let local_hurt = matches!(
                     &event,
@@ -254,6 +231,50 @@ impl WorldAuthority {
                     _ => None,
                 };
                 let result = self.actors.apply(self.actor_session_id, sequence, event);
+                if local_removal
+                    && matches!(
+                        result,
+                        crate::actor_store::ActorApplyResult::Removed
+                            | crate::actor_store::ActorApplyResult::MissingActor
+                    )
+                {
+                    self.actors.replace_local_actor_lifetime(sequence);
+                }
+                self.publish_local_actor_replacement(sequence);
+
+                let data_admitted = matches!(
+                    result,
+                    crate::actor_store::ActorApplyResult::Updated
+                        | crate::actor_store::ActorApplyResult::MissingActor
+                        | crate::actor_store::ActorApplyResult::CapacityRejected
+                );
+                if data_admitted && let Some((tick, attributes)) = local_attributes {
+                    self.publish_local_attribute_update(sequence, tick, &attributes);
+                }
+                if data_admitted && let Some((tick, metadata)) = local_metadata {
+                    let actor = self.actors.actor_authority(self.local_player_runtime_id);
+                    let flags = actor.and_then(|actor| {
+                        crate::MovementFlagUpdate::from_admitted_metadata(&metadata, actor)
+                    });
+                    let dimensions =
+                        actor
+                            .map(|actor| actor.explicit_dimensions)
+                            .filter(|dimensions| {
+                                [dimensions.width, dimensions.height]
+                                    .into_iter()
+                                    .flatten()
+                                    .any(|write| write.sequence == sequence)
+                            });
+                    if flags.is_some() || dimensions.is_some() {
+                        self.push_committed_control(CommittedControlEvent::LocalMovementFlags {
+                            sequence,
+                            tick,
+                            flags: flags.unwrap_or_default(),
+                            replacement: false,
+                            dimensions,
+                        });
+                    }
+                }
                 if result == crate::actor_store::ActorApplyResult::Updated
                     && let Some(runtime_id) = attributes_runtime
                     && self
@@ -295,6 +316,64 @@ impl WorldAuthority {
                         }),
                     });
                 }
+                let mut mount_ui_committed = false;
+                let life_accepted = if local_spawn {
+                    matches!(
+                        result,
+                        crate::actor_store::ActorApplyResult::Inserted
+                            | crate::actor_store::ActorApplyResult::Replaced
+                    ) || (result == crate::actor_store::ActorApplyResult::CapacityRejected
+                        && self
+                            .actors
+                            .get(self.local_player_runtime_id)
+                            .is_some_and(|actor| actor.spawn_revision == sequence))
+                } else {
+                    matches!(
+                        result,
+                        crate::actor_store::ActorApplyResult::Updated
+                            | crate::actor_store::ActorApplyResult::MissingActor
+                            | crate::actor_store::ActorApplyResult::CapacityRejected
+                    )
+                };
+                if life_accepted {
+                    if let Some(attributes) = local_health_attributes {
+                        if local_spawn {
+                            mount_ui_committed = self.publish_spawn_health(sequence, &attributes);
+                        }
+                        self.publish_local_life(
+                            sequence,
+                            attributes
+                                .iter()
+                                .filter(|attribute| {
+                                    attribute.name.as_ref() == Attribute::Health.wire_name()
+                                })
+                                .filter_map(|attribute| {
+                                    crate::LocalPlayerStat::from_attribute(attribute)
+                                        .map(|_| attribute.current <= 0.0)
+                                }),
+                        );
+                    } else if local_spawn_alive {
+                        let health = self
+                            .actors
+                            .get(self.local_player_runtime_id)
+                            .and_then(|actor| actor.attributes.get(Attribute::Health.wire_name()))
+                            .filter(|attribute| {
+                                attribute.current > 0.0
+                                    && crate::LocalPlayerStat::from_attribute(attribute).is_some()
+                            })
+                            .cloned();
+                        if let Some(health) = health {
+                            self.publish_local_life(sequence, [false]);
+                            mount_ui_committed = self.publish_spawn_health(sequence, &[health]);
+                        }
+                    } else if local_death_status {
+                        self.publish_local_life(sequence, [true]);
+                        self.push_committed_ui(CommittedUiEvent::Ui {
+                            sequence,
+                            event: UiEvent::Hud(protocol::HudEvent::Health { health: 0 }),
+                        });
+                    }
+                }
                 if local_hurt {
                     self.push_committed_control(CommittedControlEvent::LocalHurt {
                         sequence,
@@ -306,7 +385,9 @@ impl WorldAuthority {
                         sequence,
                     });
                 }
-                self.publish_local_mount_change(sequence, previous_mount);
+                if !mount_ui_committed {
+                    self.publish_local_mount_change(sequence, previous_mount);
+                }
             }
             WorldEvent::ActorEffect(event) => {
                 let sequence = sequence.expect("sequenced effect events commit through submit");
@@ -378,6 +459,9 @@ impl WorldAuthority {
                     UiEvent::Hud(protocol::HudEvent::Health { health }) => {
                         self.actors
                             .set_local_health(self.local_player_runtime_id, health);
+                        if let Ok(health) = u16::try_from(health) {
+                            self.publish_local_life(sequence, [health == 0]);
+                        }
                         if health <= 0 {
                             self.observe_totem_status(self.local_player_runtime_id, false);
                         }

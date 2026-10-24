@@ -41,8 +41,10 @@ work has completed. Main-world updates alone cannot confirm startup or discard t
 - **macOS:** the helper replaces the complete signed app bundle from the DMG and preserves its
   signature and notarization ticket. The previous bundle remains beside it until the new client
   completes startup. A failed new start restores the previous bundle.
-- **Linux:** the same swap and startup rollback apply to AppImages. Unpacked installations use
-  the manual download action.
+- **Linux:** the same swap and startup rollback apply to AppImages and extracted AppDirs,
+  including installations made by `install.sh`. AppDirs are updated by extracting the verified
+  AppImage beside the installation, then replacing the complete directory and relaunching `AppRun`.
+  Other unpacked layouts use the manual download action.
 - **Windows:** the helper runs the verified MSI passively with existing rights and relaunches
   the client. The previous downloaded MSI remains in the update directory for manual repair.
 
@@ -52,6 +54,15 @@ The updater does not request elevated privileges or reboot the machine.
 Manual installers are copied out of the waiting stage before opening. A newer download or channel
 change can replace that stage while the handed-off installer remains available. Manual copies use
 the same lease and handoff retention window as copied update helpers.
+
+On Linux, launching an AppImage downloaded by Cinnabar also checks the installation created by
+`install.sh`. If that installed copy is older, the ready card offers **Restart and update** to
+finish installing the downloaded release. The signed manifest and image are verified again, and
+the helper replaces the installed AppDir so the application-menu launcher opens the new version.
+This action requires a click even when install-on-quit is enabled. AppImages launched from other
+locations remain portable copies.
+If the original client is still open, the card asks you to close the other windows first and
+offers installation once that client exits.
 
 The updater retains its verified offer while a later download replaces the cache. The helper
 revalidates that offer and queries the installed executable's version and build under the apply

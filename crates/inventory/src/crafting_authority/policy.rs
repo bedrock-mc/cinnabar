@@ -2,6 +2,9 @@
 use super::CraftingAuthority;
 use protocol::RecipeHandle;
 
+/// Compared by the book listing cache; see [`CraftingAuthority::book_discovery_key`].
+pub(crate) type BookDiscoveryKey = (u64, Option<protocol::CraftingRules>, Option<bool>);
+
 impl CraftingAuthority {
     /// A complete rule frontier and required component are prerequisites for manual matching.
     pub(crate) fn manual_recipes_available(&self) -> bool {
@@ -43,5 +46,11 @@ impl CraftingAuthority {
     /// Invalidates presentation after discovery, rules, cells or authority change.
     pub(crate) fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Everything book discovery reads besides the catalog: the presentation revision, plus the
+    /// rules and unlock component, which session retirement resets without advancing it.
+    pub(crate) fn book_discovery_key(&self) -> BookDiscoveryKey {
+        (self.revision, self.crafting_rules(), self.unlock_component)
     }
 }

@@ -33,6 +33,16 @@ pub(crate) fn dispatch() {
     if mode.as_ref().is_some_and(|arg| arg == crash::MONITOR_FLAG) {
         std::process::exit(lifecycle::run_crash_monitor());
     }
+    if mode
+        .as_ref()
+        .is_some_and(|arg| arg == bootstrap_ui::startup::FLAG)
+    {
+        if let Err(error) = bootstrap_ui::startup::run() {
+            eprintln!("startup screen failed: {error:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     match ClientArgs::parse_env() {
         Ok(ParseOutcome::Help) => print!("{}", cinnabar::args::HELP),
         Ok(ParseOutcome::Run(args)) => {

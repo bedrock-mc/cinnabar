@@ -612,6 +612,15 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
                     "compiled item facts source requires a missing retail visual",
                 ));
             }
+        } else if defining_path.as_ref() == crate::item::names::SOURCE_PATH {
+            if visual.key.metadata != 0
+                || crate::item::names::serialization_ids(&visual.key.identifier).is_none()
+                || visual.route != ItemVisualDefinitionRoute::Missing
+            {
+                return Err(invalid(
+                    "item registry source requires a missing registry visual",
+                ));
+            }
         } else if !valid_item_definition_source(defining_path) {
             return Err(invalid("item visual defining source is not reviewed"));
         }
@@ -628,8 +637,13 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
 const LEGACY_ICON_ROUTES_PATH: &str = "registry/legacy-icon-routes-26.30.tsv";
 const LEGACY_ICON_ROUTES: &[u8] = include_bytes!("../../data/legacy-icon-routes-26.30.tsv");
 
-/// Whether the embedded legacy table lists `(identifier, metadata)`.
+/// Whether the embedded legacy table lists `(identifier, metadata)`, or it is a tipped arrow.
 fn legacy_icon_route_listed(identifier: &str, metadata: u32) -> bool {
+    if identifier == crate::facts::ARROW_IDENTIFIER
+        && (1..=crate::potion::MAX_TIPPED_ARROW_AUXILIARY).contains(&metadata)
+    {
+        return true;
+    }
     std::str::from_utf8(LEGACY_ICON_ROUTES)
         .into_iter()
         .flat_map(str::lines)
@@ -661,7 +675,9 @@ fn valid_item_definition_source(path: &str) -> bool {
 }
 
 fn valid_item_raster_source(path: &str) -> bool {
-    (path.starts_with("textures/items/") || path.starts_with("textures/entity/"))
+    (path.starts_with("textures/items/")
+        || path.starts_with("textures/entity/")
+        || path.starts_with("textures/blocks/"))
         && (path.ends_with(".png") || path.ends_with(".tga"))
 }
 

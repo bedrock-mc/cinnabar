@@ -1,6 +1,6 @@
 //! Anonymous update notices rendered through the home screen.
 
-use super::{Fixture, MenuView};
+use super::{Fixture, GUI_SCALE, MenuView, SIZE, SMALL_SIZE, State};
 
 /// Shows a verified release without contacting the updater or using account data.
 pub(super) fn home(writable: bool, protocol_required: bool) -> Fixture {
@@ -21,6 +21,14 @@ fn next_version() -> String {
         "{prefix}.{}",
         patch.parse::<u64>().expect("numeric patch") + 1
     )
+}
+
+/// Shows a downloaded update waiting for the original client to close.
+pub(super) fn pending() -> Fixture {
+    let mut view = MenuView::new(true, "Player".into());
+    view.updates.active = false;
+    view.updates.manual_pending = true;
+    Fixture::Menu(Box::new(view))
 }
 
 /// Shows the authenticated account placement without loading a real account or skin.
@@ -102,3 +110,55 @@ pub(super) fn settings(status: launcher::menu::updates::Status) -> Fixture {
     view.focused_action = Some(launcher::menu::MenuAction::SettingsSection(section.index));
     Fixture::Menu(Box::new(view))
 }
+
+/// Home screens with each update notice, at desktop and compact sizes.
+pub(super) const STATES: &[State] = &[
+    State {
+        name: "home-update-compact",
+        size: [480, 640],
+        gui_scale: 3,
+        fixture: || home(true, false),
+    },
+    State {
+        name: "home-signed-in-update",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: signed_in,
+    },
+    State {
+        name: "home-update-ready",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || home(true, false),
+    },
+    State {
+        name: "home-update-required",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || home(true, true),
+    },
+    State {
+        name: "home-update-download",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || home(false, false),
+    },
+    State {
+        name: "home-update-pending",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: pending,
+    },
+    State {
+        name: "home-update-pending-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: pending,
+    },
+    State {
+        name: "home-update-small",
+        size: SMALL_SIZE,
+        gui_scale: 1,
+        fixture: || home(true, false),
+    },
+];

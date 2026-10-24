@@ -1,8 +1,6 @@
 use super::*;
 use std::collections::BTreeSet;
 
-const TRANSVERSE_PROBE_OFFSET: f64 = 1.0 / 65536.0;
-
 #[test]
 fn multibox_internal_planes_keep_inside_origin_faces() {
     let pieces = cube_octants();
@@ -192,32 +190,32 @@ fn other_compiled_multibox_internal_planes_remain_pickable() {
 }
 
 #[test]
-fn multibox_outer_faces_and_unfilled_seam_quadrants_remain_unpickable() {
+fn multibox_outer_faces_and_edge_seams_are_pickable() {
     let boxes = vec![
         ShapeBox::new([0.0; 3], [1.0, 0.5, 0.5]),
         ShapeBox::new([0.0, 0.5, 0.5], [1.0; 3]),
     ];
     for space in [CollisionIdSpace::Sequential, CollisionIdSpace::Hashed] {
         let target = shapes(SelectionContext::Static, boxes.clone(), vec![]);
-        let (store, registry, _) = fixture(space, &target);
+        let (store, registry, id) = fixture(space, &target);
         let view = PaletteWorld::new(&store, &registry, 0, Default::default());
-        for (y, z) in [
-            (0.0, 0.25),
-            (1.0, 0.75),
-            (0.25, 0.0),
-            (0.75, 1.0),
-            (0.5, 0.5),
-        ] {
+        for (y, z) in [(0.0, 0.25), (0.25, 0.0), (0.5, 0.5), (0.5, 0.75)] {
             let origin = Vec3::new(-2.0, y, z);
-            assert!(
-                view.block_interaction_ray_current(origin, Vec3::new(1.0, 0.0, 0.0), 4.0)
-                    .unwrap()
-                    .is_none()
+            let hit = view
+                .block_interaction_ray_current(origin, Vec3::new(1.0, 0.0, 0.0), 4.0)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                (hit.runtime_id, hit.block_pos, hit.distance),
+                (id, [0; 3], 2.0)
             );
-            assert!(
-                view.camera_visibility_ray(origin, Vec3::new(1.0, 0.0, 0.0), 4.0)
-                    .unwrap()
-                    .is_none()
+            let camera = view
+                .camera_visibility_ray(origin, Vec3::new(1.0, 0.0, 0.0), 4.0)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                (camera.runtime_id, camera.distance, camera.face),
+                (id, 2.0, hit.face)
             );
         }
     }
@@ -238,7 +236,7 @@ fn compiled_fixture() -> (Box<[assets::RegistryRecord]>, assets::PhysicsRegistry
     (records, registry)
 }
 
-/// Checks rays on every box plane and plane intersection that lies inside the union.
+/// Checks axis rays on every box plane and plane intersection, including exposed edges.
 fn check_internal_planes(boxes: &[ShapeBox]) {
     let coordinates: [Vec<f64>; 3] = std::array::from_fn(|axis| {
         let mut values: Vec<_> = boxes
@@ -273,23 +271,18 @@ fn check_internal_planes(boxes: &[ShapeBox]) {
                             segments.reverse();
                         }
                         let Some(segment) = segments.into_iter().find(|segment| {
-                            let mut point = [0.0; 3];
-                            point[axis] = (segment[0] + segment[1]) / 2.0;
-                            point[a] = u;
-                            point[b] = v;
-                            // Four nearby samples distinguish solid internal seams from exposed edges.
-                            [-1.0, 1.0].into_iter().all(|du| {
-                                [-1.0, 1.0].into_iter().all(|dv| {
-                                    let mut sample = point;
-                                    sample[a] += du * TRANSVERSE_PROBE_OFFSET;
-                                    sample[b] += dv * TRANSVERSE_PROBE_OFFSET;
-                                    boxes.iter().any(|shape| {
-                                        (0..3).all(|i| {
-                                            shape.min[i] < sample[i] && sample[i] < shape.max[i]
-                                        })
-                                    })
+                            let along = (segment[0] + segment[1]) / 2.0;
+                            // Vanilla clips each box with closed face bounds, so a ray on a box's
+                            // edge or face plane still meets that box. A ray on the cell's far
+                            // boundary walks the neighbouring cells instead.
+                            u != 1.0
+                                && v != 1.0
+                                && boxes.iter().any(|shape| {
+                                    shape.min[axis] < along
+                                        && along < shape.max[axis]
+                                        && (shape.min[a]..=shape.max[a]).contains(&u)
+                                        && (shape.min[b]..=shape.max[b]).contains(&v)
                                 })
-                            })
                         }) else {
                             continue;
                         };

@@ -9,7 +9,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -39,6 +39,10 @@ pub struct ShaderPackRequest {
 /// shown pack leaves [`ShaderPackStatus`] at `Ready` throughout.
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShaderPackSettledRevision(pub u64);
+
+/// An executable compiler host on platforms where the client is a shared library.
+#[derive(Resource, Clone, Debug)]
+pub struct ShaderPackCompilerExecutable(pub PathBuf);
 
 /// Load state of the requested pack, written by the render host.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
@@ -74,6 +78,7 @@ pub struct ShaderPackLoadProgress {
 impl ShaderPackLoadProgress {
     /// Replaces the counter with a fresh one for a load that starts now.
     pub fn start(&mut self) -> Arc<LoadProgress> {
+        self.finish();
         self.revision = self.revision.wrapping_add(1);
         Arc::clone(self.counter.insert(Arc::default()))
     }
@@ -86,7 +91,9 @@ impl ShaderPackLoadProgress {
 
     /// Stops publishing a completed or cancelled load, leaving late worker updates detached.
     pub fn finish(&mut self) {
-        self.counter = None;
+        if let Some(counter) = self.counter.take() {
+            counter.cancelled.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Whether a load is running, including reloads that keep the previous pack drawing.
@@ -104,20 +111,29 @@ impl ShaderPackLoadProgress {
 
 /// Programs translated out of the total, written by a load worker.
 #[derive(Debug, Default)]
-pub struct LoadProgress(AtomicU64);
+pub struct LoadProgress {
+    programs: AtomicU64,
+    cancelled: AtomicBool,
+}
 
 impl LoadProgress {
     /// Records `translated` of `programs` done; both saturate at `u32::MAX`.
     pub fn record(&self, translated: usize, programs: usize) {
         let clamp = |count: usize| u64::from(u32::try_from(count).unwrap_or(u32::MAX));
-        self.0
+        self.programs
             .store(clamp(translated) << 32 | clamp(programs), Ordering::Relaxed);
+    }
+
+    /// Whether the host has completed or replaced this load and the worker should stop.
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
     }
 
     /// `(translated, programs)`, or `None` before the program count is known.
     #[must_use]
     pub fn programs(&self) -> Option<(u32, u32)> {
-        let packed = self.0.load(Ordering::Relaxed);
+        let packed = self.programs.load(Ordering::Relaxed);
         let programs = packed as u32;
         (programs > 0).then_some(((packed >> 32) as u32, programs))
     }
@@ -196,10 +212,6 @@ pub struct ShaderPackFrameInputs {
     /// Frozen `frameTimeCounter` in seconds for captures (developer `--frame-time-counter`);
     /// `None` counts real time.
     pub frame_time_counter: Option<f32>,
-    /// Blocks along the camera ray to terrain geometry; models use their surfaces, while
-    /// cubes and liquids use cell boundaries. `None` when nothing is in range.
-    /// `centerDepthSmooth` smooths the corresponding depth-buffer value.
-    pub center_distance: Option<f32>,
     /// Fog start and end distances in blocks (`fogStart`, `fogEnd`).
     pub fog_range: [f32; 2],
     /// Render distance in blocks (`far`).
@@ -257,7 +269,6 @@ impl Default for ShaderPackFrameInputs {
             eye_medium: 0,
             sky_biomes: [(0, 0.0); SKY_BIOME_SLOTS],
             frame_time_counter: None,
-            center_distance: None,
             fog_range: [0.0, 256.0],
             render_distance: 256.0,
             night_vision: 0.0,
@@ -429,6 +440,8 @@ mod tests {
         assert_eq!(progress.programs(), Some((12, 40)));
         let first_revision = progress.revision();
         let second = progress.start();
+        assert!(first.is_cancelled());
+        assert!(!second.is_cancelled());
         assert_ne!(progress.revision(), first_revision);
         let second_revision = progress.revision();
         first.record(40, 40);
@@ -440,6 +453,7 @@ mod tests {
         second.record(3, 7);
         assert_eq!(progress.programs(), Some((3, 7)));
         progress.finish();
+        assert!(second.is_cancelled());
         assert_eq!(progress.revision(), second_revision);
         second.record(7, 7);
         assert!(!progress.is_loading());

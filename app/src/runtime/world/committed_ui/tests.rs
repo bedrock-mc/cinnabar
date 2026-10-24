@@ -59,6 +59,7 @@ mod boss_lifetime;
 mod credits_identity;
 mod npc_identity;
 mod player_authority;
+mod respawn;
 
 #[derive(Clone, Copy, Debug)]
 enum InputCase {

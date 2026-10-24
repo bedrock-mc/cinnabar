@@ -3,6 +3,9 @@ use std::{collections::BTreeMap, sync::OnceLock};
 use hashbrown::HashMap;
 use world::{ChunkKey, SubChunkKey};
 
+/// Membership changes a set keeps for replay; a reader further behind reconciles in full.
+pub(super) const MEMBERSHIP_JOURNAL_CAPACITY: usize = 8192;
+
 /// Stores each key once, grouped by column with sections in ascending height, so
 /// membership and single-column queries cost one hash lookup plus a short column scan.
 #[derive(Clone, Debug, Default)]
@@ -17,6 +20,52 @@ pub(super) struct ColumnSubChunkSet {
     membership_revision: u64,
     len: usize,
     hash: OnceLock<u64>,
+    journal: MembershipJournal,
+}
+
+/// The most recent keys whose membership changed, in a ring of bounded size.
+#[derive(Clone, Debug, Default)]
+struct MembershipJournal {
+    keys: Vec<SubChunkKey>,
+    /// Keys ever recorded; the key at position `p` lives in slot `(p - floor) % capacity`.
+    written: u64,
+    /// No replay starts before this position, as when every key was retired at once.
+    floor: u64,
+}
+
+impl MembershipJournal {
+    fn slot(&self, position: u64) -> usize {
+        ((position - self.floor) % MEMBERSHIP_JOURNAL_CAPACITY as u64) as usize
+    }
+
+    fn record(&mut self, key: SubChunkKey) {
+        let slot = self.slot(self.written);
+        if slot == self.keys.len() {
+            self.keys.push(key);
+        } else {
+            self.keys[slot] = key;
+        }
+        self.written += 1;
+    }
+
+    /// Keys recorded since `position`, or `None` once any of them has been overwritten.
+    fn since(&self, position: u64) -> Option<impl Iterator<Item = &SubChunkKey>> {
+        let pending = self.written.checked_sub(position)?;
+        if position < self.floor || pending > MEMBERSHIP_JOURNAL_CAPACITY as u64 {
+            return None;
+        }
+        Some((position..self.written).map(|position| &self.keys[self.slot(position)]))
+    }
+
+    /// Continues the clock for a set that lost every key without recording them.
+    fn restart_after(&self) -> Self {
+        let written = self.written + 1;
+        Self {
+            keys: Vec::new(),
+            written,
+            floor: written,
+        }
+    }
 }
 
 impl PartialEq for ColumnSubChunkSet {
@@ -50,6 +99,7 @@ impl ColumnSubChunkSet {
         column.insert(at, key);
         self.len += 1;
         self.membership_revision += 1;
+        self.journal.record(key);
         self.hash.take();
         true
     }
@@ -70,6 +120,7 @@ impl ColumnSubChunkSet {
         }
         self.len -= 1;
         self.membership_revision += 1;
+        self.journal.record(*key);
         self.hash.take();
         true
     }
@@ -88,19 +139,26 @@ impl ColumnSubChunkSet {
             return;
         }
         self.membership_revision += 1;
+        for &key in &replacement {
+            self.journal.record(key);
+        }
         let added = replacement.len();
-        let removed = if replacement.is_empty() {
+        let previous = if replacement.is_empty() {
             self.ordered_columns.remove(&column);
-            self.columns.remove(&column).map_or(0, |old| old.len())
+            self.columns.remove(&column)
         } else {
             if !self.ordered_columns.contains_key(&column) {
                 self.column_generation += 1;
                 self.ordered_columns.insert(column, self.column_generation);
             }
-            self.columns
-                .insert(column, replacement)
-                .map_or(0, |old| old.len())
+            self.columns.insert(column, replacement)
         };
+        let removed = previous.map_or(0, |previous| {
+            for &key in &previous {
+                self.journal.record(key);
+            }
+            previous.len()
+        });
         self.len = self.len - removed + added;
         self.hash.take();
     }
@@ -147,6 +205,20 @@ impl ColumnSubChunkSet {
         self.membership_revision
     }
 
+    /// The journal position [`Self::changed_since`] replays from.
+    pub(super) fn journal_position(&self) -> u64 {
+        self.journal.written
+    }
+
+    /// Keys whose membership may have changed since `position`, with repeats; `None` once the
+    /// bounded journal no longer reaches back that far.
+    pub(super) fn changed_since(
+        &self,
+        position: u64,
+    ) -> Option<impl Iterator<Item = &SubChunkKey>> {
+        self.journal.since(position)
+    }
+
     /// Reports whether the current column existed at a captured membership generation.
     pub(super) fn existed_at(&self, column: ChunkKey, generation: u64) -> bool {
         self.ordered_columns
@@ -159,6 +231,7 @@ impl ColumnSubChunkSet {
         let retired = std::mem::take(self);
         self.column_generation = retired.column_generation;
         self.membership_revision = retired.membership_revision + u64::from(retired.len != 0);
+        self.journal = retired.journal.restart_after();
         retired
     }
 
@@ -190,6 +263,7 @@ impl ColumnSubChunkSet {
             self.ordered_columns.clear();
             self.len = 0;
             self.membership_revision += 1;
+            self.journal = self.journal.restart_after();
             self.hash.take();
         }
     }

@@ -70,7 +70,6 @@ fn custom_mining_uncertainty_does_not_reject_known_placement_bounds() {
             .into();
             if prepared {
                 definition.state_physics = [definition.base_physics()].into();
-                definition.state_mining = [None].into();
                 definition.state_physics_complete = true;
             }
             let (registry, held) = admit(definition, mode, 0);

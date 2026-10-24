@@ -13,7 +13,7 @@ use super::{ALL_FACES, FACES, asset_path, is_name};
 use crate::host::cinnabar::experience_server::types as wit;
 use crate::limits::{
     MAX_BONES, MAX_CONDITION_TESTS, MAX_FLIPBOOK_FRAMES, MAX_MATERIALS, MAX_NAME_BYTES,
-    MAX_PERMUTATIONS, MAX_STATE_COMBINATIONS, MAX_STATE_VALUES,
+    MAX_PERMUTATIONS, MAX_STATE_BITS, MAX_STATE_VALUES,
 };
 use crate::protocol::{
     BlockState, BoneVisibility, Condition, Flipbook, Material, Permutation, Pixel, PixelBox,
@@ -37,7 +37,7 @@ pub(super) struct Assets<'a> {
 }
 
 /// A block's states, then its placement traits; with the axes they make, placement traits
-/// first, and no more than [`MAX_STATE_COMBINATIONS`] combinations of them.
+/// first, taking no more than [`MAX_STATE_BITS`] state bits.
 pub(super) fn states(
     id: &str,
     defs: Vec<wit::StateDef>,
@@ -83,16 +83,13 @@ pub(super) fn states(
         .into_iter()
         .filter(|state| placement.contains(flag(*state)))
         .collect();
-    let combinations = super::axes(&states, &placement)
+    let bits: u32 = super::axes(&states, &placement)
         .iter()
-        .try_fold(1usize, |product, axis| {
-            product
-                .checked_mul(value_count(&axis.values))
-                .filter(|product| *product <= MAX_STATE_COMBINATIONS)
-        });
+        .map(|axis| state_bits(value_count(&axis.values)))
+        .sum();
     ensure!(
-        combinations.is_some(),
-        "its states and placement traits make more than {MAX_STATE_COMBINATIONS} combinations"
+        bits <= MAX_STATE_BITS,
+        "its states and placement traits need more than {MAX_STATE_BITS} state bits"
     );
     Ok((states, placement))
 }
@@ -104,6 +101,11 @@ fn flag(state: PlacementState) -> wit::PlacementStates {
         PlacementState::BlockFace => wit::PlacementStates::BLOCK_FACE,
         PlacementState::VerticalHalf => wit::PlacementStates::VERTICAL_HALF,
     }
+}
+
+/// The bits the client gives a state with `values` values: `ceil(log2(values))`, at least one.
+fn state_bits(values: usize) -> u32 {
+    values.next_power_of_two().trailing_zeros().max(1)
 }
 
 fn value_count(values: &StateValues) -> usize {

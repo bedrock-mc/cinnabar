@@ -31,12 +31,86 @@ fn a_key_reload_reports_once_its_own_load_settles() {
     );
 }
 
+/// The reload key neither scans the pack folder nor reports for players without a pack, and
+/// reloads a selected pack without re-listing the folder on the frame.
+#[cfg(feature = "shaderpacks")]
 #[test]
-fn a_key_reload_without_a_pack_reports_at_once() {
+fn the_reload_key_only_reloads_a_selected_pack() {
+    use crate::render_mode::{
+        GraphicsSettings, RuntimeSettings, set_graphics_settings,
+        shader_pack::{ShaderPackDirs, sync_shader_pack_request},
+    };
+    use ui::RenderMode;
+
+    let directory = tempfile::tempdir().unwrap();
+    let packs = directory.path().to_path_buf();
+    std::fs::create_dir_all(packs.join("Dusk/shaders")).unwrap();
+    let mut app = App::new();
+    app.init_resource::<RuntimeSettings>()
+        .init_resource::<ShaderPackRequest>()
+        .init_resource::<ShaderPackReloadReport>()
+        .init_resource::<ButtonInput<KeyCode>>()
+        .init_resource::<ButtonInput<MouseButton>>()
+        .insert_resource(PlayerRuntime(player_state::PlayerState::new(1)))
+        .insert_resource(MenuRuntime::new(false, 2, "Steve".into()))
+        .insert_resource(RenderModeConfig {
+            cli: None,
+            attributable: false,
+            path: None,
+            cli_shader_pack: None,
+            shader_packs: Some(ShaderPackDirs {
+                packs: packs.clone(),
+                cache: packs.join("cache"),
+                discovered: Vec::new(),
+            }),
+            shader_pack_revision: 0,
+        })
+        .add_systems(
+            Update,
+            (reload_on_key, apply_reload, sync_shader_pack_request).chain(),
+        );
+    let press = |app: &mut App| {
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.clear();
+        keys.press(KeyCode::KeyR);
+        app.update();
+        let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
+        keys.release(KeyCode::KeyR);
+        keys.clear();
+    };
+    let listed = |app: &App| {
+        let config = app.world().resource::<RenderModeConfig>();
+        config.shader_packs.as_ref().unwrap().discovered.len()
+    };
+
+    app.update();
+    press(&mut app);
+    let config = app.world().resource::<RenderModeConfig>();
+    assert_eq!(config.shader_pack_revision, 0, "nothing to reload");
+    assert_eq!(listed(&app), 0, "no folder scan");
     assert_eq!(
-        report_line(2, &request(None), 0, Some(&ShaderPackStatus::Idle)).as_deref(),
-        Some(RELOADED)
+        app.world().resource::<ShaderPackReloadReport>().pending,
+        None,
+        "no chat line"
     );
+
+    set_graphics_settings(
+        &mut app.world_mut().resource_mut::<RuntimeSettings>(),
+        &GraphicsSettings {
+            mode: RenderMode::ShaderPack,
+            shader_pack: Some("Dusk".into()),
+        },
+    );
+    app.update();
+    press(&mut app);
+    let request = app.world().resource::<ShaderPackRequest>();
+    assert_eq!(request.pack, Some(packs.join("Dusk")));
+    assert_eq!(request.revision, 1);
+    assert_eq!(
+        app.world().resource::<ShaderPackReloadReport>().pending,
+        Some(1)
+    );
+    assert_eq!(listed(&app), 0, "the key reload does not scan the folder");
 }
 
 #[cfg(feature = "shaderpacks")]

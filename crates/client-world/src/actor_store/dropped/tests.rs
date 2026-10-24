@@ -261,6 +261,7 @@ fn spawn_absolute_and_partial_move_keep_feet_and_restore_the_same_native_origin(
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: true,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: Default::default(),

@@ -143,6 +143,16 @@ fn local_actor_life_state_preserves_health_below_hud_precision_and_retires_with_
             )),
         )
         .unwrap();
+    let mut clock = client_presentation::environment::WorldClock::default();
+    client_presentation::environment::bind_session_generation(
+        &mut clock,
+        &mut client_presentation::environment::WeatherState::default(),
+        1,
+    );
+    world.insert_resource(clock);
+    world
+        .run_system_cached(crate::runtime::world::drain_committed_ui_before_authority)
+        .unwrap();
     world.run_system_cached(publish_local_actor_damage).unwrap();
     let ui = world.resource::<UiRuntimeResource>();
     assert_eq!(ui.hud().health().unwrap().current(), 0);

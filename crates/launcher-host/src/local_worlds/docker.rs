@@ -187,6 +187,12 @@ pub(crate) fn detect_runtime(
     if platform.runs_bds() {
         return RuntimeInfo::native();
     }
+    if !platform.runs_containers() {
+        return RuntimeInfo::none(
+            "Bedrock Dedicated Server is unavailable on this platform; use Dragonfly for local worlds",
+            None,
+        );
+    }
     if lookup_docker(docker).is_none() {
         return RuntimeInfo::none(
             "no native Bedrock Dedicated Server for this platform and Docker is not installed; new worlds use dragonfly",

@@ -13,6 +13,7 @@ pub fn refresh_mutation_anchor_from_committed_control(
 ) -> bool {
     let resolved = match control {
         CommittedControlEvent::MovePlayer { resolved, .. }
+        | CommittedControlEvent::LocalActorMove { resolved, .. }
         | CommittedControlEvent::PlayerMovementCorrection { resolved, .. }
         | CommittedControlEvent::ChangeDimension { resolved, .. }
         | CommittedControlEvent::Respawn { resolved, .. } => resolved,
@@ -28,6 +29,7 @@ pub fn refresh_mutation_anchor_from_committed_control(
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
+        | CommittedControlEvent::LocalDeath { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. }
         | CommittedControlEvent::ClientInputLocks { .. } => return false,

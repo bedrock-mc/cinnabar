@@ -87,3 +87,33 @@ fn texture_only_painting_pack_reaches_runtime_bindings_and_reload_tracking() {
         assert!(dependencies.iter().any(|dependency| matches!(dependency, resource_pack::PackDependency::File { path, .. } if path == &expected)), "changes to present and missing painting rasters invalidate runtime compilation");
     }
 }
+
+#[test]
+fn chalkboard_geometry_only_pack_publishes_and_tracks_its_current_runtime_catalog() {
+    use assets::block_entity_geometry::chalkboard::ChalkboardSize;
+    let geometry = serde_json::json!({"format_version":"1.8.0", ChalkboardSize::Large.geometry(): {"texturewidth":32,"textureheight":32,"bones":[{"name":"body","cubes":[{"origin":[2,7,1],"size":[3,5,2],"uv":[0,0]}]}]}});
+    let bytes = serde_json::to_vec(&geometry).unwrap();
+    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
+        "models/mobs.json",
+        &bytes,
+    )]));
+    let pack = super::compile_encoded(&view, None, None, None, false, &|| false)
+        .unwrap()
+        .0
+        .expect("a supplied chalkboard does not need a client-entity definition");
+    assert!(
+        pack.assets
+            .geometries()
+            .iter()
+            .any(|geometry| geometry.identifier.as_ref() == ChalkboardSize::Large.geometry())
+    );
+    let dependencies = view.dependencies().unwrap().snapshot();
+    assert!(dependencies.iter().any(|input|matches!(input,resource_pack::PackDependency::File{path,..} if path=="models/mobs.json")));
+    let empty = resource_pack::LayeredPackView::new(crate::test_support::stack(&[]));
+    assert!(
+        super::compile_encoded(&empty, None, None, None, false, &|| false)
+            .unwrap()
+            .0
+            .is_none()
+    );
+}

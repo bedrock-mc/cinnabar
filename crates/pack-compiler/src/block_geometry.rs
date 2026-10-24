@@ -106,9 +106,12 @@ fn world_pivot(pivot: [f32; 3]) -> [f32; 3] {
     [8.0 - pivot[0], pivot[1], pivot[2] + 8.0]
 }
 
-/// Authored X/Y/Z rotation as the angles applied in the world frame, X then Y then Z.
+/// Authored X/Y/Z rotation as the angles applied in the X-mirrored block frame, X then Y then Z.
+///
+/// In the authored frame Bedrock turns X and Z opposite to a right-handed rotation (the
+/// entity rig's convention). Mirroring X reverses the Y and Z turns, so here only X is negated.
 fn world_angles(rotation: [f32; 3]) -> [f32; 3] {
-    [-rotation[0], rotation[1], -rotation[2]]
+    [-rotation[0], -rotation[1], rotation[2]]
 }
 
 /// Projects resolved bone cubes into the block coordinate frame.
@@ -214,11 +217,17 @@ fn parse_cube(cube: &Value) -> Option<Cube> {
         Value::Object(faces) => FACE_NAMES.map(|name| {
             let face = faces.get(name)?;
             let uv = face["uv"].as_array()?;
-            let uv = [number(uv.first()?)?, number(uv.get(1)?)?];
-            let size = face["uv_size"]
+            let mut uv = [number(uv.first()?)?, number(uv.get(1)?)?];
+            let mut size = face["uv_size"]
                 .as_array()
                 .and_then(|size| Some([number(size.first()?)?, number(size.get(1)?)?]))
                 .unwrap_or([0.0, 0.0]);
+            if number(&face["uv_rotation"]) == Some(180.0) {
+                for axis in 0..2 {
+                    uv[axis] += size[axis];
+                    size[axis] = -size[axis];
+                }
+            }
             Some(FaceUv {
                 uv,
                 size,

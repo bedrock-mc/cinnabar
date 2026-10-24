@@ -642,8 +642,7 @@ impl ViewmodelPublish<'_, '_> {
                 .is_some_and(|(air, max)| air < max),
         ) << 1);
         values[14] = runtime
-            .gameplay_hud()
-            .offhand_is_empty()
+            .local_offhand_is_empty(player_runtime)
             .map_or(0, |empty| if empty { 2 } else { 1 });
         if let Some(stream) = &world.stream {
             values[1] = i128::from(stream.authority().actor_session_id());
@@ -783,7 +782,7 @@ impl ViewmodelPublish<'_, '_> {
         let selected = player_runtime
             .selected_stack_snapshot()
             .ok_or(HandFallback::ItemsUnknownOrHeld)?;
-        if runtime.gameplay_hud().offhand_is_empty() != Some(true) {
+        if runtime.local_offhand_is_empty(player_runtime) != Some(true) {
             return Err(HandFallback::ItemsUnknownOrHeld);
         }
         let (owner, camera, target, msaa, hdr) =

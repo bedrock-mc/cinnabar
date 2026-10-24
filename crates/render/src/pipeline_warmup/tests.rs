@@ -72,12 +72,14 @@ impl PrewarmPipelines for TwoModes {
     fn prewarm(
         &mut self,
         cache: &PipelineCache,
-        _view: WarmView,
+        view: WarmView,
         ids: &mut WarmupIds,
     ) -> Result<(), BevyError> {
         self.calls += 1;
         for mask in [ColorWrites::RED, ColorWrites::GREEN] {
-            ids.push(cache.queue_render_pipeline(descriptor(self.shader.clone(), mask)));
+            let mut descriptor = descriptor(self.shader.clone(), mask);
+            descriptor.multisample.count = view.msaa.samples();
+            ids.push(cache.queue_render_pipeline(descriptor));
         }
         Ok(())
     }
@@ -87,6 +89,7 @@ const VIEW: WarmView = WarmView {
     msaa: Msaa::Off,
     hdr: false,
     enhanced: false,
+    shader_pack: false,
     output: None,
 };
 
@@ -140,6 +143,26 @@ fn a_new_view_configuration_warms_again_and_closes_the_gate() {
 }
 
 #[test]
+fn loading_prepares_single_sample_coverage_before_msaa_is_disabled() {
+    let mut world = world(Handle::default());
+    world.resource_mut::<WarmupRegistry>().views[0].msaa = Msaa::Sample4;
+    let warm = world.register_system(prewarm_owner::<TwoModes>);
+    world.run_system(warm).unwrap();
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 4);
+    assert!(!ready(&mut world));
+    world.resource_mut::<PipelineCache>().process_queue();
+    assert!(ready(&mut world));
+
+    world.resource_mut::<WarmupRegistry>().views[0].msaa = Msaa::Off;
+    world.run_system(warm).unwrap();
+    assert_eq!(world.resource::<WarmupRegistry>().ids.len(), 4);
+    assert!(
+        ready(&mut world),
+        "Performance coverage was already compiled"
+    );
+}
+
+#[test]
 fn unloaded_shaders_hold_loading() {
     let mut world = world(UNLOADED_SHADER);
     let warm = world.register_system(prewarm_owner::<TwoModes>);
@@ -158,4 +181,40 @@ fn no_view_never_releases_loading() {
         &mut WarmupRegistry::default()
     ));
     assert!(!PipelineWarmupReadiness::default().is_ready());
+}
+
+/// Upscaling's blocking blit wait in `Prepare` starts every queued pipeline, so warm-up must
+/// queue after it and still before `Render` starts this frame's queue.
+#[test]
+fn warmup_queues_after_the_blocking_blit_and_before_render() {
+    #[derive(Resource, Default)]
+    struct Queued(Vec<usize>);
+    fn probe(registry: Res<WarmupRegistry>, mut queued: ResMut<Queued>) {
+        queued.0.push(registry.ids.len());
+    }
+    let mut app = App::new();
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    register::<TwoModes>(&mut app);
+    let render = app.sub_app_mut(RenderApp);
+    render
+        .insert_resource(cache())
+        .insert_resource(TwoModes {
+            shader: Handle::default(),
+            calls: 0,
+        })
+        .init_resource::<Queued>()
+        .add_systems(
+            Render,
+            (
+                probe.in_set(RenderSystems::Prepare),
+                probe.in_set(RenderSystems::Render),
+            ),
+        );
+    render
+        .world_mut()
+        .spawn((crate::render_test_support::camera(false), Msaa::Off));
+    render.world_mut().run_schedule(Render);
+    assert_eq!(render.world().resource::<Queued>().0, [0, 2]);
 }

@@ -54,8 +54,8 @@ mod widgets;
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 pub use anim::{
-    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
-    NodeAnim, Written,
+    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, AnimationRecord, Animator, ControlAnims,
+    Easing, FlipWrite, NodeAnim, Written,
 };
 pub use bind::{
     BindState, CUSTOM_CONTROL_INSTANCE_KEY, CollectionItem, ControlLibrary, DataSource,
@@ -83,8 +83,8 @@ pub use form::{
     render_form_with,
 };
 pub use hud::{
-    BossBar, HudBindings, HudChanges, HudModel, HudSlot, HudTitle, Sidebar, Timed, hud_clocks,
-    hud_context, hud_data_source,
+    BossBar, ChatText, HudBindings, HudChanges, HudModel, HudSlot, HudTitle, Sidebar, Timed,
+    hud_clocks, hud_context, hud_data_source,
 };
 pub use input::{
     ControlSound, HitKind, HitRegion, InputComponent, InputMode, InputModeCondition, Mapping,

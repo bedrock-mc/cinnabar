@@ -82,8 +82,5 @@ fn pinned_wolf_states_retain_the_selected_rasters_and_dye_mask_bytes() {
 
 #[test]
 fn custom_wolf_rasters_do_not_claim_the_stock_dye_mask_contract() {
-    let fixture = pack(4, "wolf", false);
-    let compiled = compile_actor_assets(fixture.path(), MANIFEST).unwrap();
-    assert_eq!(compiled.report.textures, 0);
-    assert_eq!(compiled.report.bindings, 0);
+    assert_eq!(probe_alpha(4, "wolf"), (1, 0));
 }

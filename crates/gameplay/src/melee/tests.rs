@@ -165,9 +165,11 @@ fn maximal_effect_amplifiers_saturate() {
     assert_eq!(swing_duration(effects(None, Some(i32::MAX))), i32::MAX);
 }
 
-fn press(input_mode: PlayerInputMode) -> PressContext {
+/// Supplies an admitted empty-hand attack with a stable tick and player position.
+pub(super) fn press(input_mode: PlayerInputMode) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
+        refused_destroy: None,
         tick: 101,
         player_position: [0.5, 2.620_01, 0.5],
         input_mode,

@@ -1,6 +1,6 @@
 //! The server's creative inventory catalog.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use bedrock_protocol_1_26_51::enums::CreativeItemCategory as Category;
 use bedrock_protocol_1_26_51::packets::CreativeContent;
@@ -13,7 +13,7 @@ pub const MAX_CREATIVE_ITEMS: usize = 16_384;
 /// Client policy bound on retained creative groups.
 pub const MAX_CREATIVE_GROUPS: usize = 4_096;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, Hash, PartialEq)]
 pub enum CreativeCategory {
     Construction,
     Nature,
@@ -84,10 +84,11 @@ pub fn normalize_creative_content(
     if packet.entries.len() > MAX_CREATIVE_ITEMS || packet.groups.len() > MAX_CREATIVE_GROUPS {
         return Ok(None);
     }
-    let groups = packet
-        .groups
-        .into_iter()
-        .map(|group| CreativeGroup {
+    let mut named_groups = HashMap::with_capacity(packet.groups.len());
+    let mut group_indices = Vec::with_capacity(packet.groups.len());
+    let mut groups = Vec::with_capacity(packet.groups.len());
+    for group in packet.groups {
+        let group = CreativeGroup {
             category: match group.creative_category {
                 Category::Construction => CreativeCategory::Construction,
                 Category::Nature => CreativeCategory::Nature,
@@ -106,8 +107,21 @@ pub fn normalize_creative_content(
                 group.group_icon_item.user_data_buffer.to_vec(),
             )
             .ok(),
-        })
-        .collect();
+        };
+        let index = if group.name.is_empty() {
+            // Anonymous groups delimit catalog order and may intentionally recur.
+            groups.push(group);
+            groups.len() - 1
+        } else if let Some(index) = named_groups.get(&(group.category, group.name.clone())) {
+            *index
+        } else {
+            let index = groups.len();
+            named_groups.insert((group.category, group.name.clone()), index);
+            groups.push(group);
+            index
+        };
+        group_indices.push(u32::try_from(index).expect("creative group index fits in u32"));
+    }
     let mut skipped = 0;
     let mut items = Vec::with_capacity(packet.entries.len());
     for entry in packet.entries {
@@ -130,10 +144,14 @@ pub fn normalize_creative_content(
             skipped += 1;
             continue;
         };
+        let group = usize::try_from(entry.group_index.0)
+            .ok()
+            .and_then(|index| group_indices.get(index).copied())
+            .unwrap_or(entry.group_index.0);
         items.push(CreativeItem {
             creative_network_id: entry.creative_net_id.0,
             stack,
-            group: entry.group_index.0,
+            group,
         });
     }
     items.sort_by_key(|item| item.creative_network_id);
@@ -141,7 +159,7 @@ pub fn normalize_creative_content(
     items.dedup_by_key(|item| item.creative_network_id);
     skipped += before - items.len();
     Ok(Some(InventoryEvent::Creative(CreativeContentEvent {
-        groups,
+        groups: groups.into(),
         items: Arc::from(items),
         skipped,
     })))
@@ -157,7 +175,7 @@ mod tests {
 
     use super::*;
 
-    fn entry(id: u32, network_id: i32) -> CreativeItemEntry {
+    fn entry_in_group(id: u32, network_id: i32, group: u32) -> CreativeItemEntry {
         CreativeItemEntry {
             creative_net_id: CreativeItemNetID(id),
             item_instance: NetworkItemInstanceDescriptorSerializedData {
@@ -167,8 +185,12 @@ mod tests {
                 block_runtime_id: wire::ZigZag32(0),
                 user_data_buffer: bytes::Bytes::new(),
             },
-            group_index: wire::VarUInt(0),
+            group_index: wire::VarUInt(group),
         }
+    }
+
+    fn entry(id: u32, network_id: i32) -> CreativeItemEntry {
+        entry_in_group(id, network_id, 0)
     }
 
     /// Entries sort by id; empty items and duplicate ids are skipped, not fatal.
@@ -228,5 +250,49 @@ mod tests {
                 .collect(),
         };
         assert_eq!(normalize_creative_content(packet).unwrap(), None);
+    }
+
+    #[test]
+    fn duplicate_named_groups_share_one_index_and_preserve_anonymous_boundaries() {
+        let group = |category: Category, name: &str| CreativeGroupInfo {
+            creative_category: category,
+            name: name.into(),
+            ..Default::default()
+        };
+        let packet = CreativeContent {
+            groups: vec![
+                group(Category::Construction, "itemGroup.name.stairs"),
+                group(Category::Construction, "itemGroup.name.fence"),
+                group(Category::Construction, "itemGroup.name.stairs"),
+                group(Category::Nature, "itemGroup.name.stairs"),
+                group(Category::Construction, ""),
+                group(Category::Construction, ""),
+            ],
+            entries: vec![
+                entry_in_group(1, 1, 0),
+                entry_in_group(2, 2, 2),
+                entry_in_group(3, 3, 1),
+                entry_in_group(4, 4, 3),
+                entry_in_group(5, 5, 4),
+                entry_in_group(6, 6, 5),
+            ],
+        };
+        let Some(InventoryEvent::Creative(catalog)) = normalize_creative_content(packet).unwrap()
+        else {
+            panic!("creative catalog")
+        };
+
+        assert_eq!(catalog.groups.len(), 5);
+        assert_eq!(catalog.groups[0].name.as_ref(), "itemGroup.name.stairs");
+        assert_eq!(catalog.groups[1].name.as_ref(), "itemGroup.name.fence");
+        assert_eq!(catalog.groups[2].category, CreativeCategory::Nature);
+        assert!(catalog.groups[3].name.is_empty());
+        assert!(catalog.groups[4].name.is_empty());
+        assert_eq!(catalog.item(1).unwrap().group, 0);
+        assert_eq!(catalog.item(2).unwrap().group, 0);
+        assert_eq!(catalog.item(3).unwrap().group, 1);
+        assert_eq!(catalog.item(4).unwrap().group, 2);
+        assert_eq!(catalog.item(5).unwrap().group, 3);
+        assert_eq!(catalog.item(6).unwrap().group, 4);
     }
 }

@@ -6,6 +6,16 @@ use std::{
     process::Stdio,
 };
 
+/// Entry point supplied by the Linux release's AppDir.
+pub const APP_RUN: &str = "AppRun";
+
+/// The packaged client inside an extracted Linux AppDir.
+pub fn linux_executable(appdir: &Path) -> PathBuf {
+    appdir
+        .join("usr/bin")
+        .join(update_manifest::runtime::executable("CLIENT", "linux"))
+}
+
 /// Queries the installed executable itself, without loading assets or using the copied helper's version.
 pub fn installed_build(target: &Path) -> Result<update_manifest::build::Build> {
     let output = crate::startup::client_command(target)
@@ -18,7 +28,7 @@ pub fn installed_build(target: &Path) -> Result<update_manifest::build::Build> {
     serde_json::from_slice(&output.stdout).context("invalid installed build identity")
 }
 
-/// Resolves the replaceable bundle, MSI directory, or mounted AppImage source.
+/// Resolves the replaceable bundle, MSI directory, AppImage source or extracted AppDir.
 pub fn resolve(os: &str, executable: &Path, appimage: Option<&Path>) -> Result<PathBuf> {
     ensure!(
         executable.is_absolute(),
@@ -40,10 +50,17 @@ pub fn resolve(os: &str, executable: &Path, appimage: Option<&Path>) -> Result<P
             .parent()
             .map(Path::to_owned)
             .context("missing MSI install directory"),
-        "linux" => appimage
+        "linux" if appimage.is_some() => appimage
             .filter(|path| path.is_absolute())
             .map(Path::to_owned)
             .context("automatic updates require an AppImage install"),
+        "linux" => executable
+            .ancestors()
+            .nth(3)
+            .filter(|appdir| linux_executable(appdir) == executable)
+            .filter(|appdir| appdir.join(APP_RUN).is_file() && executable.is_file())
+            .map(Path::to_owned)
+            .context("automatic updates require an AppImage or extracted AppDir install"),
         _ => bail!("unsupported update platform"),
     }
 }
@@ -152,6 +169,19 @@ fn removable_tree(target: &Path, probe: &mut impl FnMut(&Path) -> bool) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_extracted_linux_release_is_a_replaceable_appdir() {
+        let root = tempfile::tempdir().unwrap();
+        let appdir = root.path().join("installed-build");
+        let executable = linux_executable(&appdir);
+        fs::create_dir_all(executable.parent().unwrap()).unwrap();
+        fs::write(&executable, "client").unwrap();
+        assert!(resolve("linux", &executable, None).is_err());
+        fs::write(appdir.join(APP_RUN), "launcher").unwrap();
+        assert_eq!(resolve("linux", &executable, None).unwrap(), appdir);
+        assert!(resolve("linux", &root.path().join("target/debug/cinnabar"), None).is_err());
+    }
 
     #[test]
     fn windows_target_is_the_whole_install_directory() {

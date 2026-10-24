@@ -59,6 +59,7 @@ pub(crate) fn receive_network_events(
     mut pack_reload: Option<ResMut<PackReload>>,
     mut chunk_textures: Option<ResMut<ChunkTextureAssets>>,
     mut block_entity_scene: Option<ResMut<render_scene::BlockEntitySceneResource>>,
+    mut actor_artwork: Option<ResMut<render_scene::ActorArtworkResource>>,
     mut state: AppWorldState,
     #[cfg(feature = "acceptance")] mut acceptance: ResMut<AcceptanceRun>,
     #[cfg(feature = "acceptance")] metrics: Res<AppMetrics>,
@@ -97,6 +98,7 @@ pub(crate) fn receive_network_events(
                     pack_reload: pack_reload.as_mut().map(|reload| reload.reborrow()),
                     chunk_textures: chunk_textures.as_mut().map(|textures| textures.reborrow()),
                     block_entity_scene: block_entity_scene.as_mut().map(|scene| scene.reborrow()),
+                    actor_artwork: actor_artwork.as_mut().map(|artwork| artwork.reborrow()),
                     acknowledgements: &acknowledgements,
                     publication: &publication,
                     display_interval,
@@ -147,12 +149,15 @@ mod bootstrap;
 mod bootstrap_presentation;
 mod bootstrap_world;
 mod controls;
+pub(crate) mod digger_registry;
 pub(crate) mod equipment;
 mod world_ingress;
 #[cfg(test)]
 pub(crate) use actor_test_support::{actor_render_source, update_actor_render_scene};
 
+mod actor_geometry_budget;
 mod actor_publication;
+pub(crate) use actor_geometry_budget::{initialize_actor_geometry_budget, install_actor_scene};
 #[cfg(test)]
 pub(crate) use actor_publication::custom_emotes::fixture as actor_publication_test_world;
 mod block_overlay;
@@ -175,15 +180,15 @@ mod pack_reload_diff_tests;
 mod pack_reload_tests;
 #[cfg(test)]
 mod pack_reload_world_witness;
-pub(crate) use entity_texture_reload::set_base_actor_artwork;
+pub(crate) use entity_texture_reload::{set_base_actor_artwork, startup_actor_artwork};
 pub(crate) mod block_entity_art;
 pub(crate) mod reload_environment;
 pub(crate) mod resource_packs;
 pub(crate) mod session;
 pub(crate) mod session_registries;
 pub(crate) use actor_publication::{
-    advance_actor_frame, advance_actor_motion, initialize_actor_geometry_budget,
-    prepare_actor_render_frame, publish_entity_shadows, publish_local_actor_damage,
+    advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
+    publish_local_actor_damage,
 };
 
 #[cfg(test)]

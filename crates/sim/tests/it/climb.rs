@@ -862,3 +862,130 @@ fn sneaking_over_powder_snow_descends_for_a_snow_standing_wearer() {
     assert!(tick.environment.in_ascending_block);
     assert!(tick.environment.over_descending_block);
 }
+
+/// A scaffold below the destination whose support belongs to a different registry.
+struct ConflictingClimberWorld;
+
+impl CollisionWorld for ConflictingClimberWorld {
+    /// Leaves travel unobstructed so the final climber reaches a new footprint layer.
+    fn collision_boxes(&self, _query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Exposes the conflicting support only below the final climber's scaffold.
+    fn block_physics(&self, block: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        let mut identity = CollisionQuery::synthetic(()).identity;
+        if block == [0, -1, 0] {
+            identity.registry.preg_sha256 = [1; 32];
+        }
+        Ok(BlockPhysicsSample {
+            layers: Box::new([BlockPhysicsFacts {
+                flags: if block == [0, 0, 0] {
+                    BlockPhysicsFlags::SCAFFOLDING
+                } else {
+                    BlockPhysicsFlags::PASSABLE
+                },
+                friction: 0.6,
+                horizontal_speed_factor: 1.0,
+                vertical_speed_factor: 1.0,
+                fluid_height_blocks: 0.0,
+                surface_response: SurfaceResponse::None,
+            }]),
+            identity,
+        })
+    }
+}
+
+/// A conflict discovered after travel rejects the whole tick without committing motion.
+#[test]
+fn post_move_climber_identity_conflict_preserves_player_state() {
+    let mut player = PlayerState::new(Vec3::new(0.5, 2.0, 0.5));
+    player.velocity.y = -1.0;
+    let before = player.clone();
+    let result = Simulator::default().tick(
+        &mut player,
+        MovementInput::default(),
+        &ConflictingClimberWorld,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(sim::SimulationError::World(
+                WorldQueryError::RegistryIdentityMismatch
+            ))
+        ),
+        "unexpected tick result: {result:?}"
+    );
+    assert_eq!(player, before);
+}
+
+/// An immobile tick also rejects conflicting climber reads without advancing state.
+#[test]
+fn immobile_climber_identity_conflict_preserves_player_state() {
+    let mut player = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    let before = player.clone();
+    let result = Simulator::default().tick(
+        &mut player,
+        MovementInput {
+            immobile: true,
+            ..Default::default()
+        },
+        &ConflictingClimberWorld,
+    );
+    assert!(
+        matches!(
+            result,
+            Err(sim::SimulationError::World(
+                WorldQueryError::RegistryIdentityMismatch
+            ))
+        ),
+        "unexpected tick result: {result:?}"
+    );
+    assert_eq!(player, before);
+}
+
+/// Missing chunks supply empty cells to the climber even when travel's origin is unavailable.
+#[test]
+fn climber_unloaded_origin_replaces_retained_contact_with_empty_cells() {
+    let mut state = PlayerState::new(Vec3::new(0.5, 1.0, 0.5));
+    state.update_climber_contact(Some(true), Some(true), Some(true), Some(true));
+    let tick = Simulator::default()
+        .tick(
+            &mut state,
+            MovementInput {
+                immobile: true,
+                ..Default::default()
+            },
+            &UnloadedClimberOrigin,
+        )
+        .unwrap();
+    assert!(!tick.environment.climber_unsampled);
+    assert!(!tick.environment.in_scaffolding);
+    assert!(!tick.environment.over_scaffolding);
+    assert!(!tick.environment.in_ascending_block);
+    assert!(!tick.environment.over_descending_block);
+}
+
+/// A missing chunk has no usable block cells, independently of travel admission.
+struct UnloadedClimberOrigin;
+
+impl CollisionWorld for UnloadedClimberOrigin {
+    /// Leaves movement collision empty so the regression isolates the climber scan.
+    fn collision_boxes(&self, _: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Ok(CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Reports a missing movement-origin column.
+    fn ensure_movement_origin(&self, _: Vec3) -> Result<(), WorldQueryError> {
+        Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(
+            0, 0, 0,
+        )))
+    }
+
+    /// Missing chunk cells read as absent rather than retaining the old block.
+    fn block_physics(&self, _: [i32; 3]) -> Result<BlockPhysicsSample, WorldQueryError> {
+        Err(WorldQueryError::UnloadedChunk(world::ChunkKey::new(
+            0, 0, 0,
+        )))
+    }
+}

@@ -160,6 +160,7 @@ mod tests {
                 name: "Home".into(),
                 game_mode: GameMode::Survival,
                 backend: Backend::Bds,
+                multiplayer_disabled: false,
             }),
             target: Some(LocalTarget {
                 address: "127.0.0.1:5000".into(),

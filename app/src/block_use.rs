@@ -64,6 +64,9 @@ pub(crate) struct BlockUseContext<'w, 's> {
 
 /// Drains physical interactions before physics, then advances held placement once.
 pub(crate) fn produce_block_use(world: &mut bevy::prelude::World) {
+    if !world.contains_resource::<PhysicsCollisionRegistries>() {
+        return;
+    }
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
@@ -85,7 +88,7 @@ fn maintain_block_use(
     movement: Res<MovementTicker>,
     physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
 ) {
-    let pick = runtime.pick(movement.interaction_authority_identity());
+    let pick = runtime.pick(&movement);
     if context.input.phase(Action::Use).pressed
         && !context
             .input
@@ -107,12 +110,12 @@ fn maintain_block_use(
         !context.focus.menu_visible && context.windows.single().is_ok_and(|window| window.focused);
     let game_mode = player_runtime.facts.player_game_mode();
     let caps = player_runtime.facts.game_mode_capabilities();
-    let Some((input, _)) = context.input.snapshot().zip(caps).filter(|(input, caps)| {
-        focused
-            && !context.focus.ui_focused
-            && caps.can_use_blocks()
-            && input.input_mode != semantic_input::InputMode::Touch
-    }) else {
+    let Some((input, _)) = context
+        .input
+        .snapshot()
+        .zip(caps)
+        .filter(|(_, caps)| focused && !context.focus.ui_focused && caps.can_use_blocks())
+    else {
         runtime.clear_press();
         stop_block_use(&mut runtime, &context, false);
         return;
@@ -204,7 +207,7 @@ fn maintain_block_use(
         input_mode,
         clock.survival,
         (input.authority_generation, input.frame_sequence),
-        movement.interaction_authority_identity().1,
+        movement.position_authority_identity().1,
         &runtime,
         pick,
         trigger,
@@ -213,11 +216,6 @@ fn maintain_block_use(
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return;
     };
-    if trigger == ItemUseTrigger::SimulationTick && observed.selection.item.block_runtime_id() == 0
-    {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
-        return;
-    }
     let mut attempt = build::BuildInput::new(observed, state, trigger, due, clock, *context.view);
     build::advance(
         &mut player_runtime,
@@ -247,3 +245,13 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
 mod published_tests;
+
+#[cfg(test)]
+mod startup_tests {
+    #[test]
+    fn input_maintenance_waits_for_deferred_world_resources() {
+        let mut world = bevy::prelude::World::new();
+        super::produce_block_use(&mut world);
+        assert!(!world.contains_resource::<crate::ordered_interactions::InteractionRuntime>());
+    }
+}

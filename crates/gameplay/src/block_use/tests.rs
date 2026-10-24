@@ -259,7 +259,7 @@ fn a_stateless_cube_predicts_when_the_clicked_block_is_the_same_kind() {
     assert_eq!(around.destination(clicked, 1), ([2, 64, 0], true));
 }
 
-/// Trapdoors and levers flip, buttons press once, and two-part switches are left to the server.
+/// Single-cell switches resolve without the paired world context needed by doors.
 #[test]
 fn switch_uses_predict_their_toggled_state() {
     let flipped = |identifier, state: &str| {
@@ -519,6 +519,68 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
     );
 }
 
+/// Any hand repeats a block's own use while held, swinging and predicting success like the
+/// press; other non-block uses and buckets still do not repeat.
+#[test]
+fn held_block_uses_repeat_for_any_hand() {
+    let empty = verified(NetworkItemStack::empty());
+    let tool = verified(network_item(2, 0));
+    let block = verified(network_item(2, 77));
+    for item in [&empty, &tool] {
+        assert!(super::repeats_while_held(item, false, LocalUse::Interact));
+        assert!(!super::repeats_while_held(item, true, LocalUse::Interact));
+        assert!(!super::repeats_while_held(item, false, LocalUse::Nothing));
+    }
+    assert!(super::repeats_while_held(&block, false, LocalUse::Nothing));
+    let observed =
+        crate::interaction_authority::FrozenBlockObservation::fixture([2, 63, 0], 3, empty);
+    let packets = use_packets(
+        (&observed, 9),
+        [2.5, 65.62, 0.5],
+        ItemUseTrigger::SimulationTick,
+        LocalUse::Interact,
+        None,
+        None,
+        42,
+        |_| true,
+        5,
+    );
+    assert_eq!(packets.len(), 2);
+    assert_eq!(format!("{:?}", packets[0].kind()), "AnimatePacket");
+    let mut decoded = protocol::decode_batch(protocol::encode(&packets[0]).unwrap()).unwrap();
+    let Some(protocol::WorldEvent::ItemActor(protocol::ItemActorEvent::Action(swing))) =
+        protocol::into_world_event(decoded.remove(0), 0).unwrap()
+    else {
+        panic!("expected swing");
+    };
+    assert_eq!(&*swing.actor_runtime_ids, &[42]);
+    assert_eq!(swing.kind, protocol::ActorActionKind::SwingArm);
+    assert_eq!(swing.data, 0.0);
+    assert_eq!(swing.swing_source.as_deref(), Some("interact"));
+    let envelope = protocol::test_support::transactions::observe_transaction(&packets[1]).unwrap();
+    assert_eq!(envelope.legacy_request_id, 0);
+    assert_eq!(envelope.legacy_set_slots, None);
+    assert!(envelope.actions.is_empty());
+    let transaction = envelope.item_use().unwrap();
+    assert_eq!(
+        transaction.action,
+        protocol::test_support::transactions::ItemUseAction::ClickBlock
+    );
+    assert_eq!(transaction.trigger, Some(ItemUseTrigger::SimulationTick));
+    assert!(transaction.predicted_success);
+    assert_eq!(
+        (transaction.position, transaction.face, transaction.slot),
+        ([2, 63, 0], 3, 2)
+    );
+    assert_eq!(transaction.item.network_id, 0);
+    assert_eq!(transaction.item.count, 0);
+    assert_eq!(transaction.item.stack_network_id, None);
+    assert_eq!(transaction.from_position, [2.5, 65.62, 0.5]);
+    assert_eq!(transaction.target_block_id, 9);
+    assert_eq!(transaction.click_position, [0.5, 1.0, 0.5]);
+    assert!(!transaction.cooldown_active);
+}
+
 /// Orientation caching applies to placement-direction states, not pillar axes.
 #[test]
 fn orientation_sensitive_states_preserve_the_original_world_hit() {
@@ -595,9 +657,18 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
     let villager = protocol::ActorKind::Entity {
         identifier: "minecraft:villager_v2".into(),
     };
-    assert_eq!(LocalUse::for_actor(&player, false), LocalUse::Nothing);
-    assert_eq!(LocalUse::for_actor(&player, true), LocalUse::Interact);
-    assert_eq!(LocalUse::for_actor(&villager, false), LocalUse::Interact);
+    assert_eq!(
+        LocalUse::for_actor(&player, false, Default::default()),
+        LocalUse::Nothing
+    );
+    assert_eq!(
+        LocalUse::for_actor(&player, true, Default::default()),
+        LocalUse::Interact
+    );
+    assert_eq!(
+        LocalUse::for_actor(&villager, false, Default::default()),
+        LocalUse::Interact
+    );
     let mut runtime = BlockUseRuntime::default();
     let clock = RepeatClock::for_game_mode(
         Duration::from_millis(1_000),
@@ -609,7 +680,7 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
         ItemUseTrigger::PlayerInput,
         Duration::from_millis(1_000),
         1,
-        LocalUse::for_actor(&player, false),
+        LocalUse::for_actor(&player, false, Default::default()),
         clock,
     );
     assert!(!runtime.press_interacted());
@@ -622,4 +693,31 @@ fn placement_obstruction_rounds_world_faces_before_comparing() {
     let local_shape = ([0.6, 0.0, 0.0], [1.0, 1.0, 1.0]);
     assert!(!super::overlaps([8_388_608, 0, 0], local_shape, actor));
     assert!(super::overlaps([8_388_608, 0, 0], super::FULL_CELL, actor));
+}
+
+#[test]
+fn an_actor_without_an_offering_leaves_the_press_for_default_item_use() {
+    let target = protocol::ActorKind::Entity {
+        identifier: "fixture:target".into(),
+    };
+    let outcome = LocalUse::for_actor(
+        &target,
+        false,
+        assets::entity::offered_use::OfferedUse::Absent,
+    );
+    let mut runtime = BlockUseRuntime::default();
+    let clock = clock(1_000, 0.0);
+    assert!(runtime.admit(
+        ItemUseTrigger::PlayerInput,
+        Duration::from_millis(1_000),
+        1,
+        outcome,
+        clock,
+        true
+    ));
+    assert!(
+        !runtime.press_interacted(),
+        "the same press must be available to held-item use"
+    );
+    assert!(!runtime.press_pending());
 }

@@ -71,6 +71,7 @@ pub(super) fn after_move(
     world: &impl CollisionWorld,
     player: Aabb,
     velocity: &mut Vec3,
+    fall_distance: &mut f32,
     input: &MovementInput,
     sampled: &mut SampledEnvironment,
     identity: &mut WorldCollisionIdentity,
@@ -78,6 +79,7 @@ pub(super) fn after_move(
     let (low, high) = environment::inside_cells(player)?;
     let was_in_water = sampled.movement.in_water;
     let mut honey_cells = 0;
+    let mut sliding_on_honey = false;
     let mut vertical = velocity.y as f32;
     for x in low[0]..=high[0] {
         for y in low[1]..=high[1] {
@@ -86,6 +88,7 @@ pub(super) fn after_move(
                 let impulses = match cell.surface_response {
                     SurfaceResponse::Honey => {
                         honey_cells += 1;
+                        sliding_on_honey |= honey_slide(player, [x, y, z]);
                         continue;
                     }
                     SurfaceResponse::BubbleUp => BUBBLE_UP,
@@ -106,6 +109,7 @@ pub(super) fn after_move(
                 } else {
                     pushed.max(limit)
                 };
+                *fall_distance = 0.0;
             }
         }
     }
@@ -117,7 +121,22 @@ pub(super) fn after_move(
             velocity.z = f64::from(velocity.z as f32 * HONEY_HORIZONTAL);
         }
     }
+    // Honey's fall reset reads selected water, including contact reached during this move.
+    let in_water = super::fall::selected_water(&sampled.movement) || sampled.entered_water;
+    if sliding_on_honey && velocity.y < 0.0 && !in_water {
+        *fall_distance = 0.0;
+    }
     Ok(())
+}
+
+/// Whether the player's position is low enough and beyond a honey block's edge to slide.
+fn honey_slide(player: Aabb, block: [i32; 3]) -> bool {
+    let center_x = (player.min.x as f32 + player.max.x as f32) * 0.5;
+    let center_z = (player.min.z as f32 + player.max.z as f32) * 0.5;
+    let edge = crate::PLAYER_WIDTH as f32 * 0.5 + 0.43125_f32;
+    player.min.y as f32 <= block[1] as f32 + 0.9375
+        && ((block[0] as f32 + 0.5 - center_x).abs() > edge
+            || (block[2] as f32 + 0.5 - center_z).abs() > edge)
 }
 
 /// Reads a primary block through the tick cache, merging a fresh read's identity.

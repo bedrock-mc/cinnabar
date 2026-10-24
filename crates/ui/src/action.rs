@@ -1,3 +1,6 @@
+/// Window-logical movement that separates a pending touch tap from a drag.
+pub const TOUCH_DRAG_DISTANCE: f32 = 10.0;
+
 use crate::geometry::{DpiScale, GeometryError, UiPoint};
 
 #[derive(Debug, Clone, Copy, PartialEq)]

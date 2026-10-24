@@ -136,6 +136,7 @@ fn ready(writable: bool) -> Ready {
         stage: PathBuf::from("ready"),
         channel: Channel::Beta,
         switch_now: false,
+        target: None,
         lease: None,
         notice: Notice {
             version: "2.0.0".into(),
@@ -171,6 +172,35 @@ fn a_not_writable_install_cannot_launch_an_apply_helper() {
             .is_none()
     );
     assert_eq!(state.ready.unwrap().notice.action(), Action::Download);
+}
+
+#[test]
+fn a_second_exit_handoff_waits_for_the_first_and_never_starts_another_helper() {
+    let done = &Mutex::new(false);
+    let events = &Mutex::new(Vec::new());
+    let (entered, in_handoff) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            once_at_exit(done, || {
+                entered.send(()).unwrap();
+                released.recv().unwrap();
+                events.lock().unwrap().push("first handed off");
+            });
+        });
+        in_handoff.recv().unwrap();
+        let second = scope.spawn(|| {
+            once_at_exit(done, || panic!("the helper was already started"));
+            events.lock().unwrap().push("second returned");
+        });
+        release.send(()).unwrap();
+        second.join().unwrap();
+    });
+    assert_eq!(
+        *events.lock().unwrap(),
+        ["first handed off", "second returned"]
+    );
+    once_at_exit(done, || panic!("a finished handoff never runs again"));
 }
 
 #[test]
@@ -341,6 +371,33 @@ fn a_manually_downloaded_appimage_is_executable() {
     .unwrap();
     let mode = std::fs::metadata(package).unwrap().permissions().mode();
     assert_eq!(mode & 0o755, 0o755);
+}
+
+#[test]
+fn a_repair_download_authenticates_the_offer_when_the_running_copy_is_already_at_that_build() {
+    let root = tempfile::tempdir().unwrap();
+    let (stage, keys) = manual_stage(root.path(), "2.0.0", b"selected update", Channel::Beta);
+    let mut offer = ready(false);
+    offer.stage = stage;
+    offer.target = Some(root.path().join("installed"));
+    let current = update_manifest::build::Build {
+        version: "2.0.0".into(),
+        number: 2,
+    };
+    let check = handoff::manual_check(&offer, "macos-arm64", &current);
+    let package = handoff::snapshot_package(&offer.stage, "update.dmg", &keys, check, || {
+        OffsetDateTime::UNIX_EPOCH
+    })
+    .unwrap();
+    assert_eq!(std::fs::read(package.path).unwrap(), b"selected update");
+    offer.target = None;
+    let check = handoff::manual_check(&offer, "macos-arm64", &current);
+    assert!(
+        handoff::snapshot_package(&offer.stage, "update.dmg", &keys, check, || {
+            OffsetDateTime::UNIX_EPOCH
+        })
+        .is_err()
+    );
 }
 
 /// Publishes a signed fixture through the real stage writer without network or installer processes.

@@ -16,6 +16,8 @@ pub(super) fn measure_line(
     font: &RuntimeFontCatalog,
     layouts: &mut TextLayoutCache,
 ) -> Option<LineLayout> {
+    #[cfg(feature = "tracy")]
+    let _zone = tracing::info_span!("nametag.measure").entered();
     let layout = layouts
         .layout(TextLayoutRequest {
             text,
@@ -98,6 +100,8 @@ pub(super) fn rasterize_line<'p>(
     palette: &ui::FormattingPalette,
     effects: ui::TextEffects<'_>,
 ) -> Vec<u8> {
+    #[cfg(feature = "tracy")]
+    let _zone = tracing::info_span!("nametag.raster").entered();
     let [width, height] = measured.size;
     let top = measured.top;
     let glyphs = || {

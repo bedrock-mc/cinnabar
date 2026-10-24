@@ -1,3 +1,4 @@
+mod boat;
 mod collision;
 mod controls;
 mod effects;
@@ -27,6 +28,10 @@ use crate::{
 use collision::{clip_sneak_edge, resolve_motion};
 use environment::sample;
 
+pub use boat::{
+    BoatBody, BoatBuoyancy, BoatFloat, BoatPaddles, BoatState, BoatTick, boat_paddle_power,
+    tick_boat,
+};
 pub use controls::{ControlledTickResult, ProcessedControls};
 pub use effects::{MovementEffects, VerticalPhysics};
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
@@ -159,10 +164,12 @@ impl Simulator {
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
         let start = state.climber;
-        let mut output = self.advance(state, input, world)?;
-        scaffolding::finish_tick(world, state, &input, start, &mut output.tick_result);
-        riptide::finish(state);
-        state.previous_rotation = Some(rotation);
+        let mut next = state.clone();
+        let mut output = self.advance(&mut next, input, world)?;
+        scaffolding::finish_tick(world, &mut next, &input, start, &mut output.tick_result)?;
+        riptide::finish(&mut next);
+        next.previous_rotation = Some(rotation);
+        *state = next;
         Ok(output)
     }
 
@@ -176,10 +183,15 @@ impl Simulator {
         input::validate(input)?;
         let controls = controls::process(input);
         if input.immobile {
+            if state
+                .climber
+                .is_some_and(|contact| contact.descends(&input))
+            {
+                state.clear_fall_distance();
+            }
             // The descent action and block climber still run in place; see
-            // `scaffolding::finish_tick`. Without a move, the fall check clears.
+            // `scaffolding::finish_tick`. Without a move request, there is no fall check.
             let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
-            state.fall_distance = 0.0;
             riptide::launch(state, input, false);
             return Ok(output);
         }
@@ -461,7 +473,14 @@ impl Simulator {
         } else {
             grounded_at_start && pre_collision_velocity.y == 0.0
         };
-        fall::after_move(&mut next.fall_distance, next.on_ground, motion.resolved.y);
+        fall::check(
+            world,
+            &mut next,
+            input,
+            &mut sampled,
+            &mut identity,
+            motion.resolved.y,
+        )?;
 
         let landing_surface = if motion.collisions.y && pre_collision_velocity.y < 0.0 {
             let surface = if let Some(block) = motion.support {
@@ -634,6 +653,7 @@ impl Simulator {
             world,
             motion.aabb,
             &mut next.velocity,
+            &mut next.fall_distance,
             &input,
             &mut sampled,
             &mut identity,

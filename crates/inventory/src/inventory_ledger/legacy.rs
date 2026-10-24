@@ -36,7 +36,6 @@ impl PlayerInventoryLedger {
         self.prepare_authoritative_cell(cell);
         let written = self.confirmed.set(cell, held);
         if written {
-            self.offhand_written |= cell == Cell::Offhand;
             if let Some(index) = cell.personal_index() {
                 self.personal_writes |= 1 << index;
             }

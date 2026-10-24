@@ -77,9 +77,16 @@ impl UiPresentationRuntime {
                 .flatten()
                 .copied()
                 .collect::<BTreeSet<_>>();
+        let same_worn = pack
+            .worn
+            .iter()
+            .flatten()
+            .map(Box::as_ref)
+            .collect::<BTreeSet<_>>()
+            == worn.iter().flatten().copied().collect::<BTreeSet<_>>();
         pack.worn = worn.map(|texture| texture.map(Box::from));
         pack.held = held.map(|texture| texture.map(Box::from));
-        if !same_set {
+        if !same_set || !same_worn {
             self.place_pack_armor();
         }
     }
@@ -100,16 +107,30 @@ impl UiPresentationRuntime {
             && self.gui_models.enabled
             && !wanted.is_empty()
         {
+            let worn = pack
+                .worn
+                .iter()
+                .flatten()
+                .map(AsRef::as_ref)
+                .collect::<BTreeSet<_>>();
             let mut textures = wanted
                 .iter()
                 .filter_map(|identifier| catalog.texture(identifier))
                 .collect::<Vec<_>>();
-            // Largest first: big art claims full resolution before small art fills the gaps.
-            textures.sort_by_key(|texture| {
-                std::cmp::Reverse(usize::from(texture.width) * usize::from(texture.height))
+            // Worn armor is visible in every paper-doll view; held models can fall back to 2-D
+            // sprites when the bounded atlas is full. Preserve armor before filling by size.
+            textures.sort_by(|left, right| {
+                worn.contains(right.identifier.as_ref())
+                    .cmp(&worn.contains(left.identifier.as_ref()))
+                    .then_with(|| {
+                        (usize::from(right.width) * usize::from(right.height))
+                            .cmp(&(usize::from(left.width) * usize::from(left.height)))
+                    })
+                    .then_with(|| left.identifier.cmp(&right.identifier))
             });
             let first = self.textures.dynamic_start() + MODEL_PAGE;
-            let available = |models: &GuiModels| MODEL_PAGES.saturating_sub(models.pages.len());
+            let available =
+                |models: &GuiModels| MODEL_PAGES.saturating_sub(models.sources.pages.len());
             let mut placed = place(&textures, available(&self.gui_models), false);
             if placed.regions.len() < textures.len()
                 && self.gui_models.discard_optional_models(first)
@@ -139,7 +160,7 @@ impl UiPresentationRuntime {
                     Some(_) => {}
                 }
             }
-            let start = (first + self.gui_models.pages.len()) as u16;
+            let start = (first + self.gui_models.sources.pages.len()) as u16;
             let pack = &mut self.gui_models.pack_equipment;
             pack.pages = placed.pages;
             pack.regions = placed

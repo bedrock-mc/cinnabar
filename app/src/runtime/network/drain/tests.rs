@@ -50,6 +50,7 @@ fn remote_move(sequence: u64) -> WorldIngress {
             head_yaw: None,
             on_ground: None,
             teleported: false,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),

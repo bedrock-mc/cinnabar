@@ -137,6 +137,10 @@ impl Item {
     pub fn name(self) -> &'static str {
         &self.descriptor().display_name
     }
+    /// Reports whether the free flag or current authenticated session permits wearing this item.
+    pub fn is_owned(self) -> bool {
+        self.descriptor().free || owns(self.id())
+    }
     /// Returns the artwork cache key for the admitted texture revision.
     pub fn texture_key(self) -> String {
         format!(

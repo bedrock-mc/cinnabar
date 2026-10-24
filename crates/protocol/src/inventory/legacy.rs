@@ -51,7 +51,7 @@ pub const fn is_legacy_request_id(id: i32) -> bool {
     id < -1 && id & 1 == 0
 }
 
-/// Serializes exact old/new descriptors without item-stack request identifiers.
+/// Serializes exact old/new descriptors without stack or request identifiers.
 pub fn normal_inventory_transaction_packet(
     changes: Vec<NormalInventoryChange>,
 ) -> Result<crate::Packet, InventoryPacketError> {
@@ -110,8 +110,8 @@ fn normal_transaction(
             Ok(InventoryAction {
                 source,
                 slot: wire::VarUInt(change.slot),
-                from_item: change.from.into_vendor_item()?,
-                to_item: change.to.into_vendor_item()?,
+                from_item: change.from.into_transaction_vendor_item()?,
+                to_item: change.to.into_transaction_vendor_item()?,
             })
         })
         .collect::<Result<_, InventoryPacketError>>()?;
@@ -126,6 +126,64 @@ fn normal_transaction(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stack with a server id, so an omitted id on the wire is observable.
+    fn identified(count: u16, stack_network_id: i32) -> VerifiedNetworkItemStack {
+        let extra: std::sync::Arc<[u8]> = std::sync::Arc::from([0x0a, 0x00, 0x00]);
+        let digest = <sha2::Sha256 as sha2::Digest>::digest(&extra).into();
+        let stack = crate::NetworkItemStack {
+            network_id: 321,
+            metadata: 0,
+            stack_network_id,
+            count,
+            nbt_digest: digest,
+            block_runtime_id: 0,
+            extra_data: extra,
+        };
+        VerifiedNetworkItemStack::try_new(stack, digest).unwrap()
+    }
+
+    /// A drop's world and container actions decode with full contents and no stack ids.
+    #[test]
+    fn drop_actions_omit_stack_ids_on_the_wire() {
+        let empty = crate::NetworkItemStack::empty();
+        let changes = vec![
+            NormalInventoryChange {
+                source: NormalInventorySource::World { randomly: false },
+                slot: 0,
+                from: VerifiedNetworkItemStack::try_new(empty.clone(), empty.nbt_digest).unwrap(),
+                to: identified(1, 91),
+            },
+            NormalInventoryChange {
+                source: NormalInventorySource::Container(0),
+                slot: 2,
+                from: identified(5, 91),
+                to: identified(4, -6),
+            },
+        ];
+        let packet = inventory_drop_transaction_packet(2, Some(-6), changes).unwrap();
+        let mut decoded = crate::decode_batch(crate::encode(&packet).unwrap()).unwrap();
+        let bedrock_protocol_1_26_51::packets::Packet::InventoryTransaction(packet) =
+            *decoded.remove(0).data
+        else {
+            panic!("expected inventory transaction");
+        };
+        assert_eq!(packet.legacy_request_id.0, -6);
+        let InventoryTransactionPacketData::NormalTransactionData { actions } = packet.transaction
+        else {
+            panic!("expected normal transaction");
+        };
+        let counts: Vec<_> = actions
+            .actions
+            .iter()
+            .map(|action| (action.from_item.stack_size.0, action.to_item.stack_size.0))
+            .collect();
+        assert_eq!(counts, [(0, 1), (5, 4)]);
+        for action in &actions.actions {
+            assert_eq!(action.from_item.net_id_variant, None);
+            assert_eq!(action.to_item.net_id_variant, None);
+        }
+    }
 
     #[test]
     fn legacy_ids_are_even_and_never_reused_at_exhaustion() {

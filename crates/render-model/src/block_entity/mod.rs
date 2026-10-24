@@ -11,6 +11,7 @@ mod beam;
 mod bed;
 mod bell;
 mod book;
+mod chalkboard;
 mod chest;
 mod conduit;
 mod crack;
@@ -44,6 +45,7 @@ pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
 pub use bell::{BellAttachment, BellModel, swing_degrees};
 pub use book::{BookPose, EnchantingBook};
+pub use chalkboard::ChalkboardModel;
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use conduit::ConduitModel;
 pub use crack::{
@@ -53,7 +55,7 @@ pub use crack::{
 pub use crystal_beam::CrystalBeamModel;
 pub use dragon_death::DragonDeathModel;
 pub use frame::{
-    ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
+    FramedMap, ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
     item_frame_item_transform,
 };
 

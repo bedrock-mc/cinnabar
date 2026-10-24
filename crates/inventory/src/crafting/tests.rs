@@ -249,6 +249,27 @@ fn lowest_priority_wins_among_matches() {
     );
 }
 
+/// Recipes tied at the lowest priority are one match only when every result agrees.
+#[test]
+fn tied_recipes_with_different_extra_results_are_ambiguous() {
+    let plain = recipe(1, 1, false, &[Some("a:x")]);
+    let mut with_extra = recipe(1, 1, false, &[Some("a:x")]);
+    with_extra.results.push(OutputFixture::new(10, 1));
+    let grid = [item("a:x"), None, None, None];
+    assert!(matches!(
+        match_crafting_grid(&catalog(vec![plain.clone(), with_extra.clone()]), 2, &grid),
+        CraftGridMatch::Ambiguous
+    ));
+    assert!(
+        unique_id(match_crafting_grid(
+            &catalog(vec![with_extra.clone(), with_extra]),
+            2,
+            &grid
+        ))
+        .is_some()
+    );
+}
+
 /// Vanilla tag membership comes from the pinned table.
 #[test]
 fn vanilla_tags_match_their_members_only() {

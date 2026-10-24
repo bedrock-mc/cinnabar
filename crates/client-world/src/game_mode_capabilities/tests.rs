@@ -1,8 +1,8 @@
 use protocol::{AbilitiesUpdate, AbilityLayerEvidence, AbilityLayersEvidence};
 
 use super::{
-    CREATIVE_ATTACK_REACH, FlightAuthority, GameModeCapabilities, SURVIVAL_ATTACK_REACH,
-    ability_bit,
+    CREATIVE_ATTACK_REACH, FlightAuthority, GameModeCapabilities, HeldEditItem,
+    SURVIVAL_ATTACK_REACH, ability_bit,
 };
 use protocol::PlayerGameMode::{Adventure, Creative, Spectator, Survival, Unknown};
 
@@ -76,9 +76,10 @@ fn mode_defaults_follow_the_gamemode_table() {
     assert_eq!(unknown.attack_reach, survival.attack_reach);
 }
 
-/// An explicit Build+Mine grant lets an adventure player edit the world.
+/// Build and Mine grants alone do not let an adventure player edit with an empty hand:
+/// vanilla also needs PrivilegedBuilder there.
 #[test]
-fn adventure_with_build_permission_can_edit() {
+fn adventure_edits_need_privileged_builder_with_an_empty_hand() {
     let grant = update(vec![layer(
         ability_bit::BUILD | ability_bit::MINE,
         ability_bit::BUILD | ability_bit::MINE,
@@ -86,10 +87,48 @@ fn adventure_with_build_permission_can_edit() {
     let caps = GameModeCapabilities::resolve(Adventure, Some(&grant));
     assert!(
         caps.can_build && caps.can_mine,
-        "server Build/Mine grant unlocks editing"
+        "the grants themselves resolve"
+    );
+    assert!(
+        !caps.permits_edit(HeldEditItem::EmptyHand),
+        "an adventure Build/Mine grant is not PrivilegedBuilder"
     );
     // A grant does not fabricate the other creative privileges.
     assert!(!caps.can_fly && !caps.instant_break && !caps.creative_inventory);
+
+    let privileged = update(vec![layer(
+        ability_bit::BUILD | ability_bit::MINE | ability_bit::PRIVILEGED_BUILDER,
+        ability_bit::BUILD | ability_bit::MINE | ability_bit::PRIVILEGED_BUILDER,
+    )]);
+    let caps = GameModeCapabilities::resolve(Adventure, Some(&privileged));
+    assert!(caps.permits_edit(HeldEditItem::EmptyHand));
+    assert!(
+        !caps.permits_edit(HeldEditItem::Item { lists_block: false }),
+        "a held item's list replaces PrivilegedBuilder"
+    );
+}
+
+/// In Adventure a held item edits exactly the blocks its list names.
+#[test]
+fn adventure_held_item_lists_decide_each_block() {
+    let caps = GameModeCapabilities::resolve(Adventure, None);
+    assert!(caps.permits_edit(HeldEditItem::Item { lists_block: true }));
+    assert!(!caps.permits_edit(HeldEditItem::Item { lists_block: false }));
+    assert!(!caps.permits_edit(HeldEditItem::EmptyHand));
+}
+
+/// Survival and Creative edits follow the Build and Mine grants alone.
+#[test]
+fn editing_modes_ignore_item_lists_and_privileged_builder() {
+    for mode in [Survival, Creative, Unknown] {
+        let caps = GameModeCapabilities::resolve(mode, None);
+        for held in [
+            HeldEditItem::EmptyHand,
+            HeldEditItem::Item { lists_block: false },
+        ] {
+            assert!(caps.permits_edit(held), "{mode:?} {held:?}");
+        }
+    }
 }
 
 #[test]

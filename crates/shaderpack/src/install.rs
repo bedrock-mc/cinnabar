@@ -15,6 +15,9 @@ use crate::{
 /// listing taken mid-copy never offers a partial pack.
 pub(crate) const STAGING_SUFFIX: &str = ".importing";
 
+/// Serializes imports and removals so they cannot replace a library entry mid-operation.
+pub(crate) static LIBRARY_IO: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// What adding dropped files did. Like Iris, files that are not packs are skipped while any
 /// dropped file is one, and the first pack that cannot be copied stops the rest.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,8 +49,7 @@ fn is_shader_pack(path: &Path) -> bool {
 /// under a staging name and renamed into place once complete. Blocking file work: run it off
 /// the frame.
 pub fn add_dropped_packs(paths: &[PathBuf], dir: &Path) -> DropOutcome {
-    static IMPORTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _import = IMPORTS.lock().unwrap_or_else(|error| error.into_inner());
+    let _import = LIBRARY_IO.lock().unwrap_or_else(|error| error.into_inner());
     let packs: Vec<_> = paths
         .iter()
         .filter_map(|path| Some((path, path.file_name()?.to_owned())))

@@ -96,6 +96,14 @@ pub fn resolve_item_use(
 }
 
 impl ItemStateStore {
+    /// Returns a compiled native throwable identity admitted without a component payload override.
+    pub(crate) fn native_throwable_identifier(&self, network_id: i32) -> Option<&str> {
+        let record = self.registry.get(&network_id)?;
+        (record.unmodified_throwable
+            && self.item_use_profile(network_id).kind == Some(assets::item_use::ItemUseKind::Throw))
+        .then_some(record.identifier.as_ref())
+    }
+
     /// Rebuilds numerical profiles and owned category admissions only when source facts change.
     pub(super) fn rebuild_use_profiles(&mut self) {
         self.presentation_generation = Arc::new(());
@@ -119,6 +127,9 @@ impl ItemStateStore {
             } = &profile
             {
                 ticks = ticks.or_else(|| self.use_durations.as_ref()?.get(alias.as_ref()).copied());
+            }
+            if let Some(components) = entry.components.as_deref() {
+                admit_shooter(&mut profile, components);
             }
             if let Some(overlay) = self
                 .use_overlays
@@ -182,6 +193,46 @@ impl ItemStateStore {
             .get(&network_id)
             .copied()
             .unwrap_or_default()
+    }
+}
+
+/// Admits a checked native use profile only when the negotiated payload is canonically empty.
+pub(super) fn unmodified_throwable(
+    entry: &protocol::ItemRegistryEntry,
+    assets: Option<&assets::RuntimeEntityAssets>,
+) -> bool {
+    !matches!(entry.version, protocol::ItemRegistryVersion::Unknown(_))
+        && entry.canonical_empty_component_data
+        && assets.is_some_and(|assets| {
+            matches!(
+                assets.item_use_profile(&entry.identifier),
+                ItemUseProfile::Provisional {
+                    kind: ItemUseKind::Throw,
+                    ..
+                }
+            )
+        })
+}
+
+/// Admits a drawing shooter as a held use that its release ends, as a bow does. It runs before
+/// any overlay so authored and wire facts refine the admitted use instead of being dropped.
+fn admit_shooter(profile: &mut ItemUseProfile, components: &protocol::ItemComponents) {
+    if matches!(profile, ItemUseProfile::Unresolved)
+        && components
+            .shooter
+            .is_some_and(protocol::ItemShooter::starts_held_draw)
+    {
+        *profile = ItemUseProfile::Provisional {
+            animation: assets::item_use::ItemUseAnimation::None,
+            kind: ItemUseKind::Hold,
+            duration: ItemUseDurationRule::Declared,
+            requirement: ItemUseRequirement::Nothing,
+            consumption: ItemConsumption::None,
+            movement_bits: DEFAULT_USE_MOVEMENT_MODIFIER.to_bits(),
+            cooldown: None,
+            projectile: ItemProjectileRole::None,
+            duration_alias: None,
+        };
     }
 }
 
@@ -478,6 +529,87 @@ mod tests {
         assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
         assert_eq!(profile.consumption, ItemConsumption::Unresolved);
         assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    #[test]
+    fn drawing_shooter_with_a_duration_is_a_held_use() {
+        let shooter = |shooter: protocol::ItemShooter| protocol::ItemComponents {
+            use_duration_ticks: Some(2_000_000_000),
+            use_modifiers_present: true,
+            use_movement_modifier_bits: Some(0.65_f64.to_bits()),
+            shooter: Some(shooter),
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(
+                    15000,
+                    "fixture:blaster",
+                    shooter(protocol::ItemShooter {
+                        draws: true,
+                        ..Default::default()
+                    }),
+                ),
+                entry(15001, "fixture:instant", shooter(Default::default())),
+            ]),
+        }));
+        let profile = store.item_use_profile(15000);
+        assert_eq!(profile.kind, Some(ItemUseKind::Hold));
+        assert_eq!(profile.ticks, Some(2_000_000_000));
+        assert_eq!(profile.requirement, ItemUseRequirement::Nothing);
+        assert_eq!(profile.movement, 0.65);
+        assert_eq!(store.item_use_profile(15001).kind, None);
+    }
+
+    #[test]
+    fn authored_shooter_slowdown_and_cooldown_survive_admission_under_wire_facts() {
+        let blaster = |movement: Option<f64>| protocol::ItemComponents {
+            use_duration_ticks: Some(2_000_000_000),
+            use_modifiers_present: movement.is_some(),
+            use_movement_modifier_bits: movement.map(f64::to_bits),
+            shooter: Some(protocol::ItemShooter {
+                draws: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(15000, "fixture:authored_blaster", blaster(None)),
+                entry(15001, "fixture:wire_blaster", blaster(Some(0.65))),
+            ]),
+        }));
+        let authored = |identifier: &str| {
+            (
+                Box::from(identifier),
+                assets::equipment::CompiledItemUseOverlay {
+                    identifier: Box::from(identifier),
+                    duration_ticks: None,
+                    food_can_always_eat: None,
+                    consumption: None,
+                    use_modifiers_present: true,
+                    movement_modifier_bits: Some(0.4_f64.to_bits()),
+                    cooldown: Some(assets::item_use::ItemUseCategory {
+                        category: "fixture:blasters".into(),
+                        ticks: 6,
+                    }),
+                },
+            )
+        };
+        store.set_use_overlays(Arc::new(BTreeMap::from([
+            authored("fixture:authored_blaster"),
+            authored("fixture:wire_blaster"),
+        ])));
+        let authored = store.item_use_profile(15000);
+        assert_eq!(authored.kind, Some(ItemUseKind::Hold));
+        assert_eq!(authored.movement, 0.4);
+        assert_eq!(authored.cooldown.map(|cooldown| cooldown.ticks), Some(6));
+        let wire = store.item_use_profile(15001);
+        assert_eq!(wire.kind, Some(ItemUseKind::Hold));
+        assert_eq!(wire.movement, 0.65);
+        assert_eq!(wire.cooldown.map(|cooldown| cooldown.ticks), Some(6));
     }
 
     #[test]

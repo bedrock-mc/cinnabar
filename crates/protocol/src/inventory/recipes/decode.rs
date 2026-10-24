@@ -4,7 +4,7 @@ use super::{
     crafting::RecipeOutput,
     grammar,
     identity::{RecipeIdentity, RecipeUnlockingContext},
-    model::{Batch, Ingredient, MAX_INGREDIENTS, Recipe, RecipeUpdate, Record},
+    model::{Batch, Ingredient, MAX_INGREDIENTS, Output, Recipe, RecipeUpdate, Record},
     reader::{Reader, Refusal},
     screen::{
         BrewingRecipe, MAX_SCREEN_RECIPES, MultiRecipe, ScreenIngredient, ScreenRecipe,
@@ -32,18 +32,20 @@ pub(super) fn decode_with_credits(
         let mut screen_brewing_count = 0usize;
         let mut recipe_count = 0usize;
         let mut identities_count = 0usize;
+        let mut extra_outputs = 0usize;
         let (clear, _) = grammar::walk(
             &mut reader,
             |_, candidate, identity| {
                 recipe_count += 1;
                 identities_count += usize::from(identity.is_some());
-                retained_names += candidate.map_or(0, |candidate| {
+                retained_names += candidate.as_ref().map_or(0, |candidate| {
                     candidate
                         .ingredients
                         .iter()
                         .filter(|item| item.count > 0)
                         .count()
                 });
+                extra_outputs += candidate.map_or(0, |candidate| candidate.extra.len());
                 Ok(())
             },
             |item| {
@@ -76,6 +78,7 @@ pub(super) fn decode_with_credits(
         let charge = recipe_count
             .checked_mul(size_of::<Record>())
             .and_then(|n| n.checked_add(retained_names.checked_mul(128)?))
+            .and_then(|n| n.checked_add(extra_outputs.checked_mul(size_of::<Output>() + 16)?))
             .and_then(|n| n.checked_add(screen_names.checked_mul(size_of::<ScreenIngredient>())?))
             .and_then(|n| n.checked_add(screen_count.checked_mul(size_of::<ScreenRecipe>())?))
             .and_then(|n| n.checked_add(multi_count.checked_mul(size_of::<MultiRecipe>())?))
@@ -160,6 +163,7 @@ pub(super) fn decode_with_credits(
                         priority: candidate.priority,
                         ingredients,
                         output: candidate.output,
+                        extra_outputs: candidate.extra.read()?.into_boxed_slice(),
                     })
                 } else {
                     None

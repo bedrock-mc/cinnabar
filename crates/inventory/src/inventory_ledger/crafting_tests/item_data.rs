@@ -99,11 +99,11 @@ fn item_data_recipe_book_consumes_named_inputs_with_their_current_stack_identity
         }));
         let (_, recipe) = ordinary_recipe(false, tagged);
         assert!(ledger.can_auto_craft(&recipe));
-        let request = ledger.begin_auto_craft(&recipe).unwrap();
+        let request = ledger.begin_auto_craft(&recipe, false).unwrap();
         let remaining = ledger.displayed_stack(9).unwrap();
         assert_eq!((remaining.count, remaining.stack_network_id), (1, request));
         assert_eq!(remaining.extra_data, input.extra_data);
-        assert_eq!(ledger.cursor_stack().unwrap().count, 4);
+        assert_eq!(placed_outputs(&ledger)[0].1.count, 4);
         assert!(ledger.newest_request().unwrap().actions.iter().any(|action| matches!(action,
             StackRequestAction::Consume { amount: 1, source } if source.slot == 9 && source.stack_network_id == 101)));
     }
@@ -127,7 +127,7 @@ fn item_data_corrupted_retained_bytes_cannot_supply_an_ordinary_recipe() {
         storage_item: None,
     }));
     assert!(!ledger.can_auto_craft(&recipe));
-    assert!(ledger.begin_auto_craft(&recipe).is_err());
+    assert!(ledger.begin_auto_craft(&recipe, false).is_err());
     assert_eq!(ledger.pending_request_count(), 0);
 }
 
@@ -166,7 +166,7 @@ fn item_data_recipe_book_skips_locked_ingredients_and_uses_later_unlocked_stacks
             let (_, recipe) = ordinary_recipe(false, tagged);
             assert!(ledger.can_auto_craft(&recipe));
             ledger
-                .begin_auto_craft(&recipe)
+                .begin_auto_craft(&recipe, false)
                 .expect("the later unlocked stack supplies this craft");
             assert_eq!(ledger.displayed_stack(9), Some(&locked));
             assert_eq!(ledger.displayed_stack(10).unwrap().count, 1);
@@ -183,7 +183,7 @@ fn item_data_recipe_book_skips_locked_ingredients_and_uses_later_unlocked_stacks
                 storage_item: None,
             }));
             assert!(!only_locked.can_auto_craft(&recipe));
-            assert!(only_locked.begin_auto_craft(&recipe).is_err());
+            assert!(only_locked.begin_auto_craft(&recipe, false).is_err());
             assert_eq!(only_locked.pending_request_count(), 0);
         }
     }

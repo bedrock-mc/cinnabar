@@ -117,7 +117,7 @@ fn full_cube_block_items_carry_a_sixteen_texel_face_sheet() {
 }
 
 #[test]
-fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support() {
+fn cube_items_keep_fallback_support_and_reshaped_cubes_draw_block_sheets() {
     use super::super::super::item_icons::custom_block_icons;
 
     let identity = CustomTransformation {
@@ -142,24 +142,6 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
             "rotation",
             Some(CustomTransformation {
                 rotation: [0, 1, 0],
-                ..identity
-            }),
-            material(None, None),
-            true,
-        ),
-        (
-            "scale",
-            Some(CustomTransformation {
-                scale: [0.5; 3],
-                ..identity
-            }),
-            material(None, None),
-            true,
-        ),
-        (
-            "translation",
-            Some(CustomTransformation {
-                translation: [0.25, 0.0, 0.0],
                 ..identity
             }),
             material(None, None),
@@ -216,6 +198,61 @@ fn cube_inputs_with_unrepresented_transforms_or_materials_keep_fallback_support(
         );
         assert_eq!(icons.misses.len(), usize::from(!thumbnail), "{case}");
         assert!(icons.block_sheets.is_empty(), "{case}");
+    }
+    // Scale and translation reshape the cube, so it draws as a model with a block sheet.
+    for (case, transformation) in [
+        (
+            "scale",
+            CustomTransformation {
+                scale: [0.5; 3],
+                ..identity
+            },
+        ),
+        (
+            "translation",
+            CustomTransformation {
+                translation: [0.25, 0.0, 0.0],
+                ..identity
+            },
+        ),
+    ] {
+        let blocks = CustomBlocks {
+            blocks: vec![block(
+                "test:cube",
+                1,
+                CustomBlockVisuals {
+                    base: CustomVisualComponents {
+                        geometry: Some(super::super::FULL_BLOCK.into()),
+                        materials: material(None, None),
+                        transformation: Some(transformation),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let compiled = compile_block_overlay(&view(), &blocks, false, None).unwrap();
+        assert_eq!(
+            compiled.overlay.visuals[0].kind,
+            VisualKind::Model,
+            "{case}"
+        );
+        let icons = custom_block_icons(
+            &compiled.overlay,
+            &blocks,
+            false,
+            &[("test:cube".into(), "test:cube".into())],
+            None,
+        );
+        assert!(icons.misses.is_empty(), "{case}");
+        assert_eq!(icons.block_sheets.len(), 1, "{case}");
+        assert_eq!(
+            icons.block_sheets[0].identifier.as_ref(),
+            "test:cube",
+            "{case}"
+        );
     }
 }
 

@@ -218,6 +218,10 @@ pub fn collect_files(
             wanted.extend(vanilla.geometry_parent.get(&identifier).cloned());
         }
     }
+    // Layer walks record nothing on a packless stack, so an added pack must change these listings.
+    for prefix in ["entity/", "textures/"] {
+        view.track_directory(prefix);
+    }
     let mut textures = referenced_textures(&files);
     textures.extend(references.textures);
     files.extend(entities);
@@ -226,7 +230,7 @@ pub fn collect_files(
     }
     files.extend(attachables);
     files.extend(geometry);
-    textures.extend(assets::entity::GLINT_TEXTURE_IDENTIFIERS.map(str::to_owned));
+    textures.extend(assets::entity::shared_equipment_textures().map(str::to_owned));
     let paintings = assets::painting::PAINTING_MOTIVES
         .iter()
         .map(|motive| motive.texture())
@@ -561,5 +565,7 @@ fn collect_texture_strings(value: &Value, stems: &mut BTreeSet<String>) {
 
 mod attachables;
 
+#[cfg(test)]
+mod harness_tests;
 #[cfg(test)]
 mod tests;

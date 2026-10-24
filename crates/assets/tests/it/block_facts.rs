@@ -195,6 +195,43 @@ fn pinned_property_vocabulary_is_complete_and_domains_match_admitted_values() {
     }
 }
 
+/// A block's generated domain must equal the values its own palette states use.
+#[test]
+fn per_block_domains_match_each_blocks_palette_values() {
+    use assets::facts::PropertyDomain;
+    let records = palette();
+    let facts = BlockFacts::new(&records).unwrap();
+    let mut admitted = std::collections::BTreeMap::<_, Vec<&StateValue>>::new();
+    for record in records.iter() {
+        for (key, value) in &record.properties {
+            assert_eq!(
+                facts.get(record.sequential_id).domain(*key),
+                assets::facts::block_property_domain(&record.name, *key)
+            );
+            admitted
+                .entry((record.name.as_ref(), *key))
+                .or_default()
+                .push(value);
+        }
+    }
+    for ((name, key), values) in admitted {
+        let expected: Vec<StateValue> = match assets::facts::block_property_domain(name, key) {
+            PropertyDomain::Bool => continue,
+            PropertyDomain::Int(domain) => domain.iter().map(|v| StateValue::Int(*v)).collect(),
+            PropertyDomain::String(domain) => domain
+                .iter()
+                .map(|v| StateValue::String((*v).into()))
+                .collect(),
+        };
+        assert!(
+            expected.iter().all(|v| values.contains(&v))
+                && values.iter().all(|v| expected.contains(v)),
+            "{name} {} domain differs from its palette values",
+            key.name()
+        );
+    }
+}
+
 #[test]
 fn compiled_support_and_block_entity_membership_have_one_input_owner() {
     let records = palette();

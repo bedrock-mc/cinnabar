@@ -50,6 +50,8 @@ pub struct ModeIntent {
     pub ride: Option<RideKind>,
     /// Feet position of the rider's seat on that mount, when the mount's placement is known.
     pub ride_seat: Option<[f32; 3]>,
+    /// The mounted vehicle selects this local player as its controller.
+    pub vehicle_controlled_locally: bool,
     /// Abilities permit flight.
     pub can_fly: bool,
     /// Effective flight value and authority retained from the winning ability layer.
@@ -133,6 +135,8 @@ pub(super) struct ModeChoice {
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct ModeTracker {
     mode: MovementMode,
+    /// Effective flight ability, independent of whether a mount owns travel.
+    flying: bool,
     last_flight: FlightAuthority,
     last_ability_sequence: Option<u64>,
     /// `Jumping` sent on the previous tick; a flight press needs it clear.
@@ -148,12 +152,41 @@ pub(super) struct ModeTracker {
 }
 
 impl ModeTracker {
+    /// Adopts actor-owned modes and controls, preserving flight-descent input ownership.
+    pub(super) fn adopt_actor_flags(
+        &mut self,
+        mut flags: client_world::MovementFlagUpdate,
+    ) -> client_world::MovementFlagUpdate {
+        for (flag, mode) in [
+            (flags.gliding, MovementMode::Gliding),
+            (flags.swimming, MovementMode::Swimming),
+            (flags.crawling, MovementMode::Crawling),
+        ] {
+            if flag == Some(false) {
+                self.end(mode);
+            }
+        }
+        if self.mode() == MovementMode::Flying {
+            flags.sneaking = None;
+        }
+        self.restore_controls(
+            flags.sprinting.unwrap_or(self.sprinting()),
+            flags.sneaking.unwrap_or(self.sneaking()),
+        );
+        flags
+    }
+
     pub(super) fn reset(&mut self) {
         *self = Self::default();
     }
 
     pub(super) const fn mode(&self) -> MovementMode {
         self.mode
+    }
+
+    /// Returns the accepted flight ability even while riding selects another travel mode.
+    pub(super) const fn flying(&self) -> bool {
+        self.flying
     }
 
     pub(super) const fn fall_fly_ticks(&self) -> u32 {
@@ -221,6 +254,7 @@ impl ModeTracker {
                 self.sprint_trigger
                     .select(self.sprinting, self.previous_feet, intent, observed);
             self.mode = MovementMode::Flying;
+            self.flying = true;
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
             self.fly_countdown = 0;
@@ -240,10 +274,16 @@ impl ModeTracker {
         let held_flight = if server_update {
             intent.flight.is_flying()
         } else {
-            self.mode == MovementMode::Flying
+            self.flying
         };
         let fly_toggle = self.fly_trigger(intent, held_flight, observed.jump_down);
         let flight_request = fly_toggle.then_some(!held_flight);
+        self.flying = match intent.flight {
+            FlightAuthority::Fixed(value) => value,
+            FlightAuthority::Mutable(server_flying) => {
+                (intent.can_fly || server_flying) && held_flight != fly_toggle
+            }
+        };
         if intent.ride.is_some() {
             self.last_flight = intent.flight;
             self.last_ability_sequence = intent.ability_sequence;
@@ -260,12 +300,7 @@ impl ModeTracker {
             });
         }
         // Flight survives ground contact; server flight does not require MayFly.
-        let flying = match intent.flight {
-            FlightAuthority::Fixed(value) => value,
-            FlightAuthority::Mutable(server_flying) => {
-                (intent.can_fly || server_flying) && held_flight != fly_toggle
-            }
-        };
+        let flying = self.flying;
         let sampled = sim::Simulator::default().movement_environment_with_liquid_contact(
             observed.feet,
             self.mode,
@@ -340,11 +375,8 @@ impl ModeTracker {
         };
         self.mode = mode;
         self.sneaking = observed.sneaking || forced_sneak;
-        self.sprinting = sprinting
-            && !matches!(
-                mode,
-                MovementMode::Crawling | MovementMode::Gliding | MovementMode::Riding
-            );
+        self.sprinting =
+            sprinting && !matches!(mode, MovementMode::Crawling | MovementMode::Riding);
         Ok(ModeChoice {
             mode,
             forced_sneak,

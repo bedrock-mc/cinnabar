@@ -55,6 +55,9 @@ pub struct Recovery {
     version: String,
     #[serde(default)]
     graphics_api_revision: u64,
+    /// An explicit API that stopped a startup; a saved Video choice of it falls back until changed.
+    #[serde(default)]
+    crashed_choice: Option<Backend>,
 }
 
 /// Owns the two local files used to diagnose an interrupted renderer startup.
@@ -133,14 +136,19 @@ impl StartupGuard {
         Ok(load(&root.join(CHOICE_FILE))?.unwrap_or_default())
     }
 
-    /// Clears exclusions after a saved Graphics API choice, including choosing Auto again.
-    pub fn refresh_settings(&mut self, revision: u64) -> Result<()> {
+    /// Starts a fresh recovery cycle after a saved Graphics API choice, including choosing Auto
+    /// again; an explicit choice keeps automatic exclusions for the Auto fallback it may need.
+    pub fn refresh_settings(&mut self, revision: u64, explicit: bool) -> Result<()> {
         let _active = termination::active()?;
         self.require_lease()?;
         if self.recovery.graphics_api_revision != revision {
-            self.recovery.reset();
+            if explicit {
+                self.recovery.crashed_choice = None;
+            } else {
+                self.recovery.reset();
+                self.interrupted = None;
+            }
             self.recovery.graphics_api_revision = revision;
-            self.interrupted = None;
             save(&self.root.join(CHOICE_FILE), &self.recovery)?;
         }
         Ok(())

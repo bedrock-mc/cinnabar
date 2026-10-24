@@ -19,9 +19,10 @@ type Pixels = BTreeMap<[u8; 32], Vec<Page>>;
 static LIVE: Mutex<Pixels> = Mutex::new(BTreeMap::new());
 
 /// Hashes the ordered layers into the page identity, reusing a live packed allocation.
-/// Cache entries own no pixels and cannot prevent a retired generation from being freed.
+/// Single-layer pages share their source allocation. Cache entries own no pixels and cannot
+/// prevent a retired generation from being freed.
 pub(super) fn pack<'a>(
-    layers: impl Iterator<Item = &'a [u8]> + Clone,
+    layers: impl Iterator<Item = &'a Arc<[u8]>> + Clone,
     identity: &mut Sha256,
 ) -> ([u8; 32], Arc<[u8]>) {
     let mut digest = Sha256::new();
@@ -38,7 +39,11 @@ pub(super) fn pack<'a>(
     {
         return (key, pixels);
     }
-    let pixels: Arc<[u8]> = concatenate_layers(layers).into();
+    let mut ordered = layers.clone();
+    let pixels = match (ordered.next(), ordered.next()) {
+        (Some(layer), None) => Arc::clone(layer),
+        _ => concatenate_layers(layers.map(AsRef::as_ref)).into(),
+    };
     (key, pixels)
 }
 

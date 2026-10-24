@@ -6,7 +6,7 @@ use serde_json::Value;
 use super::*;
 
 #[test]
-fn current_registry_leaf_litter_takes_dry_foliage_tint_on_its_fallback_envelope() {
+fn current_registry_leaf_litter_uses_state_driven_patches_with_dry_foliage_tint() {
     let target: Value = serde_json::from_slice(include_bytes!(
         "../../../../../../assets/bedrock-target.json"
     ))
@@ -84,7 +84,47 @@ fn current_registry_leaf_litter_takes_dry_foliage_tint_on_its_fallback_envelope(
     .expect("compile actual leaf litter fingerprints");
     for record in litter {
         let visual = compiled.visuals[record.sequential_id as usize];
-        assert_eq!(visual.support, VisualSupport::VanillaFallback);
+        assert_eq!(visual.support, VisualSupport::Exact);
+        assert_eq!(visual.kind, VisualKind::Model);
+        let growth = canonical_state_u32(&record.canonical_state, "growth").unwrap();
+        let template = compiled.model_templates[visual.model_template as usize];
+        assert_eq!(
+            template.quad_count,
+            growth.min(3) + 1,
+            "{}",
+            record.canonical_state
+        );
+        let quads =
+            &compiled.model_quads[template.quad_start as usize..][..template.quad_count as usize];
+        for quad in quads {
+            assert!(quad.positions.iter().all(|position| position[1] == 4));
+            assert_eq!(quad.flags, MODEL_QUAD_FLAG_TWO_SIDED);
+            let min_x = quad
+                .positions
+                .iter()
+                .map(|position| position[0])
+                .min()
+                .unwrap();
+            let max_x = quad
+                .positions
+                .iter()
+                .map(|position| position[0])
+                .max()
+                .unwrap();
+            let min_z = quad
+                .positions
+                .iter()
+                .map(|position| position[2])
+                .min()
+                .unwrap();
+            let max_z = quad
+                .positions
+                .iter()
+                .map(|position| position[2])
+                .max()
+                .unwrap();
+            assert_eq!([max_x - min_x, max_z - min_z], [128; 2]);
+        }
         for material in visual.faces {
             let flags = compiled.materials[material as usize].flags;
             assert_eq!(

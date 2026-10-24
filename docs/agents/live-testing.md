@@ -235,6 +235,9 @@ show it as a background-work counter at receipt, not a continuous execution span
 Both `main_frame` and input pacing's main-thread estimate include that wait.
 `CINNABAR_WORLD_SERVICE=0` keeps every world-stream poll on the main thread, a
 same-binary control for chunk-streaming comparisons.
+`CINNABAR_CPU_CORES=<n>` sizes every thread pool (rayon, Bevy task pools, world workers) as on a
+machine with `n` logical processors, at most the real count, to check pool starvation on low-core
+laptops. It does not limit the cores the OS schedules on.
 
 GPU timing uses timestamp queries when the adapter supports them, read back
 asynchronously, so `gpu_*` stages describe a frame a few frames older than the

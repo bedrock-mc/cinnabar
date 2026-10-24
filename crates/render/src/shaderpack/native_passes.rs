@@ -24,12 +24,14 @@ pub(super) fn install(schedule: &mut bevy::ecs::schedule::Schedule) {
             finish,
         )
             .chain()
+            .run_if(super::plugin::pack_loaded)
             .after(super::plugin::ShaderpackPass)
             .before(tonemapping)
             .in_set(Core3dSystems::PostProcess),
     );
     schedule.add_systems(
         screen_overlay
+            .run_if(super::plugin::pack_loaded)
             .after(Core3dSystems::PostProcess)
             .after(crate::nametag_render::overlay::NametagOverlay)
             .before(crate::ui_render::UiOverlayLabel)

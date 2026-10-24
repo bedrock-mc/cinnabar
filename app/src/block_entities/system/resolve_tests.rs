@@ -358,6 +358,7 @@ fn hidden_entities_keep_lids_rings_and_map_requests() {
         model: ItemFrameModel {
             glow: false,
             outward: 2,
+            full_face: false,
             map: None,
         },
         item: None,

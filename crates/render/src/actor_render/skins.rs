@@ -5,12 +5,16 @@ use super::*;
 use render_model::ActorSkinResidency;
 use render_model::SKIN_CLASS_SIDES;
 
+use crate::actor::gpu::ArtworkRawViews;
+
 #[derive(Clone)]
 struct GpuSkinClass {
     texture: Option<Texture>,
     view: TextureView,
     /// Admission held by each layer; 0 is never-written.
     admissions: Vec<u64>,
+    /// The raw-view setting `texture` was created with.
+    raw_views: ArtworkRawViews,
 }
 
 pub(super) struct GpuSkinArrays {
@@ -20,10 +24,18 @@ pub(super) struct GpuSkinArrays {
     synced: Option<Arc<ActorSkinResidency>>,
     failed: Option<Arc<ActorSkinResidency>>,
     pub uploaded_bytes: u64,
+    /// The raw-view setting arrays are created with; arrays created under another setting
+    /// are replaced by GPU copies on the next sync.
+    raw_views: ArtworkRawViews,
 }
 
 /// Allocates a class array before any view or layer copy can reference it.
-fn skin_array(device: &RenderDevice, side: u32, layers: u32) -> Option<Texture> {
+fn skin_array(
+    device: &RenderDevice,
+    side: u32,
+    layers: u32,
+    raw_views: ArtworkRawViews,
+) -> Option<Texture> {
     gpu_allocation::checked(
         device,
         "player skin class array",
@@ -43,7 +55,7 @@ fn skin_array(device: &RenderDevice, side: u32, layers: u32) -> Option<Texture> 
                 usage: TextureUsages::TEXTURE_BINDING
                     | TextureUsages::COPY_DST
                     | TextureUsages::COPY_SRC,
-                view_formats: crate::actor::gpu::ARTWORK_VIEW_FORMATS,
+                view_formats: raw_views.view_formats(),
             })
         },
     )
@@ -60,7 +72,7 @@ fn array_view(texture: &Texture) -> TextureView {
 impl GpuSkinArrays {
     /// Creates empty class bindings, or disables actors when even the placeholder fails.
     pub fn new(device: &RenderDevice) -> Option<Self> {
-        let texture = skin_array(device, 1, 1)?;
+        let texture = skin_array(device, 1, 1, ArtworkRawViews::default())?;
         let placeholder =
             gpu_allocation::checked(device, "actor skin placeholder view", 0, || {
                 array_view(&texture)
@@ -70,12 +82,23 @@ impl GpuSkinArrays {
                 texture: None,
                 view: placeholder.clone(),
                 admissions: Vec::new(),
+                raw_views: ArtworkRawViews::default(),
             }),
             placeholder,
             synced: None,
             failed: None,
             uploaded_bytes: 0,
+            raw_views: ArtworkRawViews::default(),
         })
+    }
+
+    /// Schedules every array for recreation under `raw_views` when it changes.
+    pub fn set_raw_views(&mut self, raw_views: ArtworkRawViews) {
+        if self.raw_views != raw_views {
+            self.raw_views = raw_views;
+            self.synced = None;
+            self.failed = None;
+        }
     }
 
     pub fn view(&self, class: usize) -> &TextureView {
@@ -83,9 +106,10 @@ impl GpuSkinArrays {
     }
 
     #[cfg(feature = "shaderpacks")]
-    /// The array texture of resolution class `class`, once allocated.
-    pub fn texture(&self, class: usize) -> Option<&Texture> {
-        self.classes.get(class)?.texture.as_ref()
+    /// The array texture of resolution class `class` for raw views, once allocated to allow them.
+    pub fn raw_texture(&self, class: usize) -> Option<&Texture> {
+        let class = self.classes.get(class)?;
+        class.texture.as_ref().filter(|_| class.raw_views.0)
     }
 
     pub fn is_synced(&self, residency: &Arc<ActorSkinResidency>) -> bool {
@@ -146,11 +170,18 @@ impl GpuSkinArrays {
         for (class, gpu) in self.classes.iter_mut().enumerate() {
             let desired = &residency.classes[class];
             let side = SKIN_CLASS_SIDES[class] as u32;
-            if desired.len() != gpu.admissions.len() {
+            if desired.len() != gpu.admissions.len()
+                || (gpu.texture.is_some() && gpu.raw_views != self.raw_views)
+            {
                 let texture = if desired.is_empty() {
                     None
                 } else {
-                    Some(skin_array(device, side, desired.len() as u32)?)
+                    Some(skin_array(
+                        device,
+                        side,
+                        desired.len() as u32,
+                        self.raw_views,
+                    )?)
                 };
                 let mut admissions = vec![0; desired.len()];
                 if let (Some(old), Some(new)) = (gpu.texture.as_ref(), texture.as_ref()) {
@@ -199,6 +230,7 @@ impl GpuSkinArrays {
                     .map_or_else(|| self.placeholder.clone(), array_view);
                 gpu.texture = texture;
                 gpu.admissions = admissions;
+                gpu.raw_views = self.raw_views;
                 views_changed = true;
             }
             let Some(texture) = gpu.texture.as_ref() else {

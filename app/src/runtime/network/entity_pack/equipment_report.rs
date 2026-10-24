@@ -35,7 +35,7 @@ fn body(runtime: &mut EquipmentRuntime) -> ActorRigSubmission {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 2,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,
@@ -102,7 +102,8 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             .iter()
             .filter(|binding| !binding.identifier.starts_with("minecraft:"))
             .filter_map(|binding| match binding.category {
-                assets::EquipmentCategory::Armor { slot } => {
+                assets::EquipmentCategory::Armor { slot }
+                | assets::EquipmentCategory::ArmorAndHeld { slot } => {
                     Some((binding.identifier.clone(), slot))
                 }
                 _ => None,
@@ -173,6 +174,7 @@ fn cached_pack_custom_armor_draws_in_its_wearable_slot() {
             let mut input = ActorEquipmentInput::default();
             input.armor[slot as usize] = Some(WornItem {
                 variant: Default::default(),
+                map_id: None,
                 charged_projectile: None,
                 use_facts: client_world::EffectiveItemUse::default(),
                 grip: assets::item::grip::ItemGrip::Unresolved,

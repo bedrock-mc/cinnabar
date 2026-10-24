@@ -245,11 +245,12 @@ where
             }
             continue;
         }
-        let packet = finalize_interaction_packet(queued.packet, queued.interaction);
+        let (preceding, packet) = finalize_interaction_packet(queued.packet, queued.interaction);
         // Traces are formatted from the final packet and published only after the write.
         let line = queued
             .physics
             .and_then(|identity| trace_line(identity.session_generation.get(), &packet));
+        packets.extend(preceding);
         packets.push(packet);
         receipts.push(Receipt {
             sub_chunk: queued.sub_chunk,
@@ -287,6 +288,13 @@ where
         (trace, trace.now(), packets.len() as i64, tick)
     });
     let now = opportunity.map(|origin| simulation_clock::Moment::from_elapsed(origin.elapsed()));
+    // The peer can receive an acknowledgment and send its next notice before this flush
+    // resolves. Retire the acknowledged epochs before handing the batch to the transport.
+    for packet in &packets {
+        if let Some(epoch) = protocol::experience_world_ack(packet) {
+            experience_gate.acknowledged(epoch);
+        }
+    }
     match wait_for_send_or_cancel(outbound.send_batch(packets, now), shutdown_rx).await {
         None => Flush::Stopped,
         Some(Err(error)) => Flush::Failed(FlushFailure {
@@ -395,9 +403,9 @@ async fn publish_receipt<P, W: FnMut(&str)>(
 fn finalize_interaction_packet(
     packet: Packet,
     interaction: Option<InteractionPacketGuard>,
-) -> Packet {
+) -> (Option<Packet>, Packet) {
     match interaction {
         Some(guard) => guard.sanitize(packet),
-        None => packet,
+        None => (None, packet),
     }
 }

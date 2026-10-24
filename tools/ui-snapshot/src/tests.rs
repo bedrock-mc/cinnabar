@@ -200,3 +200,22 @@ fn missing_artwork_carrier_warning_reaches_stderr() {
         "the missing carrier warning was lost: {output:?}"
     );
 }
+
+#[test]
+fn world_tab_snapshots_cover_the_shared_category_catalog() {
+    use crate::fixtures::Fixture;
+    use launcher::local_worlds::Tab;
+    for &tab in Tab::ALL {
+        let name = format!(
+            "world-create-{}",
+            tab.label().to_ascii_lowercase().replace(' ', "-")
+        );
+        let state = crate::fixtures::states()
+            .find(|state| state.name == name)
+            .expect("world tab fixture");
+        let Fixture::Menu(view) = (state.fixture)() else {
+            panic!("world tab menu");
+        };
+        assert_eq!(view.local.tab, tab);
+    }
+}

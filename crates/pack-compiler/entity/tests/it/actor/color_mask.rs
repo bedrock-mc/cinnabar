@@ -1,11 +1,8 @@
 use super::*;
 
 #[test]
-fn a_custom_sheep_material_does_not_unlock_unverified_fractional_alpha() {
-    let pack = pack(3, "sheep", false);
-    let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-    assert_eq!(compiled.report.textures, 0);
-    assert_eq!(compiled.report.bindings, 0);
+fn a_custom_sheep_raster_rounds_its_alpha_instead_of_claiming_the_dye_mask() {
+    assert_eq!(probe_alpha(3, "sheep"), (1, 0));
 }
 
 #[test]

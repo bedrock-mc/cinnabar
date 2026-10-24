@@ -4,7 +4,7 @@ use bevy::prelude::{App, Local, MessageReader, Res, ResMut, Time, Update};
 use client_audio::audio::{
     AudioSettings,
     local::LocalMotion,
-    systems::{AmbientState, IngestState, UiSoundCue},
+    systems::{IngestState, UiSoundCue, ambience::AmbientState},
 };
 use client_audio::audio_ingress::SequencedAudioEvent;
 use render_scene::{ParticleSimulation, RuntimeStage, RuntimeStageProfiler};
@@ -138,7 +138,7 @@ pub(crate) fn drive_ambience(
     let _timer = profiler
         .as_deref()
         .map(|profiler| profiler.time(RuntimeStage::Audio));
-    client_audio::audio::systems::drive_ambience(
+    client_audio::audio::systems::ambience::drive_ambience(
         time,
         client_audio::observations::WorldObservation {
             stream: world.stream.as_ref(),

@@ -10,7 +10,7 @@ use {super::*, launcher::menu::MenuView, launcher::menu::auth::AuthState, ui::Ic
 
 fn paint(view: &MenuView, gamerpic: Option<IconRef>) -> Vec<ui::UiNode> {
     let sprites = Arc::new(HashMap::from([(
-        SETTINGS_ICONS[8].to_owned(),
+        SETTINGS_ICONS[7].to_owned(),
         OreUiSprite {
             page: 3,
             bounds: [10, 20, 34, 44],
@@ -47,6 +47,7 @@ fn paint(view: &MenuView, gamerpic: Option<IconRef>) -> Vec<ui::UiNode> {
 
 fn picture() -> IconRef {
     IconRef {
+        color_mask: None,
         page: 7,
         uv: [1, 2, 9, 10],
         glint: false,

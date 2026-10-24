@@ -64,7 +64,7 @@ pub fn predicted_placement(
     {
         let states = serde_json::from_str(collisions.block_canonical_state(mode, clicked)?).ok()?;
         if crate::placement_state::value(&states, P::Candles.name())?.as_u64()?
-            >= crate::placement_state::maximum(P::Candles)?
+            >= crate::placement_state::maximum(fact, P::Candles)?
         {
             return None;
         }

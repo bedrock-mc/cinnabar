@@ -12,6 +12,9 @@ use world::{BlockUpdate, ChunkStore, SubChunkKey};
 #[path = "placement/custom.rs"]
 mod custom;
 
+#[path = "placement/toggles.rs"]
+mod toggles;
+
 /// Shares the pinned palette and synthetic collision fixture across placement tests.
 fn fixtures() -> &'static (Box<[RegistryRecord]>, PhysicsCollisionRegistries) {
     static FIXTURES: OnceLock<(Box<[RegistryRecord]>, PhysicsCollisionRegistries)> =

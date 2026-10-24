@@ -78,6 +78,8 @@ pub(super) struct AtlasLine {
 pub struct NametagAtlas {
     cells: Vec<AtlasCell>,
     lines: HashMap<Arc<str>, usize>,
+    /// One previous packing shares unchanged pixels across capacity-driven rebuilds.
+    previous: Option<PreviousPacking>,
     shelves: Vec<AtlasShelf>,
     requested: HashSet<Arc<str>>,
     reclamation: Option<Vec<ShelfReclamation>>,
@@ -109,6 +111,12 @@ struct AtlasCell {
     animation: Option<u64>,
 }
 
+#[derive(Default)]
+struct PreviousPacking {
+    cells: Vec<AtlasCell>,
+    lines: HashMap<Arc<str>, usize>,
+}
+
 #[derive(Clone)]
 struct ShelfReclamation {
     shelves: Range<usize>,
@@ -135,6 +143,8 @@ impl NametagAtlas {
         layouts: &mut TextLayoutCache,
         pages: &impl Fn(usize) -> Option<GlyphPage<'p>>,
     ) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("nametag.atlas.prepare").entered();
         if texts != self.prepared_texts || badge != self.prepared_badge {
             self.rebuilt_lines = None;
         }
@@ -144,7 +154,7 @@ impl NametagAtlas {
                 if !self.rebuild_pending || self.rebuilt_lines.is_some() {
                     break;
                 }
-                self.reset();
+                self.repack();
                 self.begin_frame(texts.iter());
                 self.rebuilt_this_frame = true;
             }
@@ -186,7 +196,7 @@ impl NametagAtlas {
         }
         if self.rebuild_pending && self.rebuilt_lines.is_none() {
             let lines = std::mem::take(&mut self.frame_lines);
-            self.reset();
+            self.repack();
             self.rebuilt_lines = Some(lines);
             self.rebuilt_this_frame = true;
         }
@@ -264,17 +274,30 @@ impl NametagAtlas {
             self.rebuild_pending |= self.frame_active;
             return None;
         };
-        let pixels = rasterize_line(
-            &measured,
-            pages,
-            &self.palette,
-            ui::TextEffects {
-                obfuscation: self.obfuscation.as_ref(),
-                obfuscation_seed: self.animation_seed,
-                ..Default::default()
-            },
-        );
-        let rgba8 = padded_pixels(&pixels, measured.size);
+        let rgba8 = self
+            .previous
+            .as_ref()
+            .and_then(|previous| {
+                previous
+                    .lines
+                    .get(text)
+                    .map(|&index| &previous.cells[index])
+            })
+            .filter(|cell| !animated && cell.allocation[2..] == [width, height])
+            .map(|cell| Arc::clone(&cell.rgba8))
+            .unwrap_or_else(|| {
+                let pixels = rasterize_line(
+                    &measured,
+                    pages,
+                    &self.palette,
+                    ui::TextEffects {
+                        obfuscation: self.obfuscation.as_ref(),
+                        obfuscation_seed: self.animation_seed,
+                        ..Default::default()
+                    },
+                );
+                padded_pixels(&pixels, measured.size).into()
+            });
         let line = AtlasLine {
             cell: [
                 origin[0] + inset[0],
@@ -294,7 +317,7 @@ impl NametagAtlas {
             text: Some(Arc::clone(text)),
             line,
             allocation: [origin[0], origin[1], width, height],
-            rgba8: rgba8.into(),
+            rgba8,
             shelf,
             animation: animated.then_some(self.animation_seed),
         });
@@ -302,10 +325,22 @@ impl NametagAtlas {
         Some(line)
     }
 
+    /// Rebuilds placement while retaining at most one atlas of reusable line pixels.
+    fn repack(&mut self) {
+        let mut previous = self.previous.take().unwrap_or_default();
+        std::mem::swap(&mut previous.cells, &mut self.cells);
+        std::mem::swap(&mut previous.lines, &mut self.lines);
+        let obfuscation = self.obfuscation.take();
+        self.reset();
+        self.previous = Some(previous);
+        self.obfuscation = obfuscation;
+    }
+
     /// Invalidates all cells when font or palette identity changes.
     pub(super) fn reset(&mut self) {
         self.lines.clear();
         self.cells.clear();
+        self.previous = None;
         self.shelves.clear();
         self.requested.clear();
         self.reclamation = None;
@@ -330,6 +365,8 @@ impl NametagAtlas {
 
     /// Retains immutable line pixels so skipped extractions can recover every update.
     pub(super) fn publish(&mut self) -> (Arc<[NametagAtlasRect]>, u64) {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("nametag.atlas.publish").entered();
         if self.rebuilt_this_frame {
             self.rebuilt_lines = Some(self.frame_lines.clone());
             self.rebuilt_this_frame = false;
@@ -441,7 +478,7 @@ mod tests {
     }
 
     /// Supplies a small font with predictable stem coverage.
-    fn stem_font() -> RuntimeFontCatalog {
+    pub(super) fn stem_font() -> RuntimeFontCatalog {
         stem_font_with_uv([0, 0, 4, 8], 6 * 64)
     }
 

@@ -646,3 +646,71 @@ fn refreshing_the_selected_recipe_clears_its_old_authoritative_preview() {
         assert!(ledger.created_output_stack().is_none());
     }
 }
+
+/// Two-ingredient offers accept their ingredients in either input cell.
+#[test]
+fn two_ingredient_trades_accept_swapped_inputs() {
+    for modern in [false, true] {
+        let mut ledger = ledger(modern);
+        let slots = if modern {
+            protocol::MODERN_TRADE_SLOTS
+        } else {
+            protocol::LEGACY_TRADE_SLOTS
+        };
+        let item = |metadata, count| TradeItem {
+            identifier: Arc::from("minecraft:apple"),
+            metadata,
+            count,
+            block_descriptor: None,
+            extra_data: Arc::from([0; 10]),
+        };
+        ledger.apply(&InventoryEvent::Trade(TradeEvent {
+            container: ContainerIdentity::window(7),
+            actor_unique_id: 90,
+            title: Arc::from("Trader"),
+            modern,
+            tier: 0,
+            offers: Arc::from([TradeOffer {
+                network_id: 92,
+                inputs: [Some(item(0, 2)), Some(item(1, 1))],
+                output: item(0, 1),
+                tier: 0,
+                uses: 0,
+                max_uses: 2,
+            }]),
+        }));
+        // The second ingredient sits in the first cell and vice versa.
+        for (slot, metadata, id) in [(slots[0], 1, 30), (slots[1], 0, 31)] {
+            ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+                identity: SlotIdentity {
+                    container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+                    slot: u16::from(slot),
+                },
+                stack: NetworkItemStack {
+                    network_id: 6,
+                    metadata,
+                    stack_network_id: id,
+                    count: 5,
+                    ..NetworkItemStack::empty()
+                },
+                storage_item: None,
+            }));
+        }
+        ledger.select_trade(0).unwrap();
+        ledger.begin_trade().unwrap();
+        let consumed: Vec<(i32, u8)> = ledger
+            .queue
+            .back()
+            .unwrap()
+            .actions
+            .iter()
+            .filter_map(|action| match action {
+                StackRequestAction::Consume { amount, source } => {
+                    Some((source.stack_network_id, *amount))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(consumed, [(30, 1), (31, 2)], "modern: {modern}");
+    }
+}

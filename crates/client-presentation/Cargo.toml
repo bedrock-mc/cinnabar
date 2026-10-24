@@ -45,6 +45,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 render-model = { path = "../render-model", features = ["test-support"] }

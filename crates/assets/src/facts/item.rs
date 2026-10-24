@@ -1,5 +1,19 @@
+/// Canonical fishing-rod identity used by its cast presentation.
+pub const FISHING_ROD_IDENTIFIER: &str = "minecraft:fishing_rod";
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
+/// Item atlas key whose variants are the tipped arrow icons.
+pub const TIPPED_ARROW_ATLAS_KEY: &str = "tipped_arrow";
+/// Identifies harness items independently of their color and runtime network ID.
+pub const HARNESS_TAG: &str = "minecraft:harness";
+
+/// Returns a canonical harness identifier's color; item tags determine membership.
+pub fn harness_color(identifier: &str) -> Option<&str> {
+    identifier
+        .strip_prefix("minecraft:")?
+        .strip_suffix("_harness")
+}
+
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.
@@ -8,6 +22,13 @@ pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
 pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
+
+/// Matches bucket-shaped names for conservative callers; this does not establish item behavior.
+pub fn has_bucket_name(identifier: &str) -> bool {
+    EMPTY_BUCKET_IDENTIFIER
+        .split_once(':')
+        .is_some_and(|(_, name)| identifier.ends_with(name))
+}
 /// Canonical banner identity used by stack-aware loom admission.
 pub const BANNER_IDENTIFIER: &str = "minecraft:banner";
 

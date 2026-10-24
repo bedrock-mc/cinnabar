@@ -6,6 +6,8 @@ rust-version.workspace = true
 publish = false
 
 [features]
+# The Shaders tab needs the app's whole `shaderpacks` set: the render mode and the launcher's tab.
+shaderpacks = ["render-model/shaderpacks", "launcher/shaderpacks"]
 test-support = []
 tracy = []
 

@@ -98,7 +98,7 @@ fn endpoint_cells_remain_reachable_after_many_crossings() {
 }
 
 #[test]
-fn rounded_zero_motion_rejects_exposed_parallel_face_grazes() {
+fn rounded_zero_motion_in_a_face_plane_meets_the_face_it_crosses() {
     let (mut store, _) = loaded_air_store(ChunkKey::new(0, 0, 0));
     set_block(&mut store, [10, 0, 0], 0, 7);
     let mut registry = CollisionRegistry::with_identity(identity());
@@ -108,28 +108,25 @@ fn rounded_zero_motion_rejects_exposed_parallel_face_grazes() {
         .unwrap();
     let world = PaletteWorld::new(&store, &registry, 0, Default::default());
 
-    for (x, dx) in [(10.0, -1.0e-8), (11.0, 1.0e-8)] {
+    // On the low face plane the walked cell column holds the block, and closed face bounds admit
+    // the crossing; on the high plane the walk stays in the neighbouring column.
+    for (x, dx, hits) in [(10.0, -1.0e-8, true), (11.0, 1.0e-8, false)] {
         let origin = Vec3::new(x, 0.5, -1.0);
         let direction = Vec3::new(dx, 0.0, 1.0);
-        assert!(
-            world
-                .block_interaction_ray_current(origin, direction, 3.0)
-                .unwrap()
-                .is_none()
+        let hit = world
+            .block_interaction_ray_current(origin, direction, 3.0)
+            .unwrap();
+        assert_eq!(
+            hit.map(|hit| (hit.block_pos, hit.distance)),
+            hits.then_some(([10, 0, 0], 1.0))
         );
-        assert!(
-            world
-                .camera_visibility_ray(origin, direction, 3.0)
-                .unwrap()
-                .is_none()
-        );
+        let visible = world.camera_visibility_ray(origin, direction, 3.0).unwrap();
+        assert_eq!(visible.map(|hit| hit.block_pos), hits.then_some([10, 0, 0]));
         for outlines in [false, true] {
-            assert!(
-                world
-                    .camera_aim_ray(origin, origin + direction * 3.0, 3, outlines, false)
-                    .unwrap()
-                    .is_none()
-            );
+            let aimed = world
+                .camera_aim_ray(origin, origin + direction * 3.0, 3, outlines, false)
+                .unwrap();
+            assert_eq!(aimed.map(|hit| hit.block_pos), hits.then_some([10, 0, 0]));
         }
     }
 }

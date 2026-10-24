@@ -735,6 +735,7 @@ fn failed_bucket_keeps_other_pages_and_ui_batches_drawable() {
         .map(|(index, _, _)| index)
         .collect::<Vec<_>>();
         assert_eq!(drawable, [0]);
+        assert!(!super::super::overlay::screen_pages_complete(gpu));
         let generation = gpu.textures.residency_generation;
         world
             .run_system_once(super::super::resources::prepare_ui_resources)
@@ -756,6 +757,7 @@ fn failed_bucket_keeps_other_pages_and_ui_batches_drawable() {
         assert!(gpu.textures.resident(&catalog));
         assert!(gpu.textures.page_binding(1).is_some());
         assert_ne!(gpu.textures.residency_generation, generation);
+        assert!(super::super::overlay::screen_pages_complete(gpu));
     }
 }
 

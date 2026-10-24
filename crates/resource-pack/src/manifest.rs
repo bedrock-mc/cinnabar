@@ -8,34 +8,29 @@ use pack_json::parse_jsonc;
 
 use crate::{AdmissionError, Subpack};
 
-/// A `major.minor.patch` pack version.
+mod format;
+
+use format::Layout;
+
+/// A `major.minor.patch` pack version, compared by number as the client compares pack identities.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Version(pub(crate) [u32; 3]);
 
 impl Version {
-    /// Parses a dotted triple; leading zeros are tolerated and a semver
-    /// pre-release or build suffix on the patch is ignored.
+    /// Parses a version string with the client's semantic version grammar, so `"1"` and `"1.0"` are
+    /// `1.0.0`; pre-release and build suffixes are not part of the numeric identity.
     pub(crate) fn parse(text: &str) -> Option<Self> {
-        let mut parts = text.trim().splitn(3, '.');
-        let mut parsed = [0; 3];
-        for part in &mut parsed {
-            let text = parts.next()?;
-            let digits = text
-                .find(|c: char| !c.is_ascii_digit())
-                .map_or(text, |end| &text[..end]);
-            *part = digits.parse().ok()?;
-        }
-        Some(Self(parsed))
+        format::SemVersion::parse(text).map(|version| Self(version.triple))
     }
 
-    /// Reads either manifest version representation.
+    /// Reads a manifest version written as a string or a `[major, minor, patch]` array.
     pub(crate) fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::String(text) => Self::parse(text),
             Value::Array(parts) if parts.len() == 3 => {
                 let mut parsed = [0; 3];
                 for (slot, part) in parsed.iter_mut().zip(parts) {
-                    *slot = u32::try_from(part.as_u64()?).ok()?;
+                    *slot = u32::from(u16::try_from(part.as_u64()?).ok()?);
                 }
                 Some(Self(parsed))
             }
@@ -44,37 +39,81 @@ impl Version {
     }
 }
 
+/// The pack identity a manifest declares, read with the layout its format version selects.
+pub(crate) fn manifest_identity(
+    bytes: &[u8],
+    root: &Value,
+) -> Result<(Uuid, Version), AdmissionError> {
+    let layout = format::layout(bytes, root).ok_or(AdmissionError::UnsupportedManifestFormat)?;
+    declared_identity(root, layout)
+}
+
+/// The pack identity a manifest declares in its layout's header keys.
+fn declared_identity(root: &Value, layout: Layout) -> Result<(Uuid, Version), AdmissionError> {
+    let (uuid_key, version_key) = layout.identity_keys();
+    let header = &root["header"];
+    let uuid = header[uuid_key]
+        .as_str()
+        .and_then(|text| Uuid::parse_str(text.trim()).ok())
+        .ok_or(AdmissionError::MalformedManifest)?;
+    let version =
+        Version::from_value(&header[version_key]).ok_or(AdmissionError::InvalidVersion)?;
+    Ok((uuid, version))
+}
+
 pub(crate) struct Manifest {
     pub(crate) subpacks: Vec<Subpack>,
 }
 
-/// Validates a manifest against the server-selected identity.
+/// Local selections must match their archive; server selections use negotiated transport IDs.
+#[derive(Clone, Eq, PartialEq)]
+pub(crate) enum IdentityPolicy {
+    Manifest(Version),
+    #[cfg(feature = "handoff")]
+    ServerAdvertisement(String),
+}
+
+impl IdentityPolicy {
+    /// Formats local numeric versions while preserving a server's advertised text.
+    pub(crate) fn version_text(&self) -> String {
+        match self {
+            Self::Manifest(version) => version.0.map(|part| part.to_string()).join("."),
+            #[cfg(feature = "handoff")]
+            Self::ServerAdvertisement(version) => version.clone(),
+        }
+    }
+}
+
+/// Validates a manifest against a locally selected identity.
 pub(crate) fn read_manifest(
     bytes: &[u8],
     pack_id: Uuid,
-    version: &str,
+    version: Version,
+) -> Result<Manifest, AdmissionError> {
+    read_manifest_with_policy(bytes, pack_id, &IdentityPolicy::Manifest(version))
+}
+
+/// Validates manifest structure while keeping server transfer identity separate from authored metadata.
+pub(crate) fn read_manifest_with_policy(
+    bytes: &[u8],
+    pack_id: Uuid,
+    identity: &IdentityPolicy,
 ) -> Result<Manifest, AdmissionError> {
     let root: Value = parse_jsonc(bytes).map_err(|_| AdmissionError::MalformedManifest)?;
-    let format = match &root["format_version"] {
-        Value::Number(number) => number.as_f64(),
-        Value::String(text) => text.trim().parse::<u64>().ok().map(|number| number as f64),
-        _ => None,
-    };
-    if !format.is_some_and(|format| (1.0..=3.0).contains(&format) && format.fract() == 0.0) {
-        return Err(AdmissionError::UnsupportedManifestFormat);
+    let layout = format::layout(bytes, &root).ok_or(AdmissionError::UnsupportedManifestFormat)?;
+    let (uuid, manifest_version) = declared_identity(&root, layout)?;
+    match identity {
+        IdentityPolicy::Manifest(selected_version) => {
+            if uuid != pack_id || manifest_version != *selected_version {
+                return Err(AdmissionError::ManifestIdentityMismatch);
+            }
+        }
+        #[cfg(feature = "handoff")]
+        IdentityPolicy::ServerAdvertisement(version) => {
+            Version::parse(version).ok_or(AdmissionError::InvalidVersion)?;
+        }
     }
-    let header = &root["header"];
-    let uuid = header["uuid"]
-        .as_str()
-        .and_then(|text| Uuid::parse_str(text.trim()).ok())
-        .ok_or(AdmissionError::MalformedManifest)?;
-    let manifest_version =
-        Version::from_value(&header["version"]).ok_or(AdmissionError::InvalidVersion)?;
-    let selected_version = Version::parse(version).ok_or(AdmissionError::InvalidVersion)?;
-    if uuid != pack_id || manifest_version != selected_version {
-        return Err(AdmissionError::ManifestIdentityMismatch);
-    }
-    let has_resources = root["modules"].as_array().is_some_and(|modules| {
+    let has_resources = layout.modules(&root).as_array().is_some_and(|modules| {
         modules
             .iter()
             .any(|module| module["type"].as_str() == Some("resources"))
@@ -104,6 +143,50 @@ mod tests {
 
     const ID: Uuid = Uuid::from_u128(1);
 
+    #[test]
+    fn pack_version_components_stop_at_u16_max() {
+        for component in 0..3 {
+            let mut parts = [0_u32; 3];
+            parts[component] = 65536;
+            assert_eq!(Version::from_value(&serde_json::json!(parts)), None);
+            parts[component] = 65535;
+            assert_eq!(
+                Version::from_value(&serde_json::json!(parts)),
+                Some(Version(parts))
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "handoff")]
+    fn server_identity_policy_still_validates_manifest_and_selected_metadata() {
+        let valid = manifest("2", "[1, 2, 3]", r#"{"type":"resources"}"#);
+        let check = |text: &str, version: &str| {
+            read_manifest_with_policy(
+                text.as_bytes(),
+                Uuid::from_u128(2),
+                &IdentityPolicy::ServerAdvertisement(version.into()),
+            )
+        };
+        assert!(check(&valid, "9.8.7").is_ok());
+        assert_eq!(
+            check(&valid, "invalid").err(),
+            Some(AdmissionError::InvalidVersion)
+        );
+        assert_eq!(
+            check(&valid.replace(&ID.to_string(), "invalid"), "9.8.7").err(),
+            Some(AdmissionError::MalformedManifest),
+        );
+        assert_eq!(
+            check(&manifest("2", "[1, 2]", r#"{"type":"resources"}"#), "9.8.7").err(),
+            Some(AdmissionError::InvalidVersion),
+        );
+        assert_eq!(
+            check(&manifest("2", "[1, 2, 3]", r#"{"type":"data"}"#), "9.8.7").err(),
+            Some(AdmissionError::InvalidModules),
+        );
+    }
+
     fn manifest(format: &str, version: &str, modules: &str) -> String {
         format!(
             r#"{{"format_version": {format}, "header": {{"uuid": "{ID}", "version": {version},
@@ -113,36 +196,32 @@ mod tests {
     }
 
     #[test]
-    fn accepts_formats_one_to_three_and_ignores_unknown_fields() {
+    fn numeric_formats_one_to_three_read_the_current_header_and_ignore_unknown_fields() {
         let resources = r#"{"type": "resources"}, {"type": "script", "language": "js"}"#;
-        for (format, version) in [("1", "[1, 2, 3]"), ("2", "[1, 2, 3]"), ("3", "\"1.2.3\"")] {
+        // The client reads a number's literal text as a semantic version and truncates it for the
+        // legacy parser, so 2.5 is format 2 while 2e0 is not a version at all.
+        for (format, version) in [
+            ("1", "[1, 2, 3]"),
+            ("2", "[1, 2, 3]"),
+            ("2.0", "[1, 2, 3]"),
+            ("2.5", "[1, 2, 3]"),
+            ("3", "\"1.2.3\""),
+            ("3.0", "[1, 2, 3]"),
+            ("\"3.0.0\"", "[1, 2, 3]"),
+            ("[3, 0, 0]", "[1, 2, 3]"),
+        ] {
             let text = manifest(format, version, resources);
             assert!(
-                read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
+                read_manifest(text.as_bytes(), ID, Version([1, 2, 3])).is_ok(),
                 "format {format}"
             );
         }
-        let text = manifest("4", "[1, 2, 3]", resources);
-        assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
-            Some(AdmissionError::UnsupportedManifestFormat)
-        );
-    }
-
-    #[test]
-    fn accepts_whole_numeric_manifest_formats_without_accepting_fractional_versions() {
-        let resources = r#"{"type": "resources"}"#;
-        for format in ["2.0", "1.0", "3.0", "2e0"] {
-            let text = manifest(format, "[1, 2, 3]", resources);
-            assert!(
-                read_manifest(text.as_bytes(), ID, "1.2.3").is_ok(),
-                "format {format}"
-            );
-        }
-        for format in ["2.5", "-2.0", "0.0", "4.0", "1e100"] {
+        for format in [
+            "4", "3.1", "2e0", "-2.0", "1e100", "\"4.0\"", "\"x\"", "[2, 0]", "{}",
+        ] {
             let text = manifest(format, "[1, 2, 3]", resources);
             assert_eq!(
-                read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+                read_manifest(text.as_bytes(), ID, Version([1, 2, 3])).err(),
                 Some(AdmissionError::UnsupportedManifestFormat),
                 "format {format}"
             );
@@ -150,23 +229,53 @@ mod tests {
     }
 
     #[test]
+    fn string_and_array_formats_below_three_read_the_format_zero_header() {
+        // The legacy parser reads these as format 0, whose header names the pack `pack_id`.
+        for format in ["\"2\"", "\"2.0\"", "\"2.0.0\"", "[2, 0, 0]"] {
+            let text = manifest(format, "[1, 2, 3]", r#"{"type": "resources"}"#);
+            assert_eq!(
+                read_manifest(text.as_bytes(), ID, Version([1, 2, 3])).err(),
+                Some(AdmissionError::MalformedManifest),
+                "format {format}"
+            );
+        }
+        let format_zero = format!(
+            r#"{{"format_version": "2.0", "header": {{"pack_id": "{ID}", "packs_version": "1.2.3",
+            "modules": [{{"type": "resources"}}]}}}}"#
+        );
+        assert!(read_manifest(format_zero.as_bytes(), ID, Version([1, 2, 3])).is_ok());
+        let unversioned = format_zero.replace(r#""format_version": "2.0", "#, "");
+        assert!(read_manifest(unversioned.as_bytes(), ID, Version([1, 2, 3])).is_ok());
+    }
+
+    #[test]
     fn rejects_identity_mismatch_and_behavior_only_packs() {
         let text = manifest("2", "[1, 2, 3]", r#"{"type": "resources"}"#);
         assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.4").err(),
+            read_manifest(text.as_bytes(), ID, Version([1, 2, 4])).err(),
             Some(AdmissionError::ManifestIdentityMismatch)
         );
         let text = manifest("2", "[1, 2, 3]", r#"{"type": "data"}"#);
         assert_eq!(
-            read_manifest(text.as_bytes(), ID, "1.2.3").err(),
+            read_manifest(text.as_bytes(), ID, Version([1, 2, 3])).err(),
             Some(AdmissionError::InvalidModules)
         );
     }
 
     #[test]
-    fn version_parse_tolerates_leading_zeros_and_semver_suffix() {
-        assert_eq!(Version::parse("01.0.11"), Some(Version([1, 0, 11])));
+    fn versions_parse_with_the_client_grammar() {
         assert_eq!(Version::parse("1.0.0-beta"), Some(Version([1, 0, 0])));
-        assert_eq!(Version::parse("1.0"), None);
+        assert_eq!(Version::parse("1.0"), Some(Version([1, 0, 0])));
+        assert_eq!(Version::parse("2"), Some(Version([2, 0, 0])));
+        assert_eq!(Version::parse("01.0.11"), None);
+        assert_eq!(Version::parse("x.0.0"), None);
+    }
+
+    #[test]
+    fn partial_selected_version_matches_the_manifest_triple() {
+        let text = manifest("2", "[1, 0, 0]", r#"{"type": "resources"}"#);
+        assert!(read_manifest(text.as_bytes(), ID, Version::parse("1.0").unwrap()).is_ok());
+        let text = manifest("2", "\"1.0\"", r#"{"type": "resources"}"#);
+        assert!(read_manifest(text.as_bytes(), ID, Version::parse("1.0.0").unwrap()).is_ok());
     }
 }

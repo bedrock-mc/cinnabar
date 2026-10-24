@@ -26,6 +26,14 @@ pub struct LocalWorldInfo {
     pub name: String,
     pub game_mode: GameMode,
     pub backend: Backend,
+    /// Prevents friend hosting and admission for a single-player world.
+    #[serde(skip_serializing_if = "is_false")]
+    pub multiplayer_disabled: bool,
+}
+
+/// Keeps the optional deny flag absent for reports that allow multiplayer.
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// The launcher's open local world as `local_world.v1` reports it.
@@ -94,6 +102,7 @@ mod tests {
                 name: "Home".into(),
                 game_mode: GameMode::Creative,
                 backend: Backend::Bds,
+                multiplayer_disabled: false,
             }),
             target: Some(LocalTarget {
                 address: "127.0.0.1:5000".into(),
@@ -116,6 +125,25 @@ mod tests {
         assert_eq!(raknet, serde_json::json!("raknet"));
         let http = serde_json::to_value(Transport::NetherNet).expect("encode");
         assert_eq!(http, serde_json::json!("nethernet"));
+    }
+
+    #[test]
+    fn world_reports_carry_the_optional_multiplayer_denial() {
+        let world = LocalWorldInfo {
+            id: "fixture".into(),
+            name: "Private".into(),
+            game_mode: GameMode::Survival,
+            backend: Backend::Bds,
+            multiplayer_disabled: true,
+        };
+        let report = LocalWorld {
+            state: WorldState::Starting,
+            world: Some(world),
+            ..Default::default()
+        };
+        let expected: serde_json::Value =
+            serde_json::from_str(include_str!("../data/local-world-single-player.json")).unwrap();
+        assert_eq!(serde_json::to_value(report).unwrap(), expected);
     }
 
     #[test]

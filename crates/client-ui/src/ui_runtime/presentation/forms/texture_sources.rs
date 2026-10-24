@@ -36,11 +36,21 @@ struct Downloads(RemoteImages);
 
 impl RemoteSource for Downloads {
     fn state(&self, url: &str) -> RemoteImage {
-        match self.0.state(url) {
-            RemoteState::Loading => RemoteImage::Loading,
-            RemoteState::Ready(bytes) => RemoteImage::Ready(bytes),
-            RemoteState::Failed => RemoteImage::Failed,
-        }
+        remote_image(self.0.state(url))
+    }
+
+    fn load(&self, url: &str) -> RemoteImage {
+        remote_image(self.0.load(url))
+    }
+}
+
+/// Carries host download readiness into the engine without requesting another body.
+fn remote_image(state: RemoteState) -> RemoteImage {
+    match state {
+        RemoteState::Loading => RemoteImage::Loading,
+        RemoteState::Ready(bytes) => RemoteImage::Ready(bytes),
+        RemoteState::ReadyWithoutBody => RemoteImage::ReadyWithoutBody,
+        RemoteState::Failed => RemoteImage::Failed,
     }
 }
 

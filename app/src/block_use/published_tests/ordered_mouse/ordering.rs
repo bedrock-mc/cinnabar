@@ -194,7 +194,7 @@ fn ordered_mouse_a_refused_attack_cannot_replay_its_old_pick_or_pose() {
 }
 
 #[test]
-fn ordered_mouse_ui_cancellation_drops_a_full_selection_and_its_later_attack() {
+fn ordered_mouse_ui_cancellation_keeps_local_selection_and_drops_its_later_attack() {
     let (mut world, _) = selection_fixture();
     let (network, mut captured) =
         NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(2);
@@ -212,7 +212,7 @@ fn ordered_mouse_ui_cancellation_drops_a_full_selection_and_its_later_attack() {
         world
             .resource::<client_state::PlayerRuntime>()
             .selected_hotbar_slot(),
-        Some(0)
+        Some(1)
     );
     captured.drain();
     world.resource_mut::<client_state::ScreenFocus>().ui_focused = true;
@@ -225,13 +225,14 @@ fn ordered_mouse_ui_cancellation_drops_a_full_selection_and_its_later_attack() {
             .resource::<client_state::PlayerRuntime>()
             .inventory
             .pending_hotbar_selection(),
-        None
+        Some(1),
+        "the local selection still awaits its tick announcement"
     );
     assert_eq!(
         world
             .resource::<client_state::PlayerRuntime>()
             .selected_hotbar_slot(),
-        Some(0)
+        Some(1)
     );
 }
 

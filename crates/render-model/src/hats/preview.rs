@@ -5,9 +5,14 @@ impl HatRig {
     /// Samples repeating preview motion from caller-owned elapsed time, starting after any intro.
     pub fn preview_motion(&self, seconds: f64) -> Motion {
         Motion {
-            seconds: self.playback.as_ref().map_or(0.0, |clip| {
-                clip.normalize(f64::from(clip.rest_time()) + seconds.max(0.0))
-            }),
+            seconds: self.playback.as_ref().map_or(
+                if self.companion.is_some() && seconds.is_finite() {
+                    seconds.max(0.0).rem_euclid(60.0) as f32
+                } else {
+                    0.0
+                },
+                |clip| clip.normalize(f64::from(clip.rest_time()) + seconds.max(0.0)),
+            ),
             bend: 0.0,
         }
     }

@@ -73,18 +73,28 @@ fn check_now_respects_worker_progress_and_the_home_menu_boundary() {
         );
         view.updates.active = false;
         let (actions, text) = render(&view, width);
-        assert!(actions.is_empty());
+        for setting in [SettingId::ModUpdateChecks, SettingId::ModAutoUpdate] {
+            assert!(actions.contains(&MenuAction::SettingsOption(setting.index() as u16, 0)));
+        }
+        assert!(actions.iter().all(|action| matches!(action,
+            MenuAction::SettingsOption(index, _)
+                if matches!(launcher::menu::settings_options::SETTINGS_OPTIONS[usize::from(*index)].id,
+                    SettingId::ModUpdateChecks | SettingId::ModAutoUpdate)
+        )));
         assert!(text.contains(&installed_version().replace(' ', "")));
     }
 }
 
-/// Updates has its own destination and General no longer exposes any app update controls.
+/// App and mod update controls belong to Updates and are absent from General.
 #[test]
 fn updates_controls_belong_to_their_own_settings_tab() {
     let mut view = MenuView::new(true, "Player".into());
     view.settings.section = SettingSection::Updates.definition().index;
     let (updates, _) = render(&view, 800.0);
     assert!(updates.contains(&MenuAction::Update(Action::CheckNow)));
+    for setting in [SettingId::ModUpdateChecks, SettingId::ModAutoUpdate] {
+        assert!(updates.contains(&MenuAction::SettingsOption(setting.index() as u16, 0)));
+    }
     view.settings.section = SettingSection::General.definition().index;
     let (general, _) = render(&view, 800.0);
     assert!(!general.iter().any(|action| match action {
@@ -94,6 +104,8 @@ fn updates_controls_belong_to_their_own_settings_tab() {
             SettingId::UpdateChannel
                 | SettingId::AutoUpdateEnabled
                 | SettingId::InstallUpdatesOnQuit
+                | SettingId::ModUpdateChecks
+                | SettingId::ModAutoUpdate
         ),
         _ => false,
     }));

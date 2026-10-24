@@ -40,8 +40,11 @@ compiler rejects unknown members and selectors that match no pinned states.
 `vocabulary-v2193.txt` combines the pinned identifier, property and tag domains.
 Runtime consumers read dense block facts and typed properties without matching names.
 
-Property domains and selected behavior-pack components are small derivatives of
-the hash-checked sample archive. Regenerate them before the schema and carriers:
+Property domains combine the hash-checked sample metadata with valid values in
+the pinned palette, including Education states omitted from the samples. Blocks
+whose states use fewer values than a shared property's domain get their own domain.
+Selected behavior-pack components come from the same archive. Regenerate these inputs
+before the schema and carriers; pass `--facts` to reuse an existing pinned export:
 
 ```sh
 python3 tools/registrygen/generate_block_inputs.py --archive <pinned-sample-archive>

@@ -210,7 +210,7 @@ fn translucent_actor_order_follows_the_view_and_keeps_draw_slots() {
         actors.draws.push(ActorDraw {
             kind: DrawKind::EntitiesTranslucent,
             vertices: 0..6,
-            texture: (texture, 0),
+            texture: (texture, 0, super::LayerCompose::Plain),
             values: DrawValues::NONE,
             distance,
         });

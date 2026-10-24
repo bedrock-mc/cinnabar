@@ -596,20 +596,33 @@ fn block_type_rules_accept_limits_and_refuse_violations() {
             cable_with(|block| block.states.push(choice_state("colour", &["it's"]))),
             Some("does not match"),
         ),
-        ("2^16 combinations", many_bools(16), None),
+        ("16 state bits", many_bools(16), None),
         (
-            "2^17 combinations",
+            "17 state bits",
             many_bools(17),
-            Some("more than 65536 combinations"),
+            Some("more than 16 state bits"),
         ),
         (
-            "2^16 combinations and a trait",
+            // 46,656 combinations, but 18 bits: the client keeps only 7,776 of them.
+            "six six-value states",
+            cable_with(|block| {
+                block.placement = wit::PlacementStates::empty();
+                block.states = (0..6)
+                    .map(|i| choice_state(&format!("c{i}"), &["a", "b", "c", "d", "e", "f"]))
+                    .collect();
+                block.permutations.clear();
+                visual(block).bones.clear();
+            }),
+            Some("more than 16 state bits"),
+        ),
+        (
+            "16 state bits and a trait",
             cable_with(|block| {
                 block.states = (0..16).map(|i| bool_state(&format!("s{i}"))).collect();
                 block.permutations.clear();
                 visual(block).bones.clear();
             }),
-            Some("more than 65536 combinations"),
+            Some("more than 16 state bits"),
         ),
         (
             "a condition on a state the block lacks",

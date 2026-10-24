@@ -128,6 +128,46 @@ fn server_form_item_controls_draw_negotiated_item_variants() {
     assert_eq!(runtime.server_forms().active().unwrap().identity, identity);
 }
 
+// Item keys a pack reads from button image paths through chained string bindings still draw.
+#[test]
+fn image_path_item_keys_draw_through_chained_view_bindings() {
+    let (mut player, _, _) = fixture();
+    let keys: Vec<String> = [0u32, 3]
+        .map(|aux| ((12_000u32 << 16) | aux).to_string())
+        .into();
+    let images = keys
+        .iter()
+        .map(|key| Some(protocol::FormButtonImage::Path(key.as_str().into())))
+        .collect();
+    let mut runtime = pack_harness::image_form(&mut player, "Supply shop", &["16", "1"], images);
+    runtime.set_session_icons(fixture().1.session_icons().cloned());
+    let mut presentation = mini_engine_presentation();
+    presentation.set_server_ui_pack(&ServerUiPack {
+        ui_layers: vec![vec![(
+            "ui/server_form.json".into(),
+            include_bytes!("../../../../fixtures/server_shop_image_keys.json").to_vec(),
+        )]],
+        ..Default::default()
+    });
+    presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [1280, 720],
+            DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    let nodes = &presentation.last_frame.as_ref().unwrap().nodes;
+    for metadata in [0, 3] {
+        let icon = presentation.item_icon("fixture:supply", metadata).unwrap();
+        assert!(
+            nodes.iter().any(|node| matches!(node.visual(), UiVisual::Sprite { texture_page, uv, .. } if *texture_page == icon.page && *uv == icon.uv)),
+            "the cell keyed by aux {metadata} must draw its item"
+        );
+    }
+}
+
 #[test]
 fn shop_item_back_and_close_send_distinct_responses_and_preserve_inventory() {
     for response in [Some(0), Some(ITEM_COUNT as u32), None] {
@@ -185,6 +225,7 @@ fn shop_item_back_and_close_send_distinct_responses_and_preserve_inventory() {
                 &mut runtime,
                 &frame,
                 EngineInput {
+                    touch: false,
                     cursor: Some(cursor),
                     keys: &[],
                     pointer: PointerButtons {

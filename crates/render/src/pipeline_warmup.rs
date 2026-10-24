@@ -9,7 +9,8 @@ use std::collections::HashSet;
 use bevy::prelude::{Handle, Mut, Shader, World, default};
 use bevy::{
     prelude::{
-        App, BevyError, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet, error,
+        App, BevyError, Has, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet,
+        error,
     },
     render::{
         Render, RenderApp, RenderSystems,
@@ -27,11 +28,19 @@ pub(crate) struct WarmView {
     pub msaa: Msaa,
     pub hdr: bool,
     pub enhanced: bool,
+    pub shader_pack: bool,
     /// The surface or image format the view finally writes; absent until its target exists.
     pub output: Option<TextureFormat>,
 }
 
 pub(crate) type WarmupIds = Vec<CachedRenderPipelineId>;
+
+/// Enumerates active coverage and Performance's single-sample path without duplicates.
+pub(crate) fn sample_modes(current: Msaa) -> impl Iterator<Item = Msaa> {
+    [Some(current), (current != Msaa::Off).then_some(Msaa::Off)]
+        .into_iter()
+        .flatten()
+}
 
 /// Implemented by each pipeline owner so warmup fills the same memoized variants drawing uses.
 pub(crate) trait PrewarmPipelines:
@@ -78,7 +87,12 @@ pub(crate) fn register<T: PrewarmPipelines>(app: &mut App) {
     if !render_app.world().contains_resource::<WarmupOwner<T>>() {
         render_app
             .insert_resource(WarmupOwner::<T>(std::marker::PhantomData))
-            .add_systems(Render, prewarm_owner::<T>.in_set(WarmupSet::Owners));
+            .add_systems(
+                Render,
+                prewarm_owner::<T>
+                    .in_set(WarmupSet::Owners)
+                    .run_if(render_scene::startup_work::world_work_allowed),
+            );
     }
 }
 
@@ -93,28 +107,55 @@ pub(crate) fn register_pending<T: PendingPipelines>(app: &mut App) {
             .add_systems(
                 Render,
                 owner_pending::<T>
+                    .run_if(render_scene::startup_work::world_work_allowed)
                     .in_set(RenderSystems::Cleanup)
                     .before(publish_readiness),
             );
     }
 }
 
+/// Holds world-entry readiness while an asynchronous GPU owner is not yet installed.
+pub(crate) fn register_pending_resource<T: Resource>(app: &mut SubApp) {
+    app.init_resource::<WarmupRegistry>();
+    app.add_systems(
+        Render,
+        pending_resource::<T>
+            .in_set(RenderSystems::Cleanup)
+            .before(publish_readiness),
+    );
+}
+
+/// Folds the existence of an unfinished initializer into the same pipeline-readiness gate.
+fn pending_resource<T: Resource>(pending: Option<Res<T>>, mut registry: ResMut<WarmupRegistry>) {
+    registry.pending |= pending.is_some();
+}
+
 /// Installs shared scene formats and readiness tracking for custom pipeline owners.
 fn install(app: &mut App) -> Option<&mut SubApp> {
     app.init_resource::<PipelineWarmupReadiness>();
+    app.init_resource::<render_scene::startup_work::WorldWorkAdmission>();
+    let admission = app
+        .world()
+        .resource::<render_scene::startup_work::WorldWorkAdmission>()
+        .clone();
     let shared = app.world().resource::<PipelineWarmupReadiness>().clone();
     let render_app = app.get_sub_app_mut(RenderApp)?;
+    render_app.insert_resource(admission);
     crate::scene_target::install_formats(render_app);
     if !render_app.world().contains_resource::<WarmupRegistry>() {
         render_app
             .insert_resource(shared)
             .init_resource::<WarmupRegistry>()
+            // Bevy's upscaling blocks on its blit pipeline in `Prepare`, and that wait starts
+            // every queued pipeline first; their tasks share one shader-cache lock. Queuing
+            // after it lets the blit compile alone, and this frame's `Render` set still starts
+            // the warm-up.
             .configure_sets(
                 Render,
                 (WarmupSet::Views, WarmupSet::Owners)
                     .chain()
-                    .after(RenderSystems::PrepareViews)
-                    .before(RenderSystems::Queue),
+                    .after(RenderSystems::Prepare)
+                    .before(RenderSystems::Render),
             )
             .add_systems(Render, collect_views.in_set(WarmupSet::Views))
             .add_systems(Render, publish_readiness.in_set(RenderSystems::Cleanup));
@@ -122,22 +163,28 @@ fn install(app: &mut App) -> Option<&mut SubApp> {
     Some(render_app)
 }
 
-fn collect_views(
-    views: Query<(
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-        Option<&ViewTarget>,
-        Option<&render_scene::EnhancedRendering>,
-    )>,
-    mut registry: ResMut<WarmupRegistry>,
-) {
+/// The camera state that selects each view's pipeline variants.
+type ViewKeys<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static bevy::render::camera::ExtractedCamera,
+        &'static Msaa,
+        Option<&'static ViewTarget>,
+        Option<&'static render_scene::EnhancedRendering>,
+        Has<render_scene::shaderpack::ShaderPackRendering>,
+    ),
+>;
+
+fn collect_views(views: ViewKeys, mut registry: ResMut<WarmupRegistry>) {
     registry.views.clear();
     registry.pending = false;
-    for (camera, msaa, target, enhanced) in &views {
+    for (camera, msaa, target, enhanced, shader_pack) in &views {
         let key = WarmView {
             msaa: *msaa,
             hdr: camera.hdr,
             enhanced: enhanced.is_some(),
+            shader_pack,
             output: target.and_then(ViewTarget::out_texture_view_format),
         };
         if !registry.views.contains(&key) {
@@ -159,14 +206,17 @@ fn prewarm_owner<T: PrewarmPipelines>(
     };
     let WarmupRegistry { views, ids, .. } = &mut *registry;
     for &view in views.iter() {
-        if warmed.contains(&view) {
-            continue;
+        for msaa in sample_modes(view.msaa) {
+            let view = WarmView { msaa, ..view };
+            if warmed.contains(&view) {
+                continue;
+            }
+            // The draw path would fail the same way, so the error does not hold loading.
+            if let Err(error) = owner.prewarm(&cache, view, ids) {
+                error!("pipeline prewarm {}: {error}", std::any::type_name::<T>());
+            }
+            warmed.push(view);
         }
-        // The draw path would fail the same way, so the error does not hold loading.
-        if let Err(error) = owner.prewarm(&cache, view, ids) {
-            error!("pipeline prewarm {}: {error}", std::any::type_name::<T>());
-        }
-        warmed.push(view);
     }
 }
 

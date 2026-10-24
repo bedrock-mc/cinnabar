@@ -56,7 +56,8 @@ fn amendment_initial_hidden_cards_stay_listed_and_show_is_undoable() {
         Some(&Scalar::Text("disabled".into()))
     );
     assert_eq!(editor.snapshot(true).hidden_cards, ["disabled"]);
-    let catalog = template::catalog(&editor.draft, editor.viewport).unwrap();
+    let catalog =
+        template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap();
     let root = json_ui::resolve(&catalog, SCREEN, &Context::default())
         .control
         .unwrap();
@@ -174,7 +175,9 @@ fn amendment_live_inspector_size_updates_bindings_without_rebuilding_catalog() {
         "id":"fixture","width":100,"offset":[700,60],"rows":[]
     }]}));
     editor.selected = Some(0);
-    let catalog = Arc::new(template::catalog(&editor.draft, editor.viewport).unwrap());
+    let catalog = Arc::new(
+        template::catalog(&editor.draft, editor.viewport, editor.history_buttons).unwrap(),
+    );
     editor.catalog = Some(Arc::clone(&catalog));
     let mut preview = editor.draft.clone();
     preview.inspector_size = Some([200., 140.]);

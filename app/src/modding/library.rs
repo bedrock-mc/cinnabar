@@ -35,6 +35,7 @@ const FILTER: Filter = Filter {
     name: "Mods",
     extensions: &[COMPONENT_EXTENSION],
     unavailable_hint: "",
+    max_bytes: Some(mod_host::packet_mod::MAX_PACKET_MOD_BYTES as u64),
 };
 
 #[derive(Resource)]
@@ -316,7 +317,11 @@ fn perform(
         Action::Import => match pick() {
             Ok(Some(source)) => import(mods, &source).map(|name| format!("Imported {name}.")),
             Ok(None) => Ok(String::new()),
-            Err(error) => Err(format!("{error}The mods folder is {}.", mods.display())),
+            Err(error) => Err(format!(
+                "{} The mods folder is {}.",
+                error.trim_end(),
+                mods.display()
+            )),
         },
         Action::Enable(id) => {
             select(registration, &path(id)?, true, request()).map(|()| String::new())

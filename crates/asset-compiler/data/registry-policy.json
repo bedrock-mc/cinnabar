@@ -477,9 +477,7 @@
       "item": "minecraft:yellow_wool_stairs"
     }
   },
-  "unresolved_retail": [
-    "minecraft:straw_bed"
-  ],
+  "unresolved_retail": [],
   "movement": [
     {
       "name": "minecraft:bed",
@@ -583,7 +581,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "3ea3593aa723e2f4c89b982d2d0b60492167ad28e950085ab1dd239a5181de86",
+    "identifiers_sha256": "bb2494c4bb0fe40dc1e95ded7afddf5450dfafd10c2ad83ed4530ac6ab5c1308",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -663,7 +661,9 @@
       "minecraft:yellow_shulker_box"
     ],
     "unresolved": [
-      "minecraft:soul_soil"
+      "minecraft:chalkboard",
+      "minecraft:soul_soil",
+      "minecraft:straw_bed"
     ]
   },
   "model_family_rules": [
@@ -1083,7 +1083,8 @@
       "fact": "render:AuthoredModel",
       "status": "verified",
       "members": [
-        "minecraft:shelf_mushroom"
+        "minecraft:shelf_mushroom",
+        "minecraft:straw_bed"
       ]
     },
     {
@@ -2119,6 +2120,9 @@
       "id": "block_entity_drawn-112",
       "fact": "BLOCK_ENTITY_DRAWN",
       "status": "provisional",
+      "exclude_members": [
+        "minecraft:straw_bed"
+      ],
       "model_family": [
         "Chest",
         "Bed",
@@ -3256,6 +3260,14 @@
       ]
     },
     {
+      "id": "render-stonecutter",
+      "fact": "render:Stonecutter",
+      "status": "provisional",
+      "members": [
+        "minecraft:stonecutter_block"
+      ]
+    },
+    {
       "id": "render-lever",
       "fact": "render:Lever",
       "status": "provisional",
@@ -3320,6 +3332,34 @@
       "status": "provisional",
       "members": [
         "minecraft:barrel"
+      ]
+    },
+    {
+      "id": "render-furnace",
+      "fact": "render:Furnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:furnace",
+        "minecraft:blast_furnace",
+        "minecraft:smoker"
+      ]
+    },
+    {
+      "id": "render-lit-furnace",
+      "fact": "render:LitFurnace",
+      "status": "provisional",
+      "members": [
+        "minecraft:lit_furnace",
+        "minecraft:lit_blast_furnace",
+        "minecraft:lit_smoker"
+      ]
+    },
+    {
+      "id": "render-facing-cube",
+      "fact": "render:FacingCube",
+      "status": "provisional",
+      "members": [
+        "minecraft:loom"
       ]
     },
     {
@@ -3847,6 +3887,43 @@
       "suffix": "hanging_sign"
     },
     {
+      "id": "render-leaf-litter",
+      "fact": "render:LeafLitter",
+      "status": "verified",
+      "members": [
+        "minecraft:leaf_litter"
+      ]
+    },
+    {
+      "id": "flat-icon-metal-bars",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "suffix": "_bars"
+    },
+    {
+      "id": "flat-icon-crystals-and-spikes",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:amethyst_cluster",
+        "minecraft:large_amethyst_bud",
+        "minecraft:medium_amethyst_bud",
+        "minecraft:small_amethyst_bud",
+        "minecraft:pointed_dripstone",
+        "minecraft:sulfur_spike"
+      ]
+    },
+    {
+      "id": "flat-icon-eggs-and-frogspawn",
+      "fact": "render_flag:flat_icon",
+      "status": "verified",
+      "members": [
+        "minecraft:turtle_egg",
+        "minecraft:sniffer_egg",
+        "minecraft:frog_spawn"
+      ]
+    },
+    {
       "id": "flat-icon-lantern",
       "fact": "render_flag:flat_icon",
       "status": "provisional",
@@ -3871,7 +3948,6 @@
       "members": [
         "minecraft:ladder",
         "minecraft:waterlily",
-        "minecraft:end_rod",
         "minecraft:sea_pickle",
         "minecraft:spore_blossom",
         "minecraft:bamboo",
@@ -4159,6 +4235,14 @@
       "members": [
         "minecraft:bamboo",
         "minecraft:bamboo_sapling"
+      ]
+    },
+    {
+      "id": "chalkboard-render",
+      "fact": "render:EntityDrawn",
+      "status": "provisional",
+      "members": [
+        "minecraft:chalkboard"
       ]
     }
   ],
@@ -5062,6 +5146,26 @@
   ],
   "entity_rules": [
     {
+      "id": "pick-radius-shulker",
+      "status": "verified",
+      "members": [
+        "minecraft:shulker"
+      ],
+      "facts": {
+        "pick_radius": 0.0
+      }
+    },
+    {
+      "id": "pick-radius-fireball",
+      "status": "verified",
+      "members": [
+        "minecraft:fireball"
+      ],
+      "facts": {
+        "pick_radius": 1.0
+      }
+    },
+    {
       "id": "entity-interactions-0",
       "status": "provisional",
       "members": [
@@ -5554,6 +5658,16 @@
       }
     },
     {
+      "id": "class-Sheep",
+      "status": "provisional",
+      "members": [
+        "minecraft:sheep"
+      ],
+      "facts": {
+        "native_class": "Sheep"
+      }
+    },
+    {
       "id": "class-SplashPotion",
       "status": "provisional",
       "members": [
@@ -5787,7 +5901,8 @@
       "id": "offset-boat",
       "status": "provisional",
       "members": [
-        "minecraft:boat"
+        "minecraft:boat",
+        "minecraft:chest_boat"
       ],
       "facts": {
         "network_y_offset": 0.375
@@ -5861,6 +5976,173 @@
       "facts": {
         "native_class": "AreaEffectCloud"
       }
+    },
+    {
+      "id": "component-use",
+      "status": "verified",
+      "members": [
+        "minecraft:bogged",
+        "minecraft:cow",
+        "minecraft:donkey",
+        "minecraft:drowned",
+        "minecraft:happy_ghast",
+        "minecraft:horse",
+        "minecraft:husk",
+        "minecraft:mule",
+        "minecraft:parched",
+        "minecraft:skeleton",
+        "minecraft:skeleton_horse",
+        "minecraft:stray",
+        "minecraft:wither_skeleton",
+        "minecraft:zombie",
+        "minecraft:zombie_horse"
+      ],
+      "facts": {
+        "actor_use_resolver": "Components"
+      }
+    },
+    {
+      "id": "prevent-default-use",
+      "status": "verified",
+      "members": [
+        "minecraft:armor_stand"
+      ],
+      "facts": {
+        "actor_use_resolver": "PreventDefault"
+      }
+    },
+    {
+      "id": "unresolved-use",
+      "status": "verified",
+      "members": [
+        "minecraft:agent",
+        "minecraft:allay",
+        "minecraft:area_effect_cloud",
+        "minecraft:armadillo",
+        "minecraft:arrow",
+        "minecraft:axolotl",
+        "minecraft:balloon",
+        "minecraft:bat",
+        "minecraft:bee",
+        "minecraft:blaze",
+        "minecraft:boat",
+        "minecraft:breeze",
+        "minecraft:breeze_wind_charge_projectile",
+        "minecraft:camel",
+        "minecraft:camel_husk",
+        "minecraft:cat",
+        "minecraft:cave_spider",
+        "minecraft:chalkboard",
+        "minecraft:chest_boat",
+        "minecraft:chest_minecart",
+        "minecraft:chicken",
+        "minecraft:cod",
+        "minecraft:command_block_minecart",
+        "minecraft:copper_golem",
+        "minecraft:creaking",
+        "minecraft:creeper",
+        "minecraft:cushion",
+        "minecraft:dolphin",
+        "minecraft:dragon_fireball",
+        "minecraft:egg",
+        "minecraft:elder_guardian",
+        "minecraft:elder_guardian_ghost",
+        "minecraft:ender_crystal",
+        "minecraft:ender_dragon",
+        "minecraft:ender_pearl",
+        "minecraft:enderman",
+        "minecraft:endermite",
+        "minecraft:evocation_fang",
+        "minecraft:evocation_illager",
+        "minecraft:eye_of_ender_signal",
+        "minecraft:falling_block",
+        "minecraft:fireball",
+        "minecraft:fireworks_rocket",
+        "minecraft:fishing_hook",
+        "minecraft:fox",
+        "minecraft:frog",
+        "minecraft:ghast",
+        "minecraft:glow_squid",
+        "minecraft:goat",
+        "minecraft:guardian",
+        "minecraft:hoglin",
+        "minecraft:hopper_minecart",
+        "minecraft:ice_bomb",
+        "minecraft:iron_golem",
+        "minecraft:item",
+        "minecraft:leash_knot",
+        "minecraft:lightning_bolt",
+        "minecraft:lingering_potion",
+        "minecraft:llama",
+        "minecraft:llama_spit",
+        "minecraft:magma_cube",
+        "minecraft:minecart",
+        "minecraft:mooshroom",
+        "minecraft:moving_block",
+        "minecraft:nautilus",
+        "minecraft:npc",
+        "minecraft:ocelot",
+        "minecraft:ominous_item_spawner",
+        "minecraft:painting",
+        "minecraft:panda",
+        "minecraft:parrot",
+        "minecraft:phantom",
+        "minecraft:pig",
+        "minecraft:piglin",
+        "minecraft:piglin_brute",
+        "minecraft:pillager",
+        "minecraft:player",
+        "minecraft:polar_bear",
+        "minecraft:pufferfish",
+        "minecraft:rabbit",
+        "minecraft:ravager",
+        "minecraft:salmon",
+        "minecraft:sheep",
+        "minecraft:shield",
+        "minecraft:shulker",
+        "minecraft:shulker_bullet",
+        "minecraft:silverfish",
+        "minecraft:slime",
+        "minecraft:small_fireball",
+        "minecraft:sniffer",
+        "minecraft:snow_golem",
+        "minecraft:snowball",
+        "minecraft:spider",
+        "minecraft:splash_potion",
+        "minecraft:squid",
+        "minecraft:strider",
+        "minecraft:sulfur_cube",
+        "minecraft:tadpole",
+        "minecraft:thrown_trident",
+        "minecraft:tnt",
+        "minecraft:tnt_minecart",
+        "minecraft:trader_llama",
+        "minecraft:tripod_camera",
+        "minecraft:tropicalfish",
+        "minecraft:turtle",
+        "minecraft:vex",
+        "minecraft:villager",
+        "minecraft:villager_v2",
+        "minecraft:vindicator",
+        "minecraft:wandering_trader",
+        "minecraft:warden",
+        "minecraft:wind_charge_projectile",
+        "minecraft:witch",
+        "minecraft:wither",
+        "minecraft:wither_skull",
+        "minecraft:wither_skull_dangerous",
+        "minecraft:wolf",
+        "minecraft:xp_bottle",
+        "minecraft:xp_orb",
+        "minecraft:zoglin",
+        "minecraft:zombie_nautilus",
+        "minecraft:zombie_pigman",
+        "minecraft:zombie_villager",
+        "minecraft:zombie_villager_v2"
+      ],
+      "facts": {
+        "actor_use_resolver": "Unresolved"
+      }
     }
   ],
   "block_entity_rules": [
@@ -5913,6 +6195,9 @@
         "geometry": "invisible_or_diagnostic"
       },
       "family": "Bed",
+      "exclude_members": [
+        "minecraft:straw_bed"
+      ],
       "status": "verified"
     },
     {
@@ -6348,6 +6633,19 @@
         "minecraft:vault"
       ],
       "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "ChalkboardBlock",
+        "route": "model",
+        "renderer": "chalkboard",
+        "diagnostic": "deferred",
+        "geometry": "invisible_or_diagnostic"
+      },
+      "members": [
+        "minecraft:chalkboard"
+      ],
+      "status": "provisional"
     }
   ],
   "visual_events": {
@@ -6667,9 +6965,16 @@
       "Portal": "minecraft:portal",
       "EndPortal": "minecraft:end_portal",
       "EndGateway": "minecraft:end_gateway",
-      "EndPortalFrame": "minecraft:end_portal_frame"
+      "EndPortalFrame": "minecraft:end_portal_frame",
+      "EmeraldBlock": "minecraft:emerald_block",
+      "GoldBlock": "minecraft:gold_block",
+      "DiamondBlock": "minecraft:diamond_block",
+      "IronBlock": "minecraft:iron_block",
+      "NetheriteBlock": "minecraft:netherite_block"
     },
     "VanillaEntity": {
+      "Boat": "minecraft:boat",
+      "ChestBoat": "minecraft:chest_boat",
       "Player": "minecraft:player"
     }
   },
@@ -6763,7 +7068,8 @@
       "GrassSide": "grass_side",
       "MyceliumSide": "mycelium_side",
       "ResinClump": "resin_clump",
-      "PowderSnow": "powder_snow"
+      "PowderSnow": "powder_snow",
+      "StrawBed": "straw_bed"
     },
     "alpha_textures": [
       "BambooFenceGate",
@@ -6784,7 +7090,16 @@
       "Dirt": "minecraft:dirt",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
-      "Stone": "minecraft:stone"
+      "Stone": "minecraft:stone",
+      "HeavyCore": "minecraft:heavy_core",
+      "Crafter": "minecraft:crafter",
+      "DriedGhast": "minecraft:dried_ghast",
+      "SculkSensor": "minecraft:sculk_sensor",
+      "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
+      "SculkShrieker": "minecraft:sculk_shrieker",
+      "BigDripleaf": "minecraft:big_dripleaf",
+      "SmallDripleaf": "minecraft:small_dripleaf_block",
+      "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {
       "door_lower": "Door",
@@ -6881,10 +7196,14 @@
         "path": "textures/blocks/sulfur"
       }
     ],
+    "default_item_tints": {
+      "minecraft:firework_star": [0, 0, 0]
+    },
     "item_visuals": {
       "minecraft:banner": "BlockModel",
       "minecraft:bed": "Sprite",
-      "minecraft:nether_wart": "Sprite"
+      "minecraft:nether_wart": "Sprite",
+      "minecraft:straw_bed": "Sprite"
     },
     "alias_cubes": {
       "minecraft:bone_block": {
@@ -6944,6 +7263,9 @@
       "flattened_tnt_side": "textures/blocks/tnt_side",
       "flattened_tnt_top": "textures/blocks/tnt_top"
     },
-    "empty_hand": "Air"
+    "empty_hand": "Air",
+    "omitted_render_controllers": {
+      "controller.render.iron_golem": "controller.render.default"
+    }
   }
 }

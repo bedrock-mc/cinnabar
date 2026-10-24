@@ -257,11 +257,23 @@ pub fn flush_player_auth_inputs_guarded<E>(
                     sample.snapshot,
                     &protocol::PlayerAuthInputInteractions::default(),
                 )?;
-                Ok::<_, PlayerAuthInputError>(InteractionPacketGuard::new(
+                let mut guard = InteractionPacketGuard::new(
                     *publisher.borrow(),
                     publisher.subscribe(),
                     movement_packet,
-                ))
+                );
+                if let Some(action) = sample
+                    .mining
+                    .as_ref()
+                    .and_then(|mining| mining.creative_destroy)
+                {
+                    guard = guard.with_preceding_packet(protocol::creative_destroy_block_packet(
+                        action.local_runtime_id,
+                        action.position,
+                        action.face,
+                    ));
+                }
+                Ok::<_, PlayerAuthInputError>(guard)
             })
             .transpose()
             .map_err(MovementSendError::Encode)?;
@@ -686,21 +698,43 @@ impl MovementTicker {
         else {
             return false;
         };
+        let creative_destroy = payload.creative_destroy;
         let (interactions, mining_request) = payload.into_interactions(sample.snapshot.position);
         sample.mining = Some(crate::mining::QueuedMiningInteraction {
+            creative_destroy,
             interactions,
             mining_request,
         });
         true
     }
 
+    /// Identifies the interactions that remain valid: a session change or a reanchor that
+    /// revokes queued block actions starts a new identity, while a replayed correction keeps it.
     pub const fn interaction_authority_identity(
+        &self,
+    ) -> (SessionGeneration, PositionAuthorityGeneration) {
+        (
+            SessionGeneration::new(self.session_generation),
+            self.interaction_epoch,
+        )
+    }
+
+    /// Identifies geometry such as eye rays and picks: every reanchor, including a replayed
+    /// correction that moves the player, retires geometry captured before it.
+    pub const fn position_authority_identity(
         &self,
     ) -> (SessionGeneration, PositionAuthorityGeneration) {
         (
             SessionGeneration::new(self.session_generation),
             self.reanchor_epoch,
         )
+    }
+
+    /// Whether interactions only wait for inputs written before a position-authority change.
+    pub fn settling_position_authority(&self) -> bool {
+        self.physics_is_authorized()
+            && !self.terminal_drain
+            && self.has_unresolved_position_authority_change()
     }
 
     /// Drops every unsent block interaction and revokes admitted ones.
@@ -715,22 +749,29 @@ impl MovementTicker {
             .for_each(|pending| pending.sample.mining = None);
     }
 
-    /// A correction revokes in-flight interactions but keeps the player's pending action flags.
-    pub(super) fn correction_authority_changed(&mut self) {
+    /// A correction keeps the player's pending action flags. A snap revokes in-flight
+    /// interactions; a replay keeps them unless it drops a tick that carried or awaits one.
+    pub(super) fn correction_authority_changed(&mut self, revoke_interactions: bool) {
         let flags = self.take_next_tick_flags();
         let discarded_facing = self
             .held_release
             .as_ref()
             .is_some_and(|held| !held.facing_sent && held.tick == self.next_tick);
         let rotation = self.next_tick_rotation.take().filter(|_| !discarded_facing);
-        self.position_authority_changed();
+        self.reanchor_position_authority(revoke_interactions);
         self.next_tick_flags = flags;
         self.next_tick_rotation = rotation;
     }
 
-    /// Invalidates every transport-owned sample after a position-authority
-    /// change and publishes the new epoch atomically with that invalidation.
+    /// Invalidates every transport-owned sample and queued interaction after a
+    /// position-authority change.
     pub(super) fn position_authority_changed(&mut self) {
+        self.reanchor_position_authority(true);
+    }
+
+    /// Publishes a new transport epoch atomically with sample invalidation. Revoking
+    /// interactions also starts a new interaction identity, which resets their owners.
+    fn reanchor_position_authority(&mut self, revoke_interactions: bool) {
         self.next_tick_flags = protocol::PlayerInputFlags::NONE;
         self.next_tick_rotation = None;
         self.reanchor_epoch = self.reanchor_epoch.next();
@@ -742,8 +783,11 @@ impl MovementTicker {
                 true
             }
         });
-        // The destroy machine observes the new identity and resets.
-        self.invalidate_mining();
+        if revoke_interactions {
+            // The destroy machine observes the new identity and resets.
+            self.interaction_epoch = self.interaction_epoch.next();
+            self.invalidate_mining();
+        }
         // A release whose facing never reached the socket must not launch without it.
         if self
             .held_release

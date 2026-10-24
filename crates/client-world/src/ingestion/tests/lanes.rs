@@ -22,10 +22,36 @@ fn actor_move(runtime_id: u64) -> WorldEvent {
         head_yaw: None,
         on_ground: None,
         teleported: false,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: Default::default(),
     }))
+}
+
+#[test]
+fn marked_local_actor_moves_share_the_spatial_control_lane() {
+    for runtime_id in [1, 2] {
+        for (teleported, force_local_move) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let WorldEvent::Actor(ActorEvent::Move(mut movement)) = actor_move(runtime_id) else {
+                panic!("move")
+            };
+            movement.teleported = teleported;
+            movement.force_local_move = force_local_move;
+            let footprint = classify(&WorldEvent::Actor(ActorEvent::Move(movement)), CONTEXT);
+            let local_control =
+                runtime_id == CONTEXT.local_runtime_id && (teleported || force_local_move);
+            assert_eq!(
+                footprint.consumers.contains(Consumers::CONTROLS),
+                local_control
+            );
+            assert!(footprint.consumers.contains(Consumers::ACTORS));
+            assert_eq!(footprint.positional, local_control);
+            assert_eq!(footprint.local_authority, local_control);
+        }
+    }
 }
 
 fn chat() -> WorldEvent {

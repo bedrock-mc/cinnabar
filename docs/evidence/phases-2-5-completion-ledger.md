@@ -24,6 +24,9 @@ The local rig retains animation flags separately from gameplay metadata. Visual
 item use and locomotion poses no longer author correction-sync flag words.
 Rendering consumers read the separate animation state. Accepted local held-use and
 glide/swim/crawl projection, replay authority and send-phase parity remain open.
+Player death also changes presentation flags once after its visible sequence,
+retaining the actor and accepting later server visibility updates. Deterministic
+death, revival and removal coverage does not establish original Zeqa acceptance.
 
 ## Correction-sync posture retries
 
@@ -133,8 +136,14 @@ this storage change advances no rendered, live-join or broader parity completion
 Startup carrier selection, bounded decoding, validation and fallbacks now belong to
 `assets::carriers::startup`. App adapters retain renderer and pack publication, Bevy resources,
 load timing and fatal startup handling. Carrier regressions move with their owner;
-app composition coverage remains in `app`. This move adds no compilation, execution
-or live evidence, and all behavior and performance gates retain their status.
+app composition coverage remains in `app`. Launch diagnostics now retain the first
+GPU-completed menu presentation and bounded main/render startup samples. Menu launches
+prepare world carriers, collision bindings and static GUI item sources after menu
+completion, with joins gated on the complete bundle. Terrain compute construction runs
+on workers. Pipeline warmup ordering, launch benchmarking and delayed feedback have
+deterministic coverage; reference-hardware startup budgets and persistent shader-cache
+reuse remain unqualified.
+All behavior and performance gates retain their status.
 
 End-rod terrain coverage now includes the six facing states, separate shaft/base sprite
 mapping and an original-art GPU fixture. This bounded geometry correction leaves the
@@ -321,6 +330,13 @@ and exact native and platform comparison remain open.
 
 ## P4.3-RIGS
 
+Body-slot equipment retention, authored model selection and removal have original
+fixture coverage, alongside startup binding completion and raw worn-slot counting.
+Resource-only session overrides reuse completed bindings without replacing authored
+item conditions; expression-root placement retains the worn slot.
+Local counts use the armor container; replicated counts retain unresolved equipment.
+Multi-pass body equipment and matched native visual qualification remain open.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | `plan.md`: local custom models; static imports reuse actor preparation. |
@@ -453,13 +469,14 @@ tooltip controls. Native command-edit acceptance and broader JSON-UI parity rema
 
 Custom block mining retains component defaults, disabled values, ordered item
 overrides and resolved state permutations in both runtime identity spaces.
-Discarded mining data stays unresolved through state merging. Item-tag filters
+Every admitted state resolves a mining value: malformed item entries never match,
+and conditions the client reads as zero keep the base value. Item-tag filters
 compile during session preparation and reuse those programs without allocating.
-Mining uncertainty does not prevent prediction with known physical bounds.
-Mining state storage and admission are independent of the physical state budget.
+Mining state storage is independent of the physical state budget.
 Regression tests cover component decoding, progress rates and completion packets.
-Complex item-tag scripts and live custom-block acceptance remain incomplete;
-this does not advance the interaction completion gate.
+Complex Molang conditions and item-tag scripts read as zero, and live acceptance
+against a vanilla server remains incomplete; this does not advance the
+interaction completion gate.
 
 Ordered desktop interactions now attempt each edge only in its input frame.
 Refused presses retain no proposal or movement reservation. Gameplay owners retain
@@ -651,12 +668,15 @@ executed locally. No existing completion entry is advanced.
 
 The shared backend policy, driver blocklist, crash sentinel and restart-only Video override
 are implemented. GL/GLES is absent from choices and candidates; older saved GL choices read
-as Auto. Android requires Vulkan. Failed saved Video choices retry Auto for the current launch,
-while WGPU_BACKEND stays strict. Each API is enumerated under its own sentinel before eligible adapters are
-ranked by power preference, device type and vendor backend order, with unclassified hardware
+as Auto. Android requires Vulkan. A saved Video choice that fails, or that crashed an earlier
+startup under the same setting, retries Auto without that API for the current launch and opens a
+menu notice naming both APIs and the reason, while WGPU_BACKEND stays strict. The startup log
+states the requested API, the API in use and why. Each API is enumerated under its own sentinel before eligible adapters are
+ranked by power preference, device type and platform backend order (Windows: DX12, then Vulkan, for every GPU vendor), with unclassified hardware
 ahead of software. Device failures advance through all candidates;
 named GPU selection restricts every API. Exclusions are keyed only by backend and reset on a
-client version change or Graphics API selection, including choosing Auto again. Exhausted candidates permit one retry
+client version change or selecting Auto, including choosing it again; an explicit selection keeps
+them for its Auto fallback. Exhausted candidates permit one retry
 pass with exclusions cleared. Startup log boundaries synchronize only the file sink.
 Candidate filtering requires base-vertex terrain draws, vertex and fragment storage, alternate
 texture views, non-power-of-two mipmaps, sample-rate shading, unaligned buffer bindings and
@@ -673,6 +693,8 @@ Registry generation now supplies the shared backing and renderer table used by
 block-entity admission, spawner displays, portal scans and visual diagnostics.
 Unsupported and provisional routes remain explicit. This changes no completion
 status; the remaining renderer and live acceptance gates stay open in `plan.md`.
+Chalkboards retain supplied model geometry and world artwork; text and native visual
+acceptance remain incomplete, and no completion status advances.
 
 Retained mod drawing has authority and lifetime contracts. Geometry admission validates
 vertices once and caches extent and quota facts for every shared instance and callback

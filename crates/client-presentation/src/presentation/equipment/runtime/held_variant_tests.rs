@@ -159,6 +159,7 @@ fn owner_context_held_enchantments_select_geometry_without_changing_intrinsic_gl
                     ticks: Some(32),
                     ..Default::default()
                 },
+                false,
             )
             .unwrap();
             let input = ActorEquipmentInput {

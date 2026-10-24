@@ -18,6 +18,7 @@ pub enum BlockEntityRenderer {
     Shulker,
     Skull,
     Bed,
+    Chalkboard,
     Banner,
     Sign,
     EnchantTable,

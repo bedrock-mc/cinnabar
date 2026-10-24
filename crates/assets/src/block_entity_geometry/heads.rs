@@ -10,6 +10,27 @@ use super::{
 };
 use crate::{EntityGeometry, EntityGeometryBone, EntityGeometryCube, EntityGeometryUv};
 
+/// Entity geometry identifiers for standing, sitting, star and running statue poses.
+pub const STATUE_GEOMETRIES: [&str; 4] = [
+    "geometry.copper_golem",
+    "geometry.copper_golem.sitting",
+    "geometry.copper_golem.star",
+    "geometry.copper_golem.running",
+];
+
+/// The body and eye textures shared by placed and carried copper golem statues.
+#[must_use]
+pub fn statue_textures(age: crate::facts::CopperAge) -> [String; 2] {
+    use crate::facts::CopperAge;
+    let suffix = match age {
+        CopperAge::Unaffected => "",
+        CopperAge::Exposed => "_exposed",
+        CopperAge::Weathered => "_weathered",
+        CopperAge::Oxidized => "_oxidized",
+    };
+    ["", "_eyes"].map(|layer| format!("textures/entity/copper_golem/copper_golem{layer}{suffix}"))
+}
+
 /// One box with the transform that places it in the model frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeadBox {
@@ -167,7 +188,8 @@ fn cube_box(cube: &EntityGeometryCube) -> Option<(BoxSpec, Mat4)> {
         [sx, sy, sz],
         uv.map(|value| value.get()),
     )
-    .inflated(cube.inflate.get());
+    .inflated(cube.inflate.get())
+    .mirrored(cube.mirror);
     let rotation = values(cube.rotation);
     let local = if rotation == [0.0; 3] {
         Mat4::IDENTITY
@@ -372,6 +394,39 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn mirrored_head_boxes_keep_authored_texels_and_outward_winding() {
+        let mut cube = cube([2.0, 7.0, 1.0], [3.0, 5.0, 2.0]);
+        cube.uv = EntityGeometryUv::Box([scalar(1.0), scalar(2.0)]);
+        cube.mirror = true;
+        let model = HeadModel::build_tree(
+            &geometry(vec![bone("head", None, vec![cube])]),
+            Some("head"),
+            1.0,
+            false,
+        )
+        .unwrap();
+        let faces = model.boxes[0].faces();
+        let (corners, [u, v, width, height]) = faces[0];
+        let uv = [
+            [u, v],
+            [u + width, v],
+            [u + width, v + height],
+            [u, v + height],
+        ];
+        let index = corners
+            .iter()
+            .position(|point| *point == [-5.0, 12.0, 1.0])
+            .unwrap();
+        assert_eq!(uv[index], [3.0, 4.0]);
+        for (corners, _) in faces {
+            let [a, b, c, _] = corners.map(Vec3::from_array);
+            let normal = (c - a).cross(b - a).normalize();
+            let center = Vec3::new(-3.5, 9.5, 2.0);
+            assert!(normal.dot(a - center) > 0.0);
+        }
     }
 
     #[test]

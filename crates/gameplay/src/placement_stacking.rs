@@ -22,7 +22,7 @@ pub(crate) fn stacked_placement_state(
     {
         let count =
             crate::placement_state::value(existing_states, P::ClusterCount.name())?.as_u64()?;
-        if count >= crate::placement_state::maximum(P::ClusterCount)? {
+        if count >= crate::placement_state::maximum(existing_fact, P::ClusterCount)? {
             return None;
         }
         let mut states = existing_states.clone();
@@ -41,7 +41,7 @@ pub(crate) fn stacked_placement_state(
         && crate::placement_state::only_keys(existing_states, &[P::Candles.name(), P::Lit.name()])
     {
         let count = crate::placement_state::value(existing_states, P::Candles.name())?.as_u64()?;
-        if count >= crate::placement_state::maximum(P::Candles)? {
+        if count >= crate::placement_state::maximum(existing_fact, P::Candles)? {
             return None;
         }
         let mut states = existing_states.clone();
@@ -83,7 +83,7 @@ pub(crate) fn stacked_placement_state(
         .get(P::Height.name())?
         .get("value")?
         .as_u64()?;
-    if height >= crate::placement_state::maximum(P::Height)? {
+    if height >= crate::placement_state::maximum(existing_fact, P::Height)? {
         return None;
     }
     let mut states = existing_states.clone();

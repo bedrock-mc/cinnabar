@@ -41,7 +41,7 @@ pub struct PlayerState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) collision_shape: Option<CollisionShape>,
     /// Fall distance after the previous tick, which this tick's powder snow
-    /// collision reads. Corrections restore it with the retained tick.
+    /// collision reads. Replay restores it in history without replacing the live value.
     #[serde(default, skip_serializing_if = "is_zero_distance")]
     pub(super) fall_distance: f32,
     /// Block-climber contact measured after the previous tick's move, which
@@ -103,6 +103,31 @@ impl PlayerState {
     #[must_use]
     pub const fn fall_distance(&self) -> f32 {
         self.fall_distance
+    }
+
+    /// Clears accumulated falling when a movement action starts or stops flight.
+    pub fn clear_fall_distance(&mut self) {
+        self.fall_distance = 0.0;
+    }
+
+    /// Keeps the live fall distance when a spatial correction replaces movement state.
+    pub fn keep_fall_distance(&mut self, previous: &Self) {
+        self.fall_distance = previous.fall_distance;
+    }
+
+    /// Adopts changed actor contact flags before the next local action and scan.
+    pub fn update_climber_contact(
+        &mut self,
+        inside: Option<bool>,
+        over: Option<bool>,
+        ascending: Option<bool>,
+        over_descending: Option<bool>,
+    ) {
+        let contact = self.climber.get_or_insert_default();
+        contact.inside = inside.unwrap_or(contact.inside);
+        contact.over = over.unwrap_or(contact.over);
+        contact.ascending = ascending.unwrap_or(contact.ascending);
+        contact.over_descending = over_descending.unwrap_or(contact.over_descending);
     }
 
     /// Keeps `previous`'s block-climber contact through a spatial reset, as
