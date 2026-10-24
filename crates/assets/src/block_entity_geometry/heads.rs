@@ -10,6 +10,27 @@ use super::{
 };
 use crate::{EntityGeometry, EntityGeometryBone, EntityGeometryCube, EntityGeometryUv};
 
+/// Entity geometry identifiers for standing, sitting, star and running statue poses.
+pub const STATUE_GEOMETRIES: [&str; 4] = [
+    "geometry.copper_golem",
+    "geometry.copper_golem.sitting",
+    "geometry.copper_golem.star",
+    "geometry.copper_golem.running",
+];
+
+/// The body and eye textures shared by placed and carried copper golem statues.
+#[must_use]
+pub fn statue_textures(age: crate::facts::CopperAge) -> [String; 2] {
+    use crate::facts::CopperAge;
+    let suffix = match age {
+        CopperAge::Unaffected => "",
+        CopperAge::Exposed => "_exposed",
+        CopperAge::Weathered => "_weathered",
+        CopperAge::Oxidized => "_oxidized",
+    };
+    ["", "_eyes"].map(|layer| format!("textures/entity/copper_golem/copper_golem{layer}{suffix}"))
+}
+
 /// One box with the transform that places it in the model frame.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeadBox {
