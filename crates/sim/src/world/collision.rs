@@ -4,6 +4,8 @@ use super::{section::SectionCache, *};
 const UNLOADED_BOUNDARY_REVISION: u64 = 0;
 // Extend beyond valid i32 coordinates so f32-rounded queries overlap at both limits.
 const UNLOADED_BOUNDARY_VERTICAL_LIMIT: f64 = -(i32::MIN as f64) * 2.0;
+/// Blocks between a dimension's lowest block row and the top of the floor beneath it.
+const DIMENSION_FLOOR_DEPTH: i32 = 40;
 
 impl<'a> PaletteWorld<'a> {
     /// Keeps anchors in absent terrain blocked until their own feet region arrives.
@@ -72,6 +74,31 @@ impl<'a> PaletteWorld<'a> {
         }
     }
 
+    /// Emits the solid floor under the dimension. Like vanilla, it only exists for queries
+    /// whose top is below the dimension's lowest block row, spans the query's horizontal
+    /// extent and ends [`DIMENSION_FLOOR_DEPTH`] blocks under that row.
+    fn emit_dimension_floor(&self, query: Aabb, emit: &mut impl FnMut(CollisionInstance)) {
+        let Some(bottom) = self.dimension_bottom else {
+            return;
+        };
+        if query.max.y >= f64::from(bottom) {
+            return;
+        }
+        let top = f64::from(bottom) - f64::from(DIMENSION_FLOOR_DEPTH);
+        let shape = Aabb::new(
+            Vec3::new(query.min.x, -UNLOADED_BOUNDARY_VERTICAL_LIMIT, query.min.z),
+            Vec3::new(query.max.x, top, query.max.z),
+        );
+        if shape.intersects(query) {
+            emit(CollisionInstance {
+                shape,
+                block: None,
+                runtime_id: None,
+                cell_has_scaffolding: None,
+            });
+        }
+    }
+
     /// Shared emission core behind both public collision surfaces so their
     /// outputs structurally cannot diverge: one translated registry shape
     /// instance per (block, layer, shape) triple in block-scan order, each
@@ -95,6 +122,7 @@ impl<'a> PaletteWorld<'a> {
         let identity = self.identity_for_chunks(chunks.iter().copied())?;
 
         self.emit_unloaded_boundary_instances(query, &chunks, &mut *emit);
+        self.emit_dimension_floor(query, &mut *emit);
         let mut section = SectionCache::default();
         // Consecutive scan columns share a chunk column; check its boundary state once.
         let mut column: Option<(ChunkKey, bool)> = None;
@@ -176,6 +204,71 @@ mod tests {
         let mut store = ChunkStore::new();
         store.mark_chunk_loaded(ChunkKey::new(0, 0, 0)).unwrap();
         (store, registry)
+    }
+
+    /// The overworld's lowest block row, which puts its floor top at Y -104.
+    const OVERWORLD_BOTTOM: i32 = -64;
+
+    #[test]
+    fn dimension_floor_spans_queries_entirely_below_the_dimension() {
+        let (store, registry) = terrain();
+        let world =
+            PaletteWorld::for_movement(&store, &registry, 0).with_dimension_floor(OVERWORLD_BOTTOM);
+        let query = Aabb::new(Vec3::new(7.7, -104.5, 7.7), Vec3::new(8.3, -102.7, 8.3));
+        let boxes = world.collision_boxes(query).unwrap();
+        assert_eq!(boxes.value.len(), 1);
+        let floor = boxes.value[0];
+        assert_eq!(floor.max.y, -104.0);
+        assert_eq!([floor.min.x, floor.min.z], [query.min.x, query.min.z]);
+        assert_eq!([floor.max.x, floor.max.z], [query.max.x, query.max.z]);
+        assert!(floor.min.y <= COLLISION_QUERY_COORDINATE_RANGE[0]);
+        let provenance = world.collision_boxes_with_provenance(query).unwrap();
+        assert_eq!(provenance.value[0].block, None);
+        assert_eq!(provenance.value[0].runtime_id, None);
+        assert_eq!(
+            world.snapshot().unwrap().collision_boxes(query).unwrap(),
+            boxes
+        );
+    }
+
+    #[test]
+    fn dimension_floor_is_absent_when_the_query_reaches_the_dimension_or_no_floor_is_set() {
+        let (store, registry) = terrain();
+        let floored =
+            PaletteWorld::for_movement(&store, &registry, 0).with_dimension_floor(OVERWORLD_BOTTOM);
+        let reaching = Aabb::new(Vec3::new(7.7, -110.0, 7.7), Vec3::new(8.3, -64.0, 8.3));
+        assert!(floored.collision_boxes(reaching).unwrap().value.is_empty());
+        let below = Aabb::new(Vec3::new(7.7, -104.5, 7.7), Vec3::new(8.3, -102.7, 8.3));
+        let unfloored = PaletteWorld::for_movement(&store, &registry, 0);
+        assert!(unfloored.collision_boxes(below).unwrap().value.is_empty());
+        assert!(
+            unfloored
+                .snapshot()
+                .unwrap()
+                .collision_boxes(below)
+                .unwrap()
+                .value
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn falling_players_land_on_the_floor_forty_blocks_below_the_dimension() {
+        let (store, registry) = terrain();
+        let world =
+            PaletteWorld::for_movement(&store, &registry, 0).with_dimension_floor(OVERWORLD_BOTTOM);
+        let mut state = PlayerState::new(Vec3::new(8.0, -103.9, 8.0));
+        state.velocity.y = -0.5;
+        let result = Simulator::default()
+            .tick(
+                &mut state,
+                MovementInput::default(),
+                &world.snapshot().unwrap(),
+            )
+            .unwrap();
+        assert!(result.on_ground);
+        assert!(result.collisions.y);
+        assert_eq!(state.position.y, -104.0);
     }
 
     #[test]

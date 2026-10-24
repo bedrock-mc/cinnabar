@@ -641,6 +641,7 @@ pub struct PaletteWorld<'a> {
     dimension: i32,
     unloaded_collision_barriers: bool,
     actor_colliders: Option<std::sync::Arc<[Aabb]>>,
+    dimension_bottom: Option<i32>,
 }
 
 /// One internal collision instance before projection onto the public
@@ -678,6 +679,7 @@ impl<'a> PaletteWorld<'a> {
             dimension,
             unloaded_collision_barriers: false,
             actor_colliders: None,
+            dimension_bottom: None,
         }
     }
 
@@ -685,6 +687,14 @@ impl<'a> PaletteWorld<'a> {
     #[must_use]
     pub fn with_actor_colliders(mut self, colliders: impl Into<std::sync::Arc<[Aabb]>>) -> Self {
         self.actor_colliders = Some(colliders.into());
+        self
+    }
+
+    /// Adds the solid floor under the dimension whose lowest block row is `bottom`, and retains
+    /// it in prediction snapshots. Without it, terrain below the dimension has no floor.
+    #[must_use]
+    pub fn with_dimension_floor(mut self, bottom: i32) -> Self {
+        self.dimension_bottom = Some(bottom);
         self
     }
 

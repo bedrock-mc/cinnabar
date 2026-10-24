@@ -13,6 +13,7 @@ struct SnapshotData {
     dimension: i32,
     unloaded_collision_barriers: bool,
     actor_colliders: Option<Arc<[Aabb]>>,
+    dimension_bottom: Option<i32>,
 }
 
 impl PartialEq for CollisionSnapshot {
@@ -30,6 +31,7 @@ impl CollisionSnapshot {
             dimension: world.dimension,
             unloaded_collision_barriers: world.unloaded_collision_barriers,
             actor_colliders: world.actor_colliders.clone(),
+            dimension_bottom: world.dimension_bottom,
         }))
     }
 
@@ -43,6 +45,7 @@ impl CollisionSnapshot {
         );
         world.unloaded_collision_barriers = self.0.unloaded_collision_barriers;
         world.actor_colliders = self.0.actor_colliders.clone();
+        world.dimension_bottom = self.0.dimension_bottom;
         world
     }
 }
