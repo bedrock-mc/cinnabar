@@ -21,7 +21,7 @@ mod tiles;
 
 pub use budget::SummaryBudget;
 pub use cache::{FarTerrainCache, RetiringSession};
-pub use disk::{DiskBounds, DiskCache, DiskEvent};
+pub use disk::{DiskBounds, DiskCache, DiskEvent, ResolutionIntent};
 pub use identity::{NamespaceKey, ServerKey, WorldKey, surface_similarity};
 pub use publication::{TerrainPublication, TerrainTarget};
 pub use region::{

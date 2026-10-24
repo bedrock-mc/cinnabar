@@ -129,7 +129,7 @@ fn empty_events_obey_the_event_limit() {
     );
     let disk = cache.disk.as_ref().unwrap();
     for x in 0..CACHE_EVENTS_PER_UPDATE + 10 {
-        disk.load(namespace, RegionPos { x: x as i32, z: 0 });
+        assert!(disk.write(namespace, RegionPos { x: x as i32, z: 0 }, Vec::new()));
     }
     disk.sync();
     cache.poll(Instant::now());

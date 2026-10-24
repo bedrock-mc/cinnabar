@@ -111,7 +111,33 @@ impl CompileCache {
     /// Returns the stored payload, or `None` for a miss; a damaged entry is deleted.
     pub fn load(&self, key: &[u8; 32]) -> Option<Vec<u8>> {
         let path = self.entry(key);
-        let bytes = fs::read(&path).ok()?;
+        let mut file = fs::File::open(&path).ok()?;
+        let physical = file.metadata().ok()?.len();
+        let mut bytes = vec![0; HEADER];
+        let admitted = physical <= self.max_bytes
+            && file.read_exact(&mut bytes).is_ok()
+            && bytes[..KEY_OFFSET] == MAGIC
+            && bytes[KEY_OFFSET..LENGTH_OFFSET] == key[..]
+            && u64::from_le_bytes(
+                bytes[LENGTH_OFFSET..DECODED_LENGTH_OFFSET]
+                    .try_into()
+                    .ok()?,
+            )
+            .checked_add((HEADER + HASH) as u64)
+                == Some(physical)
+            && u64::from_le_bytes(bytes[DECODED_LENGTH_OFFSET..HEADER].try_into().ok()?)
+                <= self.max_bytes;
+        if !admitted {
+            let _ = fs::remove_file(&path);
+            return None;
+        }
+        file.take(
+            self.max_bytes
+                .saturating_sub(HEADER as u64)
+                .saturating_add(1),
+        )
+        .read_to_end(&mut bytes)
+        .ok()?;
         if !valid(&bytes, key) {
             tracing::warn!(path = %path.display(), "discarding a damaged compile cache entry");
             let _ = fs::remove_file(&path);
@@ -124,6 +150,9 @@ impl CompileCache {
             .and_then(|file| file.set_modified(SystemTime::now()));
         let compressed = &bytes[HEADER..bytes.len() - HASH];
         let length = u64::from_le_bytes(bytes[DECODED_LENGTH_OFFSET..HEADER].try_into().ok()?);
+        if length > self.max_bytes {
+            return None;
+        }
         let mut decoder = flate2::read::DeflateDecoder::new(compressed);
         let mut payload = Vec::new();
         payload
@@ -145,6 +174,9 @@ impl CompileCache {
 
     /// Writes the entry atomically, then evicts the least recently used past the size bound.
     pub fn store(&self, key: &[u8; 32], payload: &[u8]) {
+        if payload.len() as u64 > self.max_bytes {
+            return;
+        }
         let mut encoder =
             flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
         if encoder.write_all(payload).is_err() {

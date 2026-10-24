@@ -15,16 +15,20 @@ use crate::{
     ColumnPos, ColumnSummary, EncodedSummary, FarTerrainConfig, NamespaceKey, ServerKey,
     SummaryBudget, SummaryStore, Versioned, WorldKey,
     config::{
-        MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER, REGION_FLUSH_COLUMNS, WORLD_DIVERGED_COLUMNS,
-        WORLD_PROBE_COLUMNS, WORLD_PROBE_SIMILARITY, WORLD_PROBE_TIMEOUT, WORLD_VERIFY_COLUMNS,
+        MAX_PENDING_WRITE_REGIONS, MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER,
+        REGION_FLUSH_COLUMNS, WORLD_DIVERGED_COLUMNS, WORLD_PROBE_COLUMNS, WORLD_PROBE_SIMILARITY,
+        WORLD_PROBE_TIMEOUT, WORLD_VERIFY_COLUMNS,
     },
-    disk::{DiskBounds, DiskCache},
+    disk::{DiskBounds, DiskCache, ResolutionIntent},
     identity::surface_similarity,
     region::{REGION_SIDE, RegionPos, region_index},
 };
 
 mod completion;
 use completion::PendingEvent;
+
+#[cfg(test)]
+mod admission_tests;
 
 #[derive(Debug)]
 struct DirtyRegion {
@@ -36,23 +40,37 @@ struct DirtyRegion {
 /// A world just left, which late summaries still reach.
 enum Retired {
     Resolved(NamespaceKey),
-    /// Left before its namespace resolved; late columns are written by resolving with its
-    /// probes on the IO thread.
+    /// Keeps the identity decision for a visit left before the worker resolved its namespace.
     Unresolved {
         world: WorldKey,
         /// Its visit, so every late batch resolves to the same epoch.
         entry: u64,
+        intent: ResolutionIntent,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
     },
 }
 
 impl Retired {
-    const fn dimension(&self) -> i32 {
+    /// Accepts unkeyed late columns only while this is the most recently ended visit.
+    fn accepts_late(&self, dimension: i32, current_entry: u64) -> bool {
         match self {
-            Self::Resolved(namespace) => namespace.dimension,
-            Self::Unresolved { world, .. } => world.dimension,
+            Self::Resolved(namespace) => namespace.dimension == dimension,
+            Self::Unresolved { world, entry, .. } => {
+                world.dimension == dimension && entry.checked_add(1) == Some(current_entry)
+            }
         }
+    }
+
+    /// A deferred migration must reach the worker before another retirement can replace it.
+    fn migration_pending(&self) -> bool {
+        matches!(
+            self,
+            Self::Unresolved {
+                intent: ResolutionIntent::Migrate { .. },
+                ..
+            }
+        )
     }
 }
 
@@ -65,6 +83,7 @@ pub struct RetiringSession {
     world: WorldKey,
     /// The visit retiring, whose namespace its summaries share once resolved.
     entry: u64,
+    intent: ResolutionIntent,
     namespace: Option<NamespaceKey>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     version: u64,
@@ -105,6 +124,8 @@ pub struct FarTerrainCache {
     unresolved: Vec<(ColumnPos, Versioned)>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     resolving: bool,
+    /// Identity intent survives refused work and follows the visit into retirement.
+    intent: ResolutionIntent,
     /// When this visit's first column arrived, for [`WORLD_PROBE_TIMEOUT`].
     pending_since: Option<Instant>,
     /// Changes waiting to be written, per namespace and region.
@@ -119,6 +140,9 @@ pub struct FarTerrainCache {
     /// Bumped on every world change, so a resolution for an earlier visit is ignored.
     entry: u64,
     next_version: u64,
+    /// Older cached versions are unsafe once pressure discards a newer pending payload.
+    /// One conservative watermark avoids retaining an unbounded set of lost columns.
+    discarded_through: u64,
     /// First version stamped this visit; anything older in memory came from disk.
     visit_start: u64,
     /// Cached columns compared with live ones this visit, and how many differed.
@@ -131,6 +155,12 @@ impl FarTerrainCache {
     /// exceed every version an earlier run stamped, as a clock reading in microseconds does.
     #[must_use]
     pub fn new(config: FarTerrainConfig, disk_root: Option<PathBuf>, version_base: u64) -> Self {
+        // An invalid caller clock cannot seed persistence or overflow a later live stamp.
+        let (disk_root, version_base) = if version_base >= crate::region::MAX_VERSION {
+            (None, 0)
+        } else {
+            (disk_root, version_base)
+        };
         let bounds = DiskBounds {
             server_cap_bytes: config.server_disk_cap_bytes,
             global_cap_bytes: config.global_disk_cap_bytes,
@@ -145,6 +175,7 @@ impl FarTerrainCache {
             unresolved: Vec::new(),
             probes: Vec::new(),
             resolving: false,
+            intent: ResolutionIntent::Probed,
             pending_since: None,
             dirty: BTreeMap::new(),
             writing: BTreeMap::new(),
@@ -154,6 +185,7 @@ impl FarTerrainCache {
             focus: None,
             entry: 0,
             next_version: version_base,
+            discarded_through: 0,
             visit_start: version_base,
             compared: 0,
             mismatched: 0,
@@ -201,8 +233,8 @@ impl FarTerrainCache {
         });
     }
 
-    /// Starts a visit without a stable world identity. Its empty probe set reserves a new
-    /// epoch before live summaries arrive, so matching lobby columns cannot enable reuse.
+    /// Starts a visit without a stable world identity. It always reserves a new epoch,
+    /// so matching lobby columns cannot enable reuse.
     pub fn begin_uncertain_visit(&mut self, destination: &str, dimension: i32) {
         self.begin_uncertain_visit_with_resources(destination, dimension, [0; 32]);
     }
@@ -215,6 +247,7 @@ impl FarTerrainCache {
         resources: [u8; 32],
     ) {
         self.begin_visit_with_resources(destination, 0, dimension, resources);
+        self.intent = ResolutionIntent::Fresh;
         self.start_resolving();
     }
 
@@ -224,8 +257,7 @@ impl FarTerrainCache {
         self.world = None;
     }
 
-    /// Writes everything the visit holds, resolving its namespace on the IO thread with the
-    /// probes it has when it never resolved.
+    /// Flushes pending writes and keeps an unresolved visit's identity decision for retirement.
     fn end_entry(&mut self) {
         if let Some(namespace) = self.namespace {
             for (pos, column) in std::mem::take(&mut self.unresolved) {
@@ -240,27 +272,25 @@ impl FarTerrainCache {
         }
         self.flush_all();
         self.flush_retired();
-        if self.namespace.is_none()
-            && let (Some(world), Some(disk)) = (self.world, &self.disk)
-            && !self.unresolved.is_empty()
-        {
-            disk.resolve_and_write(
-                world,
-                self.entry,
-                self.probes.clone(),
-                std::mem::take(&mut self.unresolved),
-            );
-        }
-        self.retired = match (self.namespace.take(), self.world) {
+        let retired = match (self.namespace.take(), self.world) {
             (Some(namespace), _) => Some(Retired::Resolved(namespace)),
             (None, Some(world)) => Some(Retired::Unresolved {
                 world,
                 entry: self.entry,
+                intent: self.intent,
                 probes: std::mem::take(&mut self.probes),
-                columns: Vec::new(),
+                columns: std::mem::take(&mut self.unresolved),
             }),
             (None, None) => None,
         };
+        if !self
+            .retired
+            .as_ref()
+            .is_some_and(Retired::migration_pending)
+        {
+            self.retired = retired;
+        }
+        self.flush_retired();
         self.entry += 1;
         self.visit_start = self.next_version + 1;
         self.compared = 0;
@@ -269,28 +299,33 @@ impl FarTerrainCache {
         self.unresolved.clear();
         self.probes.clear();
         self.resolving = false;
+        self.intent = ResolutionIntent::Probed;
         self.pending_since = None;
         self.requested.clear();
         self.reread.clear();
     }
 
-    /// Writes late columns of a world left before its namespace resolved.
+    /// Retries retired identity work and waiting columns without blocking the frame thread.
     fn flush_retired(&mut self) {
         if let (
             Some(Retired::Unresolved {
                 world,
                 entry,
+                intent,
                 probes,
                 columns,
             }),
             Some(disk),
         ) = (&mut self.retired, &self.disk)
-            && !columns.is_empty()
+            && (!columns.is_empty() || *intent != ResolutionIntent::Probed)
         {
             // Late columns probe too, so a world left before its first summary is still
             // compared against cached maps rather than reusing the newest blindly.
             add_probes(probes, columns);
-            disk.resolve_and_write(*world, *entry, probes.clone(), std::mem::take(columns));
+            if disk.resolve_and_write(*world, *entry, *intent, probes.clone(), columns.clone()) {
+                columns.clear();
+                *intent = ResolutionIntent::Probed;
+            }
         }
     }
 
@@ -304,7 +339,7 @@ impl FarTerrainCache {
         if self
             .retired
             .as_ref()
-            .is_some_and(|retired| retired.dimension() == dimension)
+            .is_some_and(|retired| retired.accepts_late(dimension, self.entry))
             && self.world.is_none_or(|world| world.dimension != dimension)
         {
             match &mut self.retired {
@@ -312,10 +347,8 @@ impl FarTerrainCache {
                     let namespace = *namespace;
                     self.queue_write(namespace, pos, column, now);
                 }
-                Some(Retired::Unresolved { columns, .. })
-                    if self.disk.is_some() && columns.len() < MAX_UNRESOLVED_COLUMNS =>
-                {
-                    columns.push((pos, column));
+                Some(Retired::Unresolved { columns, .. }) if self.disk.is_some() => {
+                    retain_unresolved(columns, &mut self.discarded_through, pos, column);
                 }
                 Some(Retired::Unresolved { .. }) | None => {}
             }
@@ -342,8 +375,13 @@ impl FarTerrainCache {
         {
             self.probes.push((pos, decoded));
         }
-        if self.disk.is_some() && self.unresolved.len() < MAX_UNRESOLVED_COLUMNS {
-            self.unresolved.push((pos, column.clone()));
+        if self.disk.is_some() {
+            retain_unresolved(
+                &mut self.unresolved,
+                &mut self.discarded_through,
+                pos,
+                column.clone(),
+            );
         }
         self.store.admit_versioned(pos, column);
         if !self.resolving && self.probes.len() == WORLD_PROBE_COLUMNS {
@@ -370,6 +408,9 @@ impl FarTerrainCache {
     /// Applies a bounded share of completed disk columns, retaining partial events in order.
     pub fn poll_budgeted(&mut self, now: Instant, budget: &mut SummaryBudget) {
         self.apply_completions(now, budget);
+        if self.intent != ResolutionIntent::Probed && self.namespace.is_none() && !self.resolving {
+            self.start_resolving();
+        }
         if self.namespace.is_none()
             && !self.resolving
             && self
@@ -379,6 +420,7 @@ impl FarTerrainCache {
             self.start_resolving();
         }
         self.flush_retired();
+        self.request_focus();
         let evicted = self.store.take_evicted();
         self.reread_evicted(&evicted);
         let due: Vec<(NamespaceKey, RegionPos)> = self
@@ -407,12 +449,14 @@ impl FarTerrainCache {
     /// version they will carry; `None` outside a world.
     pub fn retire_session(&mut self) -> Option<RetiringSession> {
         let world = self.world?;
+        let version = self.stamp();
         Some(RetiringSession {
             world,
             entry: self.entry,
+            intent: self.intent,
             namespace: self.namespace,
             probes: self.probes.clone(),
-            version: self.stamp(),
+            version,
         })
     }
 
@@ -431,6 +475,7 @@ impl FarTerrainCache {
         let RetiringSession {
             world,
             entry,
+            intent,
             namespace,
             mut probes,
             version,
@@ -438,7 +483,9 @@ impl FarTerrainCache {
         let mut unresolved = Vec::new();
         for (pos, summary) in columns {
             let column = Versioned { version, summary };
-            if namespace.is_some_and(|namespace| self.newer_queued(namespace, pos, version)) {
+            if version <= self.discarded_through
+                || namespace.is_some_and(|namespace| self.newer_queued(namespace, pos, version))
+            {
                 continue;
             }
             if namespace.is_some() && namespace == self.namespace {
@@ -446,14 +493,19 @@ impl FarTerrainCache {
             }
             match namespace {
                 Some(namespace) => self.queue_write(namespace, pos, column, now),
-                None => unresolved.push((pos, column)),
+                None if self.disk.is_some() => {
+                    retain_unresolved(&mut unresolved, &mut self.discarded_through, pos, column);
+                }
+                None => {}
             }
         }
         if let Some(disk) = &self.disk
             && !unresolved.is_empty()
         {
             add_probes(&mut probes, &unresolved);
-            disk.resolve_and_write(world, entry, probes, unresolved);
+            if !disk.resolve_and_write(world, entry, intent, probes, unresolved) {
+                self.discarded_through = self.discarded_through.max(version);
+            }
         }
     }
 
@@ -527,8 +579,7 @@ impl FarTerrainCache {
     /// Drops what the cache showed for this visit and starts a new epoch for it, keeping
     /// every live column, which is written there once it resolves.
     fn diverge(&mut self) {
-        let (Some(world), Some(namespace), Some(disk)) =
-            (self.world, self.namespace.take(), &self.disk)
+        let (Some(_), Some(namespace), Some(_)) = (self.world, self.namespace.take(), &self.disk)
         else {
             return;
         };
@@ -552,36 +603,83 @@ impl FarTerrainCache {
             if dirty.columns.is_empty() {
                 self.dirty.remove(&key);
             }
-            // Every one moves, uncapped: they are this visit's terrain.
-            self.unresolved.extend(live);
+            for (pos, column) in live {
+                retain_unresolved(
+                    &mut self.unresolved,
+                    &mut self.discarded_through,
+                    pos,
+                    column,
+                );
+            }
         }
         self.entry += 1;
-        self.resolving = true;
+        self.resolving = false;
+        self.intent = ResolutionIntent::Migrate {
+            from: namespace,
+            since: self.visit_start,
+        };
         self.requested.clear();
         self.reread.clear();
         self.compared = WORLD_VERIFY_COLUMNS;
         // Columns of this visit already written, or in flight before this, move on the IO
         // thread, which handles commands in order.
-        disk.resolve_fresh(world, self.entry, namespace, self.visit_start);
+        self.start_resolving();
     }
 
     fn stamp(&mut self) -> u64 {
         if let Some(disk) = &self.disk {
             self.next_version = self.next_version.max(disk.observed_version());
         }
+        if self.next_version >= crate::region::MAX_VERSION {
+            // Clock exhaustion invalidates optional cache state, never wraps its ordering.
+            self.disk = None;
+            self.disk_root = None;
+            self.store.clear();
+            self.dirty.clear();
+            self.writing.clear();
+            self.unresolved.clear();
+            self.retired = None;
+            self.pending_event = None;
+            // Outstanding retirement handles belong to the abandoned version ordering.
+            self.entry += 1;
+            self.namespace = self.world.map(|world| world.namespace(0));
+            self.resolving = false;
+            self.intent = ResolutionIntent::Probed;
+            self.requested.clear();
+            self.reread.clear();
+            self.next_version = 0;
+            self.discarded_through = 0;
+            self.visit_start = 1;
+        }
         self.next_version += 1;
         self.next_version
     }
 
     fn start_resolving(&mut self) {
+        if self
+            .retired
+            .as_ref()
+            .is_some_and(Retired::migration_pending)
+        {
+            self.flush_retired();
+            if self
+                .retired
+                .as_ref()
+                .is_some_and(Retired::migration_pending)
+            {
+                return;
+            }
+        }
         let Some(world) = self.world else {
             return;
         };
-        self.resolving = true;
-        match &self.disk {
-            Some(disk) => disk.resolve(world, self.entry, self.probes.clone()),
-            None => self.resolved(world, 0),
-        }
+        self.resolving = match &self.disk {
+            Some(disk) => disk.resolve(world, self.entry, self.intent, self.probes.clone()),
+            None => {
+                self.resolved(world, 0);
+                true
+            }
+        };
     }
 
     fn resolved(&mut self, world: WorldKey, epoch: u32) {
@@ -607,6 +705,13 @@ impl FarTerrainCache {
         if self.disk.is_none() {
             return;
         }
+        let key = (namespace, RegionPos::of(pos));
+        if column.summary.bytes.len() > crate::summary::MAX_ENCODED_BYTES
+            || (!self.dirty.contains_key(&key) && self.dirty.len() >= MAX_PENDING_WRITE_REGIONS)
+        {
+            self.discarded_through = self.discarded_through.max(column.version);
+            return;
+        }
         let waiting = &mut self
             .dirty
             .entry((namespace, RegionPos::of(pos)))
@@ -624,10 +729,21 @@ impl FarTerrainCache {
     }
 
     fn flush(&mut self, key: (NamespaceKey, RegionPos)) {
+        if !self.writing.contains_key(&key) && self.writing.len() >= MAX_PENDING_WRITE_REGIONS {
+            return;
+        }
         let (Some(dirty), Some(disk)) = (self.dirty.remove(&key), &self.disk) else {
             return;
         };
-        let mut columns = Vec::with_capacity(dirty.columns.len());
+        let columns = dirty
+            .columns
+            .iter()
+            .map(|(pos, column)| (region_index(*pos), column.clone()))
+            .collect();
+        if !disk.write(key.0, key.1, columns) {
+            self.dirty.insert(key, dirty);
+            return;
+        }
         for (pos, column) in dirty.columns {
             let in_flight = self
                 .writing
@@ -638,9 +754,7 @@ impl FarTerrainCache {
             if in_flight.version < column.version {
                 *in_flight = column.clone();
             }
-            columns.push((region_index(pos), column));
         }
-        disk.write(key.0, key.1, columns);
     }
 
     /// Reads regions again whose columns memory dropped while still in focus, once per
@@ -681,8 +795,11 @@ impl FarTerrainCache {
         for x in low.x..=high.x {
             for z in low.z..=high.z {
                 let region = RegionPos { x, z };
-                if self.requested.insert(region) {
-                    disk.load(namespace, region);
+                if !self.requested.contains(&region) {
+                    if !disk.load(namespace, region) {
+                        return;
+                    }
+                    self.requested.insert(region);
                 }
             }
         }
@@ -692,6 +809,22 @@ impl FarTerrainCache {
 impl Drop for FarTerrainCache {
     fn drop(&mut self) {
         self.end_entry();
+    }
+}
+
+/// Retains a bounded unresolved payload, remembering which older versions become unsafe.
+fn retain_unresolved(
+    columns: &mut Vec<(ColumnPos, Versioned)>,
+    discarded_through: &mut u64,
+    pos: ColumnPos,
+    column: Versioned,
+) {
+    if columns.len() < MAX_UNRESOLVED_COLUMNS
+        && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES
+    {
+        columns.push((pos, column));
+    } else {
+        *discarded_through = (*discarded_through).max(column.version);
     }
 }
 

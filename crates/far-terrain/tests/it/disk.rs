@@ -119,7 +119,48 @@ fn written_regions_load_back_and_later_writes_merge() {
         .unwrap()
         .map(|entry| entry.unwrap().file_name().into_string().unwrap())
         .collect();
-    assert_eq!(names, vec![ns.server.to_string()], "no address on disk");
+    assert!(names.contains(&ns.server.to_string()), "no address on disk");
+}
+
+/// Only one cache worker may merge and replace files under a shared root.
+#[test]
+fn a_shared_root_has_one_writer_until_shutdown() {
+    let root = tempfile::tempdir().unwrap();
+    let bounds = DiskBounds {
+        server_cap_bytes: u64::MAX,
+        global_cap_bytes: u64::MAX,
+    };
+    let disk = DiskCache::spawn(root.path().into(), bounds).unwrap();
+    assert!(DiskCache::spawn(root.path().into(), bounds).is_none());
+    drop(disk);
+    assert!(DiskCache::spawn(root.path().into(), bounds).is_some());
+}
+
+/// Damage to a version header, including an exhausted counter, is a cache miss.
+#[test]
+fn region_versions_are_integrity_checked() {
+    let column = Versioned {
+        version: 100,
+        summary: hilly().encode(),
+    };
+    let encoded = encode_region(&[(0, column)]);
+    for version in [101, u64::MAX - 1, u64::MAX] {
+        let mut damaged = encoded.clone();
+        damaged[24..32].copy_from_slice(&version.to_le_bytes());
+        assert!(decode_region(&damaged).is_err());
+    }
+    for version in [u64::MAX - 1, u64::MAX] {
+        assert!(
+            decode_region(&encode_region(&[(
+                0,
+                Versioned {
+                    version,
+                    summary: hilly().encode()
+                }
+            )]))
+            .is_err()
+        );
+    }
 }
 
 #[test]
@@ -205,8 +246,18 @@ fn resolutions_reserve_their_epochs() {
     let world = namespace("remote:a:1").world();
     let mut hilly_probe = hilly();
     hilly_probe.cells_mut()[0].height += 9;
-    disk.resolve(world, 1, vec![(ColumnPos::new(0, 0), hilly())]);
-    disk.resolve(world, 2, vec![(ColumnPos::new(0, 0), hilly_probe)]);
+    disk.resolve(
+        world,
+        1,
+        far_terrain::ResolutionIntent::Probed,
+        vec![(ColumnPos::new(0, 0), hilly())],
+    );
+    disk.resolve(
+        world,
+        2,
+        far_terrain::ResolutionIntent::Probed,
+        vec![(ColumnPos::new(0, 0), hilly_probe)],
+    );
     disk.sync();
     let epochs: Vec<u32> = disk
         .events()

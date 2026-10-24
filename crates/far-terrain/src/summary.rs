@@ -15,6 +15,8 @@ pub const COLUMN_CELLS: usize = COLUMN_SIDE * COLUMN_SIDE;
 const FORMAT_VERSION: u8 = 1;
 const PLANES: usize = 6;
 const RAW_BYTES: usize = COLUMN_CELLS * PLANES;
+/// One format byte and one uncompressed DEFLATE block, including framing headroom.
+pub(crate) const MAX_ENCODED_BYTES: usize = 1 + RAW_BYTES + 32;
 
 /// The visible top of one block column.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -107,7 +109,18 @@ impl ColumnSummary {
         encoder
             .write_all(&planes)
             .expect("writing to a Vec cannot fail");
-        let bytes = encoder.finish().expect("writing to a Vec cannot fail");
+        let mut bytes = encoder.finish().expect("writing to a Vec cannot fail");
+        if bytes.len() > MAX_ENCODED_BYTES {
+            let mut stored = DeflateEncoder::new(vec![FORMAT_VERSION], Compression::none());
+            stored
+                .write_all(&planes)
+                .expect("writing to a Vec cannot fail");
+            bytes = stored.finish().expect("writing to a Vec cannot fail");
+        }
+        assert!(
+            bytes.len() <= MAX_ENCODED_BYTES,
+            "stored DEFLATE summary fits its bound"
+        );
         EncodedSummary {
             hash: hash_planes(&planes),
             bytes: bytes.into(),

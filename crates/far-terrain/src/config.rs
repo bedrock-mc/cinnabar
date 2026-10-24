@@ -34,6 +34,9 @@ pub const WORLD_PROBE_EPOCHS: usize = 3;
 
 /// Columns held while the world's cache namespace is being resolved.
 pub const MAX_UNRESOLVED_COLUMNS: usize = 4096;
+/// Dirty and in-flight maps each reserve at most this many canonical region payloads.
+/// Repeated edits coalesce within the region; excess optional persistence is omitted.
+pub const MAX_PENDING_WRITE_REGIONS: usize = 16;
 
 /// A world that has not shown enough non-empty columns to probe by now resolves with the
 /// probes it has, so sparse worlds are still persisted.
