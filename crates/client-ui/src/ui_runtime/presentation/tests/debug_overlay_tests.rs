@@ -263,8 +263,9 @@ fn json_ui_rows_measure_their_strips_and_keep_blank_spacers() {
         .collect();
     assert_eq!(strips.len(), 4, "blank rows have no background");
     assert_eq!(strips[0].dest.x, 2.0);
-    assert_eq!(text(&frame.nodes, "FPS").dest.y, strips[0].dest.y + 1.0);
-    assert_eq!(text(&frame.nodes, "GPU").dest.y, strips[2].dest.y + 1.0);
+    // Label boxes share their strip's top; the engine starts glyphs one pixel lower.
+    assert_eq!(text(&frame.nodes, "FPS").dest.y, strips[0].dest.y);
+    assert_eq!(text(&frame.nodes, "GPU").dest.y, strips[2].dest.y);
     assert_eq!(
         strips[0].dest.w, 20.0,
         "width follows the measured text plus padding"
@@ -975,4 +976,60 @@ fn obfuscated_overlay_text_keeps_its_style_and_resamples_frame_geometry() {
         matches!(node.visual(), UiVisual::Text { layout, .. }
             if layout.glyphs().iter().any(|glyph| glyph.style.obfuscated))
     }));
+}
+
+/// Descenders such as the tails of `y` and `g` stay inside the row strip that clips them.
+#[test]
+fn row_clips_keep_whole_glyphs_including_descenders() {
+    for (size, dpi) in [([800, 600], 1.0), ([1920, 1080], 2.0)] {
+        let mut presentation = mini_engine_presentation();
+        presentation.set_debug_lines(Some(DebugLines {
+            left: vec!["daylight: cycling".into(), "gjpqy".into()],
+            right: vec!["Display: 1920x1129".into()],
+        }));
+        let metrics = TextMetrics::for_viewport(size, DpiScale::new(dpi).unwrap(), None);
+        let logical = [size[0] as f32 / dpi, size[1] as f32 / dpi];
+        let mut nodes = Vec::new();
+        presentation
+            .append_debug_overlay(&mut nodes, &mut 1, metrics, logical)
+            .unwrap();
+        let by_id: std::collections::BTreeMap<_, _> =
+            nodes.iter().map(|node| (node.id(), node)).collect();
+        // Node bounds are relative to the parent; this is a node's top edge on screen.
+        let top = |id: ui::UiNodeId| {
+            let mut y = 0.0;
+            let mut current = by_id.get(&id);
+            while let Some(node) = current {
+                y += node.bounds().min().y();
+                current = node.parent().and_then(|parent| by_id.get(&parent));
+            }
+            y
+        };
+        let mut checked = 0;
+        for node in &nodes {
+            let UiVisual::Text { layout, .. } = node.visual() else {
+                continue;
+            };
+            let text_top = top(node.id());
+            let mut parent = node.parent().and_then(|id| by_id.get(&id));
+            while let Some(ancestor) = parent {
+                if ancestor.clips_children() {
+                    let clip_top = top(ancestor.id());
+                    let clip_bottom = clip_top + ancestor.bounds().height();
+                    for glyph in layout.glyphs() {
+                        let y0 = text_top + glyph.bounds_64[1] as f32 / 64.0;
+                        let y1 = text_top + glyph.bounds_64[3] as f32 / 64.0;
+                        assert!(
+                            y0 >= clip_top - 1e-3 && y1 <= clip_bottom + 1e-3,
+                            "{:?} glyph rows {y0}..{y1} leave clip rows {clip_top}..{clip_bottom} at {size:?}",
+                            glyph.codepoint,
+                        );
+                        checked += 1;
+                    }
+                }
+                parent = ancestor.parent().and_then(|id| by_id.get(&id));
+            }
+        }
+        assert!(checked > 0, "rows clip their glyphs at {size:?}");
+    }
 }
