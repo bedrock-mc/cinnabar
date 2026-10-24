@@ -22,30 +22,9 @@ impl ActorStore {
         }
 
         let links = std::sync::Arc::clone(&spawn.links);
-        let mut replaced = false;
-        if let Some(previous) = self.actors.remove(&spawn.runtime_id) {
-            self.seat_bindings.remove(&previous.runtime_id);
-            self.effect_members.remove(previous.runtime_id);
-            self.synchronized_audio.remove_runtime(previous.runtime_id);
-            let lifetime = self.lifetime_for(&previous);
-            self.unique_to_runtime.remove(&previous.unique_id);
-            self.animation.remove_runtime(previous.runtime_id);
-            self.items.remove(lifetime);
-            self.actions.remove(lifetime);
-            self.remove_links_for(previous.unique_id);
-            replaced = true;
-        }
+        let mut replaced = self.retire_actor(sequence, spawn.runtime_id);
         if let Some(previous_runtime) = self.unique_to_runtime.remove(&spawn.unique_id) {
-            self.seat_bindings.remove(&previous_runtime);
-            if let Some(previous) = self.actors.remove(&previous_runtime) {
-                self.effect_members.remove(previous.runtime_id);
-                self.synchronized_audio.remove_runtime(previous.runtime_id);
-                let lifetime = self.lifetime_for(&previous);
-                self.items.remove(lifetime);
-                self.actions.remove(lifetime);
-                self.remove_links_for(previous.unique_id);
-            }
-            self.animation.remove_runtime(previous_runtime);
+            self.retire_actor(sequence, previous_runtime);
             replaced = true;
         }
         let runtime_id = spawn.runtime_id;

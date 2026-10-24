@@ -282,8 +282,8 @@ impl WorldAuthority {
                     )
                 {
                     self.actors.replace_local_actor_lifetime(sequence);
-                    self.publish_local_actor_replacement(sequence);
                 }
+                self.publish_local_actor_replacement(sequence);
 
                 if let Some((tick, flags)) = local_metadata {
                     let dimensions = self
@@ -377,7 +377,6 @@ impl WorldAuthority {
                 if life_accepted {
                     if let Some(attributes) = local_health_attributes {
                         if local_spawn {
-                            self.publish_local_actor_replacement(sequence);
                             mount_ui_committed = self.publish_spawn_health(sequence, &attributes);
                         }
                         self.publish_local_life(

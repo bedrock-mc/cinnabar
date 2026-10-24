@@ -774,3 +774,42 @@ fn sync_lifetime_multiple_replacements_keep_mode_end() {
         assert_eq!(physics.mode(), sim::MovementMode::Walking);
     }
 }
+
+/// Unique-ID conflict cleanup ends the local lifetime even when the incoming runtime is remote.
+#[test]
+fn sync_lifetime_unique_id_conflict_retires_local_bounds() {
+    let mut world = local_actor_authority();
+    let mut physics = due_physics();
+    super::state_updates::write_dimensions(
+        &mut world,
+        &mut physics,
+        2,
+        &[(ActorDataKey::Width, 0.9), (ActorDataKey::Height, 0.7)],
+    );
+    assert_eq!(
+        super::state_updates::reported_box(&mut physics, &world),
+        [1.0, 0.9, 0.7]
+    );
+    let mut replacement = local_actor_spawn(Vec::new());
+    replacement.runtime_id = 8;
+    world
+        .apply_ordered_event(
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
+            Some(3),
+        )
+        .unwrap();
+    assert!(world.actor(7).is_none());
+    world.sync_local_player_pose(&super::super::presentation_tests::feed());
+    super::state_updates::apply_controls(&mut world, &mut physics);
+    for _ in 0..2 {
+        assert_eq!(
+            super::state_updates::reported_box(&mut physics, &world),
+            [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]
+        );
+        physics.advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &OpenWorld,
+        );
+    }
+}
