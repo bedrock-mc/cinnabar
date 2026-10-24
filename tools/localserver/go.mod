@@ -3,6 +3,7 @@ module github.com/cinnabar-mc/cinnabar/tools/localserver
 go 1.26.1
 
 require (
+	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59
 	github.com/df-mc/dragonfly v0.11.5
 	github.com/df-mc/goleveldb v1.1.9
 	github.com/go-gl/mathgl v1.2.0
@@ -14,7 +15,6 @@ require (
 	github.com/brentp/intintmap v0.0.0-20251106190759-56907b1f8479 // indirect
 	github.com/cenkalti/backoff/v7 v7.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cinnabar-mc/protocolgen/generated/data v0.0.0-20261019181927-1b7677ddec59 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
 	github.com/df-mc/go-nethernet v1.0.25-0.20260928201420-215e46422b58 // indirect
@@ -55,7 +55,7 @@ require (
 )
 
 replace (
-	github.com/df-mc/dragonfly => github.com/HashimTheArab/dragonfly v0.0.0-20261024061022-1f3ee8b41e92
+	github.com/df-mc/dragonfly => github.com/HashimTheArab/dragonfly v0.0.0-20261024143729-238e11d36bd3
 	github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
 	github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261022024750-27a649aeb9f9
 )

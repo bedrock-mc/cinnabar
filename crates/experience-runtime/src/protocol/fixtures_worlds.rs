@@ -41,6 +41,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         })
         .collect::<Vec<_>>();
     let context = WorldContext {
+        entities: Vec::new(),
         current: handle.clone(),
         player: Some(before.clone()),
         instances: vec![handle.clone()],
@@ -100,6 +101,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
         out.push((name, serde_json::to_string_pretty(&request).unwrap() + "\n"));
     }
     let response = Response::Loaded {
+        entities: Vec::new(),
         simulation: false,
         protocol: PROTOCOL_VERSION,
         id: "probe".into(),

@@ -16,6 +16,7 @@ fn request(call: Call, step: SimulationStep, handles: Vec<ScheduleHandle>) -> Re
         seq: 2,
         info: Info {
             context: Some(WorldContext {
+                entities: Vec::new(),
                 current: world.clone(),
                 player: None,
                 instances: vec![world],

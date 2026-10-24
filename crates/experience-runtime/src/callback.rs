@@ -111,6 +111,8 @@ pub struct CallbackRes {
     /// In the order they commit. A position has at most one `SetBlockData`, and it comes after
     /// any `SetBlock` there.
     ops: Vec<Op>,
+    /// Successful spawn reservations, unaffected by coalesced block writes or despawns.
+    spawned_entities: u64,
     /// Bytes this Experience may still add to its block data.
     budget: u64,
     /// Bytes the staged writes add to this Experience's block data; negative when they free
@@ -158,6 +160,10 @@ struct Slot {
 
 /// The export a callback calls, with its arguments.
 enum Export<'a> {
+    Entity {
+        handle: wit::EntityHandle,
+        event: wit::EntityEvent,
+    },
     Tick(wit::SimulationStep),
     Timer {
         handle: wit::ScheduleHandle,
@@ -218,8 +224,35 @@ fn prepare<'a>(
         return Err("not a callback".to_owned());
     };
     player_id("actor", actor.as_deref())?;
+    if let Some(context) = &info.context {
+        entities::check_context(own, context)?;
+    }
     let mut focused = None;
     let (anchor, export) = match call {
+        Call::Entity { handle, event } => {
+            if !snapshot.is_empty() {
+                return Err("entity observation has a block snapshot".into());
+            }
+            let principal = match event {
+                protocol::EntityEvent::Interact { player, .. }
+                | protocol::EntityEvent::Attacked { player, .. } => Some(player.as_str()),
+                protocol::EntityEvent::Mounted { rider }
+                | protocol::EntityEvent::Dismounted { rider } => Some(rider.player.as_str()),
+                protocol::EntityEvent::Steering { input } => Some(input.rider.player.as_str()),
+                protocol::EntityEvent::Despawned {} => None,
+            };
+            player_id("entity actor", principal)?;
+            if actor.as_deref() != principal {
+                return Err("entity actor differs from observation".into());
+            }
+            (
+                None,
+                Export::Entity {
+                    handle: (*handle).into(),
+                    event: entities::event(event.clone())?,
+                },
+            )
+        }
         Call::Tick { step } | Call::Timer { step, .. } => {
             if actor.is_some()
                 || !snapshot.is_empty()
@@ -362,6 +395,7 @@ fn prepare<'a>(
         network: network.clone(),
         inventory: inventory.clone(),
         ops: Vec::new(),
+        spawned_entities: 0,
         budget: *data_budget,
         added: 0,
         staged_data: 0,
@@ -899,6 +933,7 @@ impl From<protocol::Cause> for ChangeCause {
 }
 
 mod craft;
+mod entities;
 mod invoke;
 mod items;
 #[cfg(test)]

@@ -11,7 +11,6 @@ import (
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 
 	"github.com/df-mc/dragonfly/server/block"
-	"github.com/df-mc/dragonfly/server/entity"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/biome"
 	"github.com/df-mc/dragonfly/server/world/generator"
@@ -152,7 +151,7 @@ func (h *Host) createWorld(ctx context.Context, owner string, instance WorldInst
 	if err != nil {
 		return WorldHandle{}, err
 	}
-	conf := world.Config{Log: h.log, Dim: dim, Blocks: world.DefaultBlockRegistry, Entities: entity.DefaultRegistry, Generator: world.NopGenerator{}, Synchronous: h.manager.synchronous}
+	conf := world.Config{Log: h.log, Dim: dim, Blocks: world.DefaultBlockRegistry, Entities: h.reg.EntityRegistry(), Generator: world.NopGenerator{}, Synchronous: h.manager.synchronous}
 	if def.Settings.Generator == GeneratorFlat {
 		conf.Generator = generator.NewFlatWithRegistry(biome.Plains{}, []world.Block{block.Grass{}, block.Dirt{}, block.Bedrock{}}, world.DefaultBlockRegistry)
 	}
@@ -192,6 +191,7 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 		result = h.worlds.unload(handle)
 		unbound = result == nil
 		if unbound {
+			h.closeEntities(tx)
 			h.forgetSimulation(handle)
 		}
 		if unbound && h.manager.afterUnbind != nil {
@@ -251,10 +251,11 @@ func (h *Host) releaseWorld(handle WorldHandle, owned *ownedWorld) error {
 			h.forgetSimulation(handle)
 			delete(h.manager.owned, handle)
 		}
+		owned.err = owned.w.Do(h.closeEntities).Wait(context.Background())
 		if h.manager.lifecycle != nil {
 			h.manager.lifecycle.WorldClosed(owned.w)
 		}
-		owned.err = owned.w.Close()
+		owned.err = errors.Join(owned.err, owned.w.Close())
 		if !owned.persistent {
 			h.store.discardPlacements(handle.ID)
 		}

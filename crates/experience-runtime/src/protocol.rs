@@ -19,7 +19,13 @@ use crate::limits::{
     MAX_TELL_BYTES, MAX_TELLS, MAX_VALUE_DEPTH,
 };
 
+mod entities;
 mod simulation;
+pub use entities::{
+    EntityAppearance, EntityArt, EntityBox, EntityDefinition, EntityEvent, EntityHand,
+    EntityHandle, EntityInput, EntityOp, EntityProperty, EntityPropertyDef, EntityRider,
+    EntityRotation, EntitySeat, EntitySnapshot, EntityState,
+};
 pub use simulation::{ScheduleHandle, SimulationContext, SimulationStep};
 mod player;
 mod recipes;
@@ -47,8 +53,9 @@ pub use visuals::{
 /// and visuals, items, the actor's inventory, the network scope and their ops; 6 server WIT 0.6's
 /// recipes in `load`, the `scheduled_update` call and the `schedule_update` op; 7 adds retained
 /// control delivery to `send_client`; 8 adds world lifecycle, player observations and scoped state;
-/// 9 adds instance simulation ticks and cancellable timers.
-pub const PROTOCOL_VERSION: u32 = 9;
+/// 9 adds instance simulation ticks and cancellable timers; 10 adds registered actors,
+/// seats, steering and entity observations.
+pub const PROTOCOL_VERSION: u32 = 10;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
 
@@ -140,6 +147,10 @@ pub enum Scalar {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Call {
+    Entity {
+        handle: EntityHandle,
+        event: EntityEvent,
+    },
     Tick {
         step: SimulationStep,
     },
@@ -279,6 +290,9 @@ pub enum FailKind {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Op {
+    Entity {
+        action: EntityOp,
+    },
     Schedule {
         handle: ScheduleHandle,
         after: u32,
@@ -361,6 +375,8 @@ pub enum Response {
     /// `focus` is set when the Experience's world takes its player's focus in client messages
     /// and epochs; the adapter gives none to one that does not.
     Loaded {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        entities: Vec<EntityDefinition>,
         protocol: u32,
         id: String,
         version: String,

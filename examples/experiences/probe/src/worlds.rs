@@ -22,10 +22,15 @@ pub(super) fn definitions() -> WorldRegistration {
 pub(super) fn interact(ctx: &Callback, player: &str, action: i32) -> Result<(), GuestError> {
     let refused = |error: WorldError| GuestError::Rejected(format!("{error:?}"));
     let id = WorldInstanceId {
-        value: "probe:one".into(),
+        value: if matches!(action, 34 | 35) {
+            "probe:entities"
+        } else {
+            "probe:one"
+        }
+        .into(),
     };
     match action {
-        30 => ctx
+        30 | 34 => ctx
             .create_world(&WorldInstance {
                 id,
                 definition: WorldDefinitionId {
@@ -33,7 +38,7 @@ pub(super) fn interact(ctx: &Callback, player: &str, action: i32) -> Result<(), 
                 },
             })
             .map_err(refused)?,
-        31 => {
+        31 | 35 => {
             let handle = ctx.resolve_world(&id).map_err(refused)?;
             ctx.transfer(
                 player,

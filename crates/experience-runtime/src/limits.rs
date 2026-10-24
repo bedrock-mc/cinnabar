@@ -36,6 +36,11 @@ pub const MAX_MANIFEST_BYTES: usize = 65_536;
 pub const MAX_VERSION_BYTES: usize = 64;
 /// Blocks one Experience may register.
 pub const MAX_BLOCKS: usize = 64;
+/// Entity types, seats, properties and live instances are extension policy, not game limits.
+pub const MAX_ENTITY_TYPES: usize = 64;
+pub const MAX_ENTITY_SEATS: usize = 16;
+pub const MAX_ENTITY_PROPERTIES: usize = 32;
+pub const MAX_ENTITIES: usize = 256;
 /// Bytes in a block's name, the part of its id after `<experience id>:`; at least one is
 /// required.
 pub const MAX_BLOCK_NAME_BYTES: usize = 32;

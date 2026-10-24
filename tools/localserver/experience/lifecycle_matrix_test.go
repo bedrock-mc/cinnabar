@@ -73,8 +73,9 @@ func newLifecycleMatrix(t *testing.T, lifecycle ...WorldLifecycle) *lifecycleMat
 	sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
 	sup.registered.Worlds = f.d.sup.registered.Worlds
 	sup.registered.Simulation = true
-	rescript(t, sup, "leave_write", sup.registered)
 	f.d.sup = sup
+	f.registerEntityType()
+	rescript(t, sup, "leave_write", sup.registered)
 	base, err := playerdb.NewProvider(filepath.Join(t.TempDir(), "players"))
 	if err != nil {
 		t.Fatal(err)
@@ -315,6 +316,20 @@ func (m *lifecycleMatrix) step(name string) {
 			f.t.Fatalf("optional publication failure blocked relocation: %v", err)
 		}
 		m.fenced = true
+	case "entity":
+		if m.live && f.h.epoch(f.actor) != 0 {
+			handle := f.spawnEntity()
+			if err := f.actor.Do(func(tx *world.Tx, actor world.Entity) {
+				e, ok := f.h.findEntity(tx, f.d.id, handle)
+				if ok {
+					f.h.EntityInteraction(actor.(*player.Player), e, false)
+				}
+			}).Wait(f.t.Context()); err != nil {
+				f.t.Fatal(err)
+			}
+		}
+	case "entity_timer":
+		m.entityTimer()
 	case "tick", "timer", "cancel_timer":
 		m.simulationStep(name)
 	case "unload":
@@ -397,7 +412,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "cancel_unload", "metadata_interrupt", "crash_reopen", "tick", "timer", "cancel_timer", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "cancel_unload", "metadata_interrupt", "crash_reopen", "tick", "timer", "cancel_timer", "entity", "entity_timer", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {
@@ -493,4 +508,59 @@ func (m *lifecycleMatrix) simulationStep(name string) {
 		})
 	}
 	f.h.AdmitSimulationTick()
+}
+
+// entityTimer commits entity writes from a timer without borrowing the player's session.
+func (m *lifecycleMatrix) entityTimer() {
+	f := m.f
+	handle, ok := f.h.worlds.handle("probe:one")
+	if !ok {
+		return
+	}
+	w, _ := f.h.ResolveWorld(handle)
+	instance, _ := f.h.worlds.of(w)
+	ev := event{w: w, instance: instance, call: Call{Tick: &TickCall{Step: SimulationStep{DurationNanos: uint64(tickDuration)}}}}
+	var entity EntityHandle
+	var timer ScheduleHandle
+	applySimulation(f.t, f, ev, func(s snapshot) []Op {
+		entity = EntityHandle{s.req.Info.EventSequence*maxStagedOps + 1, handle.Generation}
+		state := EntityState{Handle: entity, Kind: "probe:ship", Position: Position{Y: 70}, Scale: 1, Properties: []EntityProperty{{ID: "probe:throttle"}}}
+		timer = ScheduleHandle{World: handle, Sequence: s.req.Info.Simulation.Sequence}
+		return []Op{{Entity: &EntityCommand{Action: EntityOp{Type: "spawn", State: &state}}}, {Schedule: &ScheduleOp{timer, 1, 0}}}
+	})
+	f.h.AdmitSimulationTick()
+	var due *event
+	var retained []event
+	for len(f.d.events) != 0 {
+		ev := <-f.d.events
+		if ev.call.Timer != nil && ev.call.Timer.Handle == timer {
+			due = &ev
+		} else {
+			retained = append(retained, ev)
+		}
+	}
+	for _, ev := range retained {
+		f.d.events <- ev
+	}
+	if due == nil {
+		f.t.Fatal("entity timer was not admitted")
+	}
+	applySimulation(f.t, f, *due, func(s snapshot) []Op {
+		for _, e := range s.req.Info.Context.Entities {
+			if e.State.Handle == entity {
+				state := e.State
+				state.NameTag = "Timer"
+				return []Op{{Entity: &EntityCommand{Action: EntityOp{Type: "update", State: &state}}}}
+			}
+		}
+		f.t.Fatal("timer lost its world-owned entity")
+		return nil
+	})
+	f.h.finishTimer(f.d.id, timer)
+	f.do(w, func(tx *world.Tx) {
+		e, ok := f.h.findEntity(tx, f.d.id, entity)
+		if !ok || e.NameTag() != "Timer" {
+			f.t.Fatal("timer did not update its entity")
+		}
+	})
 }

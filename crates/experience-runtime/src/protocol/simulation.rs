@@ -59,6 +59,7 @@ pub(super) fn fixtures() -> Vec<(&'static str, String)> {
             seq: 2,
             info: Info {
                 context: Some(super::WorldContext {
+                    entities: Vec::new(),
                     current: world.clone(),
                     player: None,
                     instances: vec![world.clone()],

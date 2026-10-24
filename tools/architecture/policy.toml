@@ -1832,6 +1832,21 @@ literal = "minecraft:red_dye"
 reason = "Protocol conformance fixture needs concrete crafting recipe inputs and outputs."
 
 [[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/entities.rs"
+literal = "minecraft:boat"
+reason = "Entity protocol conformance fixture needs a concrete built-in base actor."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/entities.rs"
+literal = "minecraft:stick"
+reason = "Entity interaction conformance fixture needs a concrete held item."
+
+[[identifier_literal_exceptions]]
+path = "examples/experiences/probe/src/entities.rs"
+literal = "minecraft:boat"
+reason = "The runnable server entity probe requests a concrete built-in base actor."
+
+[[identifier_literal_exceptions]]
 path = "examples/experiences/probe/src/contract.rs"
 literal = "minecraft:oak_planks"
 reason = "The probe asks the server's recipes for a concrete vanilla grid."

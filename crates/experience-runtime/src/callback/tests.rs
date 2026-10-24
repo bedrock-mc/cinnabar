@@ -126,6 +126,7 @@ impl Fixture {
             },
         ];
         let own = Catalog {
+            entities: Vec::new(),
             blocks: [
                 (COUNTER.to_owned(), Vec::new()),
                 (
@@ -174,6 +175,7 @@ impl Fixture {
             },
         };
         let own = Catalog {
+            entities: Vec::new(),
             blocks: [(COUNTER.to_owned(), Vec::new())].into(),
             items: [(CELL.to_owned(), 1)].into(),
             server: [server_item(STONE, 0, 64, false)].into(),
@@ -1057,4 +1059,5 @@ fn malformed_inventories_are_refused() {
 
 mod worlds;
 
+mod entities;
 mod simulation;

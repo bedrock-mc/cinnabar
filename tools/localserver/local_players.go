@@ -10,12 +10,33 @@ import (
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
+// localExperienceHost receives session changes and entity observations from the local player.
+type localExperienceHost interface {
+	TeleportPlayer(*player.Player, experience.Position) bool
+	PlayerDisconnected(*player.Player)
+	EntityInteraction(*player.Player, world.Entity, bool)
+}
+
 // localPlayerHandler owns temporary flight controls and clears Experience focus on quit.
 // Its movement handler accepts client positions, including large flight deltas.
 type localPlayerHandler struct {
 	player.NopHandler
-	host   *experience.Host
+	host   localExperienceHost
 	flight flySpeedState
+}
+
+// HandleItemUseOnEntity forwards accepted entity interactions to the installed runtime.
+func (h *localPlayerHandler) HandleItemUseOnEntity(ctx *player.Context, e world.Entity) {
+	if h.host != nil {
+		h.host.EntityInteraction(ctx.Player(), e, false)
+	}
+}
+
+// HandleAttackEntity observes the attack before the framework applies item and damage effects.
+func (h *localPlayerHandler) HandleAttackEntity(ctx *player.Context, e world.Entity, _, _ *float64, _ *bool) {
+	if h.host != nil {
+		h.host.EntityInteraction(ctx.Player(), e, true)
+	}
 }
 
 // HandleTeleport applies authoritative teleports through the host's session fence.

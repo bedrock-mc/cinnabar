@@ -22,6 +22,7 @@ mod experience {
 use experience::channels;
 
 mod contract;
+mod entities;
 mod interaction;
 mod worlds;
 
@@ -33,11 +34,24 @@ const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 struct Probe;
 
 impl Experience for Probe {
+    /// Registers the actor used by entity conformance callbacks.
+    fn entity_definitions() -> Result<Vec<experience_sdk::server::EntityDefinition>, GuestError> {
+        Ok(entities::definitions())
+    }
+    /// Exercises interactions and typed rider input through the current WIT.
+    fn on_entity(
+        ctx: &Callback,
+        handle: experience_sdk::server::EntityHandle,
+        event: experience_sdk::server::EntityEvent,
+    ) -> Result<(), GuestError> {
+        entities::on_entity(ctx, handle, event)
+    }
     /// Exercises the simulation imports only in the clock conformance instance.
     fn on_tick(
         ctx: &Callback,
         step: experience_sdk::server::SimulationStep,
     ) -> Result<(), GuestError> {
+        entities::on_tick(ctx)?;
         if ctx.world().id.value == "probe:clock" {
             let current = ctx
                 .simulation()

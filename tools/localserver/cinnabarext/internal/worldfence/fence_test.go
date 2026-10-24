@@ -158,7 +158,7 @@ func (m *reference) apply(e event) (notices []Notice, err bool) {
 		}
 	case "disconnect":
 		*m = reference{status: "disconnected"}
-	case "envelope", "tick", "timer":
+	case "envelope", "tick", "timer", "entity", "entity_timer":
 	default:
 		panic(e.kind)
 	}
@@ -206,7 +206,7 @@ func (c *comparison) step(t *testing.T, e event) {
 		c.fence.Disable()
 	case "disconnect":
 		c.fence.Disconnect()
-	case "envelope", "tick", "timer":
+	case "envelope", "tick", "timer", "entity", "entity_timer":
 		if got, want := c.fence.Accepts(e.epoch), c.model.allows() && e.epoch == c.model.epoch; got != want {
 			t.Fatalf("envelope accepted=%t want=%t after %+v", got, want, c.trace)
 		}
@@ -293,6 +293,10 @@ func (c *comparison) selectEvent(kind int, value uint64) event {
 		e.kind, e.epoch = "tick", value%(m.epoch+2)
 	case 16:
 		e.kind, e.epoch = "timer", value%(m.epoch+2)
+	case 17:
+		e.kind, e.epoch = "entity", value%(m.epoch+2)
+	case 18:
+		e.kind, e.epoch = "entity_timer", value%(m.epoch+2)
 	}
 	return e
 }
@@ -303,12 +307,12 @@ func TestFenceRandomSequences(t *testing.T) {
 		t.Run(fmt.Sprint(sequence), func(t *testing.T) {
 			c := comparison{model: reference{status: "pending"}}
 			for step := range 96 {
-				kind := rng.IntN(15)
+				kind := rng.IntN(17)
 				if kind >= 13 {
 					kind += 2
 				}
 				if step >= 72 {
-					kind = rng.IntN(17)
+					kind = rng.IntN(19)
 				}
 				e := c.selectEvent(kind, rng.Uint64())
 				if (e.kind == "abort" || e.kind == "commit") && rng.IntN(4) == 0 {
@@ -325,16 +329,16 @@ func TestFenceRandomSequences(t *testing.T) {
 
 func TestFenceAllShortSequences(t *testing.T) {
 	// Enumerate every length-four sequence over the core lifecycle events.
-	for sequence := range 15 * 15 * 15 * 15 {
+	for sequence := range 17 * 17 * 17 * 17 {
 		c := comparison{model: reference{status: "pending"}}
 		choices := sequence
 		for range 4 {
-			kind := choices % 15
+			kind := choices % 17
 			if kind >= 13 {
 				kind += 2
 			}
 			e := c.selectEvent(kind, 1)
-			choices /= 15
+			choices /= 17
 			c.step(t, e)
 		}
 	}
