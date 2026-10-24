@@ -158,7 +158,6 @@ impl Media {
     pub(super) fn stop(&mut self, bundle: &str) {
         self.bundles.remove(bundle);
         self.pending.retain(|control| control.bundle != bundle);
-        self.events.retain(|(owner, _)| owner != bundle);
         self.players.retain(|(owner, _), _| owner != bundle);
         let before = self.frames.len();
         self.frames.retain(|(owner, _), _| owner != bundle);
