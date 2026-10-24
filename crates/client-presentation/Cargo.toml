@@ -34,7 +34,6 @@ protocol = { path = "../protocol" }
 render-scene = { path = "../render-scene" }
 render-api = { path = "../render-api" }
 render-model = { path = "../render-model" }
-resource-pack = { path = "../resource-pack" }
 semantic-input = { path = "../input" }
 sim = { path = "../sim" }
 ui = { path = "../ui" }
@@ -44,7 +43,6 @@ image.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

@@ -54,10 +54,8 @@ sha2.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 crossbeam-channel = "0.5"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 url = "2"
 rayon.workspace = true
-tokio.workspace = true
 resource-pack = { path = "../resource-pack" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

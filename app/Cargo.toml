@@ -113,7 +113,6 @@ oreui = { path = "../crates/oreui" }
 mod-ui = { path = "../crates/mod-ui" }
 particles = { path = "../crates/particles" }
 resource-pack = { path = "../crates/resource-pack" }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 sim = { path = "../crates/sim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -335,7 +335,7 @@ class RuntimeCompletionTests(unittest.TestCase):
             self.assertNotIn("CARGO_ENCODED_RUSTFLAGS", env)
             self.assertNotIn("CARGO_PROFILE_DEV_DEBUG", env)
             self.assertEqual(env["RUSTFLAGS"], config["rustflags"])
-            self.assertEqual(env["CARGO_TARGET_DIR"], str(self.target / "build"))
+            self.assertEqual(Path(env["CARGO_TARGET_DIR"]).resolve(), (self.target / "build").resolve())
             self.assertEqual(env["CARGO_BUILD_BUILD_DIR"], env["CARGO_TARGET_DIR"])
             for key, expected in config["profile_environment"].items():
                 self.assertEqual(env[key], expected)

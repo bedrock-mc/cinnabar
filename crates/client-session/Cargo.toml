@@ -17,7 +17,6 @@ bytes.workspace = true
 protocol = { path = "../protocol" }
 server-experience = { path = "../server-experience", default-features = false }
 serde_json = "1"
-thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 web-time.workspace = true
