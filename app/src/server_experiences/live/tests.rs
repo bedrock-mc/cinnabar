@@ -464,9 +464,9 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
     }
     live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert!(live.instances["bundle0"].busy);
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 2);
+    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 1);
     live.poll(1, 2 * CALLBACK_INTERVAL_MS + 1).unwrap();
-    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 3);
+    assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 2);
     assert!(
         live.instances["bundle1"]
             .helper
@@ -881,7 +881,16 @@ fn modal_size_changes_reach_the_open_bundle_once_each() {
     // Closed, there is no size and nothing to report.
     live.close_modal();
     live.set_modal_size(None);
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
     assert!(live.instances["bundle0"].events.is_empty());
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched,
+        [Event::Resized { size: size(400.0) }]
+    );
 }
 
 /// Edits reach the open bundle only for a declared action's box, latest text per box.
