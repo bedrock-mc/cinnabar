@@ -116,6 +116,12 @@ impl Vocabulary {
         }
         let registry_blocks = domains["registry_block"].clone();
         domains.get_mut("block").unwrap().extend(registry_blocks);
+        // Legacy aux routes name both current and pre-flattening block identities.
+        let any_block = domains["block"]
+            .union(&domains["legacy_block"])
+            .cloned()
+            .collect();
+        domains.insert("any_block".into(), any_block);
         Self { domains }
     }
 
@@ -397,12 +403,16 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         | "block-components-v2193.tsv"
         | "facts-expansion-v2193.tsv"
         | "block-placement-v2193.tsv" => "block",
+        "block-aux-state-owners.tsv" => "any_block",
         _ => panic!("missing identifier policy for {file}"),
     };
     for (i, line) in text
         .lines()
         .filter(|line| {
-            !line.starts_with('#') && !line.starts_with("identifier\t") && !line.is_empty()
+            !line.starts_with('#')
+                && !line.starts_with("identifier\t")
+                && !line.starts_with("game_version\t")
+                && !line.is_empty()
         })
         .enumerate()
     {
