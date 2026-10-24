@@ -83,17 +83,12 @@ fn pose_size_regression_current_correction_keeps_dimension_owner() {
                 .0
                 .metadata
                 .insert(height_field.key, height_field.value);
+            physics.note_server_dimensions(actor.0.explicit_dimensions);
             let sample = physics
                 .advance_with_context(
                     simulation_clock::TICK_DURATION,
                     sim::MovementInput::default(),
-                    crate::movement::PhysicsSampleContext {
-                        mode_intent: crate::movement::ModeIntent {
-                            explicit_dimensions: actor.0.explicit_dimensions,
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
+                    crate::movement::PhysicsSampleContext::default(),
                     &OpenWorld,
                 )
                 .samples

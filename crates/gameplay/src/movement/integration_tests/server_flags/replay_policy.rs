@@ -99,6 +99,8 @@ fn server_flag_replay_policy_committed_control_rebuilds_samples() {
             sequence: 1,
             tick: 101,
             flags: flags(|flags| flags.gliding = Some(true)),
+            dimensions: None,
+            replacement: false,
         },
         &VersionedFloor(1),
         |_| {},
