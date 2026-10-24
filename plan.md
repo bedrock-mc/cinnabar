@@ -228,6 +228,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   preparation waits for worker and result capacity while urgent reserves and independent
   removals retain service. Eviction skips a second removal for settled air with an
   acknowledged GPU publication; dirty or unfinished sections still publish removals.
+  Changed lighting also preserves settled air's empty publication; first empty
+  receipts and unfinished removals still receive service.
   Late blob replies for retired transactions no longer discard valid, still-needed
   blobs in the same response. Sustained high-speed hardware qualification remains open.
   Sparse startup can complete without a publisher update after terrain decodes, stream

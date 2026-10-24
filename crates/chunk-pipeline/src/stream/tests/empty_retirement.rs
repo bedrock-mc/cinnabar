@@ -308,3 +308,35 @@ fn settled_empty_eviction_still_invalidates_surviving_neighbours() {
     assert!(stream.resident.contains(&neighbour));
     assert!(stream.authority.terrain().sub_chunk(removed).is_none());
 }
+
+/// Changed lighting cannot change acknowledged air geometry, but first empty evidence still publishes.
+#[test]
+fn changed_light_preserves_settled_empty_publication() {
+    for acknowledged in [false, true] {
+        let mut stream = light_scheduler::lit_stream(0);
+        let key = SubChunkKey::new(0, 0, 0, 0);
+        empty_section(&mut stream, key, true);
+        let now = Instant::now();
+        if acknowledged {
+            stream.mark_dirty_exact(key, now);
+            stream.dispatch_mesh_jobs_with_limits([0.0; 3], 0, 1);
+            let changes = stream.take_mesh_changes();
+            assert_eq!(changes.len(), 1);
+            for change in changes {
+                acknowledge_removal(&mut stream, change);
+            }
+        }
+        let queued = stream.stats.publication_stages.mesh_changes_queued;
+        stream.mark_changed_light_mesh_dependents(key, [true; 6], now, false);
+        stream.dispatch_mesh_jobs_with_limits([0.0; 3], 0, 1);
+        let changes = stream.take_mesh_changes();
+        assert_eq!(changes.len(), usize::from(!acknowledged));
+        assert_eq!(
+            stream.stats.publication_stages.mesh_changes_queued - queued,
+            u64::from(!acknowledged),
+        );
+        if acknowledged {
+            assert!(stream.is_mesh_clean(key));
+        }
+    }
+}

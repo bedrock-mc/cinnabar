@@ -402,6 +402,7 @@ impl WorldStream {
             if samples_changed_light
                 && self.resident.contains(&dependent)
                 && self.authority.terrain().sub_chunk(dependent).is_some()
+                && !self.has_settled_air_publication(dependent)
             {
                 self.invalidate_mesh_with_priority(dependent, now, urgent);
             }

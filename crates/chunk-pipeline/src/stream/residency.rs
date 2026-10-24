@@ -176,7 +176,7 @@ impl WorldStream {
     }
 
     /// Proves current air was acknowledged with no newer or unfinished mesh work.
-    fn has_settled_air_publication(&self, key: SubChunkKey) -> bool {
+    pub(super) fn has_settled_air_publication(&self, key: SubChunkKey) -> bool {
         self.is_mesh_clean(key)
             && self.applied_mesh_generations.contains_key(&key)
             && !self.mesh_jobs.pending.contains_key(&key)
