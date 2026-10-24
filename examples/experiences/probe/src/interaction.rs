@@ -47,7 +47,7 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
         }
         6 => tell(&id_or_error(ctx.get_block(BlockPos { x: p.x + 5, ..p }))),
         7 => tell(outcome(ctx.set_block_data(p, Some(&vec![0; 65_537])))),
-        8 => tell(outcome(ctx.set_block(p, "minecraft:stone"))),
+        8 => tell(outcome(ctx.set_block(p, UNOWNED_BLOCK))),
         9 => tell(outcome(ctx.tell(NIL_PLAYER, "x"))),
         10 => {
             tell("staged");

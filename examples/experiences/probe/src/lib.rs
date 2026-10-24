@@ -27,6 +27,7 @@ mod worlds;
 
 const COUNTER: &str = "probe:counter";
 const AIR: &str = "minecraft:air";
+const UNOWNED_BLOCK: &str = "minecraft:stone";
 const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 
 struct Probe;
