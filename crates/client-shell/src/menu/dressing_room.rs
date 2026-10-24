@@ -253,7 +253,11 @@ impl MenuRuntime {
         };
         *default = skin;
         refresh_default_entries(Arc::make_mut(&mut self.dressing_room), default);
-        self.skin_update_pending |= self.player_skin.refresh_default_player_skin(default);
+        if self.player_skin.refresh_default_player_skin(default) {
+            self.skin_update_pending = true;
+            self.skin_packet_pending = None;
+            self.skin_outbound = None;
+        }
     }
 
     pub(super) fn ensure_dressing_room(&mut self) {

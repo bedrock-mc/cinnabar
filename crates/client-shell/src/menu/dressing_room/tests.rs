@@ -660,7 +660,15 @@ fn deferred_default_skin_replaces_the_retained_fallback_and_late_catalog_results
         .repeat((carrier.width * carrier.height) as usize)
         .into();
     assert_ne!(carrier.rgba8, local.rgba8);
+    menu.skin_packet_pending = Some(protocol::player_skin_packet(
+        local.local_uuid,
+        &local.standard_skin(),
+        local.model().arm_size(),
+        &local.skin_id,
+        "Current skin",
+    ));
     menu.refresh_default_player_skin(carrier.clone());
+    assert!(menu.skin_packet_pending.is_none());
     assert_eq!(
         menu.player_skin().to_client_skin().rgba8,
         carrier.rgba8.as_ref()
