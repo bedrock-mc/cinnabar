@@ -51,7 +51,8 @@ impl SyncState {
         }
     }
 
-    /// Applies newly supplied components to the current size, preserving the other axis.
+    /// Applies sparse dimensions without changing accepted pose comparisons.
+    /// A replacement starts from default dimensions instead of the previous actor's size.
     fn server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
         if let Some(revision) = dimensions.spawn_revision
             && self.dimensions.spawn_revision != Some(revision)
@@ -66,7 +67,6 @@ impl SyncState {
             if self.dimensions.spawn_revision.is_some() {
                 self.size = None;
                 self.explicit_size = false;
-                self.last_pose = (false, false);
             }
             self.dimensions = client_world::ExplicitDimensions::for_spawn(revision);
         }

@@ -270,13 +270,8 @@ fn pending_sneak_and_explicit_size_survive_replay() {
     assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, 0.9]);
 }
 
-/// A later accepted sneak write preserves the replacement actor's explicit dimensions.
-#[test]
-fn replacement_size_uses_its_later_accepted_sneak() {
-    let mut world = local_actor_authority();
-    let mut physics = due_physics();
-    world.take_committed_controls();
-    tick_sneak(&world, &mut physics, true);
+/// Replaces the local actor with a sparse width request through world authority.
+fn replace_with_width(world: &mut client_world::WorldAuthority, sequence: u64) {
     let mut replacement = local_actor_spawn(Vec::new());
     replacement.metadata = Arc::from([protocol::ActorMetadata {
         key: ActorDataKey::Width.wire_value(),
@@ -285,13 +280,19 @@ fn replacement_size_uses_its_later_accepted_sneak() {
     world
         .apply_ordered_event(
             protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
-            Some(2),
+            Some(sequence),
         )
         .unwrap();
-    assert_eq!(
-        reported_box(&mut physics, &world),
-        [1.0, 0.8, STANDING_HEIGHT]
-    );
+}
+
+/// A later accepted sneak write preserves the replacement actor's explicit dimensions.
+#[test]
+fn delayed_replacement_dimensions_keep_the_accepted_sneak() {
+    let mut world = local_actor_authority();
+    let mut physics = due_physics();
+    world.take_committed_controls();
+    tick_sneak(&world, &mut physics, true);
+    replace_with_width(&mut world, 2);
     write_flags(
         &mut world,
         &mut physics,
@@ -310,7 +311,171 @@ fn replacement_size_uses_its_later_accepted_sneak() {
     );
 }
 
-/// Replacing an actor's size owner preserves the level's legacy crouch profile.
+/// Dimension observations leave accepted pose ownership independent of sender ordering.
+#[test]
+fn replacement_size_uses_its_later_accepted_sneak() {
+    for old_explicit in [false, true] {
+        for server_sneak in [false, true] {
+            for (observe_before_flags, observe_after_flags) in
+                [(false, false), (true, false), (false, true)]
+            {
+                let mut world = local_actor_authority();
+                let mut physics = due_physics();
+                world.take_committed_controls();
+                tick_sneak(&world, &mut physics, !server_sneak);
+                if old_explicit {
+                    write_dimensions(
+                        &mut world,
+                        2,
+                        &[(ActorDataKey::Width, 0.9), (ActorDataKey::Height, 0.7)],
+                    );
+                    assert_eq!(reported_box(&mut physics, &world), [1.0, 0.9, 0.7]);
+                }
+                replace_with_width(&mut world, 3);
+                let replacement = [1.0, 0.8, STANDING_HEIGHT];
+                if observe_before_flags {
+                    assert_eq!(reported_box(&mut physics, &world), replacement);
+                }
+                write_flags(
+                    &mut world,
+                    &mut physics,
+                    4,
+                    if server_sneak {
+                        1 << ActorFlag::Sneaking.wire_value()
+                    } else {
+                        0
+                    },
+                );
+                if observe_after_flags {
+                    assert_eq!(reported_box(&mut physics, &world), replacement);
+                }
+                tick_sneak(&world, &mut physics, server_sneak);
+                assert_eq!(reported_box(&mut physics, &world), replacement);
+                write_dimensions(&mut world, 5, &[(ActorDataKey::Height, 0.9)]);
+                tick_sneak(&world, &mut physics, server_sneak);
+                assert_eq!(reported_box(&mut physics, &world), [1.0, 0.8, 0.9]);
+                tick_sneak(&world, &mut physics, !server_sneak);
+                assert_eq!(
+                    reported_box(&mut physics, &world),
+                    [
+                        1.0,
+                        WIDTH,
+                        sim::MovementMode::Walking
+                            .hitbox_height(!server_sneak, sim::SneakProfile::Current)
+                            as f32
+                    ]
+                );
+            }
+        }
+    }
+}
+
+/// Replacement dimensions preserve horizontal state until its producer changes.
+#[test]
+fn replacement_dimensions_do_not_reset_horizontal_pose() {
+    let mut world = local_actor_authority();
+    let mut physics = due_physics();
+    world.take_committed_controls();
+    tick_sneak(&world, &mut physics, true);
+    let sneak = 1 << ActorFlag::Sneaking.wire_value();
+    let spin = 1 << ActorFlag::DamageNearbyMobs.wire_value();
+    write_flags(&mut world, &mut physics, 2, sneak | spin);
+    tick_sneak(&world, &mut physics, true);
+    assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, WIDTH]);
+    replace_with_width(&mut world, 3);
+    write_flags(&mut world, &mut physics, 4, sneak | spin);
+    tick_sneak(&world, &mut physics, true);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [1.0, 0.8, STANDING_HEIGHT]
+    );
+    write_flags(&mut world, &mut physics, 5, sneak);
+    tick_sneak(&world, &mut physics, true);
+    assert_eq!(
+        reported_box(&mut physics, &world),
+        [
+            1.0,
+            WIDTH,
+            sim::MovementMode::Walking.hitbox_height(true, sim::SneakProfile::Current) as f32
+        ]
+    );
+}
+
+/// Pending and replayed replacements keep accepted pose comparisons and reject older carriers.
+#[test]
+fn replacement_sneak_and_dimensions_survive_replay() {
+    for (observe_dimensions, complete_replacement) in [(false, false), (true, false), (false, true)]
+    {
+        let mut world = local_actor_authority();
+        let mut physics = due_physics();
+        world.take_committed_controls();
+        let anchor = physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput {
+                    sneaking: true,
+                    ..Default::default()
+                },
+                &OpenWorld,
+            )
+            .samples
+            .remove(0);
+        tick_sneak(&world, &mut physics, true);
+        let old_actor = LocalActor(world.actor(7).unwrap().clone());
+        replace_with_width(&mut world, 2);
+        write_flags(
+            &mut world,
+            &mut physics,
+            3,
+            1 << ActorFlag::Sneaking.wire_value(),
+        );
+        if observe_dimensions {
+            assert_eq!(
+                reported_box(&mut physics, &world),
+                [1.0, 0.8, STANDING_HEIGHT]
+            );
+        }
+        if complete_replacement {
+            tick_sneak(&world, &mut physics, true);
+        }
+        let correction = physics
+            .apply_correction(
+                crate::movement::PhysicsAnchor {
+                    network_position: anchor.position,
+                    tick: anchor.tick,
+                    on_ground: false,
+                    velocity: Some(anchor.velocity),
+                },
+                crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                None,
+                &OpenWorld,
+            )
+            .unwrap();
+        assert!(matches!(
+            correction.outcome,
+            crate::movement::PhysicsCorrectionOutcome::Replayed { replayed_ticks, .. }
+                if replayed_ticks == 1 + usize::from(complete_replacement)
+        ));
+        tick_sneak(&world, &mut physics, true);
+        let mut old_box = None;
+        send_movement_prediction_sync(&mut physics, &old_actor, None, None, None, |packet| {
+            old_box = protocol::test_support::packets::prediction_sync_bounding_box(&packet);
+            false
+        });
+        assert_eq!(old_box, Some([1.0, 0.8, STANDING_HEIGHT]));
+        assert_eq!(
+            reported_box(&mut physics, &world),
+            [1.0, 0.8, STANDING_HEIGHT]
+        );
+        tick_sneak(&world, &mut physics, false);
+        assert_eq!(
+            reported_box(&mut physics, &world),
+            [1.0, WIDTH, STANDING_HEIGHT]
+        );
+    }
+}
+
+/// Replacement and matching input retain explicit width under the level's legacy profile.
 #[test]
 fn legacy_replacement_preserves_explicit_sneak_and_the_level_profile() {
     let mut world = local_actor_authority();
@@ -327,23 +492,20 @@ fn legacy_replacement_preserves_explicit_sneak_and_the_level_profile() {
     );
     tick_sneak(&world, &mut physics, true);
     assert_eq!(reported_box(&mut physics, &world), [1.0, WIDTH, 0.7]);
-    let mut replacement = local_actor_spawn(Vec::new());
-    replacement.metadata = Arc::from([protocol::ActorMetadata {
-        key: ActorDataKey::Width.wire_value(),
-        value: ActorMetadataValue::Float(0.8),
-    }]);
-    world
-        .apply_ordered_event(
-            protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(replacement)),
-            Some(4),
-        )
-        .unwrap();
+    replace_with_width(&mut world, 4);
+    write_flags(
+        &mut world,
+        &mut physics,
+        5,
+        1 << ActorFlag::Sneaking.wire_value(),
+    );
+    tick_sneak(&world, &mut physics, true);
+    assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
     assert_eq!(
         reported_box(&mut physics, &world),
         [1.0, 0.8, STANDING_HEIGHT]
     );
-    tick_sneak(&world, &mut physics, true);
-    assert_eq!(physics.sneak_profile(), sim::SneakProfile::Legacy);
+    tick_sneak(&world, &mut physics, false);
     assert_eq!(
         reported_box(&mut physics, &world),
         [1.0, WIDTH, STANDING_HEIGHT]
