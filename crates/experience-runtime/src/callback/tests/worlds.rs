@@ -161,6 +161,6 @@ fn leave_keeps_private_player_state_without_live_player_authority() {
     ));
     assert!(matches!(
         res.tell(ACTOR.into(), "left".into()).unwrap(),
-        Err(WorldError::Denied)
+        Err(WorldError::PlayerUnavailable)
     ));
 }
