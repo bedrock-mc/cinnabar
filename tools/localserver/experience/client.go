@@ -14,8 +14,8 @@ import (
 // typed channels that each Experience's client part declares, and delivery to the client part
 // that a player runs. Its methods may be called from any goroutine.
 type ClientChannels interface {
-	// PrepareWorldChange fences the pinned client-part session before a player departs.
-	PrepareWorldChange(player uuid.UUID) (*cinnabarext.WorldChange, error)
+	// PlayerSession pins the accepted transport for the lifetime of one player login.
+	PlayerSession(player uuid.UUID) cinnabarext.PlayerSession
 	// Declares reports whether the client part of the Experience exp declares channel, revision
 	// schema, in the direction to the client.
 	Declares(exp, channel string, schema uint16) bool
@@ -86,24 +86,6 @@ func (h *Host) DeliverEpoch(player *world.EntityHandle, exp string) bool {
 	}
 }
 
-// sendClient sends a committed client message of the Experience d to player, or counts it as
-// dropped: on a channel that the Experience's client part does not declare, or not sent by the
-// server half, typically because player has no active client part.
-func (h *Host) sendClient(d *dispatcher, player uuid.UUID, op *SendClientOp) {
-	if h.channels != nil && !h.channels.Declares(d.id, op.Channel, op.Schema) {
-		if n, ok := d.undeclared.add(); ok {
-			h.log.Warn("client messages on undeclared channels dropped", "experience", d.id,
-				"channel", op.Channel, "schema", op.Schema, "dropped", n)
-		}
-		return
-	}
-	if h.channels == nil || !h.channels.SendRecord(player, d.id, op.Channel, op.Schema, op.Payload) {
-		if n, ok := d.unsent.add(); ok {
-			h.log.Debug("client messages not sent", "experience", d.id, "dropped", n)
-		}
-	}
-}
-
 // dropCount counts things dropped, and limits how often the count is logged.
 type dropCount struct {
 	n atomic.Uint64
@@ -120,7 +102,7 @@ func (c *dropCount) add() (uint64, bool) {
 	return n, now-last >= int64(dropLogInterval) && c.lastLog.CompareAndSwap(last, now)
 }
 
-// sendCurrent serializes delivery with departure without holding a registry lock across transport code.
+// sendCurrent binds deferred output to its original session and authoritative admission epoch.
 func (h *Host) sendCurrent(d *dispatcher, ev event, op *SendClientOp) {
 	if ev.actor == nil {
 		return
@@ -128,14 +110,28 @@ func (h *Host) sendCurrent(d *dispatcher, ev event, op *SendClientOp) {
 	h.players.mu.Lock()
 	state := h.players.items[ev.actor]
 	h.players.mu.Unlock()
-	if state != nil {
-		state.sends.Lock()
-		defer state.sends.Unlock()
-	}
+
 	if !h.playerCurrent(ev) {
 		return
 	}
-	h.sendClient(d, ev.actor.UUID(), op)
+	if h.channels != nil && !h.channels.Declares(d.id, op.Channel, op.Schema) {
+		if n, ok := d.undeclared.add(); ok {
+			h.log.Warn("client messages on undeclared channels dropped", "experience", d.id,
+				"channel", op.Channel, "schema", op.Schema, "dropped", n)
+		}
+		return
+	}
+	sent := false
+	if state != nil && state.connection != nil {
+		sent = state.connection.SendRecordAt(ev.epoch, d.id, op.Channel, op.Schema, op.Payload)
+	} else if h.channels != nil {
+		sent = h.channels.SendRecord(ev.actor.UUID(), d.id, op.Channel, op.Schema, op.Payload)
+	}
+	if !sent {
+		if n, ok := d.unsent.add(); ok {
+			h.log.Debug("client messages not sent", "experience", d.id, "dropped", n)
+		}
+	}
 }
 
 // admitPlayerWork captures admission and its epoch together, before any possible departure.
@@ -146,7 +142,7 @@ func (h *Host) admitPlayerWork(handle *world.EntityHandle) (uint64, bool) {
 	if state == nil {
 		return 0, true
 	}
-	return state.location.Epoch, !state.transferring
+	return state.location.Epoch, !state.retiring && !state.transferring
 }
 
 // deferEpoch retains control acknowledgments received during destination publication.
@@ -154,7 +150,7 @@ func (h *Host) deferEpoch(handle *world.EntityHandle, exp string) bool {
 	h.players.mu.Lock()
 	defer h.players.mu.Unlock()
 	state := h.players.items[handle]
-	if state == nil || !state.publishing {
+	if state == nil || state.retiring || !state.publishing {
 		return false
 	}
 	if state.pendingEpochs == nil {

@@ -867,8 +867,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   generations that invalidate stale callback work and migration from dimension-keyed stores.
   Server WIT 0.7 adds registered world definitions, instance creation/unload, typed scoped state,
   player observations and a transfer coordinator with departure epochs and source recovery.
-  Client-part activation and transfers share the extension helper's preparation and acknowledgment
-  fence. Player saves resolve stable instance identities with a default-spawn fallback. Shutdown
+  Coordinator moves, native teleports, sampled world swaps and reconnect placement use one admission path.
+  Its session-pinned transport fences old input and sends; same-instance transfers explicitly
+  synchronize position. Client-part activation shares that session's preparation and acknowledgment
+  fence, which is retired on disconnect. Player saves resolve stable instance identities with a
+  default-spawn fallback. Shutdown
   drains leave callbacks before store flush and world closure; leave writes need no live world.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.

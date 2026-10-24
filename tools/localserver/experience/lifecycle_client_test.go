@@ -81,7 +81,7 @@ func readExtensionFixture(t *testing.T, name string, target ext.Target) {
 }
 
 // newLifecyclePart constructs an optional client part without a native client or socket.
-func newLifecyclePart(t *testing.T, f *runtimeFixture) *lifecyclePart {
+func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*ext.Server) *lifecyclePart {
 	t.Helper()
 	var manifest ext.Manifest
 	readExtensionFixture(t, "manifest_payload.json", &manifest)
@@ -95,6 +95,9 @@ func newLifecyclePart(t *testing.T, f *runtimeFixture) *lifecyclePart {
 	s, err := ext.New(ext.Config{Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), Audience: offer.Audience, Now: func() time.Time { return time.Unix(int64(offer.ExpiresUnix)-1, 0) }, Bundles: []ext.Bundle{{Manifest: manifest, Digest: offer.Packages[0].Digest, Bytes: offer.Packages[0].Bytes}}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(existing) != 0 {
+		s = existing[0]
 	}
 	part := &lifecyclePart{t: t, server: s, sequence: 1}
 	for _, channel := range manifest.Channels {
@@ -120,12 +123,15 @@ func newLifecyclePart(t *testing.T, f *runtimeFixture) *lifecyclePart {
 	}
 	part.hello.OfferDigest = ext.Digest(encoded)
 	part.hello.Wire = &ext.WireOffer{Versions: []uint16{ext.MaxWireVersion}, Limits: ext.HostLimits}
-	s.OnClientMessage(func(_ uuid.UUID, exp, channel string, schema uint16, payload []ext.Scalar) {
+	s.OnClientMessage(func(_ uuid.UUID, _ ext.PlayerSession, exp, channel string, schema uint16, payload []ext.Scalar) {
 		if f.h.DeliverClientMessage(f.actor, exp, channel, schema, payload) {
 			part.admitted++
 		}
 	})
 	f.h.channels = s
+	if state := f.h.players.items[f.actor]; state != nil {
+		state.connection = s.PlayerSession(f.actor.UUID())
+	}
 	return part
 }
 
@@ -168,20 +174,42 @@ func (p *lifecyclePart) handshake() {
 }
 
 // oldInput probes the original Ready epoch without acknowledging any destination notice.
-func (p *lifecyclePart) oldInput() {
+func (p *lifecyclePart) oldInput() { p.inputAt(0) }
+
+// inputAt sends a record in the requested epoch; zero selects the original Ready epoch.
+func (p *lifecyclePart) inputAt(epoch uint64) {
 	if !p.ready {
 		return
 	}
 	var e ext.Envelope
 	readExtensionFixture(p.t, "envelope_to_server.json", &e)
-	e.Version = ext.MaxWireVersion
+	e.Version = ext.WireVersion
+	if p.accept.Wire != nil {
+		e.Version = p.accept.Wire.Version
+	}
 	e.Session = p.accept.Session
 	e.Connection = p.hello.Connection
 	e.Bundle = "probe"
 	e.Channel, e.Schema = p.incoming.ID, p.incoming.Schema
+	if epoch != 0 {
+		e.WorldEpoch = epoch
+	}
 	e.Sequence = p.sequence
 	p.sequence++
 	p.deliver(e)
+}
+
+// acknowledgeWorld completes the outstanding server-owned notice and returns its client epoch.
+func (p *lifecyclePart) acknowledgeWorld() uint64 {
+	p.t.Helper()
+	var control ext.Control
+	pk := p.inner.out[len(p.inner.out)-1].(*packet.ScriptMessage)
+	if err := ext.Decode(pk.Data, &control); err != nil || control.Epoch == nil {
+		p.t.Fatalf("world notice: %v", err)
+	}
+	epoch := control.Epoch
+	p.deliver(ext.Control{WorldAck: &ext.WorldAck{Session: epoch.Session, WorldEpoch: epoch.WorldEpoch, RequestedEpoch: epoch.WorldEpoch}})
+	return epoch.WorldEpoch
 }
 
 // TestLifecycleClientTransferFence admits source traffic and rejects it after same-type travel.

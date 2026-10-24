@@ -18,18 +18,18 @@ type WorldID string
 // False means there is no usable v2 session or the world ID is empty.
 func (s *Server) WorldChanged(player uuid.UUID, worldID WorldID) bool {
 	s.mu.Lock()
-	conn := s.active[player]
+	conn := s.connections[player]
 	s.mu.Unlock()
 	if conn == nil || worldID == "" {
 		return false
 	}
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	if uint64(s.now().Unix()) >= conn.expires {
-		conn.fallBack(errors.New("the grant expired"))
+	if conn.phase != active || conn.wire.Version == WireVersion || conn.prepared != nil {
 		return false
 	}
-	if conn.phase != active || conn.wire.Version == WireVersion || conn.prepared != nil {
+	if uint64(s.now().Unix()) >= conn.expires {
+		conn.fallBack(errors.New("the grant expired"))
 		return false
 	}
 	if conn.worldID == worldID {

@@ -540,6 +540,7 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	}
 	found := false
 	task := ev.actor.Do(func(tx *world.Tx, actor world.Entity) {
+		h.reconcilePlayer(actor.(*player.Player), false)
 		if !h.playerCurrent(*ev) {
 			return
 		}
@@ -553,6 +554,9 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 		return snapshot{}, fmt.Errorf("finding the actor of a player's callback: %w", err)
 	}
 	if !found {
+		if !h.playerCurrent(*ev) {
+			return snapshot{}, errStale
+		}
 		return snapshot{}, errors.New("the actor of a player's callback is in an unbound world instance")
 	}
 	return snap, nil

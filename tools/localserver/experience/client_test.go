@@ -356,5 +356,5 @@ func TestClientMessageSenderMustStay(t *testing.T) {
 	}
 }
 
-// PrepareWorldChange leaves transport mechanics to the real helper's tests.
-func (*fakeChannels) PrepareWorldChange(uuid.UUID) (*cinnabarext.WorldChange, error) { return nil, nil }
+// PlayerSession leaves transport mechanics to the real helper's tests.
+func (*fakeChannels) PlayerSession(uuid.UUID) cinnabarext.PlayerSession { return nil }

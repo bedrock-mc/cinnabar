@@ -20,14 +20,29 @@ type lifecycleChannels struct {
 	prepared *ext.WorldChange
 }
 
-// PrepareWorldChange hands the existing reservation to the production transfer coordinator.
-func (c *lifecycleChannels) PrepareWorldChange(id uuid.UUID) (*ext.WorldChange, error) {
-	if c.prepared != nil {
-		change := c.prepared
-		c.prepared = nil
+// PlayerSession pins the session while allowing the matrix to reserve a fence in an earlier step.
+func (c *lifecycleChannels) PlayerSession(id uuid.UUID) ext.PlayerSession {
+	session := c.Server.PlayerSession(id)
+	if session == nil {
+		return nil
+	}
+	return lifecycleSession{PlayerSession: session, channels: c}
+}
+
+// lifecycleSession shares one accepted connection and an optional scripted reservation.
+type lifecycleSession struct {
+	ext.PlayerSession
+	channels *lifecycleChannels
+}
+
+// PrepareWorldChange consumes an earlier reservation or prepares the pinned connection.
+func (c lifecycleSession) PrepareWorldChange(kind ext.WorldChangeKind) (*ext.WorldChange, error) {
+	if c.channels.prepared != nil {
+		change := c.channels.prepared
+		c.channels.prepared = nil
 		return change, nil
 	}
-	return c.Server.PrepareWorldChange(id)
+	return c.PlayerSession.PrepareWorldChange(kind)
 }
 
 // lifecycleMatrix owns one player's synchronous worlds, persisted location and real client part.
@@ -62,6 +77,11 @@ func newLifecycleMatrix(t *testing.T) *lifecycleMatrix {
 	part := newLifecyclePart(t, f)
 	channels := &lifecycleChannels{Server: part.server}
 	f.h.channels = channels
+	f.h.players.items[f.actor].connection = channels.PlayerSession(f.actor.UUID())
+	f.do(f.source, func(tx *world.Tx) {
+		e, _ := f.actor.Entity(tx)
+		e.(*player.Player).Handle(nativePositionHandler{host: f.h})
+	})
 	return &lifecycleMatrix{f: f, part: part, channels: channels, provider: provider, live: true}
 }
 
@@ -127,18 +147,36 @@ func (m *lifecycleMatrix) step(name string) {
 			f.t.Fatal(err)
 		}
 		f.actor = world.EntitySpawnOpts{ID: id}.New(player.Type, data)
-		f.do(w, func(tx *world.Tx) { f.h.PlayerJoined(tx.AddEntity(f.actor).(*player.Player)) })
+		m.part = newLifecyclePart(f.t, f, m.part.server)
 		m.live = true
-		m.part = newLifecyclePart(f.t, f)
 		// A reconnect establishes a new transport session; an old reservation is retired.
 		m.channels.prepared.Abort()
 		m.channels = &lifecycleChannels{Server: m.part.server}
 		f.h.channels = m.channels
+		f.do(w, func(tx *world.Tx) {
+			p := tx.AddEntity(f.actor).(*player.Player)
+			p.Handle(nativePositionHandler{host: f.h})
+			f.h.PlayerJoined(p)
+		})
 		m.fenced = false
 	case "handshake":
-		if m.live {
+		if m.live && f.h.epoch(f.actor) != 0 {
 			m.part.handshake()
 		}
+	case "same_instance":
+		if !m.live || f.h.epoch(f.actor) == 0 {
+			return
+		}
+		if _, ok := f.h.worlds.handle("probe:one"); !ok {
+			return
+		}
+		if err := f.travel(f.t.Context(), "probe:one"); err != nil {
+			return
+		}
+		if err := f.travel(f.t.Context(), "probe:one"); err != nil {
+			f.t.Fatal(err)
+		}
+		m.fenced = true
 	case "portal", "respawn":
 		if !m.live {
 			return
@@ -152,19 +190,31 @@ func (m *lifecycleMatrix) step(name string) {
 			return
 		}
 		destination, _ := f.h.ResolveWorld(handle)
+		beforeEpoch := f.h.epoch(f.actor)
 		var source *world.World
 		if err := f.actor.Do(func(tx *world.Tx, e world.Entity) { source = tx.World(); tx.RemoveEntity(e) }).Wait(f.t.Context()); err != nil {
 			f.t.Fatal(err)
 		}
 		if source != destination {
-			f.do(destination, func(tx *world.Tx) { tx.AddEntityAt(f.actor, mgl64.Vec3{4, 75, 6}) })
+			f.do(destination, func(tx *world.Tx) {
+				p := tx.AddEntityAt(f.actor, mgl64.Vec3{4, 75, 6}).(*player.Player)
+				if name == "respawn" {
+					p.Teleport(p.Position())
+				}
+			})
 		} else {
-			f.do(source, func(tx *world.Tx) { tx.AddEntity(f.actor) })
+			f.do(source, func(tx *world.Tx) {
+				p := tx.AddEntity(f.actor).(*player.Player)
+				if name == "respawn" {
+					p.Teleport(mgl64.Vec3{4, 75, 6})
+				}
+			})
 		}
 		m.tick++
 		if err := f.h.PollPlayers(f.t.Context(), m.tick); err != nil {
 			f.t.Fatal(err)
 		}
+		m.fenced = m.fenced || f.h.epoch(f.actor) != beforeEpoch
 	case "prepare":
 		if !m.live {
 			return
@@ -246,7 +296,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "unload", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {

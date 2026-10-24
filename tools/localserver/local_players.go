@@ -4,6 +4,7 @@ import (
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
+	"github.com/go-gl/mathgl/mgl64"
 	"github.com/google/uuid"
 
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
@@ -15,6 +16,13 @@ type localPlayerHandler struct {
 	player.NopHandler
 	host   *experience.Host
 	flight flySpeedState
+}
+
+// HandleTeleport applies authoritative teleports through the host's session fence.
+func (h *localPlayerHandler) HandleTeleport(ctx *player.Context, pos mgl64.Vec3) {
+	if h.host != nil && h.host.TeleportPlayer(ctx.Player(), experience.Position{X: pos.X(), Y: pos.Y(), Z: pos.Z()}) {
+		ctx.Cancel()
+	}
 }
 
 // HandleQuit forgets this player's focus when the server hosts Experiences.
