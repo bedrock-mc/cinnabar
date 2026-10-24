@@ -163,3 +163,71 @@ fn loading_discards_previous_movement_and_deferred_corrections() {
     assert_eq!(physics.state().unwrap().requested_movement, Vec3::ZERO);
     assert!(!physics.has_pending_prediction_corrections());
 }
+
+#[test]
+fn loading_preserves_climber_authority_until_a_server_clear_or_contact_scan() {
+    for snapped in [false, true] {
+        for cleared in [false, true] {
+            let position = [0.5, 72.0 + PLAYER_NETWORK_OFFSET, 0.5];
+            let mut physics = LocalPhysicsController::default();
+            physics.reanchor_network_position(position, 100, false);
+            let word = ClimberFlags {
+                over_descending_block: true,
+                ..Default::default()
+            }
+            .word();
+            physics.apply_server_movement_flags(
+                0,
+                client_world::MovementFlagUpdate {
+                    extended_flags: Some(word),
+                    ..Default::default()
+                },
+            );
+            if snapped {
+                physics
+                    .apply_correction(
+                        crate::movement::PhysicsAnchor {
+                            network_position: position,
+                            tick: 100,
+                            on_ground: false,
+                            velocity: None,
+                        },
+                        PhysicsCorrectionMode::Snap,
+                        None,
+                        &EmptyWorld,
+                    )
+                    .unwrap();
+            }
+            physics.advance_dimension_wait(
+                simulation_clock::TICK_DURATION,
+                0.0,
+                PhysicsSampleContext::default(),
+                registry(),
+                &mut NoMovementEffects,
+            );
+            if cleared {
+                physics.apply_server_movement_flags(
+                    0,
+                    client_world::MovementFlagUpdate {
+                        extended_flags: Some(0),
+                        ..Default::default()
+                    },
+                );
+            }
+            let resumed = physics.advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput {
+                    sneaking: true,
+                    ..Default::default()
+                },
+                &EmptyWorld,
+            );
+            assert_eq!(resumed.completed_ticks, 1);
+            assert_eq!(
+                resumed.samples[0].movement[1] == -0.15,
+                !cleared,
+                "snapped={snapped} cleared={cleared}"
+            );
+        }
+    }
+}
