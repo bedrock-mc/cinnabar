@@ -42,11 +42,12 @@ impl WorldStream {
             .frame_deadline
             .take()
             .unwrap_or_else(|| self.poll_deadline.unwrap_or(now + self.poll_budget));
-        // A service that held the stream for a whole allocation between frames carries the
+        // After a whole allocation of polling between frames, the service carries the
         // backlog: the frame keeps the floor allocation and leaves chunk-data commits to it.
+        // Idle ownership does not earn polling credit.
         let offloaded = self.between_frames_service
             && self.service_yield.is_none()
-            && self.service_window >= self.poll_budget;
+            && self.service_poll_time >= self.poll_budget;
         if offloaded {
             frame_deadline = frame_deadline.min(now + WORLD_POLL_BUDGET_FLOOR);
         }

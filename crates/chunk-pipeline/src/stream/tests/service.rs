@@ -39,20 +39,20 @@ fn raised_service_yield_stops_before_the_next_heavy_commit() {
     assert_eq!(report.commit_steps, 8, "the report counts the progress");
 }
 
-/// After a service window as long as the frame's allocation, the frame's poll accepts decode
-/// results but leaves chunk-data commits to the service; a short window keeps the frame's
-/// usual guaranteed commit, so a service starved of time never stalls terrain.
+/// After a full allocation of service polling, the frame accepts decode results but leaves
+/// chunk-data commits to the service. Less polling keeps the frame's usual guaranteed commit,
+/// so a service starved of execution time never stalls terrain.
 #[test]
-fn frame_poll_leaves_chunk_data_to_a_service_with_a_full_window() {
+fn frame_poll_leaves_chunk_data_after_a_full_service_poll_allocation() {
     let mut stream = stream_with_decoded_columns(4);
     stream.between_frames_service = true;
-    stream.service_window = stream.poll_budget;
+    stream.service_poll_time = stream.poll_budget;
     stream.begin_frame_work();
     let report = stream.poll([0.0; 3], 0);
     assert!(report.decoded_results > 0);
     assert_eq!(stream.committed_sequence(), 0);
 
-    stream.service_window = Duration::ZERO;
+    stream.service_poll_time = Duration::ZERO;
     stream.frame_deadline = Some(Instant::now());
     stream.poll([0.0; 3], 0);
     assert_eq!(
@@ -109,7 +109,7 @@ fn dropping_a_servicing_service_drops_its_stream() {
 fn service_poll_clamps_the_commit_deadline_after_frame_work_started() {
     let mut stream = block_entity_visual_stream();
     stream.between_frames_service = true;
-    stream.service_window = stream.poll_budget;
+    stream.service_poll_time = stream.poll_budget;
     stream.begin_frame_work();
     let now = stream.frame_deadline.unwrap() - stream.poll_budget;
     let frame_deadline = stream.begin_poll_work(now);
@@ -123,7 +123,7 @@ fn service_poll_clamps_the_commit_deadline_after_frame_work_started() {
 fn service_poll_preserves_an_earlier_commit_deadline() {
     let mut stream = block_entity_visual_stream();
     stream.between_frames_service = true;
-    stream.service_window = stream.poll_budget;
+    stream.service_poll_time = stream.poll_budget;
     let now = Instant::now();
     let expired = now - Duration::from_millis(1);
     stream.frame_deadline = Some(now + stream.poll_budget);

@@ -444,10 +444,10 @@ pub struct WorldStream {
     service_yield: Option<Arc<AtomicBool>>,
     /// Lent to a between-frames service every frame: retention evictions wait for the next poll,
     /// which the service reaches first, and frame polls leave heavy work to a service that had
-    /// a full allocation's window.
+    /// already polled for a full allocation.
     between_frames_service: bool,
-    /// How long the service last held the stream, which bounds what it could take over.
-    service_window: Duration,
+    /// Elapsed time inside the last loan's polls, excluding idle waits.
+    service_poll_time: Duration,
     /// A deferred retention re-evaluation awaits the next poll.
     retention_due: bool,
     /// Last column visited by the current retention change.

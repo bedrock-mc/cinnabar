@@ -237,9 +237,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   waiters. Dispatched light members retire their queued candidates, so completed
   columns do not consume later dispatch scans. Near publication receipts consume
   changed residency columns between full snapshots, preserving unchanged receipts.
-  Biome-only inline updates preserve current light while remeshing tint; block changes
-  and new residency still invalidate light. Matched-output hardware preparation and
-  streaming qualification remain open.
+  Foreground chunk-data offload requires a full allocation of service polling;
+  idle waits do not count. Biome-only inline updates preserve current light while
+  remeshing tint; block changes and new residency still invalidate light.
+  Matched-output hardware preparation and streaming qualification remain open.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.

@@ -146,7 +146,7 @@ impl WorldStream {
             poll_heavy_guarantee: false,
             service_yield: None,
             between_frames_service: false,
-            service_window: Duration::ZERO,
+            service_poll_time: Duration::ZERO,
             retention_due: false,
             retention_cursor: None,
             maintenance_items: 0,
