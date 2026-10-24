@@ -15,6 +15,7 @@ fn transfer(id: Option<u32>) -> DimensionTransfer {
             ..Default::default()
         },
         42,
+        true,
         Duration::ZERO,
     );
     transfer
@@ -50,8 +51,40 @@ fn replace_transfer(transfer: &mut DimensionTransfer, epoch: u64, id: Option<u32
             ..Default::default()
         },
         42,
+        true,
         Duration::from_secs(1),
     );
+}
+
+/// A respawn into another dimension arrives while the player is dead; vanilla then shows no
+/// dimension loading screen, so no Start or End report reaches a server that never expects one.
+#[test]
+fn transfer_while_dead_sends_only_the_dimension_acknowledgement() {
+    let mut transfer = DimensionTransfer::default();
+    transfer.begin(
+        7,
+        11,
+        ChangeDimensionEvent {
+            dimension: 0,
+            position: [0.0, 32_767.0, 0.0],
+            ..Default::default()
+        },
+        42,
+        false,
+        Duration::ZERO,
+    );
+    assert!(collect(&mut transfer).is_empty(), "no loading-screen start");
+    transfer.acknowledge(11);
+    assert_eq!(
+        collect(&mut transfer),
+        [protocol::dimension_change_done_packet(42)]
+    );
+    assert!(
+        transfer
+            .complete_with(|packet| panic!("unexpected {packet:?}"))
+            .unwrap()
+    );
+    assert!(!transfer.active());
 }
 
 /// A replacement updates an active screen without another start report.
@@ -295,6 +328,7 @@ fn session_replacement_and_superseding_transfer_drop_obsolete_loading_identity()
             ..Default::default()
         },
         55,
+        true,
         Duration::from_secs(19),
     );
     collect(&mut transfer);
@@ -306,6 +340,7 @@ fn session_replacement_and_superseding_transfer_drop_obsolete_loading_identity()
             ..Default::default()
         },
         56,
+        true,
         Duration::from_secs(20),
     );
     transfer.acknowledge(11);
@@ -367,6 +402,7 @@ fn dimension_start_progresses_without_a_window_but_done_waits_for_server_and_ter
             ..Default::default()
         },
         42,
+        true,
         Duration::ZERO,
     );
     let position = world
