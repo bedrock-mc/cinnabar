@@ -247,6 +247,7 @@ impl UiPresentationRuntime {
         drew.preview = player_preview;
         drew.crosshair = crosshair_spec;
         if let Some(view) = drew.view {
+            self.hud_preview_view = view;
             self.player_preview_view = view;
         }
         Ok(true)

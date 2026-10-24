@@ -206,7 +206,7 @@ impl UiPresentationRuntime {
             );
             discard_collapsed_faces(vertices);
         }
-        if draw_cape && let Some(cape) = &self.gui_models.cape {
+        if draw_cape && let Some(cape) = &self.gui_models.sources.cape {
             let bindings = rig
                 .attachments
                 .and_then(|bindings| bindings.cape_for(cape))
@@ -304,5 +304,7 @@ fn discard_collapsed_faces(vertices: &mut Vec<ActorVertex>) {
 
 #[cfg(test)]
 mod cape_tests;
+#[cfg(test)]
+mod hud_doll_tests;
 #[cfg(test)]
 mod tests;

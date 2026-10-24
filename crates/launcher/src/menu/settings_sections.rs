@@ -55,6 +55,7 @@ macro_rules! sections {
 sections! {
     Accessibility => "accessibility_forced_index", 2, Some("options.accessibility.title"), Some("menu.accessibility.tab.title"), Some(SettingsGroup::Accessibility);
     Updates => "cinnabar_updates_index", 45, Some("Updates"), Some("Updates"), None;
+    Game => "game_forced_index", 4, Some("createWorldScreen.game.settings"), Some("options.category.game"), None;
     KeyboardAndMouse => "keyboard_and_mouse_forced_index", 14, Some("options.keyboardAndMouseSettings"), Some("menu.keyboardAndMouse.tab.title"), None;
     ControllerAndSwitch => "controller_and_switch_forced_index", 15, Some("options.controllerSettings"), Some("menu.controller.tab.title"), None;
     Touch => "touch_forced_index", 16, None, Some("menu.touch.tab.title"), None;
@@ -73,7 +74,6 @@ sections! {
     Creator => "creator_forced_index", 20, Some("options.creatorTitle"), Some("menu.creator.tab.title"), None;
     Server => "server_forced_index", 1, Some("Server Settings"), Some("Server Settings"), None;
     HowToPlay => "how_to_play_index", 3, None, None, None;
-    Game => "game_forced_index", 4, None, None, None;
     Classroom => "classroom_forced_index", 5, None, None, None;
     EduCloudLevel => "edu_cloud_level_forced_index", 6, None, None, None;
     Multiplayer => "multiplayer_forced_index", 7, None, None, None;

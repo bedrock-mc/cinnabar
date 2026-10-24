@@ -125,12 +125,7 @@ fn adapt_vertex(vertex: &ui::UiVertex, scale: f32) -> Result<UiRenderVertex, UiR
         clip_w: vertex.clip_w,
         uv: vertex.uv,
         color: vertex.color,
-        style_flags: u32::from(vertex.style_flags)
-            | if vertex.alpha_test {
-                render_model::UI_STYLE_ALPHA_TEST
-            } else {
-                0
-            },
+        style_flags: vertex.style_flags,
         alpha_cutoff: vertex.alpha_cutoff,
         model_light: vertex.model_light,
         overlay_color: vertex.overlay_color,
@@ -238,7 +233,6 @@ mod tests {
                     uv: [0.0, 0.0],
                     color: [255; 4],
                     style_flags: 0,
-                    alpha_test: false,
                     alpha_cutoff: -1.0,
                     model_light: 1.0,
                     overlay_color: [0.0; 4],
@@ -349,10 +343,10 @@ mod tests {
             input
                 .vertices
                 .iter()
-                .all(|vertex| { vertex.style_flags & render_model::UI_STYLE_ALPHA_TEST != 0 })
+                .all(|vertex| { vertex.style_flags & render_api::UI_STYLE_ALPHA_TEST != 0 })
         );
         assert_eq!(
-            render_model::UI_STYLE_ALPHA_TEST
+            render_api::UI_STYLE_ALPHA_TEST
                 & u32::from(ui::UI_STYLE_GRAYSCALE | ui::UI_STYLE_BILINEAR | ui::UI_STYLE_GLINT),
             0
         );
@@ -367,13 +361,13 @@ mod tests {
         let mesh = ui::UiMesh::new(
             [[0.0, 0.0], [2.0, 0.0], [0.0, 2.0]]
                 .map(|position| ui::UiMeshVertex {
+                    alpha_test: false,
                     position,
                     clip_z: 0.75,
                     clip_w: 2.0,
                     uv: [8.5, 4.5],
                     color: [255; 4],
                     style_flags: 0,
-                    alpha_test: false,
                     model_light: 0.718_629,
                     overlay_color: [0.8, 0.248_176, 0.0, 0.7],
                 })

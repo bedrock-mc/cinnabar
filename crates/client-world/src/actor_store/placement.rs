@@ -37,7 +37,9 @@ impl super::movement_interpolation::MotionState {
     /// Holds a rider on its seat: position and body follow the mount, the head within the lock.
     fn seat(&mut self, placement: &Placement) {
         self.received.position = placement.position;
+        self.received.y_origin = Default::default();
         self.pose.position = placement.position;
+        self.pose.y_origin = Default::default();
         self.pose.yaw = placement.body_yaw;
         self.received.yaw = placement.body_yaw;
         if let Some(limit) = placement.lock_degrees {
@@ -74,7 +76,9 @@ impl ActorStore {
         };
         actor.position = position;
         actor.previous_pose.position = position;
+        actor.previous_pose.y_origin = Default::default();
         actor.received_pose.position = position;
+        actor.received_pose.y_origin = Default::default();
         actor.interpolation_ticks_remaining = 0;
         actor.status.movement_interpolation = Default::default();
         self.effect_members.collidable.update(actor);
@@ -360,7 +364,10 @@ mod tests {
         );
 
         store.predict_remote_motion(3);
-        let predicted = [8, 9].map(|runtime_id| store.pick_pose(runtime_id).unwrap());
+        let predicted = [8, 9].map(|runtime_id| {
+            let pose = store.pick_pose(runtime_id).unwrap();
+            (pose.position, pose.yaw)
+        });
         store.advance_interpolation_ticks(3);
         let live = [8, 9].map(|runtime_id| {
             let actor = &store.actors[&runtime_id];

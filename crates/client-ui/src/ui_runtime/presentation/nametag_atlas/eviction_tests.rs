@@ -840,8 +840,8 @@ fn partially_live_shelves_recover_before_publication_and_match_a_fresh_scene() {
         blocked.records.len(),
         anchors.len() * NAMETAG_RECORDS_PER_LINE
     );
-    // The smaller preflight miss precedes one fresh packing attempt for the whole live set.
-    assert_eq!(reads.get(), 1 + anchors.len());
+    // Only the two new lines rasterize; repacking reuses the retained line pixels.
+    assert_eq!(reads.get(), 2);
     let blocked_copy = blocked.clone();
     let recovered = build_nametag_scene(
         &anchors,
@@ -862,7 +862,7 @@ fn partially_live_shelves_recover_before_publication_and_match_a_fresh_scene() {
     assert_eq!(recovered.records, expected.records);
     assert_eq!(recovered.atlas.as_ref(), expected.atlas.as_ref());
     assert_eq!(recovered.atlas.len(), anchors.len());
-    assert_eq!(reads.get(), 1 + anchors.len());
+    assert_eq!(reads.get(), 2);
     assert_eq!(recovered.atlas_revision, blocked.atlas_revision);
     assert_ne!(recovered.atlas[1].cell, original.0[2].cell);
     assert_eq!(blocked, blocked_copy);
@@ -883,7 +883,7 @@ fn partially_live_shelves_recover_before_publication_and_match_a_fresh_scene() {
         assert_eq!(repeated.records, recovered.records);
         assert!(Arc::ptr_eq(&repeated.atlas, &recovered.atlas));
         assert_eq!(repeated.atlas_revision, recovered.atlas_revision);
-        assert_eq!(reads.get(), 1 + anchors.len());
+        assert_eq!(reads.get(), 2);
         assert_eq!(layouts.built_layout_count(), built);
     }
 }
@@ -907,16 +907,16 @@ fn impossible_requests_rebuild_once_until_actual_admission_order_changes() {
     };
     let initial = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(initial.records.len(), NAMETAG_RECORDS_PER_LINE);
-    assert_eq!(reads.get(), 2);
+    assert_eq!(reads.get(), 1);
     let rebuilt = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     assert_eq!(rebuilt.records, initial.records);
-    assert_eq!(reads.get(), 2);
+    assert_eq!(reads.get(), 1);
     assert_eq!(rebuilt.atlas_revision, initial.atlas_revision);
     for _ in 0..4 {
         let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, rebuilt);
         assert!(Arc::ptr_eq(&repeated.atlas, &rebuilt.atlas));
-        assert_eq!(reads.get(), 2);
+        assert_eq!(reads.get(), 1);
     }
     // The same requested set in a new order must get its own fresh admission attempt.
     anchors[1].view_depth -= 1.0;
@@ -932,12 +932,12 @@ fn impossible_requests_rebuild_once_until_actual_admission_order_changes() {
     );
     assert_eq!(reordered.records, expected.records);
     assert_eq!(reordered.atlas.as_ref(), expected.atlas.as_ref());
-    assert_eq!(reads.get(), 3);
+    assert_eq!(reads.get(), 2);
     for _ in 0..4 {
         let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, reordered);
         assert!(Arc::ptr_eq(&repeated.atlas, &reordered.atlas));
-        assert_eq!(reads.get(), 3);
+        assert_eq!(reads.get(), 2);
     }
     assert_placed_cells(&atlas);
 }
@@ -966,12 +966,12 @@ fn rebuild_retry_includes_lines_reached_after_rejected_budget_prefixes() {
     };
     build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     let rebuilt = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
-    assert_eq!(reads.get(), 2);
+    assert_eq!(reads.get(), 1);
     for _ in 0..3 {
         let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, rebuilt);
         assert!(Arc::ptr_eq(&repeated.atlas, &rebuilt.atlas));
-        assert_eq!(reads.get(), 2);
+        assert_eq!(reads.get(), 1);
     }
     // The predicted budget prefix stays identical; only a later actual request changes.
     anchors[1].lines = vec![Arc::from("2")].into();
@@ -980,7 +980,7 @@ fn rebuild_retry_includes_lines_reached_after_rejected_budget_prefixes() {
         changed.records.len(),
         anchors.len() * NAMETAG_RECORDS_PER_LINE
     );
-    assert_eq!(reads.get(), 3);
+    assert_eq!(reads.get(), 2);
     let recovered = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
     let expected = build_nametag_scene(
         &anchors,
@@ -992,12 +992,12 @@ fn rebuild_retry_includes_lines_reached_after_rejected_budget_prefixes() {
     );
     assert_eq!(recovered.records, expected.records);
     assert_eq!(recovered.atlas.as_ref(), expected.atlas.as_ref());
-    assert_eq!(reads.get(), 5);
+    assert_eq!(reads.get(), 2);
     for _ in 0..3 {
         let repeated = build_nametag_scene(&anchors, None, &font, &mut layouts, &mut atlas, &pages);
         assert_eq!(repeated, recovered);
         assert!(Arc::ptr_eq(&repeated.atlas, &recovered.atlas));
-        assert_eq!(reads.get(), 5);
+        assert_eq!(reads.get(), 2);
     }
     assert_placed_cells(&atlas);
 }

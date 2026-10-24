@@ -1,10 +1,12 @@
-//! Builds a mining target from the current interaction facts for ordered attack admission.
+//! Builds a mining target, or the refusal of a block press, from the current interaction facts
+//! for ordered attack admission.
 
 use crate::interaction_authority::observe_block;
 use client_interaction::mining::hand_interaction_selection;
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use gameplay::{
     interaction_authority::within_pick_range,
+    melee::{RefusedDestroy, RefusedDestroyReason},
     mining::{creative_reach, protocol_input_mode, survival_reach},
     survival_mining::{
         DestroyTarget, ToolWear, destroys_in_creative, exempt_from_airborne_penalty, eyes_in_water,
@@ -15,6 +17,12 @@ use semantic_input::identity::{InputAuthorityGeneration, InputSequence};
 use sim::{DestroyConditions, HeldTool, PaletteWorld};
 use simulation_clock::identity::PositionAuthorityGeneration;
 
+/// What an attack on the reached block does: start destroying it, or fail at the start.
+pub(crate) enum DestroyObservation {
+    Target(DestroyTarget),
+    Refused(RefusedDestroy),
+}
+
 /// Reads the destroy facts used for this frame's block press.
 pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
@@ -24,10 +32,9 @@ pub(crate) fn observe_destroy_target(
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
     position_authority_generation: PositionAuthorityGeneration,
-) -> Option<DestroyTarget> {
+) -> Option<DestroyObservation> {
     let ui = &context.ui;
-    // The capability gate in the producer already confirmed this mode edits;
-    // here only an open UI blocks the pick.
+    // Producers apply the Mine grant to targets; refusals are reported regardless of it.
     let caps = caps?;
     if context.focus.ui_focused {
         return None;
@@ -61,8 +68,15 @@ pub(crate) fn observe_destroy_target(
         protocol::ItemBlockList::CanDestroy,
         observed.target.runtime_id,
     );
+    let refused = |reason| {
+        Some(DestroyObservation::Refused(RefusedDestroy {
+            position: observed.target.position,
+            face: observed.target.face,
+            reason,
+        }))
+    };
     if !caps.permits_edit(held) {
-        return None;
+        return refused(RefusedDestroyReason::Denied);
     }
     let mode = stream.network_id_mode();
     let mut destroy_facts = stream
@@ -103,7 +117,7 @@ pub(crate) fn observe_destroy_target(
     let block = sim::BlockDestroyInfo::from_facts(destroy_facts);
     let instant = caps.instant_break;
     if instant && !destroys_in_creative(fact) {
-        return None;
+        return refused(RefusedDestroyReason::CreativeNoBreak);
     }
     let tool = HeldTool::from_facts(fact);
     let world = PaletteWorld::new(
@@ -136,7 +150,7 @@ pub(crate) fn observe_destroy_target(
             },
         })
     });
-    Some(DestroyTarget {
+    Some(DestroyObservation::Target(DestroyTarget {
         local_runtime_id: stream.local_player_runtime_id(),
         position: observed.target.position,
         face: observed.target.face,
@@ -169,7 +183,7 @@ pub(crate) fn observe_destroy_target(
         selection: observed.selection,
         wear,
         instant,
-    })
+    }))
 }
 
 const AQUA_AFFINITY_ENCHANTMENT_ID: i16 = 8;

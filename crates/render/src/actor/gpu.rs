@@ -199,6 +199,18 @@ impl ActorDrawTracker {
             .filter(|pending| pending.batch.0.expected == pending.received)
             .map(|pending| pending.batch.0.draw.clone())
     }
+
+    /// Returns encoded spans so fixtures can observe partial draws before taking the full receipt.
+    #[cfg(test)]
+    pub(crate) fn recorded_spans(&self) -> Vec<ActorDrawSpan> {
+        self.pending
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .as_ref()
+            .map_or_else(Vec::new, |pending| {
+                pending.received.iter().copied().collect()
+            })
+    }
 }
 
 #[cfg(test)]

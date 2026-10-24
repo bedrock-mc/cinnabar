@@ -26,8 +26,8 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // experienceDataDir is the directory under -dir that holds the Experiences' private data.
@@ -124,6 +124,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			conf.Listeners[i] = cameraTestListener(listen)
 		}
 	}
+	if cfg.containerTitleTest {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = containerTitleListener(listen)
+		}
+	}
 	if cfg.totemTest || cfg.totemTexture {
 		for i, listen := range conf.Listeners {
 			conf.Listeners[i] = totemTestListener(listen)
@@ -141,6 +146,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	cfg.configureTerrainFixture(&conf)
 	cfg.configureOpaqueOverdraw(&conf)
+	if err := cfg.configureBlockGallery(&conf); err != nil {
+		if exps != nil {
+			err = errors.Join(err, exps.closeSupervisors())
+		}
+		return fmt.Errorf("prepare block gallery: %w", err)
+	}
+	if cfg.holograms {
+		for i, listen := range conf.Listeners {
+			conf.Listeners[i] = hologramListener(listen)
+		}
+	}
 	conf.ChunkLoadWorkers = cfg.chunkWorkers
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -167,6 +183,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			channels = ext
 		}
 		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		if err := host.BindDefaultWorlds(worlds...); err != nil {
+			return errors.Join(err, srv.Close(), host.Close())
+		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
 		// without them: each loads again with them.
 		for id := range exps.sups {

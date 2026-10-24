@@ -46,6 +46,8 @@ pub(crate) struct EffectInputs<'a> {
     /// The player's cloud preference, used under `clouds=default`.
     pub clouds_visible: bool,
     pub particles: Option<&'a ParticleGpuFrame>,
+    /// Side of the published particle texture, including any memory-pressure reduction.
+    pub particle_atlas_side: u32,
     pub precipitation: Option<&'a PrecipitationScene>,
     pub lightning: Option<&'a LightningScene>,
     pub selection: Option<&'a BlockSelectionFrame>,
@@ -98,17 +100,17 @@ fn build(
         Effect::Stars if overworld => celestial.stars(mesh),
         Effect::Particles => {
             if let Some(frame) = inputs.particles {
-                particle_quads(mesh, &frame.opaque, camera, frame.atlas_side);
+                particle_quads(mesh, &frame.opaque, camera, inputs.particle_atlas_side);
             }
         }
         Effect::ParticlesTranslucent => {
             if let Some(frame) = inputs.particles {
-                particle_quads(mesh, &frame.blend, camera, frame.atlas_side);
+                particle_quads(mesh, &frame.blend, camera, inputs.particle_atlas_side);
             }
         }
         Effect::ParticlesAdditive => {
             if let Some(frame) = inputs.particles {
-                particle_quads(mesh, &frame.add, camera, frame.atlas_side);
+                particle_quads(mesh, &frame.add, camera, inputs.particle_atlas_side);
             }
         }
         Effect::Weather => {
@@ -259,4 +261,87 @@ pub(crate) fn prepare_effects(
         wgpu::BufferUsages::INDEX,
         "shader pack effect indices",
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shaderpack::geometry::IRIS_VERTEX_STRIDE;
+    use particles::ParticleInstance;
+    use std::sync::Arc;
+
+    #[test]
+    fn reduced_particle_atlas_insets_use_the_published_texture_side() {
+        let instance = ParticleInstance {
+            axis_x: [1.0, 0.0, 0.0, 0.0],
+            axis_y: [0.0, 1.0, 0.0, 0.0],
+            uv: [0.0, 0.0, 1.0, 1.0],
+            texture_bounds: [0.25, 0.25, 0.5, 0.5],
+            ..Default::default()
+        };
+        let frame = ParticleGpuFrame {
+            atlas_side: 2048,
+            opaque: Arc::from([instance]),
+            blend: Arc::from([instance]),
+            add: Arc::from([instance]),
+            ..Default::default()
+        };
+        for side in [frame.atlas_side, frame.atlas_side / 2, frame.atlas_side / 4] {
+            let inputs = EffectInputs {
+                coverage: Default::default(),
+                camera: EffectCamera {
+                    position: Vec3::ZERO,
+                    model_view: Mat4::IDENTITY,
+                    focal: [1.0; 2],
+                    screen: [4; 2],
+                },
+                frame: Default::default(),
+                atmosphere: None,
+                atmosphere_view: None,
+                atmosphere_textures: None,
+                clouds_visible: false,
+                particles: Some(&frame),
+                particle_atlas_side: side,
+                precipitation: None,
+                lightning: None,
+                selection: None,
+                block_entities: None,
+                seconds: 0.0,
+            };
+            for effect in [
+                Effect::Particles,
+                Effect::ParticlesTranslucent,
+                Effect::ParticlesAdditive,
+            ] {
+                let mut mesh = Mesh::default();
+                build(
+                    &mut mesh,
+                    &mut CloudCache::default(),
+                    effect,
+                    &inputs,
+                    &EffectSettings::default(),
+                    0.0,
+                );
+                let uvs: Vec<_> = mesh
+                    .words
+                    .as_chunks::<{ (IRIS_VERTEX_STRIDE / 4) as usize }>()
+                    .0
+                    .iter()
+                    .flat_map(|vertex| [vertex[4] & 0xffff, vertex[4] >> 16])
+                    .map(|value| value as f32 / 65535.0)
+                    .collect();
+                let min = uvs.iter().copied().reduce(f32::min).unwrap();
+                let max = uvs.iter().copied().reduce(f32::max).unwrap();
+                let half = 0.5 / side as f32;
+                assert!(
+                    (min - (0.25 + half)).abs() < 1.0 / 65535.0,
+                    "{effect:?}: {min} at side {side}"
+                );
+                assert!(
+                    (max - (0.75 - half)).abs() < 1.0 / 65535.0,
+                    "{effect:?}: {max} at side {side}"
+                );
+            }
+        }
+    }
 }

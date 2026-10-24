@@ -137,6 +137,7 @@ fn publish_artwork(engine: &mut FormEngine) -> Option<(u16, render_model::UiText
         .set_full_res(std::collections::HashMap::from([(
             key.clone(),
             ui::IconRef {
+                color_mask: None,
                 page: index,
                 uv,
                 glint: false,

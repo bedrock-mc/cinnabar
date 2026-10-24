@@ -37,6 +37,8 @@ mod material_shader;
 mod pipeline_warmup;
 #[path = "../src/render_bounds.rs"]
 mod render_bounds;
+#[path = "../src/render_scale.rs"]
+mod render_scale;
 #[path = "../src/scene_target.rs"]
 #[allow(
     dead_code,
@@ -191,7 +193,7 @@ fn shader_validates_all_entry_points() {
     assert!(source.contains("viewport_size"));
     assert!(source.contains(&format!(
         "const STYLE_ALPHA_TEST: u32 = {}u;",
-        render_model::UI_STYLE_ALPHA_TEST
+        render_api::UI_STYLE_ALPHA_TEST
     )));
     assert!(source.contains("sample.a < 0.5"));
     assert_eq!(module.entry_points.len(), 3);

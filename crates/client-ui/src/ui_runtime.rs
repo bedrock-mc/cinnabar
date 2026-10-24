@@ -8,6 +8,7 @@ pub mod chat_completion;
 pub mod chat_send;
 pub mod crafting_observation;
 pub mod credits;
+pub mod data_driven;
 mod death;
 pub mod emotes;
 pub mod presentation_snapshot;
@@ -186,6 +187,7 @@ pub struct UiRuntime {
     activation_clock: item_activation::ActivationClock,
     use_on_identity_evidence: use_on_identity_evidence::UseOnIdentityEvidence,
     forms: ServerFormStore,
+    data_driven: data_driven::DataDrivenUi,
     credits: credits::CreditsState,
     sign_editor: sign_editor::SignEditor,
     inventory_pointer_gui: Option<[f32; 2]>,
@@ -232,6 +234,7 @@ pub struct UiRuntime {
     /// answer for the `@a` selector.
     known_player_names: Vec<Arc<str>>,
     player_list_held: bool,
+    touch_player_list: bool,
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
     loading_screen: Option<ui::LoadingStage>,
@@ -257,6 +260,7 @@ impl UiRuntime {
             score_owner_names: std::collections::BTreeMap::new(),
             known_player_names: Vec::new(),
             player_list_held: false,
+            touch_player_list: false,
             screen_settings: Arc::default(),
             loading_screen: None,
             hurt_pending: false,
@@ -301,6 +305,7 @@ impl UiRuntime {
             use_on_identity_evidence:
                 use_on_identity_evidence::UseOnIdentityEvidence::from_environment(session_id),
             forms: ServerFormStore::default(),
+            data_driven: data_driven::DataDrivenUi::default(),
             credits: credits::CreditsState::default(),
             sign_editor: sign_editor::SignEditor::default(),
             inventory_pointer_gui: None,
@@ -462,6 +467,10 @@ impl UiRuntime {
 
     pub fn server_forms_mut(&mut self) -> &mut ServerFormStore {
         &mut self.forms
+    }
+
+    pub fn data_driven_ui(&self) -> &data_driven::DataDrivenUi {
+        &self.data_driven
     }
 
     pub fn note_stream_dimension(&mut self, dimension: i32) {
@@ -657,6 +666,7 @@ impl UiRuntime {
         self.emotes.reset();
         self.client_packets.clear();
         self.book_packets.clear();
+        self.data_driven.clear();
         self.screen.reset_session();
         self.anvil_cache = Default::default();
         self.grindstone_cache = Default::default();
@@ -682,6 +692,7 @@ impl UiRuntime {
         self.known_player_names.clear();
         self.player_roster = Default::default();
         self.player_list_held = false;
+        self.touch_player_list = false;
         self.hud.clear();
         self.death_reason = Arc::from("");
         self.death_rules = protocol::DeathRules::default();

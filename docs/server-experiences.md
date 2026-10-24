@@ -4,7 +4,7 @@ This is an optional **Cinnabar extension**, not vanilla Bedrock parity. This bra
 contains locally compiled client code and regression tests whose validation is
 recorded in `plan.md`. It does not ship a production sandbox or an end-to-end
 cinema implementation. The Dragonfly server half lives in
-`tools/localserver/extension` ([experience-runtime.md](experience-runtime.md#client-parts));
+`tools/localserver/cinnabarext` ([experience-runtime.md](experience-runtime.md#client-parts));
 no server SDK, BDS script, or server sidecar is included.
 
 ## Implementation status
@@ -91,9 +91,9 @@ Unsigned outer wrappers do not require canonical object order, but reject unknow
 fields. `cinnabar-cxb write-fixtures <dir>` writes golden offer, marker, hello,
 accept, ready, epoch, envelope, fragment, channel and manifest documents, v1 and v2
 forms both, with their signatures from fixed seeds into
-`tools/localserver/extension/testdata`; a Rust test keeps them current and verifies them
-with this crate. The Go package `tools/localserver/extension` decodes, re-encodes,
-re-fragments and re-signs every one of them byte for byte (`go test ./extension`).
+`tools/localserver/cinnabarext/testdata`; a Rust test keeps them current and verifies them
+with this crate. The Go package `tools/localserver/cinnabarext` decodes, re-encodes,
+re-fragments and re-signs every one of them byte for byte (`go test ./cinnabarext`).
 
 ## Deployment advertisement
 
@@ -312,6 +312,26 @@ numbers stay spent. A callback that began before the change still publishes; its
 sends carry the epoch it began in. An epoch control that names another session, does
 not move forward, arrives before Ready or inside a fragmented message is a
 violation.
+
+The Dragonfly helper can request an epoch for a committed world transfer,
+including a transfer between worlds of the same dimension type. The request uses
+the same `epoch` control. Its acknowledgment is
+`{"kind":"world_ack","body":{"session":…, "world_epoch":…, "requested_epoch":…}}`:
+`requested_epoch` echoes the server notice, while `world_epoch` is the client's
+strictly newer logical epoch. This keeps an earlier native epoch update from
+acknowledging a notice the client has not received. The server fences both
+directions before attempting delivery and reopens them only for the newest
+notice's acknowledgment. Notices and acknowledgments for the single outstanding
+notice bypass data rate credits. The client admits notices of at most 256 encoded
+bytes whose epochs exceed the last acknowledged notice. Equal and older epochs
+are dropped silently. The acknowledged epoch advances before the acknowledgment
+enters the transport, so a newer notice can arrive before that write completes.
+Servers must wait for the acknowledgment before sending another notice. Superseded
+and repeated acknowledgments leave the fence unchanged and consume normal data
+credits; exceeding that budget ends the optional session. A failed notice write
+ends the optional session without retry timers. Deploy matching
+client and helper revisions for this control; native epoch updates and message
+envelopes retain their formats.
 
 On the server, the guest's `client-message` and `epoch` callbacks (server WIT 0.4)
 get the snapshot of the player's focus, the Experience block the player last used,

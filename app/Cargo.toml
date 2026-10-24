@@ -52,7 +52,7 @@ developer-control = ["dep:developer-control", "dep:sadness-generator", "client-s
 frame-trace = ["bevy/trace", "bevy/debug", "dep:tracing-chrome"]
 # Live CPU attribution through Bevy, wgpu's encoding and submission scopes, and the owned
 # streaming/render hot paths.
-tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy"]
+tracy = ["bevy/trace", "bevy/debug", "dep:tracing-tracy", "dep:profiling", "chunk-pipeline/tracy", "render/tracy", "client-ui/tracy", "protocol/tracy"]
 # Compiles the offline pack reports and benchmarks into the test build.
 reports = []
 # Opt-in allocator for release-profile measurements.
@@ -169,7 +169,6 @@ objc2-quartz-core = { version = "0.3", default-features = false, features = ["st
 raw-window-handle = "0.6.2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
-    "Win32_System_Power",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }

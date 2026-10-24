@@ -131,6 +131,7 @@ pub struct HudScreens {
     bindings: HudBindings,
     /// Presentation color kept separate from the factory and collection message inputs.
     chat_color: Option<char>,
+    chat_mention_color: Option<char>,
     crosshair_data: Arc<DataSource>,
     model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
@@ -146,22 +147,26 @@ pub struct HudScreens {
 #[derive(Default)]
 struct RetainedHud {
     paint: RetainedPaint,
-    /// The native renderers' state, item icons and chat colour the retained paint drew.
-    drawn: Option<(HudPaint, Vec<IconRef>, Option<char>)>,
+    /// The native renderers' state, item icons, and chat and mention colours the retained paint
+    /// drew.
+    drawn: Option<(HudPaint, Vec<IconRef>, ChatColors)>,
     /// Hunger controls the paint advanced, advanced again whenever it is reused.
     hunger: Vec<(String, Option<u64>)>,
     /// Whether the screen's last paint reused the retained one.
     reused: bool,
 }
 
+/// The chat message and mention formatting colours a HUD paint's labels read.
+type ChatColors = [Option<char>; 2];
+
 impl RetainedHud {
-    /// Whether a paint of `paint`, `icons` and `color` would draw what the retained one did.
+    /// Whether a paint of `paint`, `icons` and `colors` would draw what the retained one did.
     /// Shaking hunger icons change with every paint, so they always paint.
-    fn unchanged(&self, paint: &HudPaint, icons: &[IconRef], color: Option<char>) -> bool {
+    fn unchanged(&self, paint: &HudPaint, icons: &[IconRef], colors: ChatColors) -> bool {
         self.drawn
             .as_ref()
-            .is_some_and(|(drawn, drawn_icons, drawn_color)| {
-                drawn.paints_as(paint) && drawn_icons.as_slice() == icons && *drawn_color == color
+            .is_some_and(|(drawn, drawn_icons, drawn_colors)| {
+                drawn.paints_as(paint) && drawn_icons.as_slice() == icons && *drawn_colors == colors
             })
             && (!paint.hunger.saturation_empty || self.hunger.is_empty())
     }
@@ -215,6 +220,7 @@ impl HudScreens {
             None => Arc::clone(&self.crosshair_data),
             Some((model, changes, opacity)) => {
                 self.chat_color = model.chat_color;
+                self.chat_mention_color = model.chat_mention_color;
                 if changes.text {
                     self.model_clocks = hud_clocks(model);
                 }
@@ -271,13 +277,14 @@ impl HudScreens {
             hunger_animation.borrow_mut().advance(key, instance)
         };
         let color = self.chat_color;
+        let mention = self.chat_mention_color;
         let history = Reference::HudChatGridItem
             .as_str()
             .rsplit('.')
             .next()
             .unwrap_or_default();
-        let text_color = |node: &json_ui::DrawNode| {
-            crate::settings_chat::message_color(&node.key, history, color)
+        let text_format = |node: &json_ui::DrawNode, text: &str| {
+            crate::settings_chat::message_text(&node.key, history, text, color, mention)
         };
         let bounds = PaintBounds::default();
         let art = ScreenArt {
@@ -285,7 +292,7 @@ impl HudScreens {
                 bounds: &bounds,
                 region: BOTTOM_HUD_REGION,
             }),
-            text_color: Some(&text_color),
+            text_format: Some(&text_format),
             nearest_sampling: true,
             clocks: Some(&self.clocks),
             ..ScreenArt::default()
@@ -296,7 +303,7 @@ impl HudScreens {
         } else {
             (&mut self.hud, &mut self.hud_paint)
         };
-        let reuse = renderers_unchanged && retained.unchanged(paint, icons, color);
+        let reuse = renderers_unchanged && retained.unchanged(paint, icons, [color, mention]);
         let paints = retained.paint.paints;
         let caller = std::mem::take(&mut frame.renderers);
         let drawn = {
@@ -331,8 +338,8 @@ impl HudScreens {
                 hunger_animation.advance(key, *instance);
             }
         } else if retained.paint.paints != paints {
-            retained.drawn =
-                matches!(drawn, Ok(Some(_))).then(|| (paint.clone(), icons.to_vec(), color));
+            retained.drawn = matches!(drawn, Ok(Some(_)))
+                .then(|| (paint.clone(), icons.to_vec(), [color, mention]));
             retained.hunger = advanced.into_inner();
         }
         if !crosshair {

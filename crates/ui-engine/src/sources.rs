@@ -17,6 +17,11 @@ pub trait LocalPack: Send + Sync {
 pub trait RemoteSource: Send + Sync {
     /// Where `url`'s download stands, starting it on first sight.
     fn state(&self, url: &str) -> RemoteImage;
+
+    /// Requests the body for an atlas miss, refetching it if the host released it.
+    fn load(&self, url: &str) -> RemoteImage {
+        self.state(url)
+    }
 }
 
 /// One downloaded image's progress.
@@ -24,6 +29,8 @@ pub trait RemoteSource: Send + Sync {
 pub enum RemoteImage {
     Loading,
     Ready(Arc<[u8]>),
+    /// Already handed to the engine; its download body has been released.
+    ReadyWithoutBody,
     Failed,
 }
 

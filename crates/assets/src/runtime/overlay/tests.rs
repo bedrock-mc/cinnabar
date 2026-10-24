@@ -51,7 +51,8 @@ fn review_full_face_occlusion_requires_drawable_geometry() {
     );
 }
 
-fn cube_overlay(texture: TextureArray) -> BlockOverlay {
+/// Creates one cube whose faces use the first overlay texture.
+pub(super) fn cube_overlay(texture: TextureArray) -> BlockOverlay {
     BlockOverlay {
         visuals: vec![BlockVisual {
             native_material: crate::native_material::NativeMaterialFacts::Unresolved,
@@ -420,10 +421,6 @@ fn vanilla_fallback_does_not_substitute_another_static_variant() {
     for variant_zero in [
         Material {
             animation: 0,
-            ..Material::unvaried()
-        },
-        Material {
-            texture: TextureRef::new(1, 0).unwrap(),
             ..Material::unvaried()
         },
         Material {

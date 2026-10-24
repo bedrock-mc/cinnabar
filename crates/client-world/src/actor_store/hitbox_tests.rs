@@ -8,6 +8,32 @@ use super::{ActorApplyResult, ActorStore, tests::spawn};
 
 mod budget;
 
+#[test]
+fn current_and_predicted_custom_boxes_keep_the_exact_network_origin() {
+    let entry = ([-0.01, 0.0, -0.01], [0.01, 0.02, 0.01], [0.0; 3]);
+    let mut store = store_with(0.0, vec![hitbox_compound(&[entry])]);
+    store.actors.get_mut(&8).unwrap().kind = protocol::ActorKind::Player {
+        uuid: [8; 16],
+        username: "Remote".into(),
+    };
+    let height = 0.000_001_f32;
+    store.apply(1, 2, super::tests::network_move(8, height, true));
+    let bounds = boxes(&store)[0];
+    assert_eq!(bounds.0[1].to_bits(), (height - 0.01).to_bits());
+    assert_eq!(bounds.1[1].to_bits(), (height + 0.01).to_bits());
+
+    let target = 0.000_002_f32;
+    store.apply(1, 3, super::tests::network_move(8, target, false));
+    store.predict_remote_motion(1);
+    let pose = store.pick_pose(8).unwrap();
+    let predicted: Vec<_> = store.get(8).unwrap().hit_boxes_at_pose(pose).collect();
+    let expected = height + (target - height) * (1.0 / 3.0);
+    assert_eq!(predicted[0].0[1].to_bits(), (expected - 0.01).to_bits());
+    assert_eq!(predicted[0].1[1].to_bits(), (expected + 0.01).to_bits());
+    store.advance_interpolation_frame(1);
+    assert_eq!(boxes(&store), predicted);
+}
+
 /// One `Hitboxes` entry as `(min, max, pivot)`.
 type Entry = ([f32; 3], [f32; 3], [f32; 3]);
 
@@ -277,7 +303,7 @@ fn predicted_custom_boxes_match_live_interpolation_without_rotating() {
     );
     for ticks in [1, 2, 3] {
         store.predict_remote_motion(ticks);
-        let position = store.pick_pose(8).unwrap().0;
+        let position = store.pick_pose(8).unwrap().position;
         let predicted: Vec<_> = store.get(8).unwrap().hit_boxes_at(position).collect();
         assert_boxes_near(
             &predicted,

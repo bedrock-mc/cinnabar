@@ -31,6 +31,7 @@ mod block_entity;
 mod chunk;
 
 mod cloud_render;
+mod deferred_resource;
 mod device_poll;
 pub mod device_settings;
 
@@ -41,6 +42,8 @@ pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod far_terrain;
 pub use far_terrain::FarTerrainRenderPlugin;
 mod gpu_allocation;
+mod gpu_error_policy;
+pub use gpu_error_policy::{GpuFailure, install_error_policy};
 mod gpu_timing;
 pub use gpu_timing::{DetailedGpuTiming, GpuTimingPlugin};
 
@@ -82,10 +85,14 @@ mod pipeline_warmup;
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;
 
+mod post_process;
 mod present_mode;
+pub use post_process::ClientPostProcessPlugin;
 mod primitive_shapes;
 pub use primitive_shapes::PrimitiveShapesRenderPlugin;
 mod render_bounds;
+mod render_scale;
+pub use render_scale::{RenderScaleOutput, RenderScaleSharpen, RenderScaleSystems};
 
 mod runtime_profile_phases;
 
@@ -94,6 +101,7 @@ mod scene_target;
 
 mod queue_writes;
 mod screen_overlay_render;
+mod shader_asset;
 mod shader_safety;
 #[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
@@ -146,7 +154,6 @@ pub use actor_render::publication_test_support::{
 pub use atmosphere_render::AtmospherePlugin;
 pub use block_entity::{BlockEntityRenderPlugin, DRAGON_DEATH_BLEND};
 
-pub use chunk::required_vertex_storage_buffers;
 pub use chunk::{
     ChunkRenderPlugin, ChunkTextureUploadStats, DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME,
     MAX_TRANSPARENT_DRAW_REFS, MAX_TRANSPARENT_VIEWS, PackedTransparentDrawRef,
@@ -160,6 +167,7 @@ pub use chunk::{
     PublicationRenderTerminalSnapshot, publication_noop_render_plugin,
     publication_render_terminal_snapshot, publication_terrain_draws, settle_publication_noop_frame,
 };
+pub use chunk::{minimum_vertex_storage_buffers, required_vertex_storage_buffers};
 
 pub use dropped_item_render::DroppedItemRenderPlugin;
 

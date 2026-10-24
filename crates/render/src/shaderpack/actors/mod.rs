@@ -50,7 +50,7 @@ mod view;
 pub(crate) use classify::hand_projection;
 pub(crate) use compatibility::instance_supported;
 pub(crate) use frame::{prepare, record};
-pub(crate) use skin::{ActorSkinPipelines, load_shaders};
+pub(crate) use skin::{ActorSkinPipelines, load_shaders, required_storage_buffers};
 pub(crate) use sources::{
     ActorSources, BlockEntityList, BlockEntitySource, Hand, LayerTexture, RigBuffers, RigInstance,
     RigSource,

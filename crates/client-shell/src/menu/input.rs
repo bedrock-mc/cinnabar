@@ -93,7 +93,8 @@ impl MenuRuntime {
     /// Focus `field` with its caret after the text, as a newly selected box.
     pub(super) fn focus_field(&mut self, field: MenuField) {
         if let MenuField::WorldOption(id) = field {
-            self.local_ui.begin_option_edit(id);
+            self.local_ui
+                .begin_option_edit(id, self.screen == launcher::menu::MenuScreen::Settings);
         }
         self.field_activation = self.field_activation.wrapping_add(1);
         self.field = Some(field);
@@ -395,6 +396,7 @@ pub fn drive_menu_input(
         runtime.credits().owns_input()
             || runtime.server_forms().owns_input()
                 && (!menu.is_visible() || runtime.server_forms().settings_form_active())
+            || runtime.data_driven_ui().owns_input() && !menu.is_visible()
     }) {
         presentation.cancel_touch_editor_pointer();
         gui_scale_drag.editor_touch = None;

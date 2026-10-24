@@ -4,7 +4,9 @@ use crate::preprocess::ConstDirective;
 use std::collections::BTreeMap;
 
 /// A pack colour buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub enum BufferId {
     /// `colortexN` (also the legacy `gcolor`, `gdepth`, `gnormal`, `composite`, `gaux1`–`gaux4`).
     Color(u32),
@@ -60,7 +62,7 @@ pub fn canonical_sampler_name(name: &str) -> String {
 macro_rules! buffer_formats {
     ($($variant:ident => $name:literal),* $(,)?) => {
         /// A colour buffer internal format, named as in OptiFine/Iris directives.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum BufferFormat {
             $($variant),*
         }
@@ -128,7 +130,7 @@ impl BufferFormat {
 
 /// Settings of one buffer from `const` directives such as
 /// `const int colortex3Format = RGBA16F;` or `const bool colortex5Clear = false;`.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct BufferSettings {
     pub format: Option<BufferFormat>,
     pub clear: Option<bool>,
@@ -138,7 +140,7 @@ pub struct BufferSettings {
 }
 
 /// Buffer settings collected across a pack's programs; later directives win.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct BufferDirectives {
     pub buffers: BTreeMap<BufferId, BufferSettings>,
     /// Directive values that did not parse, as (name, value).

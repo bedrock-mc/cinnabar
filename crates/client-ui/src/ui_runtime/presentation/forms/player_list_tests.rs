@@ -19,9 +19,8 @@ fn names(count: usize) -> Vec<(Arc<str>, Arc<str>, [u8; 16])> {
         .collect()
 }
 
-#[test]
-fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
-    let mut presentation = mini_engine_presentation();
+/// Supplies a HUD scene while retaining the deterministic in-memory carrier.
+fn enable_empty_hud(presentation: &mut UiPresentationRuntime) {
     presentation.set_server_ui_pack(&super::super::ServerUiPack {
         ui_layers: vec![vec![
             (
@@ -35,6 +34,12 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
         ]],
         ..Default::default()
     });
+}
+
+#[test]
+fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
+    let mut presentation = mini_engine_presentation();
+    enable_empty_hud(&mut presentation);
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     runtime.player_roster.set_entries(names(2));
@@ -74,4 +79,130 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     assert!(runtime.known_player_names().is_empty());
     frame(&mut presentation, &player, &runtime);
     assert!(presentation.screens.player_list.is_none());
+}
+
+#[test]
+fn touch_toggle_survives_keyboard_release_and_resets_with_the_session() {
+    let mut runtime = UiRuntime::new(1);
+    runtime.toggle_touch_player_list();
+    runtime.set_player_list_held(false);
+    assert!(runtime.player_list_held());
+    runtime.toggle_touch_player_list();
+    assert!(!runtime.player_list_held());
+    runtime.set_player_list_held(true);
+    runtime.toggle_touch_player_list();
+    runtime.toggle_touch_player_list();
+    assert!(runtime.player_list_held());
+    runtime.set_player_list_held(false);
+    assert!(!runtime.player_list_held());
+    runtime.toggle_touch_player_list();
+    runtime.begin_session(2);
+    assert!(!runtime.player_list_held());
+}
+
+#[test]
+fn touch_roster_heading_stays_below_utility_buttons_on_first_paint() {
+    for size in [[1280, 720], [1080, 1920]] {
+        let mut presentation = mini_engine_presentation();
+        enable_empty_hud(&mut presentation);
+        let safe = ui::SafeArea::new(12., 8., 14., 6.).unwrap();
+        presentation.set_safe_area(safe);
+        presentation.enable_touch_controls(true);
+        let mut runtime = UiRuntime::new(1);
+        runtime.player_roster.set_entries(names(8));
+        runtime.toggle_touch_player_list();
+        let dpi = DpiScale::new(1.).unwrap();
+        presentation
+            .build(&player_state::PlayerState::new(1), &runtime, 0, size, dpi)
+            .unwrap();
+        let scale = ui_engine::text_metrics::TextMetrics::for_viewport(size, dpi, None).gui_scale;
+        let chat = presentation
+            .gameplay_touch_region(
+                [
+                    (safe.left() + (size[0] as f32 - safe.left() - safe.right()) / 2.)
+                        / size[0] as f32,
+                    (safe.top() + 12. * scale) / size[1] as f32,
+                ],
+                size.map(|v| v as f32),
+            )
+            .expect("chat button is reachable");
+        assert_eq!(chat.hit_id, semantic_input::touch::CHAT);
+        let nodes = &presentation.last_frame.as_ref().unwrap().nodes;
+        let mut tree = ui::UiTree::new(nodes.clone()).unwrap();
+        let viewport = ui::UiRect::new(
+            ui::UiPoint::new(0., 0.).unwrap(),
+            ui::UiPoint::new(size[0] as f32, size[1] as f32).unwrap(),
+        )
+        .unwrap();
+        let laid = tree.layout(viewport, ui::UiScale::default(), safe).unwrap();
+        let text_top = nodes
+            .iter()
+            .filter(|node| matches!(node.visual(), ui::UiVisual::Text { .. }))
+            .map(|node| laid.bounds(node.id()).unwrap().min().y())
+            .min_by(f32::total_cmp)
+            .expect("roster has text");
+        assert!(
+            text_top >= chat.bounds.max[1] * size[1] as f32,
+            "roster text at {text_top} overlaps the touch utility row"
+        );
+    }
+}
+
+#[test]
+fn saved_utility_positions_leave_a_visible_clear_roster_region() {
+    for size in [[1280, 720], [1080, 1920]] {
+        let mut presentation = mini_engine_presentation();
+        enable_empty_hud(&mut presentation);
+        let safe = ui::SafeArea::new(12., 8., 14., 6.).unwrap();
+        presentation.set_safe_area(safe);
+        presentation.enable_touch_controls(true);
+        let mut runtime = UiRuntime::new(1);
+        runtime.player_roster.set_entries(names(80));
+        runtime.toggle_touch_player_list();
+        let dpi = DpiScale::new(1.).unwrap();
+        for at in [0.12, 0.95, 0.2] {
+            presentation.screens.touch.saved.set("chat", [0.5, at]);
+            presentation
+                .build(&player_state::PlayerState::new(1), &runtime, 0, size, dpi)
+                .unwrap();
+            let scale =
+                ui_engine::text_metrics::TextMetrics::for_viewport(size, dpi, None).gui_scale;
+            let height = size[1] as f32 - safe.top() - safe.bottom();
+            let chat_top = safe.top() + at * (height - 18. * scale);
+            let chat = presentation
+                .gameplay_touch_region(
+                    [
+                        (safe.left() + (size[0] as f32 - safe.left() - safe.right()) / 2.)
+                            / size[0] as f32,
+                        (chat_top + 9. * scale) / size[1] as f32,
+                    ],
+                    size.map(|v| v as f32),
+                )
+                .unwrap();
+            assert_eq!(chat.hit_id, semantic_input::touch::CHAT);
+            let nodes = &presentation.last_frame.as_ref().unwrap().nodes;
+            let mut tree = ui::UiTree::new(nodes.clone()).unwrap();
+            let viewport = ui::UiRect::new(
+                ui::UiPoint::new(0., 0.).unwrap(),
+                ui::UiPoint::new(size[0] as f32, size[1] as f32).unwrap(),
+            )
+            .unwrap();
+            let laid = tree.layout(viewport, ui::UiScale::default(), safe).unwrap();
+            for node in nodes
+                .iter()
+                .filter(|node| matches!(node.visual(), ui::UiVisual::Text { .. }))
+            {
+                let bounds = laid.bounds(node.id()).unwrap();
+                assert!(
+                    bounds.max().y() <= chat.bounds.min[1] * size[1] as f32
+                        || bounds.min().y() >= chat.bounds.max[1] * size[1] as f32,
+                    "roster overlaps saved chat position {at}"
+                );
+                assert!(
+                    bounds.min().y() >= safe.top()
+                        && bounds.max().y() <= size[1] as f32 - safe.bottom()
+                );
+            }
+        }
+    }
 }

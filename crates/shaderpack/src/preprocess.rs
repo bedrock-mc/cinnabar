@@ -25,7 +25,7 @@ pub(crate) enum Directive {
 }
 
 /// One `const` directive line, as written (OptiFine/Iris read these even inside comments).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ConstDirective {
     pub ty: String,
     pub name: String,
@@ -565,6 +565,7 @@ fn preprocess_limited(
     let mut pp = Preprocessor::new(text);
     pp.set_work_limit(work);
     pp.set_iris_conditions(true);
+    pp.set_iris_recovery(true);
     pp.set_preserve_glsl_text();
     pp.set_source_lines(expanded.map.lines.iter().map(|(_, line)| *line).collect());
     for (k, v) in defines {

@@ -81,7 +81,7 @@ fn configured(world: &World, bytes: &[u8], fresh: bool) -> Option<Vec<u8>> {
             Storage::Combined => continue,
         };
         let value = if id == O::SleepPercentage && !options.enabled(O::SleepSkipNight) {
-            101
+            super::bds::SLEEP_DISABLED_PERCENTAGE
         } else {
             options.get(id)
         };

@@ -69,6 +69,19 @@ impl BoundsCache {
                 && cached.badge == anchor.cinnabar_badge
                 && cached.counter == anchor.counter
         });
+        // The first plate contains the ordinary label's unlifted anchor. An on-screen
+        // anchor therefore intersects the conservative hull without measuring its text.
+        if !anchor.sneaking
+            && render_model::visibility_bounds::points_intersect_view(
+                clip_from_world,
+                [anchor.position],
+            )
+        {
+            if let Some(cached) = cached {
+                cached.seen = true;
+            }
+            return true;
+        }
         let measured = if let Some(cached) = cached {
             cached.seen = true;
             cached.measured

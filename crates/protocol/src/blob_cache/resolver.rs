@@ -58,6 +58,7 @@ impl BlobCacheResolver {
             immediate_ready: BTreeMap::new(),
             recovery_ready: BTreeMap::new(),
             fast_transfer_reset_armed: false,
+            ordinary_lane_stalled: false,
             next_ready_sequence: 0,
             stats: BlobCacheStats::default(),
             pending_hash_set_capacity: 0,
@@ -545,6 +546,7 @@ impl BlobCacheResolver {
                 .immediate_ready
                 .remove(&sequence)
                 .expect("immediate sequence was present");
+            self.ordinary_lane_stalled = false;
             self.refresh_pending_accounting()
                 .expect("retained immediate accounting cannot overflow after a pop");
             self.pop_trace_origin(Some(sequence));

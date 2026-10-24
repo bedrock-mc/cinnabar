@@ -108,3 +108,39 @@ pub(super) fn server_content(hover: bool) -> Fixture {
         server_hover: Some(hover),
     }
 }
+
+/// Shows white mentions, surrounding styles and explicit white under green chat.
+pub(super) fn colored_mentions() -> Fixture {
+    let mut fixture = background(50);
+    if let Fixture::Chat {
+        messages, options, ..
+    } = &mut fixture
+    {
+        let settings = Arc::make_mut(options);
+        settings.set(
+            launcher::menu::settings_options::SettingId::ChatColor.index(),
+            1,
+        );
+        settings.set(
+            launcher::menu::settings_options::SettingId::MentionsColor.index(),
+            0,
+        );
+        *messages = [
+            "Hello @Alex back to green",
+            "§c§l§oAlert @Alex still red and styled",
+            "Green §fexplicit white§r green again",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| ui::ChatMessage {
+            fifo_sequence: index as u64 + 1,
+            received_millis: 0,
+            kind: ui::ChatMessageKind::System,
+            source: None,
+            message: text.into(),
+            parameters: Arc::from([]),
+        })
+        .collect();
+    }
+    fixture
+}

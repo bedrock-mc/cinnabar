@@ -42,36 +42,43 @@ fn server_input_locks_filter_processed_input_and_keep_raw_device_vectors() {
 
 #[test]
 fn server_input_locks_block_dismount_and_its_trigger_until_unlock() {
-    for (ride, trigger) in [
-        (super::RideKind::Boat, protocol::ClientInputLock::Jump),
-        (super::RideKind::Other, protocol::ClientInputLock::Sneak),
+    use protocol::ClientInputLock::{Dismount, Jump, Movement, Sneak};
+    // Both buttons are pressed together; a boat dismounts through whichever one is allowed.
+    for (ride, locks, locked_sends) in [
+        (super::RideKind::Boat, vec![Jump], 1),
+        (super::RideKind::Boat, vec![Sneak], 1),
+        (super::RideKind::Boat, vec![Jump, Sneak], 0),
+        (super::RideKind::Boat, vec![Dismount], 0),
+        (super::RideKind::Boat, vec![Movement], 0),
+        (super::RideKind::Other, vec![Sneak], 0),
+        (super::RideKind::Other, vec![Dismount], 0),
+        (super::RideKind::Other, vec![Movement], 0),
     ] {
-        for lock in [
-            trigger,
-            protocol::ClientInputLock::Dismount,
-            protocol::ClientInputLock::Movement,
-        ] {
-            let mut locals = super::LocomotionState::default();
-            let mut frame = speed_frame(Default::default());
-            frame.facts.ride = Some(ride);
-            frame.facts.mount_runtime_id = Some(7);
-            frame.facts.input_locks = protocol::ClientInputLocks::from_bits(lock as u32);
-            frame.jump.pressed = true;
-            frame.sneak.pressed = true;
-            locals.observe_dismount(&frame, 1);
-            let mut sends = 0;
-            locals.flush_dismount([0.0; 3], |_| {
-                sends += 1;
-                Ok(())
-            });
-            assert_eq!(sends, 0);
-            frame.facts.input_locks = Default::default();
-            locals.observe_dismount(&frame, 1);
-            locals.flush_dismount([0.0; 3], |_| {
-                sends += 1;
-                Ok(())
-            });
-            assert_eq!(sends, 1);
+        let mut locals = super::LocomotionState::default();
+        let mut frame = speed_frame(Default::default());
+        frame.facts.ride = Some(ride);
+        frame.facts.mount_runtime_id = Some(7);
+        frame.facts.input_locks = protocol::ClientInputLocks::from_bits(
+            locks.iter().fold(0, |bits, lock| bits | *lock as u32),
+        );
+        frame.jump.pressed = true;
+        frame.sneak.pressed = true;
+        locals.observe_dismount(&frame, 1);
+        let mut sends = 0;
+        locals.flush_dismount([0.0; 3], |_| {
+            sends += 1;
+            Ok(())
+        });
+        assert_eq!(sends, locked_sends, "{ride:?} {locks:?}");
+        if locked_sends == 1 {
+            continue;
         }
+        frame.facts.input_locks = Default::default();
+        locals.observe_dismount(&frame, 1);
+        locals.flush_dismount([0.0; 3], |_| {
+            sends += 1;
+            Ok(())
+        });
+        assert_eq!(sends, 1, "{ride:?} {locks:?} after unlock");
     }
 }

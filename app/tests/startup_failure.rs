@@ -45,12 +45,17 @@ mod fixture_client {
                 },
             })
             .unwrap();
+            if std::env::var_os("STARTUP_FAILURE_RENDERER").is_some() {
+                return Ok(true);
+            }
             Err(anyhow::anyhow!("first-time setup fixture failed"))
         }
     }
-    /// A startup failure must exit before opening the game window.
+    /// Supplies a renderer failure through the same result the production app returns.
     pub fn run(_: args::ClientArgs) -> anyhow::Result<()> {
-        unreachable!()
+        Err(anyhow::anyhow!(
+            "Renderer startup failed: GPU lacks VERTEX_STORAGE"
+        ))
     }
 }
 
@@ -87,4 +92,19 @@ fn startup_errors_reach_client_log_before_process_exit() {
     );
     let text = fs::read_to_string(dir.path().join("client.log")).unwrap();
     assert!(text.contains("cinnabar failed: first-time setup fixture failed"));
+}
+
+#[test]
+fn renderer_errors_reach_the_entry_point_without_a_panic() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "startup_failure_child", "--nocapture"])
+        .env("STARTUP_FAILURE_LOG", dir.path())
+        .env("STARTUP_FAILURE_RENDERER", "1")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let text = fs::read_to_string(dir.path().join("client.log")).unwrap();
+    assert!(text.contains("Renderer startup failed: GPU lacks VERTEX_STORAGE"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("panicked"));
 }

@@ -26,8 +26,8 @@
   "linux_install": { "app_dir": "app", "current": "current" },
   "update_payload_prefix": "update-payload-",
   "update_channels": {
-    "beta": { "track": "tagged", "manifest": "update-beta.json" },
-    "nightly": { "track": "rolling", "tag": "nightly", "manifest": "update-nightly.json" }
+    "beta": { "track": "tagged", "manifest": "update-beta.json", "cargo_features": [] },
+    "nightly": { "track": "rolling", "tag": "nightly", "manifest": "update-nightly.json", "cargo_features": ["shaderpacks"] }
   },
   "update_assets": {
     "windows": {

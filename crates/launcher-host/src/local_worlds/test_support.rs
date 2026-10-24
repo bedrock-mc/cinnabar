@@ -18,11 +18,12 @@ use crossbeam_channel::{Receiver, Sender};
 use launcher::local_worlds::world::{Difficulty, Generator, World};
 use url::Url;
 
+#[cfg(unix)]
+use super::unpack::INSTALL_MANIFEST;
 use super::{
     Cancel, lock,
     process::{HostGrant, Instance, Runner, StartSpec},
     provision::{Platform, Provisioner},
-    unpack::INSTALL_MANIFEST,
     world::WorldError,
 };
 
@@ -294,11 +295,17 @@ pub(crate) const FAKE_BDS: &[u8] = b"#!/bin/sh\nprintf '[INFO] Starting Server\\
 /// the container runner uses; `$FAKE_DOCKER_DOWN` makes `info` fail and `$FAKE_DOCKER_HANG` makes
 /// `image` hang. A run's stop creates the mounted world's level data like [`FAKE_BDS`].
 #[cfg(unix)]
-pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) for arg; do case \"$arg\" in *:/data/worlds/*) world=\"${arg%%:/data/worlds/*}\" ;; esac; done\n    echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done; rm -f \"$log.stop\"\n    [ -z \"$world\" ] || [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\" ;;\nesac\n";
+pub(crate) const FAKE_DOCKER: &[u8] = b"#!/bin/sh\nlog=\"$FAKE_DOCKER_LOG\"\necho \"$*\" >> \"$log\"\ncase \"$1\" in\n  info) [ -z \"$FAKE_DOCKER_DOWN\" ] ;;\n  image) while [ -n \"$FAKE_DOCKER_HANG\" ]; do sleep 0.05; done; [ -e \"$log.pulled\" ] ;;\n  pull) : > \"$log.pulled\" ;;\n  stop) : > \"$log.stop\" ;;\n  run) for arg; do case \"$arg\" in *:/data/worlds/*) world=\"${arg%%:/data/worlds/*}\" ;; esac; done\n    echo '[INFO] Server started.'; while [ ! -e \"$log.stop\" ]; do sleep 0.05; done; rm -f \"$log.stop\"\n    [ -z \"$world\" ] || [ -e \"$world/level.dat\" ] || printf '\\012\\000\\000\\000\\017\\000\\000\\000\\012\\000\\000\\001\\007\\000Created\\001\\000' > \"$world/level.dat\"; exit \"${FAKE_DOCKER_EXIT:-0}\" ;;\nesac\n";
 
 /// Records every pause request and host grant; exits once stopped.
 pub(crate) struct FakeInstance {
     pub paused: Mutex<Vec<bool>>,
+    /// Every console command sent, in order.
+    pub console: Mutex<Vec<String>>,
+    /// Console commands fail, as an unreachable container does.
+    pub console_fails: std::sync::atomic::AtomicBool,
+    /// The stop ends without a successful exit, as a crash or a kill does.
+    pub unclean: bool,
     /// Each [`Instance::grant_host`] call, recorded as it begins.
     pub grants: Mutex<Vec<Option<String>>>,
     /// Holds each grant, once recorded, until disconnected.
@@ -321,6 +328,9 @@ impl FakeInstance {
         let (exit, exited) = crossbeam_channel::bounded(0);
         Self {
             paused: Mutex::default(),
+            console: Mutex::default(),
+            console_fails: std::sync::atomic::AtomicBool::new(false),
+            unclean: false,
             grants: Mutex::default(),
             grant_gate: None,
             grant_error: None,
@@ -391,6 +401,18 @@ impl Instance for FakeInstance {
         self.lan.as_deref()
     }
 
+    fn console(&self, command: &str) -> std::io::Result<()> {
+        if self.console_fails.load(Ordering::SeqCst) {
+            return Err(std::io::Error::other("console unavailable"));
+        }
+        lock(&self.console).push(command.to_owned());
+        Ok(())
+    }
+
+    fn exited_cleanly(&self) -> bool {
+        self.stopped() && !self.unclean
+    }
+
     fn grant_host(&self, xuid: Option<&str>, cancel: &Cancel) -> Result<(), WorldError> {
         lock(&self.grants).push(xuid.map(str::to_owned));
         if let Some(gate) = &self.grant_gate {
@@ -426,6 +448,10 @@ pub(crate) struct FakeRunner {
     pub save: Option<Receiver<()>>,
     /// Passed to each instance as its cleanup.
     pub cleanup: Option<Receiver<()>>,
+    /// Passed to each instance.
+    pub console_fails: bool,
+    /// Passed to each instance.
+    pub unclean: bool,
     pub discarded: std::sync::atomic::AtomicUsize,
     /// Set when a start ran while an earlier instance was still alive.
     pub overlapped: std::sync::atomic::AtomicBool,
@@ -508,6 +534,8 @@ impl Runner for FakeRunner {
         let instance = Arc::new(FakeInstance {
             save: self.save.clone(),
             cleanup: self.cleanup.clone(),
+            console_fails: std::sync::atomic::AtomicBool::new(self.console_fails),
+            unclean: self.unclean,
             grant_gate: self.grant_gate.clone(),
             grant_error: self.grant_error,
             ..FakeInstance::new(self.can_pause.unwrap_or(true))

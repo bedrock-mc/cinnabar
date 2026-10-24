@@ -818,3 +818,48 @@ fn repeated_defines_preserve_original_logical_lines() {
         .collect();
     assert_eq!(values, ["2", "4", "2", "6", "82"]);
 }
+
+#[test]
+fn frontend_iris_empty_condition() {
+    let result = run(
+        &[(
+            "a.fsh",
+            "#define EMPTY\n#if EMPTY\n#error inactive\n#else\nint selected;\n#endif\n",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+}
+
+#[test]
+fn frontend_iris_trailing_conditional_tokens() {
+    let result = run(
+        &[(
+            "a.fsh",
+            "#define ON\n#ifdef ON && UNDEFINED\nint selected;\n#else\n#error inactive\n#endif\n",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+}
+
+#[test]
+fn frontend_iris_missing_conditional_name() {
+    let result = run(
+        &[(
+            "a.fsh",
+            "#ifdef\n#error skipped recovery line\nint selected;\n#else\n#error inactive\n#endif\n",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+}
+
+#[test]
+fn frontend_iris_unclosed_condition_at_end() {
+    let result = run(&[("a.fsh", "#if 1\nint selected;\n")], "a.fsh", &[]);
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+}

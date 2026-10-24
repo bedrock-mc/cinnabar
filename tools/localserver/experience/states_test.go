@@ -126,7 +126,7 @@ func TestCommitRefusesInvalidStateOps(t *testing.T) {
 	f.place(probeLamp, at, nil)
 	f.place(probeCounter, BlockPos{X: at.X, Y: at.Y + 1}, nil)
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: at.cube(), call: Call{
+	ev := event{w: f.w, instance: f.instance, anchor: at.cube(), call: Call{
 		Neighbor: &NeighborCall{Pos: at, Neighbor: at},
 	}}
 	snap, err := f.host.snapshot(context.Background(), d, &ev)
@@ -171,7 +171,7 @@ func TestForeignStateChangeIsStale(t *testing.T) {
 	at := probePos(probeToggle)
 	f.place(probeLamp, at, nil)
 	d := f.host.dispatchers["probe"]
-	ev := event{w: f.w, dim: dimension{num: 0, id: "overworld"}, anchor: at.cube(), call: Call{
+	ev := event{w: f.w, instance: f.instance, anchor: at.cube(), call: Call{
 		Neighbor: &NeighborCall{Pos: at, Neighbor: at},
 	}}
 	snap, err := f.host.snapshot(context.Background(), d, &ev)

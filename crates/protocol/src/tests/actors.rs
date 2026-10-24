@@ -199,7 +199,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
             actor_runtime_id: ActorRuntimeID(55),
             new_position_x: Some(wire::F32LE(7.5)),
             new_position_y: Some(wire::F32LE(8.25)),
-            // Bedrock reads rotation bytes unsigned; the generator types them i8.
+            // The signed byte keeps this quarter turn negative.
             rotation_y: Some(wire::I8(192_u8 as i8)),
             is_on_ground: true,
             ..Default::default()
@@ -216,7 +216,7 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     assert_eq!(absolute.position_origin, ActorPositionOrigin::NetworkOffset);
     assert_eq!(absolute.yaw, Some(90.0));
     assert_eq!(absolute.pitch, Some(45.0));
-    assert_eq!(absolute.head_yaw, Some(180.0));
+    assert_eq!(absolute.head_yaw, Some(-180.0));
     assert_eq!(absolute.on_ground, Some(true));
     assert!(absolute.teleported);
 
@@ -229,10 +229,45 @@ fn absolute_and_delta_actor_moves_normalize_to_partial_transform_updates() {
     // Vanilla merges deltas into the previous absolute data,
     // so both forms share the absolute network origin.
     assert_eq!(delta.position_origin, ActorPositionOrigin::NetworkOffset);
-    assert_eq!(delta.yaw, Some(270.0));
+    assert_eq!(delta.yaw, Some(-90.0));
     assert_eq!(delta.pitch, None);
     assert_eq!(delta.on_ground, Some(true));
     assert!(!delta.teleported);
+}
+
+#[test]
+fn actor_rotation_bytes_decode_as_signed_turns_in_absolute_and_delta_packets() {
+    for byte in 0..=u8::MAX {
+        let expected = f32::from(byte as i8) * (360.0 / 256.0);
+        let packets = [
+            protocol::Packet::new(MoveActorAbsolutePacket {
+                move_data: MoveActorAbsoluteData {
+                    rotation_x: wire::U8(byte),
+                    rotation_y: wire::U8(byte),
+                    rotation_y_head: wire::U8(byte),
+                    ..Default::default()
+                },
+            }),
+            protocol::Packet::new(MoveActorDeltaPacket {
+                move_data: MoveActorDeltaData {
+                    rotation_x: Some(wire::I8(byte as i8)),
+                    rotation_y: Some(wire::I8(byte as i8)),
+                    rotation_y_head: Some(wire::I8(byte as i8)),
+                    ..Default::default()
+                },
+            }),
+        ];
+        for packet in packets {
+            let Some(WorldEvent::Actor(ActorEvent::Move(movement))) =
+                into_world_event(packet, 0).unwrap()
+            else {
+                panic!("expected actor movement");
+            };
+            assert_eq!(movement.pitch, Some(expected), "byte {byte}");
+            assert_eq!(movement.yaw, Some(expected), "byte {byte}");
+            assert_eq!(movement.head_yaw, Some(expected), "byte {byte}");
+        }
+    }
 }
 
 #[test]
