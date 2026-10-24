@@ -152,6 +152,16 @@ pub(super) fn compile(
         },
         EntityAssetKind::Animation,
     )?;
+    let controller_symbols = rig::unique_symbol_indices(
+        &RigSources {
+            root,
+            payloads,
+            sources,
+            symbols,
+            geometries,
+        },
+        EntityAssetKind::AnimationController,
+    )?;
     let mut pending_clips = Vec::new();
     for source in sources
         .iter()
@@ -313,6 +323,7 @@ pub(super) fn compile(
         sources,
         ControllerInputs {
             symbol_indices: &symbol_indices,
+            controller_symbols: &controller_symbols,
             clip_indices: &clip_indices,
             environments: &environments,
             geometry_selections: &geometry_selections,
@@ -347,7 +358,12 @@ pub(super) fn compile(
         outcomes.push(fallback(
             definition.source_index,
             symbol as u32,
-            if referenced {
+            if controller_symbols
+                .get(definition.identifier.as_ref())
+                .is_some_and(Option::is_none)
+            {
+                FallbackReason::AmbiguousAnimationReference
+            } else if referenced {
                 FallbackReason::UnsupportedOptionalExpression
             } else {
                 FallbackReason::UnreferencedDefinition

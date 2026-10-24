@@ -85,6 +85,7 @@ fn conflicting_legacy_controllers_keep_the_body_without_selecting_a_duplicate() 
     );
     let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
     assert_static_body(&compiled);
+    assert!(compiled.assets.controllers.is_empty());
 }
 
 /// A modern root does not escape the same conflict handling used by legacy controllers.
@@ -106,6 +107,7 @@ fn conflicting_modern_controllers_retain_scripts_and_all_geometry_candidates() {
     );
     write(pack.path(), "animation_controllers/duplicate.json", br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.test":{"states":{"different":{"animations":["walk"]}}}}}"#);
     let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    assert!(compiled.assets.controllers.is_empty());
     assert_eq!(compiled.assets.rig_bindings.len(), 1);
     let rig = compiled.assets.rig_bindings[0];
     assert_eq!(rig.fallback, EntityRigFallback::Skip);
