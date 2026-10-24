@@ -96,8 +96,7 @@ fn drawn(fixture: &(assets::EntityRenderData, MolangCompiler), bone: &str, value
             data.visibility[layer.first_visibility as usize
                 ..layer.first_visibility as usize + usize::from(layer.visibility_count)]
                 .iter()
-                .filter(|rule| entity_render_pattern_matches(&rule.pattern, bone))
-                .next_back()
+                .rfind(|rule| entity_render_pattern_matches(&rule.pattern, bone))
                 .is_none_or(|rule| read(rule.condition) != 0.0)
         })
         .map(|layer| {
