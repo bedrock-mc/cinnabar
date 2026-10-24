@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 
 use super::{Request, font};
 
-type Read = Result<Option<Vec<u8>>, String>;
+type Read = Result<Option<mod_host::local_files::Snapshot>, String>;
 
 pub(super) struct Inputs {
     pub(super) font: Read,
@@ -16,7 +16,10 @@ pub(super) struct Inputs {
 
 impl Inputs {
     /// Captures override bytes and the exact preference input before guest initialization.
-    pub(super) fn read(request: &Request) -> Self {
+    pub(super) fn read(
+        request: &Request,
+        files: &mut mod_host::local_files::ObservationCache,
+    ) -> Self {
         let controls = request.source.grants.controls;
         Self {
             settings: super::admission::settings_seed(
@@ -25,10 +28,12 @@ impl Inputs {
                 &request.source.location.settings_anchor(),
             ),
             font: read(
+                files,
                 request.source.font.as_deref().filter(|_| controls),
                 font::MAX_SOURCE_BYTES,
             ),
             ui: read(
+                files,
                 request.source.ui.as_deref().filter(|_| controls),
                 ui::mod_panel::MAX_PANEL_BUNDLE_BYTES,
             ),
@@ -64,8 +69,12 @@ impl Inputs {
 }
 
 /// Uses the source admission limits and preserves missing/unreadable outcomes for retry identity.
-fn read(path: Option<&Path>, max: usize) -> Read {
-    path.map(|path| mod_host::local_files::read(path, max).map_err(|error| error.to_string()))
+fn read(
+    files: &mut mod_host::local_files::ObservationCache,
+    path: Option<&Path>,
+    max: usize,
+) -> Read {
+    path.map(|path| files.read(path, max).map_err(|error| error.to_string()))
         .transpose()
 }
 
@@ -73,9 +82,9 @@ fn read(path: Option<&Path>, max: usize) -> Read {
 fn outcome(digest: &mut Sha256, result: &Read) {
     match result {
         Ok(None) => digest.update([0]),
-        Ok(Some(bytes)) => {
+        Ok(Some(snapshot)) => {
             digest.update([1]);
-            field(digest, bytes);
+            field(digest, &snapshot.digest);
         }
         Err(error) => {
             digest.update([2]);

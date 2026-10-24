@@ -6,8 +6,17 @@ use std::{
     path::{Component, Path},
 };
 
+mod observation;
+pub(crate) use observation::Identity;
+pub use observation::{ObservationCache, Snapshot};
+
 /// Reads a selected regular file with a byte ceiling and refuses a linked final entry.
 pub fn read(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+    open(path)?.read(limit)
+}
+
+/// Resolves directory aliases, then opens the leaf without following links.
+fn open(path: &Path) -> io::Result<Opened> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -16,7 +25,7 @@ pub fn read(path: &Path, limit: usize) -> io::Result<Vec<u8>> {
     let name = path
         .file_name()
         .ok_or_else(|| io::Error::other("source has no file name"))?;
-    Directory::open(&parent)?.read(Path::new(name), limit)
+    Directory::open(&parent)?.open_file(Path::new(name))
 }
 
 /// An open directory that anchors all reads of one package snapshot.
@@ -56,6 +65,11 @@ impl Directory {
 
     /// Reads one normal relative path through directory handles and bounds growing files.
     pub(crate) fn read(&self, path: &Path, limit: usize) -> io::Result<Vec<u8>> {
+        self.open_file(path)?.read(limit)
+    }
+
+    /// Keeps traversed Windows parents fixed until the leaf observation finishes.
+    pub(crate) fn open_file(&self, path: &Path) -> io::Result<Opened> {
         let components = path
             .components()
             .map(|component| match component {
@@ -108,12 +122,33 @@ impl Directory {
         if !opened.metadata()?.is_file() {
             return Err(io::Error::other("source is not a regular file"));
         }
+        Ok(Opened {
+            file: opened,
+            #[cfg(windows)]
+            _parents: parents,
+        })
+    }
+}
+
+/// A selected leaf and any parent handles needed to keep its traversal fixed.
+pub(crate) struct Opened {
+    pub(crate) file: File,
+    #[cfg(windows)]
+    _parents: Vec<File>,
+}
+
+impl Opened {
+    /// Reads the already selected regular file within the existing admission ceiling.
+    pub(crate) fn read(&mut self, limit: usize) -> io::Result<Vec<u8>> {
+        if self.file.metadata()?.len() > limit as u64 {
+            return Err(io::Error::other("source exceeds byte limit"));
+        }
         let ceiling = u64::try_from(limit)
             .ok()
             .and_then(|limit| limit.checked_add(1))
             .ok_or_else(|| io::Error::other("invalid source byte limit"))?;
         let mut bytes = Vec::new();
-        opened.take(ceiling).read_to_end(&mut bytes)?;
+        (&mut self.file).take(ceiling).read_to_end(&mut bytes)?;
         if bytes.len() > limit {
             return Err(io::Error::other("source exceeds byte limit"));
         }

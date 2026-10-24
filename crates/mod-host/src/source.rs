@@ -37,6 +37,15 @@ pub fn read_source(path: &Path) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+impl local_files::ObservationCache {
+    /// Observes a mod source with the same classification and byte ceilings as imports.
+    pub fn source(&mut self, path: &Path) -> Result<local_files::Snapshot> {
+        let snapshot = self.read(path, packet_mod::MAX_PACKET_MOD_BYTES)?;
+        check_size(&snapshot.bytes)?;
+        Ok(snapshot)
+    }
+}
+
 /// Validates a source without running it; larger reactors use the packet host's ABI and cache.
 pub fn validate_source(bytes: &[u8]) -> Result<()> {
     check_size(bytes)?;
@@ -84,9 +93,12 @@ mod tests {
         bytes[..8].copy_from_slice(b"\0asm\x01\0\0\0");
         std::fs::write(&path, &bytes).unwrap();
         assert_eq!(read_source(&path).unwrap(), bytes);
+        let mut observations = local_files::ObservationCache::default();
+        assert_eq!(observations.source(&path).unwrap().bytes.as_ref(), bytes);
         bytes[..8].copy_from_slice(b"\0asm\x0d\0\x01\0");
         std::fs::write(&path, &bytes).unwrap();
         assert!(read_source(&path).is_err());
+        assert!(observations.source(&path).is_err());
         bytes[..8].copy_from_slice(b"\0asm\x01\0\0\0");
         assert!(
             validate_source(&bytes).is_err(),

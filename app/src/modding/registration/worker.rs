@@ -97,11 +97,12 @@ pub(super) fn run(
     let mut pending_load = None;
     let mut pending_update = None;
     let mut next_poll = Instant::now();
+    let mut observer = source::Observer::default();
     let mut removal = removal::Pending::default();
     loop {
         if Instant::now() >= next_poll {
             next_poll = Instant::now() + RELOAD_INTERVAL;
-            let observed = source::observe(&directory.join(REGISTRATION_FILE));
+            let observed = observer.observe(&directory.join(REGISTRATION_FILE));
             removal.observe(observed.request_id.as_deref());
             let registration = observed
                 .result
@@ -113,7 +114,7 @@ pub(super) fn run(
             let mut settings_inputs = BTreeMap::new();
             let fences = drawing.lock().expect("mod drawing fences").clone();
             for entry in registration.mods.iter().filter(|entry| entry.enabled) {
-                let mut snapshot = source::source_snapshot(entry.clone()).map(|mut snapshot| {
+                let mut snapshot = observer.source_snapshot(entry.clone()).map(|mut snapshot| {
                     snapshot.drawing = fences.get(&entry.component).cloned();
                     snapshot
                 });
@@ -138,6 +139,7 @@ pub(super) fn run(
                     sources.push((entry.clone(), snapshot));
                 }
             }
+            observer.files.retain_observed();
             let current = (<[u8; 32]>::from(digest.finalize()), fences, settings_inputs);
             if fingerprint.as_ref() != Some(&current) {
                 fingerprint = Some(current);

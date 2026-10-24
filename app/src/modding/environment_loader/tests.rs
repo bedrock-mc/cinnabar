@@ -168,7 +168,7 @@ fn changed_source_atomically_replaces_host_and_prepared_resources_without_duplic
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Second", None)).unwrap();
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     let update = prepare(request(&path, digest), &mut attempted).unwrap();
     assert!(update.result.as_ref().unwrap().panel_ui.is_some());
     let retired = apply(&mut world, update).unwrap();
@@ -206,7 +206,7 @@ fn malformed_candidate_keeps_the_previous_guest_and_suppresses_identical_failed_
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Invalid", Some(b"invalid outline font"))).unwrap();
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     let update = prepare(request(&path, digest), &mut attempted).unwrap();
     assert!(update.result.is_err());
     assert!(apply(&mut world, update).is_none());
@@ -251,7 +251,7 @@ fn repairing_an_explicit_ui_override_retries_the_same_changed_component() {
             next.source.ui = Some(ui.clone());
             next
         };
-        let mut attempted = BTreeMap::new();
+        let mut attempted = WorkerState::default();
         let rejected = prepare(candidate(digest), &mut attempted).unwrap();
         assert!(rejected.result.is_err());
         assert!(apply(&mut world, rejected).is_none());
@@ -317,7 +317,7 @@ fn changed_committed_settings_retry_a_rejected_component() {
         next
     };
     let invalid = "x".repeat(mod_api::MAX_SETTINGS_BYTES + 1);
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     let rejected = prepare(candidate(invalid.clone()), &mut attempted).unwrap();
     assert!(rejected.result.is_err());
     assert!(apply(&mut world, rejected).is_none());
@@ -362,7 +362,7 @@ fn repairing_settings_without_a_committed_seed_retries_the_changed_component() {
         next.source.grants = granted.clone();
         next
     };
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     let rejected = prepare(candidate(), &mut attempted).unwrap();
     assert!(rejected.result.is_err());
     assert!(apply(&mut world, rejected).is_none());
@@ -387,7 +387,7 @@ fn two_owners_of_one_source_prepare_independently_including_failure_suppression(
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("shared.wasm");
     std::fs::write(&path, component("Changed", None)).unwrap();
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     let first = request(&path, [0; 32]);
     let mut second = request(&path, [0; 32]);
     second.source.owner = mod_ui::PanelUiOwner::Environment(1);
@@ -442,7 +442,7 @@ fn stale_settings_candidate_is_retired_and_same_source_retries_with_current_pref
         .unwrap()
         .to_owned();
     std::fs::write(&path, component("Second", None)).unwrap();
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     current.previous = digest;
     // The worker received these preferences before a newer value was committed.
     current.settings = Some(SettingsSnapshot {
@@ -499,7 +499,7 @@ fn supplied_embedded_font_and_ui_reload_as_one_accepted_snapshot() {
     let digest = previous.host.source_digest();
     let mut world = world(previous);
     std::fs::write(&path, component("Second", Some(&bytes))).unwrap();
-    let update = prepare(request(&path, digest), &mut BTreeMap::new()).unwrap();
+    let update = prepare(request(&path, digest), &mut WorkerState::default()).unwrap();
     let accepted = update.result.as_ref().unwrap();
     assert!(accepted.font.as_ref().unwrap().glyph('A').is_some());
     assert!(accepted.panel_ui.is_some());
@@ -549,7 +549,7 @@ fn drawing_restart_prepares_changed_guest_and_presentation_as_one_snapshot() {
     let mut restart = request(&path, old.source_digest());
     restart.drawing = admission::DrawingContext::capture(old);
     std::fs::write(&path, component("Second", None)).unwrap();
-    let update = prepare(restart, &mut BTreeMap::new()).unwrap();
+    let update = prepare(restart, &mut WorkerState::default()).unwrap();
     let prepared = update.result.as_ref().unwrap();
     assert!(prepared.panel_ui.is_some() && prepared.branding.is_some());
     assert!(prepared.host.is_active());
@@ -579,7 +579,7 @@ fn unchanged_drawing_restart_deduplicates_failures_and_rejects_stale_fences() {
     )
     .unwrap();
     let mut world = world(previous);
-    let mut attempted = BTreeMap::new();
+    let mut attempted = WorkerState::default();
     for connection in [1, 2] {
         let mut runtime = world.resource_mut::<ModRuntime>();
         let host = runtime.hosts.host_mut(0);
@@ -650,7 +650,7 @@ fn worker_sources_retain_loader_consent_before_a_component_requests_drawing() {
             settings: None,
             drawing: None,
         },
-        &mut BTreeMap::new(),
+        &mut WorkerState::default(),
     )
     .unwrap();
     assert!(update.result.unwrap().host.grants().world_draw);
@@ -791,7 +791,11 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
                 ..Default::default()
             });
         std::fs::write(&path, next).unwrap();
-        let update = prepare(queued_request(&mut world, source), &mut BTreeMap::new()).unwrap();
+        let update = prepare(
+            queued_request(&mut world, source),
+            &mut WorkerState::default(),
+        )
+        .unwrap();
         if scope == "user_denied" {
             assert!(
                 update.result.is_err(),
@@ -826,4 +830,82 @@ fn replacement_init_uses_user_consent_independently_of_server_grants() {
         assert_eq!(current.source_digest(), new_digest);
         assert!(current.is_active());
     }
+}
+
+#[test]
+fn unchanged_environment_polls_share_source_bytes_and_same_size_changes_reload() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("local.wasm");
+    let bytes = component("First", None);
+    std::fs::write(&path, &bytes).unwrap();
+    let previous = Sha256::digest(&bytes).into();
+    let mut state = WorkerState::default();
+    assert!(prepare(request(&path, previous), &mut state).is_none());
+    let first = state
+        .files
+        .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+        .unwrap();
+    for _ in 0..8 {
+        assert!(prepare(request(&path, previous), &mut state).is_none());
+        let again = state
+            .files
+            .read(&path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+            .unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first.bytes, &again.bytes));
+        state.files.retain_observed();
+    }
+    let changed = component("Other", None);
+    assert_eq!(bytes.len(), changed.len());
+    std::fs::write(&path, changed).unwrap();
+    let update = prepare(request(&path, previous), &mut state).unwrap();
+    assert_eq!(update.result.unwrap().host.panel().unwrap().title, "Other");
+    assert_eq!(first.bytes.as_ref(), bytes);
+}
+
+#[test]
+fn unchanged_environment_packages_share_verified_inputs_and_companion_changes_reload() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path();
+    package(path);
+    let texture = "textures/icon.png";
+    std::fs::create_dir(path.join("textures")).unwrap();
+    std::fs::write(path.join(texture), b"old").unwrap();
+    let manifest_path = path.join(mod_host::package::MANIFEST);
+    let old_hash = format!("{:x}", Sha256::digest(b"old"));
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("[files]", &format!("textures = [\"{texture}\"]\n[files]"));
+    std::fs::write(
+        &manifest_path,
+        format!("{manifest}\n\"{texture}\" = \"{old_hash}\"\n"),
+    )
+    .unwrap();
+    let mut state = WorkerState::default();
+    let previous = mod_host::package::Package::read(path).unwrap().digest;
+    let candidate = || {
+        let mut candidate = request(path, previous);
+        candidate.source.location = mod_host::Source::Package(path.to_owned());
+        candidate
+    };
+    assert!(prepare(candidate(), &mut state).is_none());
+    let first = state.packages.get_mut(path).unwrap().read(path).unwrap();
+    for _ in 0..8 {
+        assert!(prepare(candidate(), &mut state).is_none());
+        let again = state.packages.get_mut(path).unwrap().read(path).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &again));
+    }
+    std::fs::write(path.join(texture), b"new").unwrap();
+    let new_hash = format!("{:x}", Sha256::digest(b"new"));
+    std::fs::write(
+        &manifest_path,
+        std::fs::read_to_string(&manifest_path)
+            .unwrap()
+            .replace(&old_hash, &new_hash),
+    )
+    .unwrap();
+    let update = prepare(candidate(), &mut state).expect("package resource edit reloads");
+    let prepared = update.result.unwrap();
+    assert_ne!(prepared.host.source_digest(), previous);
+    assert!(prepared.host.package().is_some());
+    assert_eq!(first.files.textures[0].1, b"old");
 }

@@ -6,6 +6,7 @@ use client_extensions::modding::font;
 use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded, select};
 use mod_host::{ModGrants, ModHost, SettingsSnapshot};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::PathBuf, thread::JoinHandle, time::Instant};
 
@@ -74,7 +75,7 @@ impl Loader {
         let (retired, retiring) = bounded(mod_api::MAX_LOADED_MODS * 2);
         let thread = std::thread::Builder::new().name("mod-environment-loader".into())
             .spawn(move || {
-                let mut attempted = BTreeMap::new();
+                let mut state = WorkerState::default();
                 loop {
                     select! {
                         recv(retiring) -> host => match host {
@@ -84,11 +85,12 @@ impl Loader {
                         recv(incoming) -> batch => match batch {
                             Ok(batch) => {
                                 for request in batch {
-                                    if let Some(update) = prepare(request, &mut attempted)
+                                    if let Some(update) = prepare(request, &mut state)
                                         && results.send(Message::Updated(Box::new(update))).is_err() {
                                         return;
                                     }
                                 }
+                                state.files.retain_observed();
                                 if results.send(Message::Complete).is_err() { return; }
                             },
                             Err(_) => break,
@@ -138,22 +140,35 @@ struct AttemptIdentity {
 
 type Attempts = BTreeMap<(mod_ui::PanelUiOwner, mod_host::Source), AttemptIdentity>;
 
+/// Retains observations independently from rejected admission identities.
+#[derive(Default)]
+struct WorkerState {
+    attempted: Attempts,
+    files: mod_host::local_files::ObservationCache,
+    packages: BTreeMap<std::path::PathBuf, mod_host::package::Observation>,
+}
+
 /// Captures one changed component and all explicit overrides before initializing its candidate.
-fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
+fn prepare(request: Request, state: &mut WorkerState) -> Option<Update> {
     let key = (request.source.owner, request.source.location.clone());
     let mut candidate_identity = None;
     let result = (|| {
         let (bytes, hash, package) = match &request.source.location {
             mod_host::Source::Component(path) => {
-                let bytes = mod_host::local_files::read(path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
+                let snapshot = state
+                    .files
+                    .read(path, mod_host::MAX_COMPONENT_SOURCE_BYTES)
                     .map_err(|error| error.to_string())?;
-                let hash: [u8; 32] = Sha256::digest(&bytes).into();
-                (bytes, hash, None)
+                (snapshot.bytes, snapshot.digest, None)
             }
             mod_host::Source::Package(path) => {
-                let package =
-                    mod_host::package::Package::read(path).map_err(|error| format!("{error:#}"))?;
-                (Vec::new(), package.digest, Some(package))
+                let package = state
+                    .packages
+                    .entry(path.clone())
+                    .or_default()
+                    .read(path)
+                    .map_err(|error| format!("{error:#}"))?;
+                (std::sync::Arc::from([]), package.digest, Some(package))
             }
         };
         if hash == request.previous
@@ -164,18 +179,18 @@ fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
         {
             return Ok(None);
         }
-        let inputs = inputs::Inputs::read(&request);
+        let inputs = inputs::Inputs::read(&request, &mut state.files);
         let fingerprint = AttemptIdentity {
             source: inputs.fingerprint(&request, hash)?,
             drawing: request.drawing.clone(),
             settings: inputs.settings.clone(),
         };
-        if attempted.get(&key) == Some(&fingerprint) {
+        if state.attempted.get(&key) == Some(&fingerprint) {
             return Ok(None);
         }
         candidate_identity = Some(fingerprint);
-        let font = inputs.font?;
-        let ui = inputs.ui?;
+        let font = inputs.font?.map(|snapshot| snapshot.bytes);
+        let ui = inputs.ui?.map(|snapshot| snapshot.bytes);
         let settings = inputs.settings?;
         let settings = settings
             .as_ref()
@@ -192,7 +207,7 @@ fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
             ),
             mod_host::Source::Package(path) => admission::prepare_package(
                 path,
-                package.expect("verified package snapshot"),
+                package.expect("verified package snapshot").as_ref().clone(),
                 request.source.grants.clone(),
                 font.as_deref(),
                 ui.as_deref(),
@@ -212,7 +227,7 @@ fn prepare(request: Request, attempted: &mut Attempts) -> Option<Update> {
         }),
         Err(error) => {
             if let Some(identity) = candidate_identity {
-                attempted.insert(key, identity);
+                state.attempted.insert(key, identity);
             }
             Some(Update {
                 drawing: request.drawing,
