@@ -152,6 +152,39 @@ fn hooks_and_flowers_keep_their_carried_sprite_for_every_state() {
     }
 }
 
+#[test]
+fn hook_icons_select_the_hook_face_instead_of_the_wooden_base() {
+    let root = tempfile::tempdir().unwrap();
+    write_pack(
+        root.path(),
+        r#"{"tripwire_hook":{"textures":{"down":"base","north":"hook","side":"wire"}}}"#,
+        r#"{"texture_data":{
+            "base":{"textures":"textures/blocks/wood"},
+            "hook":{"textures":"textures/blocks/hook"},
+            "wire":{"textures":"textures/blocks/wire"}
+        }}"#,
+        "[]",
+    );
+    let blocks = IconBlocks::read(root.path()).unwrap();
+    let mut states = 0;
+    for record in blocks
+        .records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:tripwire_hook")
+    {
+        states += 1;
+        assert_eq!(
+            blocks
+                .texture_path(BlockVisualId(record.sequential_id))
+                .as_deref(),
+            Some("textures/blocks/hook"),
+            "{}",
+            record.canonical_state
+        );
+    }
+    assert!(states > 0);
+}
+
 /// Barrier declares world textures, while light blocks declare only carried ones; both items
 /// draw that texture flat.
 #[test]
