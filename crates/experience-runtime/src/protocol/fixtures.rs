@@ -10,6 +10,7 @@ use super::*;
 /// protocol's.
 #[derive(Serialize)]
 struct Limits {
+    simulation_step_nanos: u64,
     max_frame_bytes: usize,
     protocol: u32,
     max_block_data_bytes: usize,
@@ -53,6 +54,9 @@ struct PlacementValues {
 /// Every protocol enum string, so the Go adapter can check its sets against Rust.
 #[derive(Serialize)]
 struct Enums {
+    dimensions: [DimensionType; 3],
+    generators: [Generator; 2],
+    store_scopes: [StoreScope; 3],
     faces: [Face; 6],
     causes: [Cause; 3],
     fail_kinds: [FailKind; 4],
@@ -92,6 +96,8 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
     let callback = |seq: u64, actor: Option<&str>, call: Call| Request::Callback {
         seq,
         info: Info {
+            context: None,
+            simulation: None,
             world_id: "world".to_owned(),
             dimension_id: "overworld".to_owned(),
             tick: 48_213,
@@ -247,7 +253,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         path: format!("/srv/experiences/benergistics/assets/{file}"),
     };
 
-    vec![
+    let mut fixtures = vec![
         (
             "request_load",
             pretty(&Request::Load {
@@ -367,6 +373,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "response_loaded",
             pretty(&Response::Loaded {
+                simulation: false,
                 protocol: PROTOCOL_VERSION,
                 id: "benergistics".to_owned(),
                 version: "0.1.0".to_owned(),
@@ -468,6 +475,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     max_stack: 1,
                 }],
                 focus: true,
+                worlds: None,
             }),
         ),
         (
@@ -499,10 +507,18 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                             text: "Network online".to_owned(),
                         },
                         Op::SendClient {
+                            control: false,
                             player: player.to_owned(),
                             channel: "benergistics.controller".to_owned(),
                             schema: 1,
                             payload: record,
+                        },
+                        Op::SendClient {
+                            control: true,
+                            player: player.to_owned(),
+                            channel: "benergistics.registry".to_owned(),
+                            schema: 1,
+                            payload: vec![Scalar::Text("fingerprint".to_owned())],
                         },
                         Op::SetBlockState {
                             pos: controller,
@@ -557,6 +573,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "limits",
             pretty(&Limits {
+                simulation_step_nanos: crate::limits::SIMULATION_STEP_NANOS,
                 max_frame_bytes: MAX_FRAME_BYTES,
                 protocol: PROTOCOL_VERSION,
                 max_block_data_bytes: MAX_BLOCK_DATA_BYTES,
@@ -592,6 +609,9 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         (
             "enums",
             pretty(&Enums {
+                dimensions: all_variants!(DimensionType: Overworld, Nether, End),
+                generators: all_variants!(Generator: Empty, Flat),
+                store_scopes: all_variants!(StoreScope: Player, Instance, Mod),
                 faces: all_variants!(Face: Down, Up, North, South, West, East),
                 causes: all_variants!(Cause: Player, Guest, Environment),
                 fail_kinds: all_variants!(FailKind: Trap, Fuel, Deadline, Limit),
@@ -620,7 +640,10 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                     .collect(),
             }),
         ),
-    ]
+    ];
+    fixtures.extend(super::fixtures_worlds::fixtures());
+    fixtures.extend(super::simulation::fixtures());
+    fixtures
 }
 
 /// A state named `name` holding `value`.

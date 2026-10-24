@@ -81,6 +81,13 @@ the local Experience adapter.
 
 ## World changes
 
+The local Experience runtime uses `PrepareWorldChange` outside world transactions to pin the
+connection, drain older application callbacks and fence both directions before departure.
+Call its `Commit(worldID)` after admission or `Abort()` after source recovery. Preparation is a
+no-op without an active client part and rejects active wire-v1 parts before movement. A committed
+notice uses the same correlated acknowledgment below; no second control protocol is introduced.
+
+
 Call `ext.WorldChanged(p.UUID(), worldID)` in the destination transaction after a
 world transfer commits. A `WorldID` identifies a world instance, independently of
 its dimension type. Call this for transfers between two overworld worlds too.
@@ -96,15 +103,18 @@ fence opens.
 
 The fence takes effect before the notice is written. Notices and their correlated
 acknowledgments bypass the data rate budget, so exhausted data credits cannot delay
-a transfer. Each connection has at most one outstanding notice. Further transfers
-record only the latest desired world. After the outstanding acknowledgment arrives,
-the server sends one notice for that world if it differs from the noticed world.
-The fence stays closed until the latest desired world is acknowledged. Retired and
-repeated acknowledgments leave that fence unchanged but consume the normal data
-budget; exceeding it ends the optional session. There are no
-retry timers. A write failure ends the optional client part while ordinary play
-continues. `WorldChanged` returns false when there is no usable v2 session or the
-world ID is empty.
+a transfer. Native epoch updates consume ordinary credit on both sides. The shared
+extension schema defines the traffic classes and encoded carrier costs. One state
+machine per connection queues every committed admission and publishes its notices
+in order when the client part activates, even during a later preparation.
+Acknowledging a notice retires it and all earlier admissions. Aborting discards
+only the preparation; it never removes a committed notice. Initial login placement
+needs no travel notice. The fence stays closed until there is no preparation or
+unacknowledged notice. Retired and repeated acknowledgments leave that fence
+unchanged but consume the normal data budget; exceeding it ends the optional
+session. World notices have no retry timers. A write failure ends the optional
+client part while ordinary play continues. `WorldChanged` returns false when
+there is no usable v2 session or the world ID is empty.
 
 Native dimension changes and explicit notices both advance the logical epoch.
 Logical epochs are independent of the native dimension counter. The client never

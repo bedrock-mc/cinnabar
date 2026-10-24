@@ -1,9 +1,11 @@
 //! Loading a server artifact: verify it, compile it against the `server` world, run `register`
 //! and validate the blocks it declares.
 
+use experience_sdk::artifact::{ASSETS_DIR, SERVER_WASM};
 mod block_type;
 mod geometry;
 mod items;
+pub(crate) mod worlds;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
@@ -27,7 +29,7 @@ use crate::limits::{
     EPOCH_PERIOD, MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_COMPONENT_BYTES, MAX_DISPLAY_NAME_BYTES,
     MAX_NAME_BYTES, MAX_WASM_STACK_BYTES, REGISTER_DEADLINE, REGISTER_FUEL,
 };
-use crate::manifest::{ASSETS_DIR, Manifest, SERVER_WASM, read_manifest, resolve};
+use crate::manifest::{Manifest, read_manifest, resolve};
 use crate::protocol::{self, PlacementState, StateDef, StateValues};
 
 pub(crate) use block_type::holds;
@@ -48,6 +50,7 @@ pub(crate) struct Catalog {
     pub server: HashMap<String, HashMap<u16, protocol::ServerItem>>,
     /// The server's crafting-table recipes, in the order it tries them.
     pub recipes: Vec<protocol::Recipe>,
+    pub worlds: protocol::WorldRegistration,
 }
 
 /// A verified artifact: its manifest, its validated blocks, and the component pre-linked against
@@ -62,6 +65,7 @@ pub struct Loaded {
     pub(crate) catalog: Arc<Catalog>,
     /// Whether the world of its `api` takes its player's focus in client messages and epochs.
     pub focus: bool,
+    pub worlds: Option<protocol::WorldRegistration>,
     pub(crate) pre: Pre,
 }
 
@@ -138,6 +142,28 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         .with_context(|| format!("{SERVER_WASM} is not a {} server component", api.package()))?;
     let registration = register(engine, &pre, &manifest.id)?;
     let (blocks, items) = validate_registration(dir, &manifest, registration)?;
+    let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
+    let declared = match &pre {
+        Pre::V0_8(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
+        Pre::V0_9(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
+        _ => None,
+    };
+    let worlds = declared
+        .map(|result| {
+            worlds::validate(
+                &manifest.id,
+                result.map_err(|error| anyhow!("world definitions failed: {error:?}"))?,
+            )
+        })
+        .transpose()?;
     let catalog = Catalog {
         blocks: blocks
             .iter()
@@ -149,6 +175,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             .collect(),
         server: HashMap::new(),
         recipes: Vec::new(),
+        worlds: worlds.clone().unwrap_or_default(),
     };
     Ok(Loaded {
         manifest,
@@ -156,6 +183,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
         items,
         catalog: Arc::new(catalog),
         focus: api.focus(),
+        worlds,
         pre,
     })
 }

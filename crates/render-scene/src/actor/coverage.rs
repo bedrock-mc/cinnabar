@@ -73,7 +73,7 @@ mod tests {
             session_id: 1,
             dimension: 0,
             runtime_id: 7,
-            spawn_revision: 1,
+            spawn_revision: std::num::NonZeroU64::MIN,
             ingress_sequence: 1,
             source_tick: Some(1),
             movement_revision: 1,

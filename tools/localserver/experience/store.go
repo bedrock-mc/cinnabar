@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,8 +18,8 @@ import (
 	"time"
 )
 
-// storeSchema identifies instance-keyed block data. Schema 1 is migrated when it is opened.
-const storeSchema = 2
+// storeSchema identifies instance-keyed blocks and scoped records. Older files migrate on open.
+const storeSchema = 3
 
 // installedSchema identifies the installation manifest, whose format has not changed.
 const installedSchema = 1
@@ -38,7 +39,7 @@ var ErrNotPlaced = errors.New("no placed experience block at position")
 
 // Key identifies a block position in one stable world instance.
 type Key struct {
-	Instance WorldInstanceID
+	Instance cinnabarext.WorldID
 	X, Y, Z  int32
 }
 
@@ -52,6 +53,7 @@ type entry struct {
 }
 
 type experienceData struct {
+	states  map[stateAddress]stateEntry
 	entries map[Key]entry
 	used    uint64
 	dirty   bool
@@ -62,31 +64,33 @@ type experienceData struct {
 type Store struct {
 	dir string
 
-	mu              sync.Mutex
-	experiences     map[string]*experienceData
-	nextGeneration  uint64
-	installed       []string
-	installedBlocks map[string][]string
+	mu                  sync.Mutex
+	experiences         map[string]*experienceData
+	nextGeneration      uint64
+	nextWorldGeneration uint64
+	installed           []string
+	installedBlocks     map[string][]string
 
 	// flushMu serialises Flush calls so two never write the same temp file.
 	flushMu sync.Mutex
 }
 
 type fileEntry struct {
-	Instance   WorldInstanceID `json:"instance"`
-	LegacyDim  *int            `json:"dim,omitempty"`
-	X          int32           `json:"x"`
-	Y          int32           `json:"y"`
-	Z          int32           `json:"z"`
-	Generation uint64          `json:"generation"`
-	Revision   uint64          `json:"revision"`
-	Data       *string         `json:"data"`
+	Instance   cinnabarext.WorldID `json:"instance"`
+	LegacyDim  *int                `json:"dim,omitempty"`
+	X          int32               `json:"x"`
+	Y          int32               `json:"y"`
+	Z          int32               `json:"z"`
+	Generation uint64              `json:"generation"`
+	Revision   uint64              `json:"revision"`
+	Data       *string             `json:"data"`
 }
 
 type experienceFile struct {
-	Schema         int         `json:"schema"`
-	NextGeneration uint64      `json:"next_generation"`
-	Entries        []fileEntry `json:"entries"`
+	Schema         int           `json:"schema"`
+	NextGeneration uint64        `json:"next_generation"`
+	Entries        []fileEntry   `json:"entries"`
+	States         []storedState `json:"states,omitempty"`
 }
 
 // OpenStore loads every <id>.json file and _installed.json in dir (normally
@@ -108,6 +112,10 @@ func OpenStore(dir string) (*Store, error) {
 		case strings.HasSuffix(name, ".tmp"):
 			if err := os.Remove(path); err != nil {
 				return nil, fmt.Errorf("remove stray temp file %s: %w", path, err)
+			}
+		case name == worldGenerationFile:
+			if err := s.loadWorldGenerations(path); err != nil {
+				return nil, fmt.Errorf("load %s: %w", path, err)
 			}
 		case name == installedFile:
 			if err := s.loadInstalled(path); err != nil {
@@ -133,7 +141,7 @@ func (s *Store) loadExperience(id, path string) error {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return err
 	}
-	if f.Schema != 1 && f.Schema != storeSchema {
+	if f.Schema != 1 && f.Schema != 2 && f.Schema != storeSchema {
 		return fmt.Errorf("schema %d, want %d", f.Schema, storeSchema)
 	}
 	e := &experienceData{entries: make(map[Key]entry, len(f.Entries)), dirty: f.Schema != storeSchema}
@@ -163,6 +171,28 @@ func (s *Store) loadExperience(id, path string) error {
 		e.entries[k] = entry{token: Token{Generation: fe.Generation, Revision: fe.Revision}, data: data}
 		e.used += uint64(len(data))
 		s.nextGeneration = max(s.nextGeneration, fe.Generation+1)
+	}
+	e.states = make(map[stateAddress]stateEntry)
+	for _, record := range f.States {
+		address := stateAddress{Scope: record.Scope, Owner: record.Owner}
+		if !validStateAddress(address) {
+			return errors.New("invalid scoped state address")
+		}
+		if _, duplicate := e.states[address]; duplicate {
+			return errors.New("duplicate scoped state")
+		}
+		var data []byte
+		if record.Data != nil {
+			data, err = hex.DecodeString(*record.Data)
+			if err != nil || len(data) > maxBlockDataBytes {
+				return errors.New("invalid scoped state data")
+			}
+		}
+		e.states[address] = stateEntry{Schema: record.Schema, Revision: record.Revision, Data: data}
+		e.used += uint64(len(data))
+	}
+	if e.used > dataQuota {
+		return ErrQuota
 	}
 	s.experiences[id] = e
 	return nil
@@ -212,6 +242,22 @@ func (s *Store) Remove(exp string, k Key) (prev []byte, had bool) {
 	e.used -= uint64(len(old.data))
 	e.dirty = true
 	return slices.Clone(old.data), old.data != nil
+}
+
+// discardPlacements removes every mod's block records when an instance's terrain is discarded.
+// Instance, player and mod scoped state retain their independent lifetimes.
+func (s *Store) discardPlacements(instance cinnabarext.WorldID) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.experiences {
+		for key, entry := range e.entries {
+			if key.Instance == instance {
+				delete(e.entries, key)
+				e.used -= uint64(len(entry.data))
+				e.dirty = true
+			}
+		}
+	}
 }
 
 // Token returns the entry's current token, or false when there is no entry at k.
@@ -291,6 +337,7 @@ func (s *Store) Flush() error {
 		next    uint64
 		keys    []Key
 		entries []entry
+		states  []storedState
 	}
 	var work []pending
 	s.mu.Lock()
@@ -304,6 +351,7 @@ func (s *Store) Flush() error {
 			p.keys = append(p.keys, k)
 			p.entries = append(p.entries, en)
 		}
+		p.states = storedStates(e.states)
 		work = append(work, p)
 	}
 	s.mu.Unlock()
@@ -311,7 +359,7 @@ func (s *Store) Flush() error {
 	// Stored data slices are never mutated, so they are encoded outside the lock.
 	var errs []error
 	for _, p := range work {
-		f := experienceFile{Schema: storeSchema, NextGeneration: p.next, Entries: make([]fileEntry, len(p.keys))}
+		f := experienceFile{Schema: storeSchema, NextGeneration: p.next, Entries: make([]fileEntry, len(p.keys)), States: p.states}
 		for i, k := range p.keys {
 			en := p.entries[i]
 			fe := fileEntry{Instance: k.Instance, X: k.X, Y: k.Y, Z: k.Z, Generation: en.token.Generation, Revision: en.token.Revision}
@@ -337,31 +385,7 @@ func (s *Store) Flush() error {
 // writeJSON writes v to name in the store directory through a synced temp file and a rename, so
 // the file always holds either its old or its new content.
 func (s *Store) writeJSON(name string, v any) error {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Errorf("encode %s: %w", name, err)
-	}
-	path := filepath.Join(s.dir, name)
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	_, err = f.Write(raw)
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp, path)
-	}
-	if err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
+	return writeJSONFile(filepath.Join(s.dir, name), v)
 }
 
 // RunFlusher flushes dirty Experiences every flushInterval until ctx is done. Shutdown flushes

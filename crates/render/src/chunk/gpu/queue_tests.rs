@@ -7,25 +7,22 @@ use render_scene::{
 
 #[test]
 fn adjacent_quad_frees_coalesce_and_reuse_the_lowest_range_under_churn() {
-    let mut free = Vec::new();
+    let mut free = FreeRanges::default();
 
-    insert_free_quad_range(&mut free, 12..16);
-    insert_free_quad_range(&mut free, 0..4);
-    insert_free_quad_range(&mut free, 8..12);
-    insert_free_quad_range(&mut free, 4..8);
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 0..16);
+    free.insert(12..16);
+    free.insert(0..4);
+    free.insert(8..12);
+    free.insert(4..8);
+    assert!(free.iter().eq(std::iter::once(0..16)));
 
-    assert_eq!(take_free_quad_range(&mut free, 3), Some(0));
-    assert_eq!(take_free_quad_range(&mut free, 5), Some(3));
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 8..16);
+    assert_eq!(free.take(3, 1), Some(0));
+    assert_eq!(free.take(5, 1), Some(3));
+    assert!(free.iter().eq(std::iter::once(8..16)));
 
-    insert_free_quad_range(&mut free, 0..3);
-    insert_free_quad_range(&mut free, 3..8);
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 0..16);
-    assert_eq!(take_free_quad_range(&mut free, 16), Some(0));
+    free.insert(0..3);
+    free.insert(3..8);
+    assert!(free.iter().eq(std::iter::once(0..16)));
+    assert_eq!(free.take(16, 1), Some(0));
     assert!(free.is_empty());
 }
 
@@ -235,7 +232,7 @@ fn failing_candidates_do_not_starve_a_later_fitting_candidate() {
         &GpuUpdateFairness::default(),
     );
     let mut len = 2;
-    let mut free = std::iter::once(0..2).collect::<Vec<_>>();
+    let mut free = std::iter::once(0..2).collect::<FreeRanges>();
     let successful = selected
         .into_iter()
         .filter(|entity| {
@@ -856,7 +853,7 @@ fn adapter_failure_releases_capacity_for_later_fitting_extracted_instance() {
         &GpuUpdateFairness::default(),
     );
     let mut quad_len = 0;
-    let mut free_quads = Vec::new();
+    let mut free_quads = FreeRanges::default();
     let mut failed = Vec::new();
     let mut successful = Vec::new();
     for entity in selected {
@@ -947,15 +944,14 @@ fn arena_growth_clamps_to_adapter_limits_and_rejects_one_past() {
 #[test]
 fn quad_allocator_reuses_and_trims_high_water_without_a_cpu_shadow() {
     let mut len = 0;
-    let mut free = Vec::new();
+    let mut free = FreeRanges::default();
     let first = allocate_quad_range(&mut len, &mut free, 4, 16).unwrap();
     let second = allocate_quad_range(&mut len, &mut free, 6, 16).unwrap();
     assert_eq!((first, second, len), (0, 4, 10));
 
     release_quad_range(&mut len, &mut free, 0..4);
     assert_eq!(len, 10);
-    assert_eq!(free.len(), 1);
-    assert_eq!(free[0], 0..4);
+    assert!(free.iter().eq(std::iter::once(0..4)));
     release_quad_range(&mut len, &mut free, 4..10);
     assert_eq!(len, 0);
     assert!(free.is_empty());

@@ -29,7 +29,6 @@ pub(super) const EVENT_CHANNEL: &str = "cinnabar.media";
 const DATA_BUDGET_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_PLAYERS: usize = 4;
 const MAX_PENDING: usize = 32;
-const MAX_EVENTS: usize = 64;
 
 struct Control {
     bundle: String,
@@ -127,7 +126,6 @@ pub(super) struct Media {
     players: BTreeMap<(String, String), Slot>,
     frames: BTreeMap<(String, String), Option<render_scene::MediaFrame>>,
     pending: VecDeque<Control>,
-    events: VecDeque<(String, Vec<u8>)>,
     data_budget: Arc<AtomicU64>,
     revision: u64,
     serial: u64,
@@ -143,7 +141,6 @@ impl Media {
             players: BTreeMap::new(),
             frames: BTreeMap::new(),
             pending: VecDeque::new(),
-            events: VecDeque::new(),
             data_budget: Arc::new(AtomicU64::new(DATA_BUDGET_BYTES)),
             revision: 0,
             serial: 0,
@@ -177,7 +174,13 @@ impl Media {
 
     /// Applies staged controls and advances every player; a failing player is dropped and
     /// reported as stopped, never failing the session.
-    pub(super) fn service(&mut self, now_unix: u64, local_us: u64, autoplay: bool) {
+    pub(super) fn service(
+        &mut self,
+        now_unix: u64,
+        local_us: u64,
+        autoplay: bool,
+    ) -> Vec<(String, Vec<u8>)> {
+        let mut events = Vec::new();
         while let Some(control) = self.pending.pop_front() {
             let key = (control.bundle.clone(), control.id.clone());
             if let Err(error) = self.apply(control, now_unix, local_us) {
@@ -185,7 +188,7 @@ impl Media {
                 self.players.remove(&key);
                 self.frames.remove(&key);
                 self.serial += 1;
-                self.event(&key, EventKind::Stopped, 0);
+                Self::event(&mut events, &key, EventKind::Stopped, 0);
             }
         }
         let mut failed = Vec::new();
@@ -222,14 +225,15 @@ impl Media {
             })
             .collect();
         for (key, Event { kind, position_us }) in transitions {
-            self.event(&key, kind, position_us);
+            Self::event(&mut events, &key, kind, position_us);
         }
         for (key, position) in failed {
             self.players.remove(&key);
             self.frames.remove(&key);
             self.serial += 1;
-            self.event(&key, EventKind::Stopped, position);
+            Self::event(&mut events, &key, EventKind::Stopped, position);
         }
+        events
     }
 
     fn apply(&mut self, control: Control, now_unix: u64, local_us: u64) -> Result<()> {
@@ -367,21 +371,14 @@ impl Media {
         self.serial += 1;
     }
 
-    /// Transitions for guest dispatch, oldest first.
-    pub(super) fn next_event(&mut self) -> Option<(String, Vec<u8>)> {
-        self.events.pop_front()
-    }
-
-    /// Restores an event the guest could not take yet.
-    pub(super) fn defer_event(&mut self, event: (String, Vec<u8>)) {
-        self.events.push_front(event);
-    }
-
-    fn event(&mut self, (bundle, id): &(String, String), kind: EventKind, position_us: u64) {
+    /// Encodes a playback transition for immediate admission to its recipient's callback queue.
+    fn event(
+        events: &mut Vec<(String, Vec<u8>)>,
+        (bundle, id): &(String, String),
+        kind: EventKind,
+        position_us: u64,
+    ) {
         bevy::log::info!(media = %id, ?kind, position_us, "server media event");
-        if self.events.len() >= MAX_EVENTS {
-            return;
-        }
         let choice = match kind {
             EventKind::Playing => 0,
             EventKind::Paused => 1,
@@ -394,7 +391,7 @@ impl Media {
             Scalar::Integer(i64::try_from(position_us / 1000).unwrap_or(i64::MAX)),
         ];
         if let Ok(bytes) = serde_json::to_vec(&record) {
-            self.events.push_back((bundle.clone(), bytes));
+            events.push((bundle.clone(), bytes));
         }
     }
 }
@@ -540,10 +537,12 @@ mod tests {
         media
             .queue(&owner, "media/clip.json".into(), MediaOperation::Play, 0)
             .unwrap();
-        media.service(0, 0, true);
-        let (bundle, record) = media.next_event().unwrap();
+        let events = media.service(0, 0, true);
+        let [(bundle, record)] = events.as_slice() else {
+            panic!("expected one playback transition")
+        };
         assert_eq!(bundle, "cinema");
-        let record: Vec<Scalar> = serde_json::from_slice(&record).unwrap();
+        let record: Vec<Scalar> = serde_json::from_slice(record).unwrap();
         assert!(matches!(
             record.as_slice(),
             [Scalar::Text(id), Scalar::Choice(2), Scalar::Integer(0)] if id == "media/clip.json"

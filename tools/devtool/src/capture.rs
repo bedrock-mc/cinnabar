@@ -47,7 +47,10 @@ pub(crate) fn run(args: &[String], summary_only: bool) -> Result<(), DevtoolErro
     let trace = if let Some(trace) = trace {
         trace
     } else {
-        refuse_output_overrides(|name| std::env::var_os(name))?;
+        cinnabar_cxb::client_build::refuse_output_overrides("capture", |name| {
+            std::env::var_os(name)
+        })
+        .map_err(|error| DevtoolError::Usage(error.to_string()))?;
         // A supervisor-only SIGINT or SIGTERM must still stop the client and collector.
         ctrlc::set_handler(|| CANCELLED.store(true, Ordering::SeqCst)).map_err(|error| {
             DevtoolError::Usage(format!("cannot handle capture cancellation: {error}"))
@@ -123,21 +126,6 @@ pub(crate) fn run(args: &[String], summary_only: bool) -> Result<(), DevtoolErro
     fs::write(&path, serde_json::to_vec_pretty(&summary)?).map_err(io_error)?;
     println!("summary: {}", path.display());
     Ok(())
-}
-
-/// Rejects Cargo output overrides; the client finds its install layout only under `target/<profile>`.
-fn refuse_output_overrides(
-    variable: impl Fn(&str) -> Option<std::ffi::OsString>,
-) -> Result<(), DevtoolError> {
-    match CARGO_OUTPUT_OVERRIDES
-        .into_iter()
-        .find(|name| variable(name).is_some_and(|value| !value.is_empty()))
-    {
-        Some(name) => Err(DevtoolError::Usage(format!(
-            "capture launches the client from target/<profile>; unset {name}"
-        ))),
-        None => Ok(()),
-    }
 }
 
 /// Selects the client executable emitted by this successful build, including Cargo output overrides.
@@ -504,12 +492,6 @@ fn baseline_zone<'a>(base: &'a [Zone], head: &[Zone], zone: &Zone) -> Option<&'a
 const CAPTURE_ADDRESS: &str = "127.0.0.1";
 /// Set by SIGINT or SIGTERM so the supervisor stops its owned processes before exiting.
 static CANCELLED: AtomicBool = AtomicBool::new(false);
-/// Environment overrides that move the client executable out of `target/<profile>`.
-const CARGO_OUTPUT_OVERRIDES: [&str; 3] = [
-    "CARGO_TARGET_DIR",
-    "CARGO_BUILD_TARGET_DIR",
-    "CARGO_BUILD_TARGET",
-];
 /// Exporter field separator; zone names, source paths, and zone text may contain commas.
 const TRACY_SEPARATOR: &str = "\t";
 const CONNECTION_ALLOWANCE: Duration = Duration::from_secs(30);
@@ -740,19 +722,6 @@ mesh_chunks<Opaque, Cutout>\tcrates/render/src/mesh, legacy.rs\t42\t4000000\t0.0
         assert_eq!(paired(0), Some(4.0));
         assert_eq!(paired(1), Some(2.0));
         assert_eq!(paired(2), None);
-    }
-
-    #[test]
-    fn cargo_output_overrides_are_refused_before_building() {
-        for name in CARGO_OUTPUT_OVERRIDES {
-            let error = refuse_output_overrides(|variable| {
-                (variable == name).then(|| "/tmp/elsewhere".into())
-            })
-            .unwrap_err();
-            assert!(error.to_string().contains(name), "{error}");
-        }
-        assert!(refuse_output_overrides(|_| Some("".into())).is_ok());
-        assert!(refuse_output_overrides(|_| None).is_ok());
     }
 
     #[test]

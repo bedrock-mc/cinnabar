@@ -75,7 +75,7 @@ fn submission(
                 session_id: 1,
                 dimension: 0,
                 runtime_id,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: runtime_id,
                 source_tick: Some(1),
                 movement_revision: 1,

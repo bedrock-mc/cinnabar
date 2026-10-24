@@ -31,6 +31,7 @@ struct InteractionBlock {
     build_intention: bool,
     shape_flags: assets::block_shapes::ShapeFlags,
     tags: Arc<[Arc<str>]>,
+    states: Option<protocol::DiggerStates>,
     connections: Option<ConnectionFacts>,
     /// Offset to the other block of a two-block structure such as a door or bed.
     second_part: Option<[i32; 3]>,
@@ -226,6 +227,7 @@ impl PhysicsCollisionRegistries {
                     .iter()
                     .map(|tag| Arc::from(tag.as_ref()))
                     .collect(),
+                states: mining::native_states(states.as_ref()),
                 connections: Some(ConnectionFacts {
                     family: record.model_family,
                     role: record.contributor_role,
@@ -404,6 +406,7 @@ impl PhysicsCollisionRegistries {
                 continue;
             }
             let definition = Arc::new(block.clone());
+            let state_values = block.hashed_states();
             for state in 0..block.state_count {
                 let effective = block.physics_for_state(state);
                 Arc::make_mut(&mut self.interaction_blocks).insert(
@@ -416,6 +419,7 @@ impl PhysicsCollisionRegistries {
                         build_intention: false,
                         shape_flags: assets::block_shapes::ShapeFlags::empty(),
                         tags: Arc::clone(&block.tags),
+                        states: mining::custom_states(block, state_values.get(state as usize)),
                         connections: None,
                         second_part: None,
                         bed_rotation: None,
@@ -471,6 +475,7 @@ impl PhysicsCollisionRegistries {
                             build_intention: false,
                             shape_flags: assets::block_shapes::ShapeFlags::empty(),
                             tags: Arc::clone(&block.tags),
+                            states: mining::custom_states(block, Some(&state)),
                             connections: None,
                             second_part: None,
                             bed_rotation: None,

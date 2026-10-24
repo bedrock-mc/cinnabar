@@ -575,6 +575,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         // The world camera installs only the opt-in depth-based spatial filter.
         .disable::<AntiAliasPlugin>()
         .add_before::<bevy::post_process::PostProcessPlugin>(render::ClientPostProcessPlugin)
+        // Drops stock systems that no client camera or entity feeds.
+        .add_before::<bevy::post_process::PostProcessPlugin>(render::StockSystemsPlugin)
         .disable::<bevy::post_process::PostProcessPlugin>()
         // The launcher owns the production process lifecycle. Keeping the
         // OS default SIGINT action also preserves a real developer escape

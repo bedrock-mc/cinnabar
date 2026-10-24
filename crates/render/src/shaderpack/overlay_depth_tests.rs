@@ -93,6 +93,7 @@ fn nametag_depth_restores_pack_projection_and_flips_only_the_viewport() {
         [false; 3],
         &[],
         &[],
+        None,
     );
     let scene_near = 0.1;
     let pack_near = 0.05;

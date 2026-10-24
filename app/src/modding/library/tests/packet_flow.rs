@@ -77,7 +77,7 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
         &mods,
         &config,
         &mut requests,
-        &mut || Ok(Some(source.clone())),
+        &mut || Ok(Some(source.clone().into())),
         &mut |_| panic!("import cannot request retirement"),
     )
     .unwrap();

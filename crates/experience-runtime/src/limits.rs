@@ -4,6 +4,9 @@ use std::time::Duration;
 
 use crate::protocol::INVENTORY_SLOTS;
 
+/// Fixed server simulation step, checked against the adapter clock fixture.
+pub const SIMULATION_STEP_NANOS: u64 = 50_000_000;
+
 /// Fuel granted to one callback.
 pub const CALLBACK_FUEL: u64 = 10_000_000;
 /// Fuel granted to `register`.
@@ -93,8 +96,6 @@ pub const MAX_LOGS: usize = 32;
 pub const MAX_LOG_BYTES: usize = 512;
 /// Items one Experience may register.
 pub const MAX_ITEMS: usize = 64;
-/// The most one stack of an Experience's item may hold: a Bedrock stack's.
-pub const MAX_STACK_SIZE: u8 = 64;
 /// Bytes of an Experience's own data on one item stack.
 pub const MAX_ITEM_DATA_BYTES: usize = 8192;
 /// Items the adapter may list as the server's when it loads an Experience.

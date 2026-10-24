@@ -5,6 +5,11 @@ use std::fs;
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
 
+/// Captures a fresh snapshot for fixtures that do not retain an observation worker.
+fn source_snapshot(entry: Entry) -> Result<SourceSnapshot, String> {
+    source::Observer::default().source_snapshot(entry, std::time::Instant::now())
+}
+
 fn fixture(enabled: bool, frame: &str, text: &str) -> String {
     fixture_with_capture(enabled, frame, text, false)
 }
@@ -57,7 +62,7 @@ fn candidate(root: &std::path::Path, name: &str, text: &str) -> Box<Candidate> {
         ),
     )
     .unwrap();
-    Box::new(build_candidate(source::source_snapshot(entry).unwrap()).unwrap())
+    Box::new(build_candidate(source_snapshot(entry).unwrap()).unwrap())
 }
 
 /// Provides frame publication with real bounded channels and no coordinator thread.
@@ -192,7 +197,7 @@ fn failed_reload_keeps_old_instance_and_successful_reload_resets_only_its_guest(
     messages.try_iter().for_each(drop);
     a.reload += 1;
     fs::write(&a.component, "invalid component").unwrap();
-    let failed = source::source_snapshot(a.clone())
+    let failed = source_snapshot(a.clone())
         .and_then(build_candidate)
         .map(Box::new);
     assert!(failed.is_err());
@@ -213,7 +218,7 @@ fn failed_reload_keeps_old_instance_and_successful_reload_resets_only_its_guest(
     };
     assert_eq!(statuses[0].state, "reload-error");
     fs::write(&a.component, fixture(true, "", "Fresh")).unwrap();
-    let next = Box::new(build_candidate(source::source_snapshot(a.clone()).unwrap()).unwrap());
+    let next = Box::new(build_candidate(source_snapshot(a.clone()).unwrap()).unwrap());
     apply(&mut world, vec![a, b], vec![change(next)]);
     assert_eq!(
         world.resource::<ModRuntime>().hosts.host(0).label(),
@@ -381,7 +386,8 @@ fn normalized_registration_still_rejects_a_component_leaf_symlink() {
     fs::write(&source, fixture(false, "", "Hello")).unwrap();
     std::os::unix::fs::symlink(&source, &link).unwrap();
     selection::select(root, &link, true, "linked".into()).unwrap();
-    let registration = source::observe(&root.join(REGISTRATION_FILE))
+    let registration = source::Observer::default()
+        .observe(&root.join(REGISTRATION_FILE), std::time::Instant::now())
         .result
         .unwrap()
         .unwrap();
@@ -390,7 +396,7 @@ fn normalized_registration_still_rejects_a_component_leaf_symlink() {
         registration.mods[0].component,
         root.canonicalize().unwrap().join("linked.wasm")
     );
-    assert!(source::source_snapshot(registration.mods[0].clone()).is_err());
+    assert!(source_snapshot(registration.mods[0].clone()).is_err());
 }
 
 #[test]
@@ -459,8 +465,7 @@ fn restoring_grants_rebuilds_an_instance_revoked_during_pending_admission() {
     };
     assert_eq!(inactive, std::slice::from_ref(&original.component));
     assert!(messages.try_recv().is_err());
-    let fresh =
-        Box::new(build_candidate(source::source_snapshot(original.clone()).unwrap()).unwrap());
+    let fresh = Box::new(build_candidate(source_snapshot(original.clone()).unwrap()).unwrap());
     apply(&mut world, vec![original], vec![change(fresh)]);
     world
         .resource_mut::<ModRuntime>()
@@ -522,8 +527,7 @@ fn settings_owner_publication_includes_environment_loaded_hosts() {
     let prepared = candidate(directory.path(), "environment.wasm", "Hello");
     let mut entry = prepared.registration.clone();
     entry.grants.settings = true;
-    let prepared =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let prepared = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     apply(&mut world, vec![entry.clone()], vec![change(prepared)]);
     world.resource_mut::<ModRuntime>().metadata[0].registration = None;
     let watcher = world.resource::<Watcher>();
@@ -543,7 +547,7 @@ fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_rel
     let prepared = candidate(directory.path(), "trapped.wasm", "Hello");
     let a = prepared.registration.clone();
     fs::write(&a.component, fixture(true, "unreachable", "Hello")).unwrap();
-    let trapped = Box::new(build_candidate(source::source_snapshot(a.clone()).unwrap()).unwrap());
+    let trapped = Box::new(build_candidate(source_snapshot(a.clone()).unwrap()).unwrap());
     let identity = trapped.identity;
     apply(&mut world, vec![a.clone()], vec![change(trapped)]);
     messages.try_iter().for_each(drop);
@@ -597,8 +601,7 @@ fn unrelated_registration_changes_preserve_trapped_identities_until_explicit_rel
     let mut reload = a;
     reload.reload += 1;
     fs::write(&reload.component, fixture(true, "", "Fresh")).unwrap();
-    let fresh =
-        Box::new(build_candidate(source::source_snapshot(reload.clone()).unwrap()).unwrap());
+    let fresh = Box::new(build_candidate(source_snapshot(reload.clone()).unwrap()).unwrap());
     apply(&mut world, vec![reload, b], vec![change(fresh)]);
     assert!(world.resource::<ModRuntime>().hosts.host(0).is_active());
     assert_eq!(
@@ -642,7 +645,7 @@ fn reenable_before_disable_acknowledgment_retries_missing_hosts() {
         };
         assert_eq!(inactive, std::slice::from_ref(&a.component));
         assert!(messages.try_recv().is_err());
-        let fresh = Box::new(build_candidate(source::source_snapshot(a).unwrap()).unwrap());
+        let fresh = Box::new(build_candidate(source_snapshot(a).unwrap()).unwrap());
         apply(&mut world, entries, vec![change(fresh)]);
         let runtime = world.resource::<ModRuntime>();
         assert!(runtime.hosts.host(0).is_active());
@@ -662,7 +665,7 @@ fn failed_admission_acknowledges_an_absent_host_without_retrying() {
         enabled: true,
         ..Default::default()
     };
-    let result = source::source_snapshot(entry.clone())
+    let result = source_snapshot(entry.clone())
         .and_then(build_candidate)
         .map(Box::new);
     assert!(result.is_err());
@@ -707,8 +710,7 @@ fn packet_candidates_survive_source_removal_and_revoke_on_disable() {
         },
         ..Default::default()
     };
-    let candidate =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let candidate = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     fs::remove_file(&path).unwrap();
     apply(&mut world, vec![entry.clone()], vec![change(candidate)]);
     assert!(
@@ -759,8 +761,7 @@ fn joins_wait_for_initial_observation_and_finish_after_admission() {
         ..Default::default()
     };
     fs::write(&entry.component, packet_bytes()).unwrap();
-    let candidate =
-        Box::new(build_candidate(source::source_snapshot(entry.clone()).unwrap()).unwrap());
+    let candidate = Box::new(build_candidate(source_snapshot(entry.clone()).unwrap()).unwrap());
     let watcher = world.resource::<Watcher>();
     watcher.desired.lock().unwrap().generation += 1;
     assert!(
@@ -842,7 +843,7 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
     let context = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
     );
-    let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
+    let mut snapshot = source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = context;
     let prepared = Box::new(build_candidate(snapshot).unwrap());
     assert_eq!(
@@ -858,7 +859,7 @@ fn registered_drawing_restart_uses_worker_admission_and_rejects_stale_results() 
             .host(0)
             .needs_drawing_restart()
     );
-    let mut snapshot = source::source_snapshot(entry.clone()).unwrap();
+    let mut snapshot = source_snapshot(entry.clone()).unwrap();
     snapshot.drawing = super::super::admission::DrawingContext::capture(
         world.resource::<ModRuntime>().hosts.host(0),
     );

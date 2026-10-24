@@ -201,19 +201,10 @@ fn minimum_radius_and_unlimited_duration_are_valid() {
 }
 
 #[test]
-fn missing_wrong_typed_unknown_and_nonfinite_metadata_stay_quiet() {
+fn missing_required_wrong_typed_and_nonfinite_metadata_stay_quiet() {
     for (key, value) in [
         (ActorDataKey::DataRadius.wire_value(), None),
         (ActorDataKey::DataDuration.wire_value(), None),
-        (ActorDataKey::DataParticle.wire_value(), None),
-        (
-            ActorDataKey::DataParticle.wire_value(),
-            Some(ActorMetadataValue::Int(i32::MAX)),
-        ),
-        (
-            ActorDataKey::DataParticle.wire_value(),
-            Some(ActorMetadataValue::Float(DRAGON_BREATH_PARTICLE as f32)),
-        ),
         (
             ActorDataKey::DataRadius.wire_value(),
             Some(ActorMetadataValue::Float(f32::NAN)),
@@ -349,5 +340,73 @@ fn facts_migration_custom_clouds_inherit_the_compiled_particle_route() {
         }
         store.advance_interpolation_ticks(EMISSION_TICKS + 1);
         assert_eq!(effects(&mut store), expected);
+    }
+}
+
+#[test]
+fn potion_clouds_emit_every_two_ticks_with_argb_color_and_shared_radius() {
+    let mut store = cloud_store();
+    update(
+        &mut store,
+        ActorDataKey::DataParticle.wire_value(),
+        ActorMetadataValue::Int(32),
+    );
+    update(
+        &mut store,
+        ActorDataKey::EffectColor.wire_value(),
+        ActorMetadataValue::Int(0x80402010_u32 as i32),
+    );
+    store.advance_interpolation_ticks(2);
+    assert!(effects(&mut store).is_empty());
+    store.advance_interpolation_ticks(1);
+    let emitted = effects(&mut store);
+    assert_eq!(emitted.len(), 1);
+    assert_eq!(
+        emitted[0].effect.as_ref(),
+        assets::facts::ParticleEffect::MobspellLingering.identifier()
+    );
+    let values = variables(&emitted[0]);
+    for (component, byte) in [("r", 64_u8), ("g", 32), ("b", 16), ("a", 128)] {
+        assert!(
+            (values[format!("variable.color.{component}").as_str()] - f32::from(byte) / 255.0)
+                .abs()
+                < 0.00001
+        );
+    }
+    assert_eq!(values["variable.cloud_lifetime"], 0.1);
+    assert_eq!(values["variable.cloud_radius"], 3.5);
+    assert_eq!(values["variable.particle_multiplier"], 2.0);
+    store.advance_interpolation_ticks(1);
+    assert!(effects(&mut store).is_empty());
+    store.advance_interpolation_ticks(1);
+    assert_eq!(effects(&mut store).len(), 1);
+}
+
+#[test]
+fn non_dragon_profiles_and_missing_profile_use_the_potion_emitter() {
+    for profile in [
+        None,
+        Some(ActorMetadataValue::Int(0)),
+        Some(ActorMetadataValue::Int(i32::MAX)),
+        Some(ActorMetadataValue::Float(49.0)),
+    ] {
+        let mut store = cloud_store();
+        let actor = store.actors.get_mut(&7).unwrap();
+        actor
+            .metadata
+            .remove(&ActorDataKey::DataParticle.wire_value());
+        if let Some(value) = profile {
+            actor
+                .metadata
+                .insert(ActorDataKey::DataParticle.wire_value(), value);
+        }
+        store.advance_interpolation_ticks(3);
+        let emitted = effects(&mut store);
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(
+            emitted[0].effect.as_ref(),
+            assets::facts::ParticleEffect::MobspellLingering.identifier()
+        );
+        assert_eq!(variables(&emitted[0])["variable.color.a"], 0.0);
     }
 }

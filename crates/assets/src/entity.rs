@@ -16,7 +16,7 @@ pub mod seats;
 pub use query_manifest::{
     MOLANG_QUERIES, MOLANG_QUERY_DESCRIPTORS, MOLANG_QUERY_MANIFEST_VERSION, MolangQuery,
     MolangQueryArguments, MolangQueryDescriptor, MolangQueryHandler, MolangQueryOutput,
-    MolangQuerySupport, bind_molang_queries,
+    MolangQuerySampling, MolangQuerySupport, bind_molang_queries,
 };
 pub mod mount;
 mod server_animation;
@@ -49,9 +49,9 @@ pub use v4::{
     EntityAnimationKeyframe, EntityAnimationLoop, EntityAnimationProperty, EntityAssetSummary,
     EntityControllerAnimation, EntityControllerAnimationTarget, EntityControllerState,
     EntityControllerTransition, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
-    EntityRenderVisibility, EntityRigAnimationBinding, EntityRigBinding,
-    EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
+    EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
     MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
     MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
     MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,

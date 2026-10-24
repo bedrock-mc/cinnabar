@@ -902,7 +902,9 @@ fn resolve(
                 image,
                 rotation_degrees,
             });
-            if let (Some(item), None) = (item, map) {
+            if let (Some(item), None) = (item, map)
+                && item.identifier.as_ref() != assets::facts::FILLED_MAP_IDENTIFIER
+            {
                 held.push(held_placement(
                     item,
                     item_frame_item_transform(position, model.outward, rotation_degrees),

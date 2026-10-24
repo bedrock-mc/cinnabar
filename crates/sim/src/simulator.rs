@@ -33,7 +33,7 @@ pub use controls::{ControlledTickResult, ProcessedControls};
 pub use effects::{MovementEffects, VerticalPhysics};
 pub use environment::MAX_BLOCK_SAMPLES_PER_TICK;
 pub use input::MovementInput;
-pub use mode::{MovementMode, pose_fits};
+pub use mode::{MovementMode, SNEAKING_HEIGHT_CHANGE_VERSION, SneakProfile, pose_fits};
 pub use state::{AxisCollisions, MovementEnvironment, PlayerState, SimulationError, TickResult};
 pub use water::{sample_actor_liquid_submersion, sample_liquid_submersion, sample_water_head};
 
@@ -112,9 +112,12 @@ impl Simulator {
         position: Vec3,
         mode: MovementMode,
         sneaking: bool,
+        profile: SneakProfile,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
-        self.movement_environment_with_liquid_contact(position, mode, sneaking, None, world)
+        self.movement_environment_with_liquid_contact(
+            position, mode, sneaking, profile, None, world,
+        )
     }
 
     /// Samples pose triggers with the same preceding liquid body height used by travel.
@@ -123,10 +126,11 @@ impl Simulator {
         position: Vec3,
         mode: MovementMode,
         sneaking: bool,
+        profile: SneakProfile,
         liquid_contact_height: Option<f64>,
         world: &(impl CollisionWorld + ?Sized),
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
-        let height = mode.hitbox_height(sneaking);
+        let height = mode.hitbox_height(sneaking, profile);
         let mut sampled = sample(world, position, height, liquid_contact_height)?;
         // Only the feet layer feeds the published environment.
         sampled.movement.in_scaffolding = scaffolding::sample_contact(
@@ -185,8 +189,10 @@ impl Simulator {
         next.position = next.position.rounded();
         next.velocity = next.velocity.rounded();
         next.swim_amount = water::advance_swim_amount(next.swim_amount, next.swim_pose_active);
-        next.swim_pose_active =
-            matches!(input.mode, MovementMode::Swimming | MovementMode::Crawling);
+        next.swim_pose_active = input.swim_pose_active.unwrap_or(matches!(
+            input.mode,
+            MovementMode::Swimming | MovementMode::Crawling
+        ));
         next.tick = next
             .tick
             .checked_add(1)

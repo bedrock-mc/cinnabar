@@ -190,12 +190,17 @@ impl AnchorProbeState {
         }
         let mut preview = modes;
         // Preview only a pose that no longer fits; the real selector advances once afterward.
-        if !sim::pose_fits(world, observed.feet, modes.mode(), modes.sneaking()).unwrap_or(true) {
+        if !modes
+            .fits(world, observed.feet, modes.mode(), modes.sneaking())
+            .unwrap_or(true)
+        {
             let _ = preview.select(intent, *observed, world);
         }
-        if let BeforeTick::Adjust(feet) =
-            self.before_tick(world, observed.feet, preview.contact_height())
-        {
+        if let BeforeTick::Adjust(feet) = self.before_tick(
+            world,
+            observed.feet,
+            preview.spin_aware_contact_height(observed.spinning),
+        ) {
             observed.feet = feet;
         }
     }

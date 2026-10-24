@@ -1,5 +1,10 @@
 # Verification and build caches
 
+`cargo run -p devtool -- mod new <name>` creates one paired Rust server/client project.
+`cargo run -p devtool -- mod build --project <name>` builds one `.cmod` with server WASM, a signed client bundle,
+ordinary resources and generated messages. `mod run --project <name>` starts the
+local development loop; `mod install <file.cmod> --server <world>` installs it. See [the author guide](../../docs/mods/README.md).
+
 `cargo run -p devtool --locked -- verify-affected --base origin/dev` selects
 checks for the files changed since the base. It runs every selected check and
 reports all failures. A failure is accepted only when complete diagnostics show

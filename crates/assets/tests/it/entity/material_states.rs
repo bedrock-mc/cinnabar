@@ -73,3 +73,44 @@ fn legacy_entity_carrier_keeps_overlay_defaults_and_encoded_identity() {
     );
     assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_slice());
 }
+
+#[test]
+fn material_choices_preserve_alpha_for_every_possible_raster() {
+    use assets::{EntityRenderMaterial, EntityRenderMaterialSelection as Node};
+    let mut compiled = carrier_v4_fixture();
+    let source = compiled.render.candidates[0].source;
+    compiled.render.layers[0].material_state = None;
+    compiled.render.layers[0].material_selection = Some(0);
+    compiled.render.material_selections = vec![
+        Node::Branch {
+            condition: 0,
+            yes: 1,
+            no: 2,
+        },
+        Node::Raster {
+            material: EntityRenderMaterial::Default,
+            state: None,
+        },
+        Node::Raster {
+            material: EntityRenderMaterial::Default,
+            state: Some(EntityRenderMaterialState {
+                blend: true,
+                ..Default::default()
+            }),
+        },
+    ]
+    .into();
+    assert!(
+        assets::actor_sources_keeping_alpha(&compiled.render, &compiled.sources).contains(&source)
+    );
+    let encoded = encode_entity_blob(&compiled).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&encoded).unwrap();
+    assert_eq!(
+        runtime
+            .render_data()
+            .materials(&runtime.render_data().layers[0])
+            .count(),
+        2
+    );
+    assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_ref());
+}

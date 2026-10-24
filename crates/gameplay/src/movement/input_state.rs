@@ -16,6 +16,13 @@ pub struct TickInput {
     pub server_sprinting: Option<bool>,
     /// Server sneak state applied before this tick admits local sneak input.
     pub server_sneaking: Option<bool>,
+    /// Locomotion mode this tick started with, after server flag writes, which
+    /// vanilla makes without a start or stop action.
+    pub server_mode: Option<sim::MovementMode>,
+    /// Independent pose flags this tick starts with, including server writes.
+    pub server_pose_flags: Option<super::PoseFlags>,
+    /// Riptide spin this tick started with, after server flag writes.
+    pub server_spinning: Option<bool>,
 }
 
 /// Button edges and server stance updates wait for a completed tick.

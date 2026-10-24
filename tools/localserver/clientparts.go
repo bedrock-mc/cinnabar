@@ -28,9 +28,19 @@ func startClientParts(cfg settings, log *slog.Logger) (*extension.Server, error)
 	if err != nil {
 		return nil, fmt.Errorf("-extension-key %s: %w", cfg.extensionKey, err)
 	}
-	bundles, err := extension.ReadBundles(cfg.extensionCXB)
-	if err != nil {
-		return nil, fmt.Errorf("-extension-cxb: %w", err)
+	var bundles []extension.Bundle
+	if cfg.extensionCXB != "" {
+		bundles, err = extension.ReadBundles(cfg.extensionCXB)
+		if err != nil {
+			return nil, fmt.Errorf("-extension-cxb: %w", err)
+		}
+	}
+	for _, path := range cfg.modClients {
+		bundle, err := extension.ReadBundle(path)
+		if err != nil {
+			return nil, err
+		}
+		bundles = append(bundles, bundle)
 	}
 	revision, err := extension.NextRevision(filepath.Join(cfg.dir, extension.RevisionFile))
 	if err != nil {
@@ -83,15 +93,15 @@ func startMedia(cfg settings, log *slog.Logger) (*extension.MediaServer, error) 
 // client part kept running through, to the Experience whose id is the bundle id, as that
 // player's callback; a player who has left, or a server without that Experience, drops it.
 func deliverClientPartEvents(ext *extension.Server, players func(uuid.UUID) (*world.EntityHandle, bool), host *experience.Host, log *slog.Logger) {
-	ext.OnClientMessage(func(player uuid.UUID, exp, channel string, schema uint16, payload []extension.Scalar) {
+	ext.OnClientMessage(func(player uuid.UUID, source extension.PlayerSession, exp, channel string, schema uint16, payload []extension.Scalar) {
 		handle, ok := players(player)
-		if !ok || host == nil || !host.DeliverClientMessage(handle, exp, channel, schema, payload) {
+		if !ok || host == nil || host.PlayerSession(handle) != source || !host.DeliverClientMessage(handle, exp, channel, schema, payload) {
 			log.Debug("client part message dropped", "experience", exp, "channel", channel, "schema", schema)
 		}
 	})
-	ext.OnEpoch(func(player uuid.UUID, exp string) {
+	ext.OnEpoch(func(player uuid.UUID, source extension.PlayerSession, exp string) {
 		handle, ok := players(player)
-		if !ok || host == nil || !host.DeliverEpoch(handle, exp) {
+		if !ok || host == nil || host.PlayerSession(handle) != source || !host.DeliverEpoch(handle, exp) {
 			log.Debug("client part epoch dropped", "experience", exp)
 		}
 	})

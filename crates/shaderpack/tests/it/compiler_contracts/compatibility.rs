@@ -378,3 +378,81 @@ fn compatibility_missing_variables_use_resolved_fragment_reads() {
         success(vertex, fragment);
     }
 }
+
+#[test]
+fn compatibility_locals_named_after_their_struct_type_hide_it_in_their_scope() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        Face load(float size) { return Face(vec3(0.5), size); }
+        vec4 shade(float size) {
+            Face Face = Face(vec3(1.0), size);
+            if (Face.size < 1e-6) return vec4(-1.0);
+            for (int i = 0; i < 2; i++) { Face.tint *= 0.5; }
+            return vec4(Face.tint, Face.size);
+        }
+        vec4 other() { Face face = load(2.0); return vec4(face.tint, 1.0); }
+        out vec4 color; void main() { color = shade(1.0) + other(); }",
+    );
+}
+
+#[test]
+fn compatibility_local_structs_keep_their_names_beside_a_hiding_local() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        vec4 shade() {
+            float Face = 0.5;
+            struct Pair { float Face; };
+            Pair pair = Pair(Face);
+            vec4 result = vec4(pair.Face);
+            {
+                struct Face { float x; };
+                Face inner = Face(0.25);
+                result.x += inner.x;
+            }
+            return result + vec4(Face);
+        }
+        out vec4 color; void main() { color = shade(); }",
+    );
+}
+
+#[test]
+fn compatibility_parameters_named_after_a_struct_type_hide_it_in_their_function() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Face { vec3 tint; float size; };
+        float scale(float Face) { return Face * 2.0; }
+        vec4 shade(Face face) { return vec4(face.tint, scale(face.size)); }
+        out vec4 color; void main() { color = shade(Face(vec3(0.5), 1.0)); }",
+    );
+}
+
+#[test]
+fn compatibility_unsized_array_declarations_take_sized_initializer_lengths() {
+    success(
+        VERTEX,
+        "#version 330\nuniform int index; out vec4 color;
+        void main() { const float[] weights = float[3](0.25, 0.5, 1.0); float scale[] = float[2](2.0, 3.0);
+        color = vec4(weights[index] * scale[index]); }",
+    );
+}
+
+#[test]
+fn compatibility_local_constants_size_arrays_in_their_scope() {
+    success(
+        VERTEX,
+        "#version 330\nstruct Pick { int count; }; out vec4 color;
+        void main() {
+            const int count = 2; const int total = count + 1;
+            vec3[total] samples = vec3[total](vec3(0.1), vec3(0.2), vec3(0.3));
+            float weights[count]; weights[0] = 1.0; weights[1] = 0.5;
+            { const int count = 4; float inner[count]; inner[3] = 1.0; weights[0] += inner[3]; }
+            float outer[count]; outer[1] = 2.0;
+            Pick pick; pick.count = 1; weights[pick.count] += outer[1];
+            vec3 sum = vec3(0.0);
+            for (int i = 0; i < total; i++) { sum += samples[i] * weights[i / count]; }
+            color = vec4(sum, 1.0);
+        }",
+    );
+}

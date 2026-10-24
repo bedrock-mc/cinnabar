@@ -65,6 +65,25 @@ fn frontend_splices_before_line_comments() {
 }
 
 #[test]
+fn unmatched_endif_skips_its_line_and_continues_as_jcpp_does() {
+    // The include closes the block its includer opened, so the includer's own `#endif` has
+    // no block left. Iris's JCPP reports it, skips that line and keeps preprocessing.
+    let pp = run(
+        &[
+            (
+                "a.fsh",
+                "#if 0\nint hidden;\n#include \"/b.glsl\"\nint reopened;\n#endif stray\nint tail;\n",
+            ),
+            ("b.glsl", "int also_hidden;\n#endif\n"),
+        ],
+        "a.fsh",
+        &[],
+    );
+    let idents: Vec<_> = pp.tokens.iter().filter_map(|t| t.ident()).collect();
+    assert_eq!(idents, ["int", "reopened", "int", "tail"]);
+}
+
+#[test]
 fn frontend_original_line_numbers_survive_metadata_and_comments() {
     let pp = run(
         &[(

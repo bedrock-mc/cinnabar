@@ -14,7 +14,7 @@
 use shaderpack::{BufferDirectives, BufferFormat, BufferId, FlipRule, ProgramGroup, SizeValue};
 
 /// Colour buffers a pack may use (`colortex0`–`colortex15`).
-pub(crate) const MAX_COLOR_BUFFERS: u32 = 16;
+pub(crate) const MAX_COLOR_BUFFERS: u32 = shaderpack::MAX_COLOR_BUFFERS;
 
 /// A buffer's size relative to the screen or in pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -251,6 +251,20 @@ pub(crate) fn plan_frame(
     for program in programs {
         program.validate()?;
     }
+    let passes: Vec<shaderpack::FlipPass<'_>> = programs
+        .iter()
+        .map(|program| shaderpack::FlipPass {
+            name: &program.name,
+            group: program.group,
+            kind: program.kind,
+            writes: program
+                .outputs
+                .iter()
+                .flatten()
+                .fold(0, |mask, b| mask | (1 << b)),
+        })
+        .collect();
+    let flips = shaderpack::pass_flips(&passes, flips);
     // The side each buffer reads, and per side the mip chains generated so far.
     type State = (u32, [u32; 2]);
     let step = |index: usize, program: &PlannedProgram, (flipped, mips): &mut State| {
@@ -267,29 +281,7 @@ pub(crate) fn plan_frame(
                     .map(|b| (b, read_alt & (1 << b) == 0))
             })
             .collect();
-        let mut flip = 0u32;
-        for (b, _) in writes.iter().flatten() {
-            flip |= 1 << b;
-        }
-        let finishes_pass = program.kind == shaderpack::ProgramKind::Render
-            || !programs.iter().any(|next| {
-                next.name == program.name && next.kind == shaderpack::ProgramKind::Render
-            });
-        for rule in flips
-            .iter()
-            .filter(|r| finishes_pass && r.program == program.name)
-        {
-            if let Some(b) = color_buffer_of(&rule.buffer) {
-                if rule.flip {
-                    flip |= 1 << b;
-                } else {
-                    flip &= !(1 << b);
-                }
-            }
-        }
-        if !is_final {
-            *flipped ^= flip;
-        }
+        *flipped ^= flips[index];
         PassStep {
             program: index,
             read_alt,

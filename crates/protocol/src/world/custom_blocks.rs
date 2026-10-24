@@ -37,6 +37,8 @@ pub struct CustomBlock {
     pub name: Arc<str>,
     /// Server-declared block tags used by target priorities and exclusions.
     pub tags: Arc<[Arc<str>]>,
+    /// False when any server tag was discarded during decoding or state admission.
+    pub tags_complete: bool,
     /// Palette states: the value combinations that fit the client's 16 state bits.
     pub state_count: u32,
     /// False when the definition disables its collision box.
@@ -480,6 +482,7 @@ impl CustomBlocks {
                         sound: definition.sound,
                         name: Arc::from(name),
                         tags: definition.tags,
+                        tags_complete: definition.tags_complete,
                         state_count: definition.state_count,
                         collides: definition.collides,
                         collision_boxes: definition.collision_boxes,
@@ -507,6 +510,7 @@ impl CustomBlocks {
                 exhausted = true;
                 skipped += 1;
                 block.tags = Arc::default();
+                block.tags_complete = false;
                 block.collision_boxes = None;
                 block.visual = Arc::new(CustomBlockVisuals {
                     state_identity_incomplete: true,
@@ -537,6 +541,7 @@ struct Definition {
     mining: Arc<CustomBlockMining>,
     sound: Option<Arc<str>>,
     tags: Arc<[Arc<str>]>,
+    tags_complete: bool,
     skipped: usize,
     state_count: u32,
     collides: bool,
@@ -646,6 +651,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         mining: mining.unwrap_or_default(),
         sound: sound_component(components),
         tags,
+        tags_complete: tag_skips == 0,
         skipped: tag_skips + mining_skips + physical_skips + permutation_skips,
         state_count: states.count,
         collides,

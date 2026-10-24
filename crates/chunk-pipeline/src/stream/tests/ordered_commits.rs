@@ -248,8 +248,33 @@ fn control_effects_are_exposed_only_after_older_heavy_sequence_commits_in_fifo_o
     apply_spent_slice(&mut stream);
     assert_eq!(stream.order.next_sequence(), 4);
     assert_eq!(stream.current_dimension(), 1);
+    let controls = stream.take_committed_controls();
+    assert!(matches!(
+        controls.as_slice(),
+        [
+            super::CommittedControlEvent::MovePlayer { sequence: 2, .. },
+            super::CommittedControlEvent::LocalMovementFlags {
+                sequence: 3,
+                replacement: true,
+                ..
+            },
+            super::CommittedControlEvent::LocalMovementSpeed {
+                sequence: 3,
+                dimension: 1,
+                ..
+            },
+            super::CommittedControlEvent::ChangeDimension { sequence: 3, .. },
+        ]
+    ));
     assert_eq!(
-        stream.take_committed_controls(),
+        controls
+            .into_iter()
+            .filter(|control| matches!(
+                control,
+                super::CommittedControlEvent::MovePlayer { .. }
+                    | super::CommittedControlEvent::ChangeDimension { .. }
+            ))
+            .collect::<Vec<_>>(),
         vec![
             super::CommittedControlEvent::MovePlayer {
                 sequence: 2,

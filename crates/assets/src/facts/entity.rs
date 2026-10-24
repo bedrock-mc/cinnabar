@@ -50,12 +50,14 @@ pub enum NativeEntityClass {
     Item,
     XpOrb,
     Wolf,
+    Sheep,
     SplashPotion,
     LingeringPotion,
     Tropicalfish,
     DragonFireball,
     FireworksRocket,
     AreaEffectCloud,
+    Shulker,
 }
 
 impl NativeEntityClass {

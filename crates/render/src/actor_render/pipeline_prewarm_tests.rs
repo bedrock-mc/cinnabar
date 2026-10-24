@@ -48,6 +48,105 @@ fn actor_pipeline_prewarm_empty_view_requests_pipelines_without_publishing_pendi
 }
 
 #[test]
+fn generated_material_catalog_is_prewarmed_before_entities_arrive() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    let (&msaa, view) = world
+        .query::<(&Msaa, &ExtractedCamera)>()
+        .single(world)
+        .unwrap();
+    let hdr = view.hdr;
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        pipeline
+            .prewarm(world.resource::<PipelineCache>(), msaa, hdr, false)
+            .unwrap();
+        for (name, mut state) in assets::facts::pack::rules().material_states() {
+            state.alpha_test &= !state.blend;
+            let material = assets::facts::pack::rules().raster(name).word(Some(state));
+            assert!(
+                pipeline.draw_variant(msaa, hdr, false, material).is_some(),
+                "{name}"
+            );
+        }
+    });
+}
+
+#[test]
+fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        let cache = world.resource::<PipelineCache>();
+        for msaa in [Msaa::Off, Msaa::Sample4] {
+            pipeline.prewarm(cache, msaa, false, false).unwrap();
+            for bits in 0..256 {
+                let material =
+                    EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                        alpha_test: bits & 1 != 0,
+                        cull: bits & 2 != 0,
+                        blend: bits & 4 != 0,
+                        depth_write: bits & 8 != 0,
+                        depth_equal: bits & 16 != 0,
+                        depth_always: bits & 32 != 0,
+                        disable_alpha_write: bits & 64 != 0,
+                        disable_color_write: bits & 128 != 0,
+                        ..Default::default()
+                    }));
+                assert!(
+                    pipeline
+                        .draw_variant(msaa, false, false, material)
+                        .is_some(),
+                    "{bits}"
+                );
+                if motion::eligible(material) {
+                    assert!(
+                        pipeline
+                            .motion_variant(ActorPipelineKey {
+                                msaa,
+                                hdr: false,
+                                enhanced: false,
+                                material,
+                            })
+                            .is_some(),
+                        "motion {bits}"
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn late_dissolve_color_keeps_the_paired_depth_contract_with_overrides() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        pipeline
+            .prewarm(world.resource::<PipelineCache>(), Msaa::Off, false, false)
+            .unwrap();
+        for cull in [false, true] {
+            for depth_write in [false, true] {
+                let material =
+                    EntityRenderMaterial::DissolveColor.word(Some(EntityRenderMaterialState {
+                        depth_equal: true,
+                        cull,
+                        depth_write,
+                        ..Default::default()
+                    })) | crate::actor::material::LATE_DISSOLVE_COLOR;
+                assert!(
+                    pipeline
+                        .draw_variant(Msaa::Off, false, false, material)
+                        .is_some()
+                );
+            }
+        }
+    });
+}
+
+#[test]
 fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
     let (mut app, _) = crate::queue_review_support::app();
     let world = app.world_mut();

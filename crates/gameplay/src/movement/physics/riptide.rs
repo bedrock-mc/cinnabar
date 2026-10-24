@@ -3,6 +3,27 @@
 use super::*;
 
 impl LocalPhysicsController {
+    /// Whether the current spin is the one a local launch after `tick`
+    /// started, tracked beyond the retained rewind window.
+    pub(in crate::movement) fn launched_riptide_after(&self, tick: u64) -> bool {
+        self.state
+            .as_ref()
+            .is_some_and(|state| state.spin_attack_ticks.is_some())
+            && self
+                .server_flags
+                .launched_spin()
+                .is_some_and(|launch| launch > tick)
+    }
+
+    /// Ends the spin of a predicted launch whose unsent release a snap
+    /// cancelled; neither the launch nor its start action reached the server.
+    pub(in crate::movement) fn end_cancelled_launch_spin(&mut self) {
+        if let Some(state) = self.state.as_mut() {
+            state.spin_attack_ticks = None;
+            self.sync_state.accept_poses(self.modes.pose_flags(), false);
+        }
+    }
+
     /// Retains release-time facing until a successful tick; unsupported requests are retired.
     pub fn request_riptide(&mut self, level: u8, rotation: [f32; 2]) -> bool {
         let tick = self.state.as_ref().map_or(0, |state| state.tick);
