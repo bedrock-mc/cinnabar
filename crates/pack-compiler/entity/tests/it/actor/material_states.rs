@@ -513,13 +513,17 @@ fn generated_materials_reach_the_carrier_without_fallback() {
 
 #[test]
 fn ordinary_aliases_keep_cutouts_and_one_sided_limbs() {
-    for name in ["allay", "armor_stand", "arrow", "turtle"] {
+    for name in ["allay", "armor_stand", "arrow"] {
         assert_eq!(
             state(name, None),
             json!({"alpha_test":true,"cull":false,"blend":false,"depth_write":true}),
             "{name}"
         );
     }
+    assert_eq!(
+        state("turtle", None),
+        json!({"alpha_test":false,"cull":true,"blend":false,"depth_write":true})
+    );
     assert_eq!(
         state("axolotl_limbs", None),
         json!({"alpha_test":true,"cull":true,"blend":false,"depth_write":true})

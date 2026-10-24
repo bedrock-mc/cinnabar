@@ -109,6 +109,9 @@ pub fn face_slots(identifier: &str) -> Option<FaceSlots> {
     }
 }
 
+/// Material used by the missing harness attachables supplied by the compiler.
+pub const HARNESS_MATERIAL: &str = "harness";
+
 /// Native material aliases whose names overlap actor and item identifiers.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum MaterialKind {
@@ -270,7 +273,7 @@ impl PackRules {
     }
     /// Resolves a material class while keeping undeclared aliases explicit.
     pub fn material(&self, name: &str) -> Option<MaterialKind> {
-        let name = name.strip_suffix(".skinning").unwrap_or(name);
+        let name = material_name(name);
         self.materials.get(name).copied().or_else(|| {
             if material_states().contains_key(name) {
                 return Some(MaterialKind::Actor);
@@ -293,9 +296,7 @@ impl PackRules {
     }
     /// Resolves generated declaration states, including their skinning aliases.
     pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
-        material_states()
-            .get(name.strip_suffix(".skinning").unwrap_or(name))
-            .copied()
+        material_states().get(material_name(name)).copied()
     }
     /// Enumerates generated states so pipeline preparation follows the material catalog.
     pub fn material_states(&self) -> impl Iterator<Item = (&str, EntityRenderMaterialState)> {
@@ -347,6 +348,14 @@ fn material_states() -> &'static BTreeMap<String, EntityRenderMaterialState> {
         serde_json::from_str(include_str!("../../data/entity-material-states.json"))
             .expect("valid entity material states")
     })
+}
+
+/// Normalizes skinning variants and the material used by synthesized harness bindings.
+fn material_name(name: &str) -> &str {
+    match name.strip_suffix(".skinning").unwrap_or(name) {
+        HARNESS_MATERIAL => "entity_alphatest",
+        name => name,
+    }
 }
 
 /// Derives native leather sprite tinting from the admitted item material.

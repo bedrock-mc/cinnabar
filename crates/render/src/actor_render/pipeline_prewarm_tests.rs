@@ -73,6 +73,52 @@ fn generated_material_catalog_is_prewarmed_before_entities_arrive() {
 }
 
 #[test]
+fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        let cache = world.resource::<PipelineCache>();
+        for msaa in [Msaa::Off, Msaa::Sample4] {
+            pipeline.prewarm(cache, msaa, false, false).unwrap();
+            for bits in 0..256 {
+                let material =
+                    EntityRenderMaterial::Default.word(Some(EntityRenderMaterialState {
+                        alpha_test: bits & 1 != 0,
+                        cull: bits & 2 != 0,
+                        blend: bits & 4 != 0,
+                        depth_write: bits & 8 != 0,
+                        depth_equal: bits & 16 != 0,
+                        depth_always: bits & 32 != 0,
+                        disable_alpha_write: bits & 64 != 0,
+                        disable_color_write: bits & 128 != 0,
+                        ..Default::default()
+                    }));
+                assert!(
+                    pipeline
+                        .draw_variant(msaa, false, false, material)
+                        .is_some(),
+                    "{bits}"
+                );
+                if motion::eligible(material) {
+                    assert!(
+                        pipeline
+                            .motion_variant(ActorPipelineKey {
+                                msaa,
+                                hdr: false,
+                                enhanced: false,
+                                material,
+                            })
+                            .is_some(),
+                        "motion {bits}"
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[test]
 fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
     let (mut app, _) = crate::queue_review_support::app();
     let world = app.world_mut();

@@ -233,6 +233,7 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
         .flat_map(|material| {
             [
                 Some(material),
+                Some(material | assets::EntityRenderMaterialState::DEPTH_EQUAL),
                 Some(material | assets::EntityRenderMaterialState::DEPTH_ALWAYS),
                 (material & assets::EntityRenderMaterialState::KIND_MASK
                     == assets::EntityRenderMaterial::DissolveColor as u32)
@@ -240,6 +241,14 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
             ]
             .into_iter()
             .flatten()
+        })
+        .flat_map(|material| {
+            [
+                0,
+                assets::EntityRenderMaterialState::DISABLE_ALPHA_WRITE,
+                assets::EntityRenderMaterialState::DISABLE_COLOR_WRITE,
+            ]
+            .map(|writes| material | writes)
         })
 }
 
@@ -529,11 +538,12 @@ impl ActorPipelineKey {
             blend: state.blend,
             depth_write: state.depth_write,
             depth_always: state.depth_always,
-            depth_equal: state.depth_equal,
+            depth_equal: state.depth_equal && !state.depth_always,
             write_color: !state.disable_color_write,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,
-            write_alpha: !state.disable_alpha_write
+            write_alpha: !state.disable_color_write
+                && !state.disable_alpha_write
                 && self.material
                     & (render_model::LEGACY_COMBAT_MATERIAL_FLAG
                         | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG)

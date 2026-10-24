@@ -472,6 +472,7 @@ They preserve emissive body and invisible-eye alpha, culling, blending, depth co
 and target-channel writes. These states are provisional (older declaration, current
 behaviour unverified); current shader and rendered-frame qualification remain open.
 Cushion retains provisional rounding until its declaration is available.
+Render-controller material arrays and ternaries remain incomplete.
 Each rig geometry routes to the texture its own selection draws, else the
 default branch. The samples omit the iron golem's body controller; it is completed from
 the pack's default controller until a pinned pack defines it.

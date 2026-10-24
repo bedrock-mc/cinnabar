@@ -229,6 +229,14 @@ fn generated_material_states_cover_the_pack_without_stale_aliases() {
             "{name}"
         );
     }
+    assert_eq!(
+        rules().material_state(HARNESS_MATERIAL),
+        Some(EntityRenderMaterialState {
+            alpha_test: true,
+            cull: false,
+            ..Default::default()
+        })
+    );
 }
 
 #[test]
@@ -270,9 +278,7 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
         assert_eq!(rules().raster(name), expected, "{name}");
         assert_eq!(
             rules().material_state(name),
-            material_states()
-                .get(name.strip_suffix(".skinning").unwrap_or(name))
-                .copied(),
+            material_states().get(material_name(name)).copied(),
             "{name}"
         );
     }

@@ -248,6 +248,48 @@ fn shaderpack_activation_keeps_pending_fallback_pages_native() {
     }
 }
 
+#[cfg(feature = "shaderpacks")]
+#[test]
+fn channel_write_and_equal_depth_spans_are_retained_by_native_drawing() {
+    use crate::actor_render::tests::allocation_fault_tests::{draw_frame, fixture, publication};
+    use crate::shaderpack::actors::RigSource;
+    use assets::{EntityRenderMaterial, EntityRenderMaterialState};
+    let mut app = fixture();
+    app.sub_app_mut(RenderApp)
+        .insert_resource(ArtworkRawViews(true));
+    for (generation, state) in [
+        EntityRenderMaterialState {
+            depth_equal: true,
+            ..Default::default()
+        },
+        EntityRenderMaterialState {
+            disable_alpha_write: true,
+            ..Default::default()
+        },
+        EntityRenderMaterialState {
+            disable_color_write: true,
+            ..Default::default()
+        },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut frame = publication(generation as u64 + 1, &[55], 1);
+        Arc::make_mut(&mut frame.rig.instances)[0].material =
+            EntityRenderMaterial::Default.word(Some(state));
+        assert_eq!(draw_frame(&mut app, &frame).len(), 1);
+        let world = app.sub_app(RenderApp).world();
+        let gpu = world.resource::<ActorGpu>();
+        assert!(gpu.artwork.page(0).unwrap().raw_texture().is_some());
+        assert!(!gpu.pack_supports_span(&gpu.spans[0]));
+        let mut replaced = Vec::new();
+        crate::actor_render::shaderpack_source::shaderpack_actors(world)
+            .unwrap()
+            .for_each_instance(&mut |instance| replaced.push(instance.index));
+        assert!(replaced.is_empty());
+    }
+}
+
 #[test]
 fn pending_retries_preserve_backoff_until_demanded_uploads_complete() {
     let (device, queue) = device();
