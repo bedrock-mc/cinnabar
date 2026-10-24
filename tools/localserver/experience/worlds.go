@@ -44,10 +44,11 @@ func (w worldInstance) storeKey(pos cube.Pos) Key {
 // worldBindings tracks loaded instances and rejects handles from earlier openings.
 // It does not own Dragonfly world shutdown.
 type worldBindings struct {
-	mu      sync.RWMutex
-	next    uint64
-	byWorld map[*world.World]worldInstance
-	byID    map[cinnabarext.WorldID]*world.World
+	mu           sync.RWMutex
+	next         uint64
+	byWorld      map[*world.World]worldInstance
+	byID         map[cinnabarext.WorldID]*world.World
+	reservations map[WorldHandle]uint64
 }
 
 // bind associates a stable instance ID with a live world and assigns a fresh generation.
@@ -170,9 +171,9 @@ func (h *Host) UnbindWorld(ctx context.Context, handle WorldHandle) error {
 	}
 	var result error
 	if err := await(ctx, w.Do(func(tx *world.Tx) {
-		h.closeEntities(tx)
-		result = h.worlds.unbind(handle)
+		result = h.worlds.unload(handle)
 		if result == nil {
+			h.closeEntities(tx)
 			h.forgetSimulation(handle)
 		}
 	})); err != nil {

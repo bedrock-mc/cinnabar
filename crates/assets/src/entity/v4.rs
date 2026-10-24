@@ -46,10 +46,10 @@ mod render;
 use render::validate_render_payload;
 pub use render::{
     ENTITY_ALPHA_TEST_THRESHOLD, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
-    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
-    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
-    entity_render_pattern_matches,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility,
+    MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES,
+    MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY, entity_render_pattern_matches,
 };
 #[path = "v4/rig.rs"]
 mod rig;

@@ -345,6 +345,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     if (legacy_mask && color.a == 0.0) { discard; }
     let multitexture_material = material_class.z != 0u && all(input.multitexture_layers != vec2(0xffffffffu));
     if (authored && (input.material & ACTOR_MATERIAL_ALPHA_TEST_FLAG) != 0u) {
+        if (emissive && (input.material & ACTOR_MATERIAL_ONLY_EMISSIVE_FLAG) != 0u && (color.a == 0.0 || color.a == 1.0)) { discard; }
         if (emissive && all(color == vec4(0.0))) { discard; }
         @if(!ALPHA_TO_COVERAGE)
         if (!emissive && !legacy_mask && color.a < ACTOR_ALPHA_TEST_THRESHOLD) { discard; }

@@ -51,6 +51,18 @@ impl EffectiveMovementSpeed {
         }
     }
 
+    /// Supplies the default attribute with the currently installed local sprint modifier.
+    fn attribute_or_default(self) -> MovementSpeedAttribute {
+        self.attribute.unwrap_or_else(|| {
+            let mut attribute =
+                MovementSpeedAttribute::unmodified(sim::DEFAULT_MOVEMENT_SPEED as f32);
+            if self.sprinting {
+                attribute.set_sprint_modifier(Some(sim::SPRINT_SPEED_MULTIPLIER as f32));
+            }
+            attribute
+        })
+    }
+
     /// The simulator's public input uses pre-sprint speed. Cancel its one fixed
     /// multiplier so its result reads our effective attribute current exactly once.
     pub(crate) fn prediction_speed(self) -> Option<f64> {
@@ -90,7 +102,12 @@ pub struct LocalMovementSpeedAuthority {
     dimension: i32,
     last_sequence: Option<u64>,
     speed: EffectiveMovementSpeed,
+    /// Accepted attribute state retained independently of collision-query admission.
+    reported_speed: EffectiveMovementSpeed,
+    /// Unsupported attribute models leave reporting with the current actor attribute.
+    report_from_actor: bool,
     active_speed_effect: Option<i32>,
+    reported_active_speed_effect: Option<i32>,
     /// Liquid speed attributes share the movement attribute's packet, so they order separately.
     last_liquid_sequence: Option<u64>,
     liquid: LiquidMovementSpeeds,
@@ -106,26 +123,18 @@ pub(crate) struct LiquidMovementSpeeds {
 impl LocalMovementSpeedAuthority {
     /// Starts speed authority for a new session and dimension.
     pub fn begin_session(&mut self, session_id: u64, dimension: i32) {
-        self.session_id = session_id;
-        self.dimension = dimension;
-        self.last_sequence = None;
-        self.speed = EffectiveMovementSpeed::default();
-        self.active_speed_effect = None;
-        self.last_liquid_sequence = None;
-        self.liquid = LiquidMovementSpeeds::default();
+        *self = Self {
+            session_id,
+            dimension,
+            ..Self::default()
+        };
     }
 
     /// Clears speed authority when the active session changes dimension.
     pub fn replace_dimension(&mut self, session_id: u64, dimension: i32) {
-        if session_id != self.session_id {
-            return;
+        if session_id == self.session_id {
+            self.begin_session(session_id, dimension);
         }
-        self.dimension = dimension;
-        self.last_sequence = None;
-        self.speed = EffectiveMovementSpeed::default();
-        self.active_speed_effect = None;
-        self.last_liquid_sequence = None;
-        self.liquid = LiquidMovementSpeeds::default();
     }
 
     /// Accepts the next valid liquid attribute update; returns the values it adopted.
@@ -188,7 +197,18 @@ impl LocalMovementSpeedAuthority {
             return false;
         }
         self.last_sequence = Some(sequence);
+        self.report_from_actor = true;
         let current = attribute.current;
+        if current.is_finite()
+            && current >= 0.0
+            && attribute
+                .sprint_modifier
+                .is_none_or(|factor| factor.is_finite() && factor > 0.0)
+        {
+            self.reported_speed =
+                EffectiveMovementSpeed::authoritative(attribute, self.reported_speed.sprinting);
+            self.report_from_actor = false;
+        }
         if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&current)
             || attribute.sprint_modifier.is_some_and(|factor| {
                 !factor.is_finite()
@@ -217,6 +237,27 @@ impl LocalMovementSpeedAuthority {
         self.speed.attribute.map(|attribute| attribute.current)
     }
 
+    /// Returns predicted current, or leaves reporting with the actor for unsupported models.
+    pub fn reported_current(&self) -> Option<f64> {
+        if self.report_from_actor {
+            return None;
+        }
+        self.reported_speed
+            .attribute
+            .map(|attribute| attribute.current)
+    }
+
+    /// Drops a stale reporting override when the received attribute cannot be predicted.
+    pub(crate) fn invalidate_reported(&mut self, session_id: u64, sequence: u64, dimension: i32) {
+        if session_id == self.session_id
+            && dimension == self.dimension
+            && self.last_sequence.is_none_or(|last| sequence > last)
+        {
+            self.last_sequence = Some(sequence);
+            self.report_from_actor = true;
+        }
+    }
+
     /// Applies arrival-ordered Speed effect packets to effective movement current.
     pub(crate) fn apply_effect(
         &mut self,
@@ -234,29 +275,22 @@ impl LocalMovementSpeedAuthority {
             return;
         }
         self.last_sequence = Some(sequence);
-        let (action, active_speed_effect) = match event.action {
-            protocol::ActorEffectAction::Add | protocol::ActorEffectAction::Update => {
-                let action = if self.active_speed_effect.is_some() {
-                    protocol::ActorEffectAction::Update
-                } else {
-                    protocol::ActorEffectAction::Add
-                };
-                let amplifier = self
-                    .active_speed_effect
-                    .map_or(event.amplifier, |current| current.max(event.amplifier));
-                (action, Some(amplifier))
+        if let Some((action, active)) =
+            speed_effect_update(self.reported_active_speed_effect, event)
+        {
+            let mut attribute = self.reported_speed.attribute_or_default();
+            attribute.apply_speed_effect(action, active.unwrap_or_default());
+            if attribute.current.is_finite() {
+                self.reported_speed.attribute = Some(attribute);
+                self.reported_active_speed_effect = active;
             }
-            protocol::ActorEffectAction::Remove => (event.action, None),
-            protocol::ActorEffectAction::Unknown(_) => return,
+        }
+        let Some((action, active_speed_effect)) =
+            speed_effect_update(self.active_speed_effect, event)
+        else {
+            return;
         };
-        let mut attribute = self.speed.attribute.unwrap_or_else(|| {
-            let mut attribute =
-                MovementSpeedAttribute::unmodified(sim::DEFAULT_MOVEMENT_SPEED as f32);
-            if self.speed.sprinting {
-                attribute.set_sprint_modifier(Some(sim::SPRINT_SPEED_MULTIPLIER as f32));
-            }
-            attribute
-        });
+        let mut attribute = self.speed.attribute_or_default();
         attribute.apply_speed_effect(action, active_speed_effect.unwrap_or_default());
         if !(0.0..=MAX_SIMULABLE_MOVEMENT_SPEED).contains(&attribute.current) {
             super::diagnostics::note_skipped_authority("movement_speed", attribute.current);
@@ -279,19 +313,51 @@ impl LocalMovementSpeedAuthority {
         self.speed.prediction_speed()
     }
 
+    /// Simulator speed for a frame that requests `sprinting`, leaving the effective attribute
+    /// unchanged. The sprint modifier changes only once a tick has selected the sprint, so
+    /// frames between ticks keep the current the field of view reads.
+    pub(crate) fn requested_prediction_speed(&self, sprinting: bool) -> Option<f64> {
+        let mut speed = self.speed;
+        speed.set_sprinting(sprinting);
+        speed.prediction_speed()
+    }
+
     /// Applies one local sprint transition to the effective attribute.
     pub(crate) fn set_sprinting(&mut self, sprinting: bool) {
         self.speed.set_sprinting(sprinting);
+        self.reported_speed.set_sprinting(sprinting);
     }
 
     /// Adopts an authoritative flag without adding a local modifier.
     pub(crate) fn adopt_server_sprinting(&mut self, sprinting: Option<bool>) {
         self.speed.adopt_server_sprinting(sprinting);
+        self.reported_speed.adopt_server_sprinting(sprinting);
     }
 
     /// Carries the replayed modifier state into future movement frames.
     pub(crate) fn adopt_replayed_speed(&mut self, speed: EffectiveMovementSpeed) {
         self.speed = speed;
+        self.reported_speed = speed;
+    }
+}
+
+/// Resolves effect replacement and amplifier precedence independently of simulation admission.
+fn speed_effect_update(
+    active: Option<i32>,
+    event: protocol::ActorEffectEvent,
+) -> Option<(protocol::ActorEffectAction, Option<i32>)> {
+    use protocol::ActorEffectAction;
+    match event.action {
+        ActorEffectAction::Add | ActorEffectAction::Update => Some((
+            if active.is_some() {
+                ActorEffectAction::Update
+            } else {
+                ActorEffectAction::Add
+            },
+            Some(active.map_or(event.amplifier, |current| current.max(event.amplifier))),
+        )),
+        ActorEffectAction::Remove => Some((event.action, None)),
+        ActorEffectAction::Unknown(_) => None,
     }
 }
 

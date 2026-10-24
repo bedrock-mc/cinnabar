@@ -185,8 +185,8 @@ fn guest_entities_register_spawn_move_mount_and_steer() {
 }
 
 #[test]
-fn frozen_v0_8_artifact_keeps_its_export_contract() {
-    let dir = common::v0_8_dir();
+fn frozen_v0_9_artifact_keeps_its_export_contract() {
+    let dir = common::v0_9_dir();
     let (engine, _ticker) = engine().unwrap();
     let loaded = load(&engine, dir.path()).unwrap();
     assert!(loaded.entities.is_empty());

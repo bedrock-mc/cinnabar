@@ -151,6 +151,7 @@ pub(super) async fn fetch(
     asset: &Asset,
     fence: Fence,
     limit: usize,
+    staging: &Path,
 ) -> Result<Downloaded> {
     fence.progress.set(
         candidate.id,
@@ -168,7 +169,7 @@ pub(super) async fn fetch(
         .send()
         .await?
         .error_for_status()?;
-    receive(response, candidate, version, asset, fence, limit).await
+    receive(response, candidate, version, asset, fence, limit, staging).await
 }
 
 /// Stages one response without trusting its length, framing, or contents.
@@ -179,6 +180,7 @@ async fn receive(
     asset: &Asset,
     fence: Fence,
     limit: usize,
+    staging: &Path,
 ) -> Result<Downloaded> {
     ensure!(
         response
@@ -186,7 +188,8 @@ async fn receive(
             .is_none_or(|size| size == asset.size),
         "asset length changed"
     );
-    let mut file = tempfile::NamedTempFile::new().context("stage mod download")?;
+    std::fs::create_dir_all(staging).context("create mod download staging directory")?;
+    let mut file = tempfile::NamedTempFile::new_in(staging).context("stage mod download")?;
     let mut length = 0;
     let mut hash = Sha256::new();
     while let Some(chunk) = response.chunk().await? {

@@ -294,26 +294,6 @@ pub(crate) struct ActorFinalObservations<'w> {
     icons: Option<Res<'w, UiPresentationResource>>,
 }
 
-/// Consumes admitted local ticks and builds their final poses with the pre-send capture.
-/// Lets the actor geometry catalog grow to this device's memory-tier budget, within what one
-/// storage binding of its GPU holds.
-pub(crate) fn initialize_actor_geometry_budget(
-    device: Option<Res<bevy::render::renderer::RenderDevice>>,
-    memory: Option<bevy::prelude::Res<crate::host_memory::HostMemory>>,
-    scene: Option<ResMut<render_scene::ActorRenderScene>>,
-) {
-    let (Some(device), Some(mut scene)) = (device, scene) else {
-        return;
-    };
-    scene.set_geometry_budget(
-        resource_pack::subpacks::device_memory_tier(memory.map_or_else(
-            || crate::host_memory::HostMemory::default().0,
-            |memory| memory.0,
-        )),
-        render::actor_storage_binding_bytes(&device),
-    );
-}
-
 pub(crate) fn prepare_actor_render_frame(
     observations: ActorFinalObservations,
     params: client_presentation::actor_publication::ActorFramePublication,

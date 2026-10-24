@@ -18,7 +18,8 @@ import (
 // lifecycleChannels lets the real host consume a preparation made by an earlier matrix step.
 type lifecycleChannels struct {
 	*ext.Server
-	prepared *ext.WorldChange
+	prepared     *ext.WorldChange
+	afterPrepare func()
 }
 
 // PlayerSession pins the session while allowing the matrix to reserve a fence in an earlier step.
@@ -38,34 +39,43 @@ type lifecycleSession struct {
 
 // PrepareWorldChange consumes an earlier reservation or prepares the pinned connection.
 func (c lifecycleSession) PrepareWorldChange(kind ext.WorldChangeKind) (*ext.WorldChange, error) {
-	if c.channels.prepared != nil {
-		change := c.channels.prepared
-		c.channels.prepared = nil
-		return change, nil
+	change, err := c.channels.prepared, error(nil)
+	c.channels.prepared = nil
+	if change == nil {
+		change, err = c.PlayerSession.PrepareWorldChange(kind)
 	}
-	return c.PlayerSession.PrepareWorldChange(kind)
+	if err == nil && c.channels.afterPrepare != nil {
+		after := c.channels.afterPrepare
+		c.channels.afterPrepare = nil
+		after()
+	}
+	return change, err
 }
 
 // lifecycleMatrix owns one player's synchronous worlds, persisted location and real client part.
 type lifecycleMatrix struct {
-	f        *runtimeFixture
-	part     *lifecyclePart
-	channels *lifecycleChannels
-	provider player.Provider
-	live     bool
-	shutdown bool
-	fenced   bool
-	leaves   uint64
-	tick     uint64
+	f         *runtimeFixture
+	part      *lifecyclePart
+	channels  *lifecycleChannels
+	provider  player.Provider
+	admission player.Admission
+	live      bool
+	shutdown  bool
+	fenced    bool
+	leaves    uint64
+	tick      uint64
 }
 
 // newLifecycleMatrix uses a scripted helper to make each leave visibly persist a private write.
-func newLifecycleMatrix(t *testing.T) *lifecycleMatrix {
+func newLifecycleMatrix(t *testing.T, lifecycle ...WorldLifecycle) *lifecycleMatrix {
 	t.Helper()
-	f := newRuntimeFixture(t)
+	f := newRuntimeFixture(t, lifecycle...)
 	sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
 	sup.registered.Worlds = f.d.sup.registered.Worlds
+	sup.registered.Simulation = true
 	f.d.sup = sup
+	f.registerEntityType()
+	rescript(t, sup, "leave_write", sup.registered)
 	base, err := playerdb.NewProvider(filepath.Join(t.TempDir(), "players"))
 	if err != nil {
 		t.Fatal(err)
@@ -97,6 +107,10 @@ func (m *lifecycleMatrix) depart(p *player.Player) {
 // disconnect saves and removes the live session under its actual world transaction.
 func (m *lifecycleMatrix) disconnect() {
 	if !m.live {
+		if m.admission != nil {
+			m.admission.Release()
+			m.admission = nil
+		}
 		return
 	}
 	f := m.f
@@ -141,16 +155,29 @@ func (m *lifecycleMatrix) step(name string) {
 	case "disconnect":
 		m.disconnect()
 	case "reconnect":
+		m.step("login_load")
+		m.step("login_spawn")
+	case "login_load":
 		m.disconnect()
-		id := f.actor.UUID()
-		data, w, err := m.provider.Load(id, func(world.Dimension) *world.World { return f.source })
+		var err error
+		m.admission, err = m.provider.(player.AdmissionProvider).LoadAdmission(f.actor.UUID(), func(world.Dimension) *world.World { return f.source })
 		if err != nil {
 			f.t.Fatal(err)
 		}
+	case "login_fail":
+		if m.admission != nil {
+			m.admission.Release()
+			m.admission = nil
+		}
+	case "login_spawn":
+		if m.admission == nil {
+			return
+		}
+		data, w := m.admission.Resolve()
+		id := f.actor.UUID()
 		f.actor = world.EntitySpawnOpts{ID: id}.New(player.Type, data)
-		m.part = newLifecyclePart(f.t, f, m.part.server)
+		m.part = newLifecyclePart(f.t, f, m.part)
 		m.live = true
-		// A reconnect establishes a new transport session; an old reservation is retired.
 		m.channels.prepared.Abort()
 		m.channels = &lifecycleChannels{Server: m.part.server}
 		f.h.channels = m.channels
@@ -159,6 +186,8 @@ func (m *lifecycleMatrix) step(name string) {
 			p.Handle(nativePositionHandler{host: f.h})
 			f.h.PlayerJoined(p)
 		})
+		m.admission.Release()
+		m.admission = nil
 		m.fenced = false
 	case "duplicate_login":
 		if !m.live || f.h.epoch(f.actor) == 0 {
@@ -185,6 +214,14 @@ func (m *lifecycleMatrix) step(name string) {
 		}
 		if m.part.server.PlayerSession(f.actor.UUID()) != admitted || f.h.PlayerSession(f.actor) != hostSession {
 			f.t.Fatal("rejecting a duplicate login lost the connected player's session")
+		}
+	case "cancel_callback":
+		for range strikeLimit - 1 {
+			f.d.sup.strike()
+		}
+		m.cancelCallback()
+		if f.d.sup.Quarantined() {
+			f.t.Fatal("host cancellation quarantined the Experience")
 		}
 	case "cancel_run":
 		ctx, cancel := context.WithCancel(context.Background())
@@ -268,16 +305,60 @@ func (m *lifecycleMatrix) step(name string) {
 		if err == nil {
 			m.fenced = true
 		}
+	case "publish_fails":
+		if !m.live || f.h.epoch(f.actor) == 0 {
+			return
+		}
+		if _, ok := f.h.worlds.handle("probe:one"); !ok {
+			return
+		}
+		if err := m.expireGrantDuringTransfer(); err != nil {
+			f.t.Fatalf("optional publication failure blocked relocation: %v", err)
+		}
+		m.fenced = true
+	case "entity":
+		if m.live && f.h.epoch(f.actor) != 0 {
+			handle := f.spawnEntity()
+			if err := f.actor.Do(func(tx *world.Tx, actor world.Entity) {
+				e, ok := f.h.findEntity(tx, f.d.id, handle)
+				if ok {
+					f.h.EntityInteraction(actor.(*player.Player), e, false)
+				}
+			}).Wait(f.t.Context()); err != nil {
+				f.t.Fatal(err)
+			}
+		}
+	case "entity_timer":
+		m.entityTimer()
+	case "tick", "timer", "cancel_timer":
+		m.simulationStep(name)
 	case "unload":
 		handle, ok := f.h.worlds.handle("probe:one")
 		if ok {
 			_ = f.h.unloadWorld(f.t.Context(), "probe", handle)
 		}
+	case "cancel_unload":
+		m.cancelUnload()
+	case "metadata_interrupt":
+		m.interruptMetadata()
+	case "crash_reopen":
+		m.reopenAfterCrash()
 	case "shutdown":
 		m.drain()
 	default:
 		f.t.Fatalf("unknown lifecycle event %s", name)
 	}
+}
+
+// expireGrantDuringTransfer expires the optional grant after preparation and before publication.
+func (m *lifecycleMatrix) expireGrantDuringTransfer() error {
+	m.part.handshake()
+	before := *m.part.now
+	defer func() { *m.part.now = before; m.channels.afterPrepare = nil }()
+	m.channels.afterPrepare = func() {
+		*m.part.now = time.Unix(int64(m.part.server.Offer().ExpiresUnix), 0)
+	}
+	return m.f.travel(m.f.t.Context(), "probe:one")
 }
 
 // drain finishes every admitted callback and verifies persisted final writes before worlds close.
@@ -295,6 +376,10 @@ func (m *lifecycleMatrix) drain() {
 		f.t.Fatal(err)
 	}
 	m.shutdown = true
+	if m.admission != nil {
+		m.admission.Release()
+		m.admission = nil
+	}
 	m.channels.prepared.Abort()
 	reopened := openTestStore(f.t, f.h.store.dir)
 	state := reopened.readStates("probe", []stateAddress{{Scope: StorePlayer, Owner: f.actor.UUID().String()}})[0]
@@ -327,7 +412,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "duplicate_login", "cancel_run", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "cancel_unload", "metadata_interrupt", "crash_reopen", "tick", "timer", "cancel_timer", "entity", "entity_timer", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {
@@ -349,4 +434,133 @@ func TestLifecycleEventPairs(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestLifecycleAdmissionScenarios covers pending placements beyond individual event pairs.
+func TestLifecycleAdmissionScenarios(t *testing.T) {
+	t.Run("two_transfers_into_same_instance_before_acknowledgment", func(t *testing.T) {
+		m := newLifecycleMatrix(t)
+		m.step("handshake")
+		m.step("same_instance")
+		epoch := m.part.acknowledgeWorld()
+		m.part.inputAt(epoch)
+		if m.part.admitted != 0 {
+			t.Fatal("first placement acknowledgment authorized the second transfer")
+		}
+		latest := m.part.acknowledgeWorld()
+		if latest <= epoch {
+			t.Fatal("second transfer did not get a fresh acknowledgment")
+		}
+		m.part.inputAt(latest)
+		if m.part.admitted != 1 {
+			t.Fatal("latest acknowledgment did not admit destination input")
+		}
+		m.drain()
+	})
+	for _, completion := range []string{"login_spawn", "login_fail"} {
+		t.Run("unload_during_pending_login/"+completion, func(t *testing.T) {
+			m := newLifecycleMatrix(t)
+			m.step("same_instance")
+			m.step("login_load")
+			handle, _ := m.f.h.worlds.handle("probe:one")
+			m.step("unload")
+			if _, err := m.f.h.ResolveWorld(handle); err != nil {
+				t.Fatalf("pending login destination unloaded: %v", err)
+			}
+			m.step(completion)
+			m.check()
+			if completion == "login_spawn" {
+				m.step("disconnect")
+			}
+			if err := m.f.h.unloadWorld(t.Context(), "probe", handle); err != nil {
+				t.Fatalf("completed login retained its reservation: %v", err)
+			}
+			m.drain()
+		})
+	}
+}
+
+// simulationStep admits world callbacks without granting any player's session authority.
+func (m *lifecycleMatrix) simulationStep(name string) {
+	f := m.f
+	handle, ok := f.h.worlds.handle("probe:one")
+	if !ok {
+		return
+	}
+	if name != "tick" {
+		w, _ := f.h.ResolveWorld(handle)
+		instance, _ := f.h.worlds.of(w)
+		ev := event{w: w, instance: instance, call: Call{Tick: &TickCall{Step: SimulationStep{DurationNanos: uint64(tickDuration)}}}}
+		f.d.seq++
+		snap, err := f.h.snapshot(f.t.Context(), f.d, &ev)
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		timer := ScheduleHandle{World: handle, Sequence: snap.req.Info.Simulation.Sequence}
+		ops := []Op{{Schedule: &ScheduleOp{timer, 1, 0}}}
+		if name == "cancel_timer" {
+			ops = append(ops, Op{CancelSchedule: &CancelScheduleOp{timer}})
+		}
+		f.do(w, func(tx *world.Tx) {
+			if _, err := f.h.apply(tx, f.d.id, ev, snap, ops); err != nil {
+				f.t.Fatal(err)
+			}
+		})
+	}
+	f.h.AdmitSimulationTick()
+}
+
+// entityTimer commits entity writes from a timer without borrowing the player's session.
+func (m *lifecycleMatrix) entityTimer() {
+	f := m.f
+	handle, ok := f.h.worlds.handle("probe:one")
+	if !ok {
+		return
+	}
+	w, _ := f.h.ResolveWorld(handle)
+	instance, _ := f.h.worlds.of(w)
+	ev := event{w: w, instance: instance, call: Call{Tick: &TickCall{Step: SimulationStep{DurationNanos: uint64(tickDuration)}}}}
+	var entity EntityHandle
+	var timer ScheduleHandle
+	applySimulation(f.t, f, ev, func(s snapshot) []Op {
+		entity = EntityHandle{s.req.Info.EventSequence*maxStagedOps + 1, handle.Generation}
+		state := EntityState{Handle: entity, Kind: "probe:ship", Position: Position{Y: 70}, Scale: 1, Properties: []EntityProperty{{ID: "probe:throttle"}}}
+		timer = ScheduleHandle{World: handle, Sequence: s.req.Info.Simulation.Sequence}
+		return []Op{{Entity: &EntityCommand{Action: EntityOp{Type: "spawn", State: &state}}}, {Schedule: &ScheduleOp{timer, 1, 0}}}
+	})
+	f.h.AdmitSimulationTick()
+	var due *event
+	var retained []event
+	for len(f.d.events) != 0 {
+		ev := <-f.d.events
+		if ev.call.Timer != nil && ev.call.Timer.Handle == timer {
+			due = &ev
+		} else {
+			retained = append(retained, ev)
+		}
+	}
+	for _, ev := range retained {
+		f.d.events <- ev
+	}
+	if due == nil {
+		f.t.Fatal("entity timer was not admitted")
+	}
+	applySimulation(f.t, f, *due, func(s snapshot) []Op {
+		for _, e := range s.req.Info.Context.Entities {
+			if e.State.Handle == entity {
+				state := e.State
+				state.NameTag = "Timer"
+				return []Op{{Entity: &EntityCommand{Action: EntityOp{Type: "update", State: &state}}}}
+			}
+		}
+		f.t.Fatal("timer lost its world-owned entity")
+		return nil
+	})
+	f.h.finishTimer(f.d.id, timer)
+	f.do(w, func(tx *world.Tx) {
+		e, ok := f.h.findEntity(tx, f.d.id, entity)
+		if !ok || e.NameTag() != "Timer" {
+			f.t.Fatal("timer did not update its entity")
+		}
+	})
 }

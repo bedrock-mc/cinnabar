@@ -1,6 +1,7 @@
 //! Loading a server artifact: verify it, compile it against the `server` world, run `register`
 //! and validate the blocks it declares.
 
+use experience_sdk::artifact::{ASSETS_DIR, SERVER_WASM};
 mod block_type;
 pub(crate) mod entities;
 mod geometry;
@@ -29,7 +30,7 @@ use crate::limits::{
     EPOCH_PERIOD, MAX_BLOCK_NAME_BYTES, MAX_BLOCKS, MAX_COMPONENT_BYTES, MAX_DISPLAY_NAME_BYTES,
     MAX_NAME_BYTES, MAX_WASM_STACK_BYTES, REGISTER_DEADLINE, REGISTER_FUEL,
 };
-use crate::manifest::{ASSETS_DIR, Manifest, SERVER_WASM, read_manifest, resolve};
+use crate::manifest::{Manifest, read_manifest, resolve};
 use crate::protocol::{self, PlacementState, StateDef, StateValues};
 
 pub(crate) use block_type::holds;
@@ -146,17 +147,17 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
     let (blocks, items) = validate_registration(dir, &manifest, registration)?;
     let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
     let declared = match &pre {
-        Pre::V0_7(component) => Some(
-            component
-                .instantiate(&mut store)?
-                .call_world_definitions(&mut store)?,
-        ),
         Pre::V0_8(component) => Some(
             component
                 .instantiate(&mut store)?
                 .call_world_definitions(&mut store)?,
         ),
         Pre::V0_9(component) => Some(
+            component
+                .instantiate(&mut store)?
+                .call_world_definitions(&mut store)?,
+        ),
+        Pre::V0_10(component) => Some(
             component
                 .instantiate(&mut store)?
                 .call_world_definitions(&mut store)?,
@@ -171,7 +172,7 @@ fn load_dir(engine: &Engine, dir: &Path) -> Result<Loaded> {
             )
         })
         .transpose()?;
-    let entities = if let Pre::V0_9(component) = &pre {
+    let entities = if let Pre::V0_10(component) = &pre {
         let mut store = HostState::store(engine, &manifest.id, REGISTER_FUEL, REGISTER_DEADLINE)?;
         let definitions = component
             .instantiate(&mut store)?

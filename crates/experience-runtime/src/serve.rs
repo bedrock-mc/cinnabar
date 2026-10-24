@@ -120,7 +120,7 @@ fn answer_loaded(
         entities: entities.to_vec(),
         simulation: matches!(
             crate::host::Api::of(&manifest.api),
-            Some(crate::host::Api::V0_8 | crate::host::Api::V0_9)
+            Some(crate::host::Api::V0_9 | crate::host::Api::V0_10)
         ),
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),

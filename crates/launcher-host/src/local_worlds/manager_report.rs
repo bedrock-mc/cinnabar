@@ -1,4 +1,4 @@
-//! What the menu and the core learn about the open world; a hidden server reports none.
+//! What the menu and the core learn about the open world.
 
 use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
 use launcher::local_worlds::world::{World, WorldStatus};
@@ -11,26 +11,22 @@ impl Manager {
     pub fn status(&self) -> WorldStatus {
         let mut status = {
             let life = lock(&self.inner.life);
-            if life.standby {
-                Self::idle_status()
-            } else {
-                WorldStatus {
-                    state: life.state,
-                    world_id: life.world.as_ref().map(|world| world.id.clone()),
-                    backend: life.world.as_ref().map(|world| world.backend),
-                    paused: life.paused,
-                    pause_supported: life
-                        .instance
-                        .as_ref()
-                        .is_none_or(|instance| instance.can_pause()),
-                    error: life.failure.clone(),
-                    setup: None,
-                    backend_unavailable_reason: None,
-                    max_players: life
-                        .instance
-                        .as_ref()
-                        .and_then(|instance| instance.max_players()),
-                }
+            WorldStatus {
+                state: life.state,
+                world_id: life.world.as_ref().map(|world| world.id.clone()),
+                backend: life.world.as_ref().map(|world| world.backend),
+                paused: life.paused,
+                pause_supported: life
+                    .instance
+                    .as_ref()
+                    .is_none_or(|instance| instance.can_pause()),
+                error: life.failure.clone(),
+                setup: None,
+                backend_unavailable_reason: None,
+                max_players: life
+                    .instance
+                    .as_ref()
+                    .and_then(|instance| instance.max_players()),
             }
         };
         if let Some(setup) = &self.inner.setup {
@@ -44,9 +40,6 @@ impl Manager {
     /// The open world as the core routes and hosts it.
     pub(crate) fn core_report(&self) -> LocalWorld {
         let life = lock(&self.inner.life);
-        if life.standby {
-            return LocalWorld::default();
-        }
         let target = match (&life.instance, &life.world) {
             (Some(instance), Some(world)) if life.state == WorldState::Running => {
                 Some(target_for(world, instance.as_ref()))
@@ -66,21 +59,6 @@ impl Manager {
             }),
             target,
             error: life.failure.clone(),
-        }
-    }
-
-    /// The status of a lifecycle with no open world, which a hidden server reports.
-    fn idle_status() -> WorldStatus {
-        WorldStatus {
-            state: WorldState::Idle,
-            world_id: None,
-            backend: None,
-            paused: false,
-            pause_supported: true,
-            error: None,
-            setup: None,
-            backend_unavailable_reason: None,
-            max_players: None,
         }
     }
 }

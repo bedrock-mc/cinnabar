@@ -18,10 +18,66 @@ pub fn harness_color(identifier: &str) -> Option<&str> {
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
 /// Read-only book identity retained outside the pinned retail census.
 pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
+/// Powered, detector and activator rail items with flat carried artwork.
+pub const POWERED_RAIL_ITEM_IDENTIFIERS: [&str; 3] = [
+    "minecraft:golden_rail",
+    "minecraft:detector_rail",
+    "minecraft:activator_rail",
+];
+/// Torch item identities checked against the pinned registry's torch family in tests.
+pub const TORCH_ITEM_IDENTIFIERS: [&str; 4] = [
+    "minecraft:torch",
+    "minecraft:redstone_torch",
+    "minecraft:soul_torch",
+    "minecraft:copper_torch",
+];
+
+/// Flower-bed items whose dropped form uses their carried sprite.
+pub const FLOWER_BED_ITEM_IDENTIFIERS: [&str; 2] =
+    ["minecraft:pink_petals", "minecraft:wildflowers"];
+/// Candle items whose dropped form uses their carried sprite.
+pub const CANDLE_ITEM_IDENTIFIERS: [&str; 17] = [
+    "minecraft:candle",
+    "minecraft:white_candle",
+    "minecraft:orange_candle",
+    "minecraft:magenta_candle",
+    "minecraft:light_blue_candle",
+    "minecraft:yellow_candle",
+    "minecraft:lime_candle",
+    "minecraft:pink_candle",
+    "minecraft:gray_candle",
+    "minecraft:light_gray_candle",
+    "minecraft:cyan_candle",
+    "minecraft:purple_candle",
+    "minecraft:blue_candle",
+    "minecraft:brown_candle",
+    "minecraft:green_candle",
+    "minecraft:red_candle",
+    "minecraft:black_candle",
+];
+/// Metal bar items whose dropped form uses their carried sprite.
+pub const METAL_BAR_ITEM_IDENTIFIERS: [&str; 9] = [
+    "minecraft:iron_bars",
+    "minecraft:copper_bars",
+    "minecraft:exposed_copper_bars",
+    "minecraft:weathered_copper_bars",
+    "minecraft:oxidized_copper_bars",
+    "minecraft:waxed_copper_bars",
+    "minecraft:waxed_exposed_copper_bars",
+    "minecraft:waxed_weathered_copper_bars",
+    "minecraft:waxed_oxidized_copper_bars",
+];
 /// Native filled-map identity used for session admission outside the retail census.
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
 pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
+/// Attachable block items whose dropped form uses their carried sprite.
+pub const CARRIED_ATTACHMENT_ITEM_IDENTIFIERS: [&str; 4] = [
+    "minecraft:lever",
+    "minecraft:vine",
+    "minecraft:glow_lichen",
+    "minecraft:sculk_vein",
+];
 
 /// Matches bucket-shaped names for conservative callers; this does not establish item behavior.
 pub fn has_bucket_name(identifier: &str) -> bool {

@@ -226,6 +226,9 @@ impl CullKernels {
             immediate_size: 0,
         });
         let module = |label, source: String| {
+            if let Some(timing) = render_scene::startup_timing::current() {
+                timing.count(render_scene::startup_timing::WORLD_SHADER_MODULES, 1);
+            }
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(label),
                 source: wgpu::ShaderSource::Wgsl(Cow::Owned(source)),
@@ -234,6 +237,9 @@ impl CullKernels {
         let cull = module("terrain cull", cull_shader_source(workgroup));
         let pyramid = module("terrain hi-z", pyramid_shader_source().to_owned());
         let pipeline = |module, layout: Option<&wgpu::PipelineLayout>, entry: &str| {
+            if let Some(timing) = render_scene::startup_timing::current() {
+                timing.count(render_scene::startup_timing::WORLD_COMPUTE_PIPELINES, 1);
+            }
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(entry),
                 layout,

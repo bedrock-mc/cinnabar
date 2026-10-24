@@ -385,31 +385,7 @@ func (s *Store) Flush() error {
 // writeJSON writes v to name in the store directory through a synced temp file and a rename, so
 // the file always holds either its old or its new content.
 func (s *Store) writeJSON(name string, v any) error {
-	raw, err := json.Marshal(v)
-	if err != nil {
-		return fmt.Errorf("encode %s: %w", name, err)
-	}
-	path := filepath.Join(s.dir, name)
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	_, err = f.Write(raw)
-	if err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp, path)
-	}
-	if err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return nil
+	return writeJSONFile(filepath.Join(s.dir, name), v)
 }
 
 // RunFlusher flushes dirty Experiences every flushInterval until ctx is done. Shutdown flushes

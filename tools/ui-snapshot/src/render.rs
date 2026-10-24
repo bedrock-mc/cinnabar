@@ -525,6 +525,7 @@ fn png_fixture(
                     .paint(
                         &engine,
                         ChatInput {
+                            local_player: "Alex",
                             editor: &editor,
                             messages: &messages,
                             suggestions: &suggestions,

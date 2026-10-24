@@ -2,7 +2,6 @@
 
 use crate::player_skin::catalog::MAX_PNG_BYTES;
 use launcher_host::desktop::picker::{self, Filter};
-use std::path::PathBuf;
 
 /// The largest file a skin import reads: a skin pack, a PNG or a geometry JSON.
 const MAX_SKIN_BYTES: u64 = larger(
@@ -32,6 +31,6 @@ const fn larger(a: u64, b: u64) -> u64 {
 }
 
 /// Returns one chosen skin or cape file, `None` on cancellation, or a visible picker error.
-pub(super) fn pick(cape: bool) -> Result<Option<PathBuf>, String> {
+pub(super) fn pick(cape: bool) -> Result<Option<picker::PickedFile>, String> {
     picker::pick(if cape { &CAPES } else { &SKINS })
 }

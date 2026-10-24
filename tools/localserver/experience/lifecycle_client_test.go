@@ -56,16 +56,18 @@ func (l lifecycleListener) Accept() (session.Conn, error) { return l.c, nil }
 
 // lifecyclePart exercises real signed activation and transfer fences inside the host matrix.
 type lifecyclePart struct {
-	t        *testing.T
-	server   *ext.Server
-	conn     session.Conn
-	inner    *lifecycleConn
-	hello    ext.Hello
-	accept   ext.Accept
-	ready    bool
-	sequence uint64
-	admitted int
-	incoming ext.Channel
+	t                  *testing.T
+	server             *ext.Server
+	now                *time.Time
+	conn               session.Conn
+	inner              *lifecycleConn
+	hello              ext.Hello
+	accept             ext.Accept
+	ready              bool
+	sequence           uint64
+	admitted           int
+	incoming           ext.Channel
+	acknowledgedNotice uint64
 }
 
 // readExtensionFixture uses the shared protocol vectors rather than copying their fields.
@@ -81,7 +83,7 @@ func readExtensionFixture(t *testing.T, name string, target ext.Target) {
 }
 
 // newLifecyclePart constructs an optional client part without a native client or socket.
-func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*ext.Server) *lifecyclePart {
+func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*lifecyclePart) *lifecyclePart {
 	t.Helper()
 	var manifest ext.Manifest
 	readExtensionFixture(t, "manifest_payload.json", &manifest)
@@ -92,14 +94,19 @@ func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*ext.Server) 
 	}
 	var offer ext.Offer
 	readExtensionFixture(t, "offer_payload.json", &offer)
-	s, err := ext.New(ext.Config{Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), Audience: offer.Audience, Now: func() time.Time { return time.Unix(int64(offer.ExpiresUnix)-1, 0) }, Bundles: []ext.Bundle{{Manifest: manifest, Digest: offer.Packages[0].Digest, Bytes: offer.Packages[0].Bytes}}})
+	now := time.Unix(int64(offer.ExpiresUnix)-1, 0)
+	clock := &now
+	if len(existing) != 0 {
+		clock = existing[0].now
+	}
+	s, err := ext.New(ext.Config{Key: ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)), Audience: offer.Audience, Now: func() time.Time { return *clock }, Bundles: []ext.Bundle{{Manifest: manifest, Digest: offer.Packages[0].Digest, Bytes: offer.Packages[0].Bytes}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(existing) != 0 {
-		s = existing[0]
+		s = existing[0].server
 	}
-	part := &lifecyclePart{t: t, server: s, sequence: 1}
+	part := &lifecyclePart{t: t, server: s, now: clock, sequence: 1}
 	for _, channel := range manifest.Channels {
 		if channel.Direction == ext.ToServer {
 			part.incoming = channel
@@ -202,17 +209,26 @@ func (p *lifecyclePart) inputAt(epoch uint64) {
 	p.deliver(e)
 }
 
-// acknowledgeWorld completes the outstanding server-owned notice and returns its client epoch.
+// acknowledgeWorld completes the oldest unread notice and returns its client epoch.
 func (p *lifecyclePart) acknowledgeWorld() uint64 {
 	p.t.Helper()
-	var control ext.Control
-	pk := p.inner.out[len(p.inner.out)-1].(*packet.ScriptMessage)
-	if err := ext.Decode(pk.Data, &control); err != nil || control.Epoch == nil {
-		p.t.Fatalf("world notice: %v", err)
+	for _, pk := range p.inner.out {
+		msg, ok := pk.(*packet.ScriptMessage)
+		if !ok || msg.Identifier != ext.Carrier {
+			continue
+		}
+		var control ext.Control
+		if err := ext.Decode(msg.Data, &control); err != nil {
+			p.t.Fatal(err)
+		}
+		if epoch := control.Epoch; epoch != nil && epoch.WorldEpoch > p.acknowledgedNotice {
+			p.acknowledgedNotice = epoch.WorldEpoch
+			p.deliver(ext.Control{WorldAck: &ext.WorldAck{Session: epoch.Session, WorldEpoch: epoch.WorldEpoch, RequestedEpoch: epoch.WorldEpoch}})
+			return epoch.WorldEpoch
+		}
 	}
-	epoch := control.Epoch
-	p.deliver(ext.Control{WorldAck: &ext.WorldAck{Session: epoch.Session, WorldEpoch: epoch.WorldEpoch, RequestedEpoch: epoch.WorldEpoch}})
-	return epoch.WorldEpoch
+	p.t.Fatal("no unacknowledged world notice")
+	return 0
 }
 
 // TestLifecycleClientTransferFence admits source traffic and rejects it after same-type travel.

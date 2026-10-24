@@ -100,15 +100,47 @@ fn tint_rgba(flags: u32) -> u32 {
     rope_color(r, g, b)
 }
 
-fn item_block_id(stream: &WorldStream, visual: ItemVisualRoute) -> Option<(NetworkIdMode, u32)> {
-    match visual {
+/// Resolves item blocks while keeping carried-sprite families off the placed-model path.
+fn item_block_id(
+    stream: &WorldStream,
+    visual: ItemVisualRoute,
+    identifier: Option<&str>,
+    assets: Option<&RuntimeAssets>,
+) -> Option<(NetworkIdMode, u32)> {
+    let block = match visual {
         ItemVisualRoute::BlockItem(id) => Some((NetworkIdMode::Sequential, id.0)),
         ItemVisualRoute::RetainedBlock { block_runtime_id } => Some((
             stream.network_id_mode(),
             stream.resolve_block_network_id(u32::from_ne_bytes(block_runtime_id.to_ne_bytes())),
         )),
         _ => None,
+    }?;
+    if identifier.is_some_and(|identifier| {
+        matches!(
+            assets::facts::block_render_fact(identifier).kind,
+            assets::facts::BlockRenderKind::Lantern
+                | assets::facts::BlockRenderKind::Chain
+                | assets::facts::BlockRenderKind::Bamboo
+                | assets::facts::BlockRenderKind::CoralFan
+                | assets::facts::BlockRenderKind::DefaultRail
+                | assets::facts::BlockRenderKind::LeafLitter
+                | assets::facts::BlockRenderKind::ResinClump
+                | assets::facts::BlockRenderKind::TripwireHook
+                | assets::facts::BlockRenderKind::Ladder
+                | assets::facts::BlockRenderKind::LilyPad
+                | assets::facts::BlockRenderKind::SeaPickle
+        ) || assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::TORCH_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CARRIED_ATTACHMENT_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::FLOWER_BED_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::CANDLE_ITEM_IDENTIFIERS.contains(&identifier)
+            || assets::facts::METAL_BAR_ITEM_IDENTIFIERS.contains(&identifier)
+    }) {
+        return None;
     }
+    assets
+        .is_none_or(|assets| assets.resolve(block.0, block.1).kind() != VisualKind::Cross)
+        .then_some(block)
 }
 
 fn entity_block_id(
@@ -426,7 +458,10 @@ impl DroppedItemPublisher<'_, '_> {
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
-        let assets = self.textures.as_ref().map(|textures| textures.assets());
+        let assets = self
+            .textures
+            .as_ref()
+            .map(|textures| textures.assets().as_ref());
         instances.clear();
         terrain_instances.clear();
         placement_icons.clear();
@@ -444,7 +479,12 @@ impl DroppedItemPublisher<'_, '_> {
             {
                 cache.request(&ModelKey::session_block(sheet));
             }
-            if let Some((mode, id)) = item_block_id(stream, view.item.visual) {
+            if let Some((mode, id)) = item_block_id(
+                stream,
+                view.item.visual,
+                view.item.identifier.as_deref(),
+                assets,
+            ) {
                 let hashed = mode == NetworkIdMode::Hashed;
                 cache.request(&ModelKey::CarriedBlock { hashed, id });
                 cache.request(&ModelKey::Block { hashed, id });
@@ -488,7 +528,7 @@ impl DroppedItemPublisher<'_, '_> {
             let Some(identifier) = view.item.identifier.as_ref() else {
                 continue;
             };
-            let block_id = item_block_id(stream, view.item.visual);
+            let block_id = item_block_id(stream, view.item.visual, Some(identifier), assets);
             let preparation = DropPreparation {
                 view,
                 native_origin: stream.authority().actor(view.runtime_id).map_or(

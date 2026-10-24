@@ -19,7 +19,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 9
+const protocolVersion = 10
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -54,6 +54,11 @@ type Info struct {
 	DimensionID   string             `json:"dimension_id"`
 	Tick          uint64             `json:"tick"`
 	EventSequence uint64             `json:"event_sequence"`
+}
+
+// newInfo builds callback metadata with an explicit world tick and event sequence.
+func newInfo(worldID, dimensionID string, tick, eventSequence uint64) Info {
+	return Info{WorldID: worldID, DimensionID: dimensionID, Tick: tick, EventSequence: eventSequence}
 }
 
 // Cell is one snapshot cell. ID is empty when the cell is not loaded; Data is lowercase hex.
@@ -273,6 +278,8 @@ type TellOp struct {
 // SendClientOp sends Payload on Channel, revision Schema, to Player's client part once the rest
 // of its result has committed.
 type SendClientOp struct {
+	// Control retains negotiation replies after transport budget refusal.
+	Control bool                 `json:"control,omitempty"`
 	Player  string               `json:"player"`
 	Channel string               `json:"channel"`
 	Schema  uint16               `json:"schema"`
@@ -365,7 +372,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	length := binary.LittleEndian.Uint32(prefix[:])
 	if length > maxFrameBytes {
-		return Response{}, fmt.Errorf("frame of %d bytes exceeds %d", length, maxFrameBytes)
+		return Response{}, fmt.Errorf("%w: frame of %d bytes exceeds %d", errGuestFault, length, maxFrameBytes)
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(r, body); err != nil {
@@ -373,7 +380,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	var resp Response
 	if err := decodeStrict(body, &resp); err != nil {
-		return Response{}, fmt.Errorf("decoding a frame: %w", err)
+		return Response{}, fmt.Errorf("%w: decoding a frame: %w", errGuestFault, err)
 	}
 	return resp, nil
 }

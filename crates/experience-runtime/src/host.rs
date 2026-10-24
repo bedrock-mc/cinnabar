@@ -2,6 +2,7 @@
 //! The current WIT is `crates/experience-sdk/wit/server/server.wit`; [`v0_1`], [`v0_2`],
 //! [`v0_3`], [`v0_4`] and [`v0_5`] keep the worlds that older artifacts target.
 
+use experience_sdk::artifact::SERVER_WASM;
 use std::fmt;
 use std::time::{Duration, Instant};
 
@@ -15,7 +16,6 @@ use crate::limits::{
     EPOCH_PERIOD, MAX_CORE_INSTANCES, MAX_FRAME_BYTES, MAX_LOG_BYTES, MAX_LOGS, MAX_MEMORIES,
     MAX_MEMORY_BYTES, MAX_TABLE_ELEMENTS,
 };
-use crate::manifest::SERVER_WASM;
 
 pub(crate) mod v0_1;
 pub(crate) mod v0_2;
@@ -23,8 +23,8 @@ pub(crate) mod v0_3;
 pub(crate) mod v0_4;
 pub(crate) mod v0_5;
 pub(crate) mod v0_6;
-pub(crate) mod v0_7;
 pub(crate) mod v0_8;
+pub(crate) mod v0_9;
 
 wasmtime::component::bindgen!({
     path: "../experience-sdk/wit/server",
@@ -61,11 +61,11 @@ pub(crate) enum Api {
     /// Crafting recipes and scheduled updates.
     V0_6,
     /// World and player operations.
-    V0_7,
-    /// Simulation ticks and cancellable callbacks.
     V0_8,
-    /// Registered entities, seats and entity observations.
+    /// Simulation ticks and cancellable callbacks.
     V0_9,
+    /// Registered entities, seats and entity observations.
+    V0_10,
 }
 
 impl Api {
@@ -76,16 +76,16 @@ impl Api {
         Api::V0_4,
         Api::V0_5,
         Api::V0_6,
-        Api::V0_7,
         Api::V0_8,
         Api::V0_9,
+        Api::V0_10,
     ];
 
     /// Whether this world's client messages and epochs take their player's focus.
     pub(crate) fn focus(self) -> bool {
         match self {
             Api::V0_1 | Api::V0_2 | Api::V0_3 => false,
-            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_7 | Api::V0_8 | Api::V0_9 => true,
+            Api::V0_4 | Api::V0_5 | Api::V0_6 | Api::V0_8 | Api::V0_9 | Api::V0_10 => true,
         }
     }
 
@@ -103,9 +103,9 @@ impl Api {
             Api::V0_4 => v0_4::WIT,
             Api::V0_5 => v0_5::WIT,
             Api::V0_6 => v0_6::WIT,
-            Api::V0_7 => v0_7::WIT,
             Api::V0_8 => v0_8::WIT,
-            Api::V0_9 => WIT,
+            Api::V0_9 => v0_9::WIT,
+            Api::V0_10 => WIT,
         };
         wit.lines()
             .find_map(|line| line.strip_prefix("package ")?.strip_suffix(';'))
@@ -130,9 +130,9 @@ pub(crate) enum Pre {
     V0_4(v0_4::ServerPre<HostState>),
     V0_5(v0_5::ServerPre<HostState>),
     V0_6(v0_6::ServerPre<HostState>),
-    V0_7(v0_7::ServerPre<HostState>),
     V0_8(v0_8::ServerPre<HostState>),
-    V0_9(ServerPre<HostState>),
+    V0_9(v0_9::ServerPre<HostState>),
+    V0_10(ServerPre<HostState>),
 }
 
 impl Pre {
@@ -163,17 +163,17 @@ impl Pre {
                 v0_6::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
                 Self::V0_6(v0_6::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
-            Api::V0_7 => {
-                v0_7::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_7(v0_7::ServerPre::new(linker.instantiate_pre(component)?)?)
-            }
             Api::V0_8 => {
                 v0_8::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
                 Self::V0_8(v0_8::ServerPre::new(linker.instantiate_pre(component)?)?)
             }
             Api::V0_9 => {
+                v0_9::Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
+                Self::V0_9(v0_9::ServerPre::new(linker.instantiate_pre(component)?)?)
+            }
+            Api::V0_10 => {
                 Server::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
-                Self::V0_9(ServerPre::new(linker.instantiate_pre(component)?)?)
+                Self::V0_10(ServerPre::new(linker.instantiate_pre(component)?)?)
             }
         })
     }
@@ -215,15 +215,15 @@ impl Pre {
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
-            Self::V0_7(pre) => pre
-                .instantiate(&mut *store)
-                .with_context(instantiating)?
-                .call_register(store),
             Self::V0_8(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
             Self::V0_9(pre) => pre
+                .instantiate(&mut *store)
+                .with_context(instantiating)?
+                .call_register(store),
+            Self::V0_10(pre) => pre
                 .instantiate(&mut *store)
                 .with_context(instantiating)?
                 .call_register(store),
@@ -494,6 +494,7 @@ impl world_access::HostCallback for HostState {
     fn dismount_entity(&mut self, ctx: Resource<CallbackRes>) -> Result<Result<(), WorldError>> {
         self.table.get_mut(&ctx)?.dismount_entity()
     }
+
     fn info(&mut self, ctx: Resource<CallbackRes>) -> Result<CallbackInfo> {
         self.table.get_mut(&ctx)?.info()
     }
@@ -635,6 +636,20 @@ impl world_access::HostCallback for HostState {
         self.table
             .get_mut(&ctx)?
             .send_client(player, channel, schema, payload)
+    }
+
+    /// Stages a negotiation reply for retained delivery after the callback commits.
+    fn send_control(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        channel: String,
+        schema: u16,
+        payload: Vec<ValueNode>,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .send_control(player, channel, schema, payload)
     }
 
     fn focus(&mut self, ctx: Resource<CallbackRes>) -> Result<Option<BlockPos>> {

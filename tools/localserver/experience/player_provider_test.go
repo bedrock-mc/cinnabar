@@ -89,3 +89,76 @@ func TestReconnectResolvesSavedInstance(t *testing.T) {
 		})
 	}
 }
+
+// TestPendingLoginPreventsInstanceUnload preserves a saved destination until spawn.
+func TestPendingLoginPreventsInstanceUnload(t *testing.T) {
+	m := newLifecycleMatrix(t)
+	if err := m.f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatal(err)
+	}
+	m.disconnect()
+	admission, err := m.provider.(player.AdmissionProvider).LoadAdmission(m.f.actor.UUID(), func(world.Dimension) *world.World { return m.f.source })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admission.Release()
+	_, w := admission.Resolve()
+	handle, ok := m.f.h.worlds.handle("probe:one")
+	if !ok {
+		t.Fatal("saved destination is missing")
+	}
+	if err := m.f.h.unloadWorld(t.Context(), "probe", handle); err == nil {
+		t.Fatal("unloaded a pending login destination")
+	}
+	if err := w.Do(func(*world.Tx) {}).Wait(t.Context()); err != nil {
+		t.Fatalf("pending admission lost its destination: %v", err)
+	}
+}
+
+// TestOverlappingLoginReservations releases only the login that completed or failed.
+func TestOverlappingLoginReservations(t *testing.T) {
+	m := newLifecycleMatrix(t)
+	m.step("same_instance")
+	m.disconnect()
+	load := func() player.Admission {
+		a, err := m.provider.(player.AdmissionProvider).LoadAdmission(m.f.actor.UUID(), func(world.Dimension) *world.World { return m.f.source })
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(a.Release)
+		return a
+	}
+	first, second := load(), load()
+	handle, _ := m.f.h.worlds.handle("probe:one")
+	first.Release()
+	first.Release()
+	if err := m.f.h.unloadWorld(t.Context(), "probe", handle); err == nil {
+		t.Fatal("one login released another login's destination")
+	}
+	second.Release()
+	if err := m.f.h.unloadWorld(t.Context(), "probe", handle); err != nil {
+		t.Fatalf("failed logins leaked reservations: %v", err)
+	}
+}
+
+// TestPendingLoginRevalidatesClosedDestination uses the default spawn after an external close.
+func TestPendingLoginRevalidatesClosedDestination(t *testing.T) {
+	m := newLifecycleMatrix(t)
+	m.step("same_instance")
+	m.step("login_load")
+	_, w := m.admission.Resolve()
+	handle, _ := m.f.h.worlds.handle("probe:one")
+	// Model a close by an owner outside the managed unload path.
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	data, fallback := m.admission.Resolve()
+	if fallback != m.f.source || data.Position != m.f.source.Spawn().Vec3Centre() {
+		t.Fatal("closed destination retained its pointer or foreign coordinates")
+	}
+	delete(m.f.h.manager.owned, handle)
+	_ = m.f.h.worlds.unbind(handle)
+	m.step("login_spawn")
+	m.check()
+	m.drain()
+}

@@ -2,6 +2,8 @@
 //! textures follow their `.mcmeta`), locals shadowing a sampler, and pack helpers that take
 //! a sampler getting a copy per global texture.
 
+mod resolution;
+
 use crate::{program, reflection};
 use shaderpack::{
     CompiledStage, PackSource, SHADOW_SAMPLER_BINDING, SamplerClass, ShaderPack, StageKind,
@@ -126,12 +128,151 @@ fn each_texture_reads_through_the_class_iris_gives_it() {
     read("gaux1", SamplerClass::ClampLinear);
     read("depthtex0", SamplerClass::ClampNearest);
     read("noisetex", SamplerClass::RepeatLinear);
-    read("unknownTex", SamplerClass::RepeatLinear);
+    // Iris leaves unrecognised samplers on texture unit 0, `colortex0` in full-screen passes.
+    read("unknownTex", SamplerClass::ClampLinear);
     // PNG without .mcmeta: nearest, repeat. With blur and no clamp: linear, repeat.
     read("dust", SamplerClass::RepeatNearest);
     read("grain", SamplerClass::RepeatLinear);
     // Raw textures default to blur and clamp.
     read("lut", SamplerClass::ClampLinear);
+}
+
+#[test]
+fn unbound_samplers_read_the_texture_on_unit_zero() {
+    let names = |t: &shaderpack::PackTranslation, program_name: &str| {
+        let mut names: Vec<String> = reflection(program(t, program_name))
+            .textures
+            .iter()
+            .map(|texture| texture.name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    // Full-screen passes: `tex`, `gtexture` and other unknown names read colortex0, while
+    // names Iris binds and custom textures keep their own texture.
+    let fragment = "#version 120\n\
+        uniform sampler2D tex;\n\
+        uniform sampler2D gtexture;\n\
+        uniform sampler2D scene;\n\
+        uniform sampler2D colortex2;\n\
+        uniform sampler2D noisetex;\n\
+        uniform sampler2D lut;\n\
+        varying vec2 uv;\n\
+        void main() {\n\
+            gl_FragData[0] = texture2D(tex, uv) + texture2D(gtexture, uv) + texture2D(scene, uv)\n\
+                + texture2D(colortex2, uv) + texture2D(noisetex, uv) + texture2D(lut, uv);\n\
+        }\n";
+    // Geometry: unit 0 holds the block atlas instead.
+    let geometry = "#version 120\n\
+        uniform sampler2D tex;\n\
+        uniform sampler2D albedo;\n\
+        varying vec2 uv;\n\
+        void main() { gl_FragData[0] = texture2D(tex, uv) + texture2D(albedo, uv); }\n";
+    let p = pack(
+        fragment,
+        "texture.composite.lut = tex/lut.png\n",
+        &[
+            ("gbuffers_basic.vsh", VERTEX),
+            ("gbuffers_basic.fsh", geometry),
+        ],
+    );
+    let t = p.translate(&TranslateConfig::default());
+    assert_eq!(
+        names(&t, "composite"),
+        [
+            "colortex0",
+            "colortex0",
+            "colortex0",
+            "colortex2",
+            "lut",
+            "noisetex"
+        ]
+    );
+    let glsl = fragment_glsl(program(&t, "composite"));
+    assert!(
+        glsl.contains("sampler2D(tex, iris_samplerClampLinear)"),
+        "{glsl}"
+    );
+    assert_eq!(names(&t, "gbuffers_basic"), ["gtexture", "gtexture"]);
+}
+
+#[test]
+fn geometry_unit_zero_aliases_share_custom_texture_classes() {
+    for property in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        for uniform in ["albedo", "tex", "texture", "gtexture", "u_MainSampler"] {
+            let fragment = format!(
+                "#version 120\nuniform sampler2D {uniform}; void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)); }}"
+            );
+            let properties = format!("texture.gbuffers.{property} = custom.png\n");
+            let translated = pack(
+                "#version 120\nvoid main() { gl_FragData[0] = vec4(1.0); }",
+                &properties,
+                &[
+                    ("gbuffers_basic.vsh", VERTEX),
+                    ("gbuffers_basic.fsh", &fragment),
+                    ("custom.png.mcmeta", r#"{"texture":{"clamp":true}}"#),
+                ],
+            )
+            .translate(&TranslateConfig::default());
+            let geometry = program(&translated, "gbuffers_basic");
+            fragment_stage(geometry);
+            let classes: Vec<_> = reflection(geometry)
+                .samplers
+                .iter()
+                .filter_map(|sampler| sampler.class())
+                .collect();
+            assert_eq!(
+                classes,
+                [SamplerClass::ClampNearest],
+                "{property} overrides {uniform}"
+            );
+        }
+    }
+}
+
+#[test]
+fn raw_geometry_textures_keep_other_unit_zero_samplers_on_the_atlas() {
+    for uniform in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let fragment = format!(
+            "#version 120\nuniform sampler2D {uniform}; uniform sampler2D albedo;\n\
+             void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D(albedo, vec2(0.5)); }}"
+        );
+        let property = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
+        let properties = format!(
+            "texture.gbuffers.{property} = lut.dat TEXTURE_2D RGBA8 16 16 RGBA UNSIGNED_BYTE\n"
+        );
+        let translated = pack(
+            "#version 120\nvoid main() { gl_FragData[0] = vec4(1.0); }",
+            &properties,
+            &[
+                ("gbuffers_basic.vsh", VERTEX),
+                ("gbuffers_basic.fsh", &fragment),
+            ],
+        )
+        .translate(&TranslateConfig::default());
+        let geometry = program(&translated, "gbuffers_basic");
+        fragment_stage(geometry);
+        let reflected = reflection(geometry);
+        let mut classes: Vec<_> = reflected
+            .samplers
+            .iter()
+            .filter_map(|sampler| sampler.class())
+            .collect();
+        classes.sort();
+        assert_eq!(
+            classes,
+            [SamplerClass::ClampLinear, SamplerClass::RepeatNearest],
+            "{uniform}"
+        );
+        let textures = &reflected.textures;
+        assert_eq!(textures.len(), 2);
+        assert_ne!(textures[0].name, textures[1].name);
+        assert!(textures.iter().any(|texture| texture.name == "gtexture"));
+    }
 }
 
 #[test]
@@ -183,6 +324,103 @@ fn a_custom_texture_only_reclasses_samplers_of_its_shape() {
         deep.contains("sampler3D(colortex0, iris_samplerRepeatNearest)"),
         "{deep}"
     );
+}
+
+#[test]
+fn a_flipped_buffer_reads_through_its_own_class_after_the_stage_binding_releases() {
+    // Iris's `flippedAtLeastOnce`: once a pass of the stage wrote `colortex0`, later passes
+    // (and `final` after composite) read the buffer, not `texture.<stage>.colortex0`. Each
+    // stage starts over, so `composite` still reads the image after `deferred` wrote it.
+    // Raw textures rename the stage's samplers instead, so flips never release them.
+    let copy = "#version 120\n\
+        uniform sampler2D colortex0;\n\
+        uniform sampler2D colortex2;\n\
+        varying vec2 uv;\n\
+        void main() {\n\
+        /* DRAWBUFFERS:02 */\n\
+            gl_FragData[0] = texture2D(colortex0, uv);\n\
+            gl_FragData[1] = texture2D(colortex2, uv);\n\
+        }\n";
+    let show = "#version 120\n\
+        uniform sampler2D colortex0;\n\
+        uniform sampler2D colortex2;\n\
+        varying vec2 uv;\n\
+        void main() { gl_FragColor = texture2D(colortex0, uv) + texture2D(colortex2, uv); }\n";
+    let properties = "texture.composite.colortex0 = tex/clouds.png\n\
+        texture.deferred.colortex0 = tex/clouds.png\n\
+        texture.composite.colortex2 = tex/lut.dat TEXTURE_2D RGBA8 1 1 RGBA UNSIGNED_BYTE\n";
+    let mcmeta = r#"{"texture":{"blur":false,"clamp":false}}"#;
+    let p = pack(
+        copy,
+        properties,
+        &[
+            ("tex/lut.dat.mcmeta", mcmeta),
+            ("deferred.vsh", VERTEX),
+            ("deferred.fsh", copy),
+            ("composite1.vsh", VERTEX),
+            ("composite1.fsh", copy),
+            ("final.vsh", VERTEX),
+            ("final.fsh", show),
+        ],
+    );
+    let t = p.translate(&TranslateConfig::default());
+    for (name, released, image) in [
+        ("deferred", 0, SamplerClass::RepeatNearest),
+        ("composite", 0, SamplerClass::RepeatNearest),
+        ("composite1", 0b101, SamplerClass::ClampLinear),
+        ("final", 0b101, SamplerClass::ClampLinear),
+    ] {
+        let translated = program(&t, name);
+        assert_eq!(translated.released_overrides, released, "{name}");
+        let glsl = fragment_glsl(translated);
+        let raw = if name == "deferred" {
+            SamplerClass::ClampLinear
+        } else {
+            SamplerClass::RepeatNearest
+        };
+        for (texture, class) in [("colortex0", image), ("colortex2", raw)] {
+            let pair = format!("sampler2D({texture}, {})", class.glsl_name());
+            assert!(glsl.contains(&pair), "{name}: missing `{pair}` in\n{glsl}");
+        }
+    }
+}
+
+#[test]
+fn a_flip_releases_the_shared_unit_zero_override_without_rebinding_raw_samplers() {
+    let fragment = "#version 120\n\
+        uniform sampler2D albedo; uniform sampler2D tex;\n\
+        void main() { gl_FragData[0] = texture2D(albedo, vec2(0.5)) + texture2D(tex, vec2(0.5)); }";
+    let properties = "texture.composite.colortex0 = sample.png\n\
+        texture.composite.tex = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n";
+    let translated = pack(
+        fragment,
+        properties,
+        &[("composite1.vsh", VERTEX), ("composite1.fsh", fragment)],
+    )
+    .translate(&TranslateConfig::default());
+    for (name, released, shared_class) in [
+        ("composite", 0, SamplerClass::RepeatNearest),
+        ("composite1", 1, SamplerClass::ClampLinear),
+    ] {
+        let translated = program(&translated, name);
+        fragment_stage(translated);
+        assert_eq!(translated.released_overrides, released);
+        let reflected = reflection(translated);
+        assert_eq!(reflected.textures.len(), 2);
+        for (binding, uniform, class) in [
+            ("colortex0", "albedo", shared_class),
+            ("texture.composite.tex", "tex", SamplerClass::ClampLinear),
+        ] {
+            let texture = reflected
+                .textures
+                .iter()
+                .find(|t| t.name == binding)
+                .unwrap();
+            assert_eq!(texture.dimension, shaderpack::TextureDimension::D2);
+            let pair = format!("sampler2D({uniform}, {})", class.glsl_name());
+            assert!(fragment_glsl(translated).contains(&pair), "{name}: {pair}");
+        }
+    }
 }
 
 #[test]
@@ -288,7 +526,14 @@ fn sampler_class_bindings_precede_textures_and_round_trip() {
         SamplerClass::for_name("noisetex"),
         SamplerClass::RepeatLinear
     );
-    for atlas in ["gtexture", "texture", "tex", "normals", "specular"] {
+    for atlas in [
+        "gtexture",
+        "texture",
+        "tex",
+        "u_MainSampler",
+        "normals",
+        "specular",
+    ] {
         assert_eq!(SamplerClass::for_name(atlas), SamplerClass::RepeatNearest);
     }
     assert_eq!(

@@ -4,7 +4,8 @@
 //! Implement [`Experience`] on a type and export it with
 //! [`export_experience!`](crate::export_experience). Every callback receives a [`Callback`] that
 //! is valid only for that call. [`Callback::send_client`] stages a typed message for the actor's
-//! client part; build its payload as [`Value`]s and pass their [`nodes`].
+//! client part; [`Callback::send_control`] stages negotiation or acknowledgment replies for
+//! retained delivery after transport budget refusal. Build the payload as [`Value`]s and pass their [`nodes`].
 //! [`Experience::client_message`] receives what that client part sends back, and
 //! [`Experience::epoch`] when it moved to a new world epoch; both may read and write the block
 //! of the player's focus, [`Callback::focus`].
@@ -110,6 +111,11 @@ pub trait Experience {
         _event: PlayerEvent,
     ) -> Result<(), GuestError> {
         Ok(())
+    }
+
+    /// Returns the generated shared contract when this server belongs to a mod project.
+    fn registry() -> Option<&'static crate::message::Registry> {
+        None
     }
 
     /// Declares the plain cube blocks this Experience owns. It runs once, at startup, through
@@ -261,6 +267,15 @@ macro_rules! export_experience {
                 let payload = $crate::server::values(payload).ok_or_else(|| {
                     $crate::server::GuestError::Failed("malformed client message payload".into())
                 })?;
+                if let Some(registry) = <$ty as $crate::server::Experience>::registry()
+                    && channel == registry.request.id
+                {
+                    // Always reply with our definitions, including when the client is stale.
+                    // The client refuses a different fingerprint before authored callbacks run.
+                    return ctx.send_control(&player, registry.channel.id, registry.channel.schema,
+                        &$crate::server::nodes(::std::vec![$crate::Value::Text(registry.fingerprint.into())]))
+                        .map_err(|_| $crate::server::GuestError::Failed("registry confirmation unavailable".into()));
+                }
                 <$ty as $crate::server::Experience>::client_message(
                     ctx, player, channel, schema, payload,
                 )

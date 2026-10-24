@@ -131,10 +131,6 @@ interface types {
     /// Schema revisions are part of a key; changing a type requires an explicit migration.
     record store-key { scope: store-scope, schema: u32 }
 
-    /// A cancellable callback scoped to one instance opening and installing mod.
-    record schedule-handle { %world: world-handle, sequence: u64, slot: u32 }
-    record simulation-step { tick: u64, duration-nanos: u64 }
-
     /// An item by Bedrock id and metadata.
     record item-key { id: string, metadata: u16 }
     /// What a crafting recipe makes.
@@ -145,16 +141,11 @@ interface world-access {
     use types.{
         block-pos, player-id, callback-info, world-error, value-node, block-state, network,
         inventory, new-stack, item-key, crafted, world-handle, world-instance, world-instance-id,
-        player-location, position, store-key, simulation-step, schedule-handle,
+        player-location, position, store-key,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
         info: func() -> callback-info;
-        /// Fixed-step simulation time for this instance, independent of viewers.
-        simulation: func() -> result<simulation-step, world-error>;
-        /// Schedule relative to commit. A zero period runs once; otherwise it repeats.
-        schedule: func(after: u32, period: u32) -> result<schedule-handle, world-error>;
-        cancel-schedule: func(handle: schedule-handle) -> result<_, world-error>;
         /// The actual instance opening, independent of the legacy metadata in info.
         %world: func() -> world-handle;
         /// Only this callback's actor may be read. Leave events have no live player.
@@ -179,6 +170,10 @@ interface world-access {
         /// Stages `payload` for `player`'s client part on `channel`, revision `schema`. It is sent
         /// after the callback commits, if that player's client part declares the channel.
         send-client: func(player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, world-error>;
+        /// Stages a negotiation or acknowledgment reply through retained control delivery.
+        /// A newer reply on the same route replaces any pending one. Pending replies expire
+        /// with the connection or world epoch; ordinary data should use send-client.
+        send-control: func(player: player-id, channel: string, schema: u16, payload: list<value-node>) -> result<_, world-error>;
         /// The block that a `client-message` or `epoch` callback got as its player's focus: the
         /// block of this Experience that the player last used. Its snapshot is the one
         /// `on-interact` gets, the block and its neighbors, and it is read and written the same
@@ -223,14 +218,11 @@ world server {
     import world-access;
     import diagnostics;
     use world-access.{callback};
-    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event, simulation-step, schedule-handle};
+    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event};
     /// Declares the Experience's blocks and items; it runs once, at startup.
     export world-definitions: func() -> result<world-registration, guest-error>;
     /// Ordered observations. Move events retain the first and last position in one host tick.
     export on-player: func(ctx: borrow<callback>, player: player-id, event: player-event) -> result<_, guest-error>;
-    /// One admitted simulation tick, followed by due scheduled callbacks in handle order.
-    export on-tick: func(ctx: borrow<callback>, step: simulation-step) -> result<_, guest-error>;
-    export on-timer: func(ctx: borrow<callback>, handle: schedule-handle, step: simulation-step) -> result<_, guest-error>;
     export register: func() -> result<registration, guest-error>;
     export on-place: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;
     export on-break: func(ctx: borrow<callback>, change: block-change) -> result<_, guest-error>;

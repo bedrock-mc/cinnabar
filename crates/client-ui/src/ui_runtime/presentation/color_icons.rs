@@ -53,7 +53,7 @@ impl UiPresentationRuntime {
         if self.session_item_icon(identifier, metadata).is_some() {
             return None;
         }
-        let variants = self.gui_models.color_masks.get(identifier)?;
+        let variants = self.gui_models.sources.color_masks.get(identifier)?;
         let icon = variants.get(&metadata).or_else(|| variants.get(&0))?;
         Some(IconRef {
             color_mask: Some([(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8]),

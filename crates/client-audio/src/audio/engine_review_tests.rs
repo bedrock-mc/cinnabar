@@ -15,7 +15,7 @@ fn review_replacing_a_loop_discards_its_pending_start() {
     engine.pending.push(PendingStart {
         request: SoundRequest::new("loop.a"),
         managed: Some(("water", 1.0)),
-        roll: [0.0; 3],
+        roll: [0.0; START_ROLLS],
         path: "sounds/loop.a".into(),
         category: AudioCategory::Ambient,
         patient: true,
@@ -40,7 +40,7 @@ fn review_completed_decode_does_not_start_an_expired_one_shot() {
     engine.pending.push(PendingStart {
         request: SoundRequest::new("late"),
         managed: None,
-        roll: [0.0; 3],
+        roll: [0.0; START_ROLLS],
         path: "sounds/late".into(),
         category: AudioCategory::Players,
         patient: false,

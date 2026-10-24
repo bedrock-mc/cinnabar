@@ -512,10 +512,18 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                             text: "Network online".to_owned(),
                         },
                         Op::SendClient {
+                            control: false,
                             player: player.to_owned(),
                             channel: "benergistics.controller".to_owned(),
                             schema: 1,
                             payload: record,
+                        },
+                        Op::SendClient {
+                            control: true,
+                            player: player.to_owned(),
+                            channel: "benergistics.registry".to_owned(),
+                            schema: 1,
+                            payload: vec![Scalar::Text("fingerprint".to_owned())],
                         },
                         Op::SetBlockState {
                             pos: controller,

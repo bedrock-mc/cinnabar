@@ -104,10 +104,10 @@ require a connection. Earlier startup aborts leave extended reliability testing 
 An available account can join the local server without online verification when account services
 are unavailable or the server reports missing verification keys. This local retry lacks the host's
 account-based operator grant. Complete APK acceptance and the ten-second startup target remain open.
-The most recently played BDS world starts in the background once the menu is up. A left world's
-server keeps running for five minutes, so opening either skips the server start; see
-[local worlds](local-worlds.md). Battery cost and physical-phone timing of these hidden servers
-remain unmeasured.
+Saved BDS worlds start only when opened explicitly. Leaving a world requests its save and stop
+immediately; reopening waits for the previous server to finish saving and cleaning up. Reusable
+startup-code preparation remains separate from saved-world opens; see [local worlds](local-worlds.md).
+Physical-phone battery cost and startup timing remain unmeasured.
 Local-server startup logs include milestone elapsed times and, when accessible, child-process CPU
 time. These entries are available without verbose logging and help distinguish CPU work from waiting.
 BDS worlds cannot pause simulation.

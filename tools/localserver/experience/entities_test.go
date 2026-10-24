@@ -24,17 +24,23 @@ func entityDefinition() EntityDefinition {
 func newEntityFixture(t *testing.T) *runtimeFixture {
 	t.Helper()
 	f := newRuntimeFixture(t)
-	typ, err := newModEntityType("probe", entityDefinition(), newAssetCache())
-	if err != nil {
-		t.Fatal(err)
-	}
-	typ.host = f.h
-	f.h.reg.entityTypes = map[string]*modEntityType{typ.def.ID: typ}
-	f.d.sup.registered.Entities = []EntityDefinition{typ.def}
+	f.registerEntityType()
 	for len(f.d.events) > 0 {
 		<-f.d.events
 	}
 	return f
+}
+
+// registerEntityType installs the shared actor declaration in a synchronous host fixture.
+func (f *runtimeFixture) registerEntityType() {
+	f.t.Helper()
+	typ, err := newModEntityType("probe", entityDefinition(), newAssetCache())
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	typ.host = f.h
+	f.h.reg.entityTypes = map[string]*modEntityType{typ.def.ID: typ}
+	f.d.sup.registered.Entities = []EntityDefinition{typ.def}
 }
 
 // spawnEntity stages a new identity in the same way as the guest callback.

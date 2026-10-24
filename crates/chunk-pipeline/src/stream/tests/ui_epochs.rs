@@ -131,7 +131,30 @@ fn sixty_four_link_and_transition_deltas_preserve_local_mount_capacity() {
             }
         );
     }
-    assert_eq!(stream.take_committed_controls().len(), 32);
+    let controls = stream.take_committed_controls();
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|control| matches!(
+                control,
+                super::CommittedControlEvent::ChangeDimension { .. }
+            ))
+            .count(),
+        32
+    );
+    assert_eq!(
+        controls
+            .iter()
+            .filter(|control| matches!(
+                control,
+                super::CommittedControlEvent::LocalMovementFlags {
+                    replacement: true,
+                    ..
+                }
+            ))
+            .count(),
+        32
+    );
     assert_eq!(stream.form_dimension_epoch(), 64);
 }
 

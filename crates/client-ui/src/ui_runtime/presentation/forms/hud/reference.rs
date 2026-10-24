@@ -149,6 +149,7 @@ pub(super) fn hud_model(
         chat_visible,
         chat_color: ui_screens::settings_chat::default_color(settings),
         chat_mention_color: Some(settings.mentions_color_code()),
+        chat_local_player: Arc::clone(&runtime.local_player_display_name),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
         chat_text: ui_screens::settings_chat::chat_text(settings),

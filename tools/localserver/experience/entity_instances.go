@@ -247,7 +247,7 @@ func (e *modEntity) emit(actor *world.EntityHandle, observation EntityEvent) {
 		}
 		instance = e.stateData().instance
 	}
-	h.enqueue(e.typ.owner, event{w: e.tx.World(), instance: instance, actor: actor, call: Call{Entity: &EntityCall{Handle: e.stateData().state.Handle, Event: observation}}})
+	h.enqueue(e.typ.owner, event{w: e.tx.World(), instance: instance, tick: uint64(e.tx.CurrentTick()), actor: actor, call: Call{Entity: &EntityCall{Handle: e.stateData().state.Handle, Event: observation}}})
 }
 
 // EntityInteraction delivers the existing framework's main-hand interaction or attack hook.
@@ -272,5 +272,7 @@ func (h *Host) EntityInteraction(p *player.Player, target world.Entity, attacked
 // entityDespawnSnapshot retains the removal observation after its world closes, with no live actor authority.
 func (h *Host) entityDespawnSnapshot(d *dispatcher, ev event) snapshot {
 	context := &WorldContext{Current: ev.instance.handle, Instances: h.worlds.handles(d.id), Stores: h.store.readStates(d.id, stateAddresses(ev.instance.handle.ID, nil))}
-	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context}, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
+	info := newInfo(h.worldID, ev.instance.id, ev.tick, d.seq)
+	info.Context = context
+	return snapshot{req: CallbackRequest{Info: info, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
 }

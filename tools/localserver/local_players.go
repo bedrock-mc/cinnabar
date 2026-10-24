@@ -18,20 +18,6 @@ type localPlayerHandler struct {
 	flight flySpeedState
 }
 
-// HandleItemUseOnEntity forwards accepted entity interactions to the installed runtime.
-func (h *localPlayerHandler) HandleItemUseOnEntity(ctx *player.Context, e world.Entity) {
-	if h.host != nil {
-		h.host.EntityInteraction(ctx.Player(), e, false)
-	}
-}
-
-// HandleAttackEntity observes the attack before the framework applies item and damage effects.
-func (h *localPlayerHandler) HandleAttackEntity(ctx *player.Context, e world.Entity, _, _ *float64, _ *bool) {
-	if h.host != nil {
-		h.host.EntityInteraction(ctx.Player(), e, true)
-	}
-}
-
 // HandleTeleport applies authoritative teleports through the host's session fence.
 func (h *localPlayerHandler) HandleTeleport(ctx *player.Context, pos mgl64.Vec3) {
 	if h.host != nil && h.host.TeleportPlayer(ctx.Player(), experience.Position{X: pos.X(), Y: pos.Y(), Z: pos.Z()}) {

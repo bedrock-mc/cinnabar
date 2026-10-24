@@ -82,7 +82,7 @@
       ]
     }
   ],
-  "protocol": 9,
+  "protocol": 10,
   "id": "probe",
   "version": "0.1.0",
   "blocks": [],

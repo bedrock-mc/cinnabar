@@ -16,9 +16,11 @@ import (
 
 // playerState tracks one session; a departure fences work even when it returns to the same world.
 type playerState struct {
-	connection    cinnabarext.PlayerSession
-	location      PlayerLocation
-	w             *world.World
+	connection  cinnabarext.PlayerSession
+	reservation *worldReservation
+	location    PlayerLocation
+	w           *world.World
+	// transferring lasts only for the scoped authoritative relocation, independently of client-part fences.
 	transferring  bool
 	retiring      bool
 	synchronizing bool
@@ -96,6 +98,7 @@ func (h *Host) PlayerDisconnected(p *player.Player) {
 		h.observeLocked(p, instance, PlayerEvent{Type: "leave", Location: &loc})
 	}
 	delete(h.players.items, p.H())
+	state.reservation.Release()
 }
 
 // PlayerSession identifies the transport admitted with this handle, without resolving a newer login by UUID.
@@ -146,7 +149,7 @@ func (h *Host) observeLocked(p *player.Player, instance worldInstance, observati
 	if loc == nil {
 		loc = observation.After
 	}
-	ev := event{w: w, instance: instance, epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
+	ev := event{w: w, instance: instance, tick: uint64(p.Tx().CurrentTick()), epoch: loc.Epoch, actor: handle, call: Call{Player: &PlayerCall{Player: handle.UUID().String(), Event: observation}}}
 	if observation.Type == "leave" {
 		ev.actor = nil
 		if h.closed.Load() {
@@ -282,11 +285,12 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 		copy := *loc
 		context.Player = &copy
 	}
-	var simulation *SimulationContext
-	if d.sup.registered.Simulation {
-		simulation = h.simulationContext(d.id, ev, d.seq)
+	info := newInfo(h.worldID, ev.instance.id, ev.tick, d.seq)
+	info.Context = context
+	if d.sup.registered.Simulation && call.Event.Type != "leave" {
+		info.Simulation = h.simulationContext(d.id, ev, d.seq)
 	}
-	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context, Simulation: simulation}, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory}, slots: ev.slots}
+	return snapshot{req: CallbackRequest{Info: info, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call, Inventory: ev.inventory}, slots: ev.slots}
 }
 
 // storePrincipal retains an observed player's private record after its live actor leaves.

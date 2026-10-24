@@ -8,10 +8,9 @@ use super::items::{
     parse_decl, sampler_info, split_items, strip_layout_keys,
 };
 use super::{ProgramInterface, ResourceNames, TransformError, UboMember};
-use crate::buffers::canonical_sampler_name;
 use crate::programs::StageKind;
 use crate::reflection::{
-    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, SamplerClass, StoredNumbers,
+    FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, StoredNumbers,
     TEXTURE_GROUP, TextureDimension, UNIFORM_GROUP, VertexAttribute,
 };
 use crate::token::{Tok, id, lex, p};
@@ -544,15 +543,15 @@ fn uniforms(
         if is_opaque(&d.ty) {
             if let Some((tex_ty, shadow)) = sampler_info(&d.ty) {
                 let b = iface.texture_binding(name);
-                c.resource_names.push((TEXTURE_GROUP, b, name.clone()));
-                let classes = names.sampler_classes;
-                let key = canonical_sampler_name(name);
-                let shaped = (key.clone(), Some(texture_dimension(tex_ty)));
-                let class = classes
-                    .get(&shaped)
-                    .or_else(|| classes.get(&(key, None)))
-                    .copied()
-                    .unwrap_or_else(|| SamplerClass::for_name(name));
+                // Only scalar float sampler2D uniforms can read unit zero's 2D target.
+                let (bound, class) = names.sampler_classes.resolve(
+                    name,
+                    texture_dimension(tex_ty),
+                    d.ty == "sampler2D" && d.ty_arr.is_empty() && arr.is_empty(),
+                    names.geometry,
+                    names.normalize_legacy,
+                );
+                c.resource_names.push((TEXTURE_GROUP, b, bound));
                 c.samplers
                     .insert(name.clone(), (d.ty.clone(), shadow, class));
                 c.resources.extend(
@@ -837,10 +836,12 @@ mod tests {
     /// Resource names with the given image formats and no custom sampler classes.
     fn names(image_formats: &HashMap<String, String>) -> ResourceNames<'_> {
         static NO_CLASSES: std::sync::LazyLock<SamplerClasses> =
-            std::sync::LazyLock::new(SamplerClasses::new);
+            std::sync::LazyLock::new(SamplerClasses::default);
         ResourceNames {
             image_formats,
             sampler_classes: &NO_CLASSES,
+            normalize_legacy: true,
+            geometry: false,
         }
     }
 

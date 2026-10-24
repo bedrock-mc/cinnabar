@@ -26,21 +26,30 @@ func (h *Host) changeWorld(handle *world.EntityHandle, mode cinnabarext.WorldCha
 	h.players.mu.Unlock()
 
 	var prepared *cinnabarext.WorldChange
+	defer func() { prepared.Abort() }()
+	completed, notified := false, false
+	defer func() {
+		h.players.mu.Lock()
+		state.transferring, state.publishing = false, false
+		pending := slices.Sorted(maps.Keys(state.pendingEpochs))
+		state.pendingEpochs = nil
+		h.players.mu.Unlock()
+		if notified {
+			for _, exp := range pending {
+				h.DeliverEpoch(handle, exp)
+			}
+		}
+	}()
+	defer func() {
+		if completed && !notified {
+			prepared.Disable()
+		}
+	}()
+
 	var err error
 	if state.connection != nil {
 		prepared, err = state.connection.PrepareWorldChange(mode)
 	}
-	defer prepared.Abort()
-	completed := false
-	defer func() {
-		if !completed {
-			h.players.mu.Lock()
-			if h.players.items[handle] == state && state.location.Epoch == before.Epoch {
-				state.transferring = false
-			}
-			h.players.mu.Unlock()
-		}
-	}()
 	if err != nil {
 		return err
 	}
@@ -59,13 +68,20 @@ func (h *Host) changeWorld(handle *world.EntityHandle, mode cinnabarext.WorldCha
 			publication = ErrStaleWorld
 			return
 		}
+		reservation, _, reserveErr := h.worlds.reserve(instance.handle)
+		if reserveErr != nil {
+			publication = reserveErr
+			return
+		}
 		// Dragonfly synchronizes changed world pointers; same-world admission needs an explicit teleport.
 		if mode == cinnabarext.CoordinatedChange && before.World == instance.handle || mode == cinnabarext.InitialPlacement {
 			h.syncPlayerPosition(p, state, positionOf(p.Position()))
 		}
 		after := PlayerLocation{World: instance.handle, Epoch: before.Epoch + 1, Position: positionOf(p.Position())}
 		h.players.mu.Lock()
-		state.location, state.w, state.publishing = after, p.Tx().World(), true
+		previous := state.reservation
+		state.location, state.w, state.publishing, state.reservation = after, p.Tx().World(), true, reservation
+		previous.Release()
 		observation := PlayerEvent{Type: "world_change", Before: &before, After: &after}
 		if mode == cinnabarext.InitialPlacement {
 			observation = PlayerEvent{Type: "join", Location: &after}
@@ -73,21 +89,13 @@ func (h *Host) changeWorld(handle *world.EntityHandle, mode cinnabarext.WorldCha
 		h.observeLocked(p, instance, observation)
 		h.players.mu.Unlock()
 		completed = true
-		notified := prepared.CommitAt(after.World.ID, after.Epoch)
+		published := prepared.CommitAt(after.World.ID, after.Epoch)
 		if h.worldChanged != nil {
-			notified = h.worldChanged(handle.UUID(), after.World, after.Epoch) && notified
+			published = h.worldChanged(handle.UUID(), after.World, after.Epoch) && published
 		}
-		h.players.mu.Lock()
-		state.transferring, state.publishing = !notified, false
-		pending := slices.Sorted(maps.Keys(state.pendingEpochs))
-		state.pendingEpochs = nil
-		h.players.mu.Unlock()
-		if notified {
-			for _, exp := range pending {
-				h.DeliverEpoch(handle, exp)
-			}
-		} else {
-			publication = errors.New("destination admitted, client-part world notice failed; callbacks remain fenced")
+		notified = published
+		if !notified {
+			h.log.Warn("destination admitted without client-part world notice")
 		}
 	}, &before)
 	return errors.Join(err, publication)

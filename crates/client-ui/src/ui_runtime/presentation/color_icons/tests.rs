@@ -80,10 +80,21 @@ fn presentation() -> UiPresentationRuntime {
         Arc::new(icons),
     )
     .unwrap();
-    presentation.gui_models.color_masks = prepare(
-        &entities,
-        presentation.icon_catalog.as_deref().unwrap(),
-        presentation.icon_refs.as_deref().unwrap(),
+    let prepared = presentation
+        .gui_model_preparation()
+        .prepare(&assets::RuntimeAssets::diagnostic(), &entities, None)
+        .unwrap();
+    assert_eq!(
+        presentation.color_mask_icon("minecraft:firework_star", 0, 0x112233),
+        None,
+        "preparing item sources leaves the live menu unchanged"
+    );
+    presentation.install_gui_model_sources(prepared).unwrap();
+    assert!(
+        presentation
+            .color_mask_icon("minecraft:firework_star", 0, 0x112233)
+            .is_some(),
+        "installing deferred sources publishes their color-mask bindings"
     );
     presentation
 }

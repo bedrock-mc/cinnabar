@@ -15,6 +15,7 @@ use assets::RuntimeUiAssets;
 use json_ui::{NineSlice, TextureMeta, TextureSource};
 
 use crate::atlas::{BuiltinImages, ServerAtlas, native_sheets::Quads};
+use crate::revision::{AtlasRevision, Revision};
 use crate::sources::{ImageWork, LocalPack, RemoteSource, is_remote};
 use ui::IconRef;
 
@@ -49,6 +50,17 @@ pub struct TextureSet {
     full_res_sources: crate::atlas::OversizedTextures,
     /// A client part's screen: only portable `textures/` paths, never a URL.
     confined: bool,
+    /// Changes whenever the icons, full-resolution art or installed atlas change.
+    revision: Revision,
+}
+
+/// Identifies everything a paint resolves textures from; any change yields a new value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TextureRevision {
+    set: Revision,
+    atlas: AtlasRevision,
+    /// The carrier's and the server atlas's first texture pages.
+    pages: [u16; 2],
 }
 
 impl TextureSet {
@@ -75,6 +87,7 @@ impl TextureSet {
             full_res: HashMap::new(),
             full_res_sources: Default::default(),
             confined: false,
+            revision: Default::default(),
         }
     }
 
@@ -109,6 +122,7 @@ impl TextureSet {
     pub fn set_full_res(&mut self, full_res: HashMap<String, IconRef>) {
         self.full_res = full_res;
         self.full_res_sources = self.oversized();
+        self.revision.bump();
     }
 
     /// A package screen's sources: its `files` over the carrier, the icon atlas and the local
@@ -135,6 +149,7 @@ impl TextureSet {
             full_res: HashMap::new(),
             full_res_sources: Default::default(),
             confined: true,
+            revision: Default::default(),
         }
     }
     /// Drawn textures too big for a server page, with their source bytes.
@@ -161,12 +176,22 @@ impl TextureSet {
         }
         self.atlas = Mutex::new(atlas);
         self.server_page = server_page;
+        self.revision.bump();
     }
 
     /// The current source metadata epoch, including atlas replacements.
     pub fn metadata_revision(&self) -> u64 {
         self.metadata_base
             .wrapping_add(self.lock().metadata_revision())
+    }
+
+    /// What a paint holding `atlas`, this set's locked atlas, resolves textures from.
+    pub(crate) fn revision(&self, atlas: &ServerAtlas) -> TextureRevision {
+        TextureRevision {
+            set: self.revision,
+            atlas: atlas.revision(),
+            pages: [self.first_page, self.server_page],
+        }
     }
 
     /// Item icons by texture path and the local vanilla pack; the atlas

@@ -95,9 +95,10 @@ pub(super) struct VariableLayout {
     pub(super) plans: rig_plans::RigPlans,
 }
 
-/// Immutable camera and attack inputs used to admit scratch presentation evaluation.
+/// Immutable frame, camera and attack inputs used to admit scratch presentation evaluation.
 #[derive(Clone, Copy, Default, Debug, Eq, PartialEq)]
 pub(super) struct PresentationReads {
+    pub frame: bool,
     pub camera: bool,
     pub swing: bool,
 }
@@ -568,11 +569,7 @@ impl Evaluator<'_> {
         if count == 0 {
             return Err(EvalError::Invalid);
         }
-        let index = if index.is_nan() || index <= 0.0 {
-            0
-        } else {
-            (index as usize) % count
-        };
+        let index = collection_index(index, count);
         self.collection_items()
             .get(collection.first_item as usize + index)
             .map(|item| item.value.get())
@@ -608,4 +605,13 @@ pub(super) fn pop(stack: &mut Vec<MolangValue>) -> Result<MolangValue, EvalError
 
 fn bool_value(value: bool) -> MolangValue {
     MolangValue::Number(if value { 1.0 } else { 0.0 })
+}
+
+/// Selects an admitted nonempty collection, wrapping positive indices and clamping negatives.
+pub(super) fn collection_index(index: f32, count: usize) -> usize {
+    if index.is_nan() || index <= 0.0 {
+        0
+    } else {
+        (index as usize) % count
+    }
 }

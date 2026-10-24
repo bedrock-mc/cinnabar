@@ -45,6 +45,7 @@ impl UiPresentationRuntime {
         self.screens.chat.paint(
             renderer,
             ChatInput {
+                local_player: &runtime.local_player_display_name,
                 editor: runtime.chat_editor(),
                 messages: runtime.chat().messages(),
                 suggestions: runtime.chat_suggestions(),

@@ -206,7 +206,7 @@ pub(super) fn invoke(
                 }
             }
         }
-        Pre::V0_7(pre) => {
+        Pre::V0_8(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
                 Export::Entity { .. } => bail!("this world has no entity observations"),
@@ -239,7 +239,7 @@ pub(super) fn invoke(
                 }
             }
         }
-        Pre::V0_8(pre) => {
+        Pre::V0_9(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
                 Export::Entity { .. } => bail!("this world has no entity observations"),
@@ -273,7 +273,7 @@ pub(super) fn invoke(
                 }
             }
         }
-        Pre::V0_9(pre) => {
+        Pre::V0_10(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
                 Export::Entity { handle, event } => {
@@ -319,11 +319,11 @@ pub(super) fn invoke(
 /// 0.4 and later have a focus, and only 0.6 has on-scheduled-update.
 pub(super) fn unsupported(pre: &Pre, export: &Export<'_>, focused: bool) -> Option<&'static str> {
     match (pre, export) {
-        (Pre::V0_9(_), _) => None,
+        (Pre::V0_10(_), _) => None,
         (_, Export::Entity { .. }) => Some("no entity observations"),
-        (Pre::V0_8(_), _) => None,
+        (Pre::V0_9(_), _) => None,
         (_, Export::Tick(_) | Export::Timer { .. }) => Some("no simulation callbacks"),
-        (Pre::V0_7(_), _) => None,
+        (Pre::V0_8(_), _) => None,
         (_, Export::Player { .. }) => Some("no player observations"),
         (Pre::V0_1(_), Export::ClientMessage { .. }) => Some("no client-message"),
         (Pre::V0_1(_) | Pre::V0_2(_), Export::Epoch { .. }) => Some("no epoch"),

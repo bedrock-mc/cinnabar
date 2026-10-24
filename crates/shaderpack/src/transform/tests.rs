@@ -4,7 +4,7 @@ use super::*;
 use crate::compile::{OutputMap, compile};
 use crate::options::OptionValues;
 use crate::preprocess::{expand, preprocess};
-use crate::reflection::VertexAttribute;
+use crate::reflection::{SamplerClass, VertexAttribute};
 use crate::source::PackSource;
 
 const VERTEX: &str = "#version 120
@@ -39,7 +39,9 @@ fn draft(
     let pp = preprocess(expanded, &[]).expect("preprocesses");
     let names = ResourceNames {
         image_formats: &HashMap::new(),
-        sampler_classes: &SamplerClasses::new(),
+        sampler_classes: &SamplerClasses::default(),
+        normalize_legacy: true,
+        geometry: file.starts_with("gbuffers_"),
     };
     let draft = transform(&pp, stage, iface, &names).expect("transforms");
     (draft, pp.map)
@@ -134,9 +136,9 @@ fn integer_and_float_gathers_compile_with_separate_sampler_bindings() {
     let mut iface = ProgramInterface::default();
     let (fragment, lines) = draft("composite.fsh", "#version 400 compatibility
 uniform usampler2D colortex0;
-uniform isampler2D customInteger;
+uniform isampler2D noisetex;
 uniform sampler2D colortex1;
-void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(textureGather(customInteger, vec2(0.5))) + textureGather(colortex1, vec2(0.5)); }
+void main() { gl_FragData[0] = vec4(textureGather(colortex0, vec2(0.5))) + vec4(textureGather(noisetex, vec2(0.5))) + textureGather(colortex1, vec2(0.5)); }
 ", StageKind::Fragment, &mut iface);
     let (glsl, origins) = assemble(&fragment, &[], &iface.location_defines().unwrap());
     let compiled = compile(
