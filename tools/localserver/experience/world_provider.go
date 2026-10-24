@@ -26,12 +26,14 @@ func (p *temporaryProvider) Close() error {
 // instanceProvider checks saved identity before opening durable or instance-lifetime storage.
 func (h *Host) instanceProvider(owner string, instance WorldInstance, def WorldDefinition, spawn cube.Pos) (world.Provider, error) {
 	var dir string
+	metadataExists := false
 	if h.manager.root != "" {
 		_, name, _ := strings.Cut(string(instance.ID), ":")
 		dir = filepath.Join(h.manager.root, owner, name)
 		old, err := os.ReadFile(filepath.Join(dir, "experience-world.json"))
 		switch {
 		case err == nil:
+			metadataExists = true
 			var stored WorldDefinition
 			if json.Unmarshal(old, &stored) != nil || stored != def {
 				return nil, errors.New("saved instance definition changed; explicit migration required")
@@ -47,12 +49,10 @@ func (h *Host) instanceProvider(owner string, instance WorldInstance, def WorldD
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
 		}
-		raw, err := json.Marshal(def)
-		if err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(filepath.Join(dir, "experience-world.json"), raw, 0o600); err != nil {
-			return nil, err
+		if !metadataExists {
+			if err := writeJSONFile(filepath.Join(dir, "experience-world.json"), def); err != nil {
+				return nil, err
+			}
 		}
 		return h.openTerrain(dir, spawn)
 	}
@@ -64,6 +64,7 @@ func (h *Host) instanceProvider(owner string, instance WorldInstance, def WorldD
 	if err != nil {
 		return nil, errors.Join(err, os.RemoveAll(dir))
 	}
+	h.store.discardPlacements(instance.ID)
 	return &temporaryProvider{Provider: provider, dir: dir}, nil
 }
 

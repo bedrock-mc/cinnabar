@@ -53,15 +53,7 @@ func (p *instancePlayerProvider) Save(id uuid.UUID, data player.Config, w *world
 		return err
 	}
 	record := savedPlayerLocation{Instance: instance.handle.ID, Position: positionOf(data.Position)}
-	encoded, err := json.Marshal(record)
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(p.dir, id.String()+".json")
-	if err := os.WriteFile(path+".tmp", encoded, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(path+".tmp", path)
+	return writeJSONFile(filepath.Join(p.dir, id.String()+".json"), record)
 }
 
 // Load provides an unreserved snapshot for callers outside Dragonfly's login lifecycle.

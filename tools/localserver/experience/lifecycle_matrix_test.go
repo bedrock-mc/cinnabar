@@ -67,9 +67,9 @@ type lifecycleMatrix struct {
 }
 
 // newLifecycleMatrix uses a scripted helper to make each leave visibly persist a private write.
-func newLifecycleMatrix(t *testing.T) *lifecycleMatrix {
+func newLifecycleMatrix(t *testing.T, lifecycle ...WorldLifecycle) *lifecycleMatrix {
 	t.Helper()
-	f := newRuntimeFixture(t)
+	f := newRuntimeFixture(t, lifecycle...)
 	sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
 	sup.registered.Worlds = f.d.sup.registered.Worlds
 	rescript(t, sup, "leave_write", sup.registered)
@@ -319,6 +319,12 @@ func (m *lifecycleMatrix) step(name string) {
 		if ok {
 			_ = f.h.unloadWorld(f.t.Context(), "probe", handle)
 		}
+	case "cancel_unload":
+		m.cancelUnload()
+	case "metadata_interrupt":
+		m.interruptMetadata()
+	case "crash_reopen":
+		m.reopenAfterCrash()
 	case "shutdown":
 		m.drain()
 	default:
@@ -388,7 +394,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "publish_fails", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "cancel_callback", "cancel_unload", "metadata_interrupt", "crash_reopen", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {

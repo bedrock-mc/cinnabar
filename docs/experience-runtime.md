@@ -593,7 +593,11 @@ uses the block-data size ceiling; snapshots contain only the three authorized sc
 block writes commit together after every operation validates, and quota checks count their net
 change. Deleted records keep revisions so stale results cannot mistake a deletion for untouched
 state. The existing flush crash window applies; transfers do not promise crash-atomic saves
-across two terrain providers and private state.
+across two terrain providers and private state. Opening fresh temporary terrain removes that
+instance’s old block records and refunds their quota, including after an abrupt exit. Scoped
+records retain their independent lifetimes. Unloading an instance finishes resource release
+once it is unbound, even if the caller cancels. Durable records use synced atomic replacement,
+and reopening an instance leaves matching world metadata untouched.
 
 ## Strikes, quarantine and reload
 

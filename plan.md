@@ -878,7 +878,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   instance identities with a default-spawn fallback. Pending logins reserve their destinations
   through the handshake and revalidate before spawn; completion or failure releases only that
   login’s reservation. Unload also respects connected players and prepared transfers.
-  Shutdown drains leave callbacks before store flush and world closure, including after worker cancellation;
+  Unload completes idempotent resource release after unbinding, even if its caller is cancelled.
+  Durable records use synced atomic replacement; validated world metadata stays untouched.
+  Opening fresh temporary terrain discards stale placement records and refunds their quota while
+  retaining scoped state. Shutdown drains leave callbacks before store flush and world closure, including after worker cancellation;
   interrupted callbacks stay owned for drain retries, and undelivered final leaves fail the drain.
   Host cancellation retires the interrupted helper without consuming guest strikes or restart attempts;
   only guest budget and protocol failures consume strikes, while transport failures recover separately.

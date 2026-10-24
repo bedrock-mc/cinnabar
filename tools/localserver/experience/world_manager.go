@@ -23,16 +23,20 @@ type worldManager struct {
 	root        string
 	synchronous bool
 	definitions map[WorldDefinitionID]WorldDefinition
-	owned       map[WorldHandle]ownedWorld
+	owned       map[WorldHandle]*ownedWorld
 	lifecycle   WorldLifecycle
 	// admit is a test seam for a failure after detach but before destination admission.
 	admit func() error
+	// afterUnbind lets tests interrupt an unload before its transaction completes.
+	afterUnbind func()
 }
 
 // ownedWorld keeps the terrain and its storage policy together for every close path.
 type ownedWorld struct {
 	w          *world.World
 	persistent bool
+	release    sync.Once
+	err        error
 }
 
 // WorldLifecycle applies local world settings and tracks simulation ownership.
@@ -102,7 +106,7 @@ func (h *Host) ConfigureWorlds(ctx context.Context, root string, lifecycle ...Wo
 			return errors.New("startup definition unavailable")
 		}
 	}
-	h.manager.root, h.manager.definitions, h.manager.owned = root, definitions, make(map[WorldHandle]ownedWorld)
+	h.manager.root, h.manager.definitions, h.manager.owned = root, definitions, make(map[WorldHandle]*ownedWorld)
 	if len(lifecycle) == 1 {
 		h.manager.lifecycle = lifecycle[0]
 	}
@@ -157,7 +161,7 @@ func (h *Host) createWorld(ctx context.Context, owner string, instance WorldInst
 		return WorldHandle{}, err
 	}
 	w := conf.New()
-	owned := ownedWorld{w: w, persistent: def.Settings.Persistent}
+	owned := &ownedWorld{w: w, persistent: def.Settings.Persistent}
 	if h.manager.lifecycle != nil {
 		h.manager.lifecycle.WorldOpened(w)
 	}
@@ -179,19 +183,22 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 		return ErrStaleWorld
 	}
 	var result error
-	if err := await(ctx, owned.w.Do(func(tx *world.Tx) {
+	unbound := false
+	waitErr := await(ctx, owned.w.Do(func(tx *world.Tx) {
 		for range tx.Players() {
 			result = errors.New("world has players")
 			return
 		}
 		result = h.worlds.unload(handle)
-	})); err != nil {
-		return err
+		unbound = result == nil
+		if unbound && h.manager.afterUnbind != nil {
+			h.manager.afterUnbind()
+		}
+	}))
+	if unbound {
+		return errors.Join(waitErr, h.releaseWorld(handle, owned))
 	}
-	if result != nil {
-		return result
-	}
-	return h.releaseWorld(handle, owned)
+	return errors.Join(waitErr, result)
 }
 
 // handle returns the current opening for a stable instance ID.
@@ -232,19 +239,21 @@ func (h *Host) closeWorlds() error {
 	return errors.Join(errs...)
 }
 
-// releaseWorld invalidates an opening and releases every resource after transactions have drained.
+// releaseWorld invalidates an opening and releases every resource once after transactions drain.
 // A zero generation denotes a world whose binding failed during creation. Callers hold manager.mu.
-func (h *Host) releaseWorld(handle WorldHandle, owned ownedWorld) error {
-	if handle.Generation != 0 {
-		_ = h.worlds.unbind(handle)
-		delete(h.manager.owned, handle)
-	}
-	if h.manager.lifecycle != nil {
-		h.manager.lifecycle.WorldClosed(owned.w)
-	}
-	err := owned.w.Close()
-	if !owned.persistent {
-		h.store.discardPlacements(handle.ID)
-	}
-	return err
+func (h *Host) releaseWorld(handle WorldHandle, owned *ownedWorld) error {
+	owned.release.Do(func() {
+		if handle.Generation != 0 {
+			_ = h.worlds.unbind(handle)
+			delete(h.manager.owned, handle)
+		}
+		if h.manager.lifecycle != nil {
+			h.manager.lifecycle.WorldClosed(owned.w)
+		}
+		owned.err = owned.w.Close()
+		if !owned.persistent {
+			h.store.discardPlacements(handle.ID)
+		}
+	})
+	return owned.err
 }
