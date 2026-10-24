@@ -120,6 +120,7 @@ fn cosmic_runtime_child() {
             seq: 1,
             info: Info {
                 context: None,
+                simulation: None,
                 world_id: "cosmic-test".into(),
                 dimension_id: "overworld".into(),
                 tick: 1,
