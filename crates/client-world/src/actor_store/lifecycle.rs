@@ -111,6 +111,7 @@ impl ActorStore {
             remote_state_excluded_runtime_id: None,
             pending_local_health: None,
             pending_local_actor: None,
+            local_actor_revision: 0,
             local_server_swings: Vec::new(),
             pending_local_damage: None,
             local_health_skips: 0,
@@ -272,7 +273,7 @@ impl ActorStore {
         let mut actor = ActorSnapshot::local_player(
             unique_id,
             runtime_id,
-            (self.latest_sequence, revision),
+            (self.local_actor_revision, revision),
             uuid,
             username,
             feed,
@@ -377,6 +378,7 @@ impl ActorStore {
         self.world_default_game_mode = None;
         self.actors.clear();
         self.pending_local_actor = None;
+        self.local_actor_revision = 0;
         self.seat_bindings.clear();
         self.seat_bases.clear();
         self.effect_members = Default::default();
@@ -428,6 +430,7 @@ impl ActorStore {
             })
             .or_else(|| self.pending_local_damage.take());
         self.actors.clear();
+        self.replace_local_actor_lifetime(sequence);
         self.seat_bindings.clear();
         self.effect_members = Default::default();
         self.unique_to_runtime.clear();
@@ -484,7 +487,7 @@ impl ActorStore {
                 }
                 result
             }
-            ActorEvent::Remove(remove) => self.remove_unique(remove.unique_id),
+            ActorEvent::Remove(remove) => self.remove_unique(sequence, remove.unique_id),
             ActorEvent::Move(movement) => {
                 // The local player's pose is client-fed each tick; server movement
                 // (authoritative reconciliation) must not fight that feed.
@@ -782,11 +785,14 @@ impl ActorStore {
         self.latest_sequence = sequence;
         ActorApplyResult::Updated
     }
-    fn remove_unique(&mut self, unique_id: i64) -> ActorApplyResult {
+    fn remove_unique(&mut self, sequence: u64, unique_id: i64) -> ActorApplyResult {
         let Some(runtime_id) = self.unique_to_runtime.remove(&unique_id) else {
             self.remove_links_for(unique_id);
             return ActorApplyResult::MissingActor;
         };
+        if self.remote_state_excluded_runtime_id == Some(runtime_id) {
+            self.replace_local_actor_lifetime(sequence);
+        }
         self.seat_bindings.remove(&runtime_id);
         if let Some(actor) = self.actors.remove(&runtime_id) {
             self.effect_members.remove(runtime_id);

@@ -4,12 +4,17 @@ use super::*;
 use protocol_ids::Attribute;
 
 impl WorldAuthority {
-    /// Retires cached actor state and publishes the new lifetime through ordered controls.
+    /// Publishes complete authority once per source lifetime, including before its body exists.
     pub(super) fn publish_local_actor_replacement(&mut self, sequence: u64) {
+        let revision = self.actors.local_actor_revision();
+        if revision == self.published_local_actor_revision {
+            return;
+        }
+        self.published_local_actor_revision = revision;
         let actor = self.actors.get(self.local_player_runtime_id);
         let flags = crate::MovementFlagUpdate::for_replacement(actor);
         let dimensions = actor.map_or_else(
-            || crate::ExplicitDimensions::for_spawn(sequence),
+            || crate::ExplicitDimensions::for_spawn(revision),
             |actor| actor.explicit_dimensions,
         );
         let attribute = |name: &str| actor.and_then(|actor| actor.attributes.get(name));

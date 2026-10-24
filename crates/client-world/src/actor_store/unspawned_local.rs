@@ -34,7 +34,7 @@ impl ActorStore {
                     properties: [].into(),
                     links: [].into(),
                 },
-                self.latest_sequence,
+                self.local_actor_revision,
                 EntityFacts::pinned().player(),
                 &mut self.hitbox_budget,
             )
@@ -43,8 +43,56 @@ impl ActorStore {
         self.pending_local_actor = Some(actor);
     }
 
-    /// Discards data belonging to an actor lifetime that has ended or been replaced.
-    pub(crate) fn clear_unspawned_local_actor(&mut self) {
+    /// Starts the source lifetime before any data for its presentation actor can arrive.
+    pub(crate) fn replace_local_actor_lifetime(&mut self, revision: u64) {
         self.pending_local_actor = None;
+        self.local_actor_revision = revision;
+    }
+
+    /// Returns the stable source lifetime, including while its presentation actor is absent.
+    pub(crate) fn local_actor_revision(&self) -> u64 {
+        self.local_actor_revision
+    }
+
+    /// Reads accepted local data before or after presentation actor creation.
+    pub(crate) fn actor_authority(&self, runtime_id: u64) -> Option<&ActorSnapshot> {
+        self.actors.get(&runtime_id).or_else(|| {
+            self.pending_local_actor
+                .as_ref()
+                .filter(|actor| actor.runtime_id == runtime_id)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unspawned_local_data_does_not_cross_dimension_reset() {
+        let mut store = ActorStore::new(1, 0);
+        store.exclude_remote_state_for(7);
+        let name = protocol_ids::Attribute::Movement.wire_name();
+        store.apply(
+            1,
+            1,
+            ActorEvent::Attributes(protocol::ActorAttributesUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                tick: 0,
+                attributes: [ActorAttribute {
+                    name: name.into(),
+                    min: 0.0,
+                    max: 1.0,
+                    current: 0.2,
+                    default: Some(0.2),
+                    modifiers: [].into(),
+                }]
+                .into(),
+            }),
+        );
+        store.reset_dimension(1, 2, 1);
+        store.sync_local_player(7, 70, &super::super::local_tests::local_feed(0.0, 0.0));
+        assert!(!store.actors[&7].attributes.contains_key(name));
     }
 }

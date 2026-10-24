@@ -124,8 +124,8 @@ pub struct ActorSnapshot {
     pub painting: Option<protocol::PaintingData>,
     pub unique_id: i64,
     pub runtime_id: u64,
-    /// Spawn arrival, or the last admitted actor arrival for a synthetic local actor.
-    /// Zero identifies an initial synthetic actor before any actor event arrived.
+    /// Spawn arrival, or the boundary that started a synthetic local actor's lifetime.
+    /// Zero identifies the initial local lifetime created by session setup.
     pub spawn_revision: u64,
     pub movement_revision: u64,
     pub kind: ActorKind,
@@ -752,6 +752,7 @@ pub(crate) struct ActorStore {
     /// Health admitted before the client-fed local actor is created.
     pending_local_health: Option<ActorAttribute>,
     pending_local_actor: Option<ActorSnapshot>,
+    local_actor_revision: u64,
     /// Arm swings the server sent for the local player, waiting for its swing tracker.
     local_server_swings: Vec<Option<std::sync::Arc<str>>>,
     pending_local_damage: Option<local_health::PendingLocalDamage>,

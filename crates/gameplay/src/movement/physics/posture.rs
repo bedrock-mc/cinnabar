@@ -6,7 +6,7 @@ use super::*;
 const MOVING_FLAG_DISTANCE_SQUARED: f32 = 0.001;
 
 /// Accepted flag writes and size, independent of replay history and travel-mode selection.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct SyncState {
     pub flags: client_world::MovementFlagUpdate,
     pub size: Option<[f32; 2]>,
@@ -14,7 +14,6 @@ pub(super) struct SyncState {
     dimensions: client_world::ExplicitDimensions,
     last_pose: (bool, bool),
     previous_mode: sim::MovementMode,
-    pending: Vec<ServerWrite>,
     local_spinning: bool,
 }
 
@@ -26,23 +25,20 @@ pub(super) enum ServerWrite {
         client_world::ExplicitDimensions,
     ),
     Flags(client_world::MovementFlagUpdate),
+    Controls(client_world::MovementFlagUpdate),
+    EndMode(sim::MovementMode),
     Dimensions(client_world::ExplicitDimensions),
 }
 
-/// Applies a replacement and its newer controls before preparing replayed movement.
+/// Replays the control actions actually adopted between completed movement ticks.
 pub(super) fn replay_actor_modes(writes: &[ServerWrite], modes: &mut ModeTracker) {
-    let Some(start) = writes
-        .iter()
-        .position(|write| matches!(write, ServerWrite::Replacement(..)))
-    else {
-        return;
-    };
-    for write in &writes[start..] {
-        match write {
-            ServerWrite::Replacement(flags, _) | ServerWrite::Flags(flags) => {
-                modes.adopt_actor_flags(*flags);
+    for write in writes {
+        match *write {
+            ServerWrite::Controls(flags) => {
+                modes.adopt_actor_flags(flags);
             }
-            ServerWrite::Dimensions(_) => {}
+            ServerWrite::EndMode(mode) => modes.end(mode),
+            ServerWrite::Replacement(..) | ServerWrite::Flags(_) | ServerWrite::Dimensions(_) => {}
         }
     }
 }
@@ -61,24 +57,14 @@ impl SyncState {
             dimensions: Default::default(),
             last_pose: (false, false),
             previous_mode: sim::MovementMode::Walking,
-            pending: Vec::new(),
             local_spinning: false,
         };
         self.resize();
         self.apply_dimensions(dimensions);
     }
 
-    /// Applies only supplied server bits, preserving independent pose flags.
-    pub(super) fn server_flags(&mut self, update: client_world::MovementFlagUpdate) {
-        if update == client_world::MovementFlagUpdate::default() {
-            return;
-        }
-        self.pending.push(ServerWrite::Flags(update));
-        self.apply_flags(update);
-    }
-
     /// Updates flag and pose ownership without recording another replay edit.
-    fn apply_flags(&mut self, update: client_world::MovementFlagUpdate) {
+    pub(super) fn apply_flags(&mut self, update: client_world::MovementFlagUpdate) {
         self.flags.merge(update);
         if self.explicit_size && update.sneaking.is_some() {
             // A matching local sneak does not request another resize.
@@ -99,16 +85,11 @@ impl SyncState {
         }
     }
 
-    /// Applies sparse dimensions without changing accepted pose comparisons.
-    /// A replacement starts from default dimensions instead of the previous actor's size.
-    fn server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
-        if self.apply_dimensions(dimensions) {
-            self.pending.push(ServerWrite::Dimensions(dimensions));
-        }
-    }
-
     /// Applies a size arrival and reports whether it changed component ownership or lifetime.
-    fn apply_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) -> bool {
+    pub(super) fn apply_dimensions(
+        &mut self,
+        dimensions: client_world::ExplicitDimensions,
+    ) -> bool {
         let mut changed = false;
         if let Some(revision) = dimensions.spawn_revision
             && self.dimensions.spawn_revision != Some(revision)
@@ -150,22 +131,6 @@ impl SyncState {
         changed || resized
     }
 
-    /// Associates server writes with the next retained tick for correction replay.
-    pub(super) fn take_pending(&mut self) -> Vec<ServerWrite> {
-        std::mem::take(&mut self.pending)
-    }
-
-    /// Reapplies pending replacement controls after replaying older movement ticks.
-    pub(super) fn restore_pending_modes(&self, modes: &mut ModeTracker) {
-        replay_actor_modes(&self.pending, modes);
-    }
-
-    /// Reapplies server writes received after the last completed tick to a replay result.
-    pub(super) fn restore_pending(&mut self, live: &Self) {
-        self.replay_server(&live.pending);
-        self.pending.clone_from(&live.pending);
-    }
-
     /// Replays accepted flag and dimension writes in their original order.
     pub(super) fn replay_server(&mut self, writes: &[ServerWrite]) {
         for write in writes {
@@ -177,6 +142,7 @@ impl SyncState {
                 ServerWrite::Dimensions(dimensions) => {
                     self.apply_dimensions(dimensions);
                 }
+                ServerWrite::Controls(_) | ServerWrite::EndMode(_) => {}
             }
         }
     }
@@ -238,12 +204,19 @@ impl LocalPhysicsController {
         dimensions: client_world::ExplicitDimensions,
     ) {
         self.sync_state.replace_actor(flags, dimensions);
-        self.sync_state
-            .pending
+        self.sync_pending
             .push(ServerWrite::Replacement(flags, dimensions));
         self.live_posture = Default::default();
         self.server_control_flags = None;
         self.adopt_live_flags(flags);
+    }
+
+    /// Records one sparse server flag write without replacing prior replay actions.
+    pub(super) fn note_server_flags(&mut self, flags: client_world::MovementFlagUpdate) {
+        if flags != client_world::MovementFlagUpdate::default() {
+            self.sync_state.apply_flags(flags);
+            self.sync_pending.push(ServerWrite::Flags(flags));
+        }
     }
 
     /// Returns effective flight independently of the current travel mode.
@@ -268,7 +241,9 @@ impl LocalPhysicsController {
 
     /// Records a server dimension write before any later local resize is evaluated.
     pub(crate) fn note_server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
-        self.sync_state.server_dimensions(dimensions);
+        if self.sync_state.apply_dimensions(dimensions) {
+            self.sync_pending.push(ServerWrite::Dimensions(dimensions));
+        }
     }
 
     /// Whether a newer explicit dimension request still owns the reported size.
@@ -315,7 +290,6 @@ mod tests {
             dimensions: client_world::ExplicitDimensions::for_spawn(1),
             last_pose: (true, true),
             previous_mode: sim::MovementMode::Gliding,
-            pending: vec![ServerWrite::Flags(flags)],
             local_spinning: true,
         };
         let mut fresh = SyncState::default();

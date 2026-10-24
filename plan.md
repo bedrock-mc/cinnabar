@@ -307,10 +307,11 @@ Sparse dimension writes preserve the untouched accepted component, including loc
 pose sizes. Dimensions enter gameplay with ordered metadata controls, and correction
 replay retains their order alongside flag writes. Network and synthetic local actors
 share arrival-ordered lifetimes.
-Received local spawns, synthetic recreation and dimension resets publish complete
-replacement authority through the same ordered controls. Replacement retires cached
-flags, pose comparisons, dimensions, item use and movement attributes; correction replay
-retains that lifetime boundary. Unknown passenger identities
+Received local spawns, removals and dimension resets publish complete replacement
+authority through the same ordered controls. Synthetic creation keeps that lifetime
+and its already accepted updates and effects. Replacement retires cached flags, pose
+comparisons, dimensions, item use and movement attributes. Replay retains ordered
+actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
 Server-driven gameplay pose and item-use starts, riptide flag
 lifetimes, block-climber flags, custom collision definitions, legacy sneak height,

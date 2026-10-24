@@ -563,3 +563,214 @@ fn sync_lifetime_replacement_mode_clear_survives_replay() {
         );
     }
 }
+
+/// Applies committed movement owners and the app's retained actor facts together.
+fn apply_cached_authority(
+    world: &mut client_world::WorldAuthority,
+    physics: &mut LocalPhysicsController,
+    speed: &mut crate::movement::LocalMovementSpeedAuthority,
+    facts: &mut client_world::LocalPlayerFacts,
+) {
+    let mut movement = crate::movement::MovementTicker::default();
+    movement.reset(1, 100, [0.5, 72.0, 0.5]);
+    movement.set_source(crate::movement::MovementSource::Physics);
+    let mut effects = crate::movement::LocalMovementEffectTimeline::default();
+    effects.begin_session(1);
+    for control in world.take_committed_controls() {
+        if let CommittedControlEvent::LocalMovementFlags {
+            flags, replacement, ..
+        } = control
+        {
+            if replacement {
+                facts.clear_actor_movement_authority(1);
+            }
+            facts.apply_local_movement_flags(1, flags);
+        }
+        if let CommittedControlEvent::LocalMovementSpeed {
+            air_drag_modifier: Some(value),
+            ..
+        } = control
+        {
+            facts.apply_air_drag_modifier(1, value);
+        }
+        crate::committed_control::CommittedGameplayState {
+            movement: &mut movement,
+            physics,
+            effects: &mut effects,
+            speed,
+            session_generation: 1,
+            dimension: world.current_dimension(),
+            dimension_transfer_active: false,
+        }
+        .apply(control, &OpenWorld, |_| {});
+    }
+}
+
+/// Creating a body preserves accepted effects and values retained after skipped updates.
+#[test]
+fn sync_lifetime_synthetic_body_preserves_effective_authority() {
+    let mut world = local_actor_authority();
+    let mut physics = due_physics();
+    let mut speed = crate::movement::LocalMovementSpeedAuthority::default();
+    speed.begin_session(1, 0);
+    let mut facts = client_world::LocalPlayerFacts::new(1);
+    apply_cached_authority(&mut world, &mut physics, &mut speed, &mut facts);
+    world
+        .apply_ordered_event(
+            protocol::WorldEvent::Actor(protocol::ActorEvent::Remove(protocol::ActorRemoveEvent {
+                dimension: 0,
+                unique_id: 70,
+            })),
+            Some(2),
+        )
+        .unwrap();
+    for (sequence, name, current) in [
+        (3, Attribute::Movement, 0.2),
+        (5, Attribute::AirDragModifier, 1.7),
+        (6, Attribute::AirDragModifier, f32::NAN),
+    ] {
+        if sequence == 5 {
+            world
+                .apply_ordered_event(
+                    protocol::WorldEvent::ActorEffect(protocol::ActorEffectEvent {
+                        dimension: 0,
+                        actor_runtime_id: 7,
+                        action: protocol::ActorEffectAction::Add,
+                        effect_id: protocol_ids::Effect::Speed.wire_value(),
+                        amplifier: 0,
+                        duration_ticks: 200,
+                        particles: false,
+                        ambient: false,
+                        tick: 0,
+                    }),
+                    Some(4),
+                )
+                .unwrap();
+        }
+        world
+            .apply_ordered_event(
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Attributes(
+                    protocol::ActorAttributesUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 7,
+                        tick: 0,
+                        attributes: [protocol::ActorAttribute {
+                            name: name.wire_name().into(),
+                            min: 0.0,
+                            max: 10.0,
+                            current,
+                            default: Some(current),
+                            modifiers: [].into(),
+                        }]
+                        .into(),
+                    },
+                )),
+                Some(sequence),
+            )
+            .unwrap();
+    }
+    apply_cached_authority(&mut world, &mut physics, &mut speed, &mut facts);
+    let accepted_speed = speed.reported_current().unwrap();
+    assert!(accepted_speed as f32 > 0.2_f32);
+    assert_eq!(facts.air_drag_modifier(), Some(1.7));
+    world.sync_local_player_pose(&super::super::presentation_tests::feed());
+    apply_cached_authority(&mut world, &mut physics, &mut speed, &mut facts);
+    assert_eq!(speed.reported_current(), Some(accepted_speed));
+    assert_eq!(facts.air_drag_modifier(), Some(1.7));
+    send_movement_prediction_sync(
+        &mut physics,
+        &LocalActor(world.actor(7).unwrap().clone()),
+        facts.air_drag_modifier(),
+        speed.reported_current(),
+        None,
+        |packet| {
+            assert_eq!(
+                protocol::test_support::packets::prediction_sync_attributes(&packet).unwrap()[0],
+                accepted_speed as f32
+            );
+            assert_eq!(
+                protocol::test_support::packets::prediction_sync_attributes(&packet).unwrap()[8],
+                1.7
+            );
+            false
+        },
+    );
+}
+
+/// Two replacements between completed ticks retain the earlier mode-ending action.
+#[test]
+fn sync_lifetime_multiple_replacements_keep_mode_end() {
+    for complete_replacement in [true, false] {
+        let mut world = local_actor_authority();
+        let mut physics = due_physics();
+        super::state_updates::apply_controls(&mut world, &mut physics);
+        let context = crate::movement::PhysicsSampleContext {
+            mode_intent: crate::movement::ModeIntent {
+                elytra_ready: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let anchor = physics
+            .advance_with_context(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput {
+                    jumping: true,
+                    ..Default::default()
+                },
+                context,
+                &OpenWorld,
+            )
+            .samples
+            .remove(0);
+        physics.advance_with_context(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            context,
+            &OpenWorld,
+        );
+        assert_eq!(physics.mode(), sim::MovementMode::Gliding);
+        for (sequence, gliding) in [(2, false), (3, true)] {
+            let mut spawn = local_actor_spawn(Vec::new());
+            spawn.metadata = [protocol::ActorMetadata {
+                key: ActorDataKey::Flags.wire_value(),
+                value: ActorMetadataValue::Flags(if gliding {
+                    1 << ActorFlag::Gliding.wire_value()
+                } else {
+                    0
+                }),
+            }]
+            .into();
+            world
+                .apply_ordered_event(
+                    protocol::WorldEvent::Actor(protocol::ActorEvent::Spawn(spawn)),
+                    Some(sequence),
+                )
+                .unwrap();
+            super::state_updates::apply_controls(&mut world, &mut physics);
+        }
+        assert_eq!(physics.mode(), sim::MovementMode::Walking);
+        if complete_replacement {
+            physics.advance_with_context(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                context,
+                &OpenWorld,
+            );
+        }
+        physics
+            .apply_correction(
+                crate::movement::PhysicsAnchor {
+                    network_position: anchor.position,
+                    tick: anchor.tick,
+                    on_ground: false,
+                    velocity: Some(anchor.velocity),
+                },
+                crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                None,
+                &OpenWorld,
+            )
+            .unwrap();
+        assert_eq!(physics.mode(), sim::MovementMode::Walking);
+    }
+}

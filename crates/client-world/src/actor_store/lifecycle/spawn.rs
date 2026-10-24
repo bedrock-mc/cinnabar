@@ -64,7 +64,7 @@ impl ActorStore {
         self.actors.insert(runtime_id, actor);
         self.queue_rocket_launch_audio(runtime_id);
         if self.remote_state_excluded_runtime_id == Some(runtime_id) {
-            self.pending_local_actor = None;
+            self.replace_local_actor_lifetime(sequence);
             if self.actors[&runtime_id]
                 .attributes
                 .contains_key(Attribute::Health.wire_name())

@@ -281,17 +281,19 @@ impl WorldAuthority {
                             | crate::actor_store::ActorApplyResult::MissingActor
                     )
                 {
-                    self.actors.clear_unspawned_local_actor();
+                    self.actors.replace_local_actor_lifetime(sequence);
+                    self.publish_local_actor_replacement(sequence);
                 }
 
                 if let Some((tick, flags)) = local_metadata {
                     let dimensions = self
                         .actors
-                        .get(self.local_player_runtime_id)
+                        .actor_authority(self.local_player_runtime_id)
                         .filter(|_| {
                             matches!(
                                 result,
                                 crate::actor_store::ActorApplyResult::Updated
+                                    | crate::actor_store::ActorApplyResult::MissingActor
                                     | crate::actor_store::ActorApplyResult::CapacityRejected
                             )
                         })
