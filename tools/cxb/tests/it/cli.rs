@@ -187,6 +187,45 @@ fn build_output_passes_the_client_bundle_verifier() {
 }
 
 #[test]
+fn shared_texture_and_drawing_asset_is_packaged_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let seed = dir.path().join("publisher.seed");
+    assert!(cxb(&["keygen", path(&seed)]).status.success());
+    let core = dir.path().join("core.wasm");
+    std::fs::write(&core, CORE_MODULE).unwrap();
+    let texture = "textures/shared.png";
+    let experience = write_experience(
+        dir.path(),
+        &EXPERIENCE.replace(
+            "[client]",
+            &format!("[client]\ntextures = [\"{texture}\"]\nassets = [\"{texture}\"]"),
+        ),
+    );
+    std::fs::create_dir(dir.path().join("textures")).unwrap();
+    std::fs::write(dir.path().join(texture), b"shared texture").unwrap();
+    let out = dir.path().join("shared.cxb");
+    let output = build(&experience, &core, &seed, &out);
+    assert!(output.status.success(), "{output:?}");
+    let bytes = std::fs::read(out).unwrap();
+    let verified = verify(&bytes, &seed).unwrap();
+    assert_eq!(verified.file(texture), Some(b"shared texture".as_slice()));
+    assert_eq!(
+        verified
+            .manifest
+            .files
+            .iter()
+            .filter(|file| file.path == texture)
+            .count(),
+        1
+    );
+    let archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    assert_eq!(
+        archive.file_names().filter(|path| *path == texture).count(),
+        1
+    );
+}
+
+#[test]
 fn build_rejects_a_manifest_the_client_would_refuse() {
     let dir = tempfile::tempdir().unwrap();
     let seed = dir.path().join("publisher.seed");

@@ -70,6 +70,7 @@ impl Snapshot {
 
     /// Revalidates topology, materials, placements and aggregate costs atomically. The caller
     /// supplies current actor liveness and local tokens, so helper processes cannot collide.
+    /// Returns the admitted resources and the number of stale entity references discarded.
     pub fn admit(
         &self,
         previous: Option<&Resources>,
@@ -78,7 +79,7 @@ impl Snapshot {
         dimension: i32,
         valid: impl Fn(EntityKey) -> bool,
         mut token: impl FnMut(Handle) -> Handle,
-    ) -> Result<Resources, DrawError> {
+    ) -> Result<(Resources, usize), DrawError> {
         if !permissions.world_draw && !self.is_empty() {
             return Err(error(ErrorCode::Denied, "world drawing"));
         }
@@ -101,7 +102,6 @@ impl Snapshot {
             if !permissions.entity_observe
                 || key.session != connection
                 || key.dimension != dimension
-                || !valid(*key)
             {
                 return Err(error(ErrorCode::Denied, "entity reference"));
             }
@@ -162,6 +162,13 @@ impl Snapshot {
             resources.instances.insert(id, instance);
         }
         validation::budget(&resources, &[])?;
+        // Validate the callback's complete output before reconciling normal actor despawns.
+        let references = resources.entities.len();
+        resources.entities.retain(|_, key| valid(*key));
+        resources.instances.retain(|_, instance| {
+            !matches!(instance.anchor, Anchor::Entity(anchor) if !resources.entities.contains_key(&anchor.entity))
+        });
+        let stale = references - resources.entities.len();
         resources.geometry_revision = previous.map_or(1, |old| {
             old.geometry_revision + u64::from(old.geometry != resources.geometry)
         });
@@ -174,7 +181,7 @@ impl Snapshot {
                     old.instances != resources.instances || old.entities != resources.entities,
                 )
         });
-        Ok(resources)
+        Ok((resources, stale))
     }
 
     /// Checks resident and retiring topology against the same budgets as local drawing.

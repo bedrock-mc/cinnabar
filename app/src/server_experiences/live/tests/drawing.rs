@@ -1,5 +1,7 @@
 use super::*;
 
+mod liveness;
+
 #[test]
 fn actor_leaving_candidates_during_a_callback_keeps_its_live_reference() {
     let mut live = initialized(1);
@@ -490,8 +492,8 @@ fn dispatch_requires_a_context_for_the_callback_epoch() {
     assert!(instance.helper.as_ref().unwrap().dispatched.is_empty());
 }
 
-/// Queues one complete retained scene as though the helper had committed it.
-fn scene(live: &mut Live<FakeWorker>, bundle: &str, count: usize) {
+/// Builds a retained scene with the requested number of camera-relative triangles.
+fn retained_scene(count: usize) -> mod_host::presentation::Output {
     use mod_render::retained::{self, Anchor, GeometrySpec, Vertex};
     let mut store = retained::Store::default();
     let geometry = store
@@ -529,6 +531,14 @@ fn scene(live: &mut Live<FakeWorker>, bundle: &str, count: usize) {
         )
         .unwrap();
     store.commit();
+    mod_host::presentation::Output {
+        drawing: mod_render::retained::transfer::Snapshot::from_resources(store.snapshot()),
+        ..Default::default()
+    }
+}
+
+/// Queues one complete retained scene as though the helper had committed it.
+fn scene(live: &mut Live<FakeWorker>, bundle: &str, count: usize) {
     let instance = live.instances.get_mut(bundle).unwrap();
     instance
         .capabilities
@@ -536,11 +546,7 @@ fn scene(live: &mut Live<FakeWorker>, bundle: &str, count: usize) {
         .permissions
         .insert(Permission::WorldDraw);
     instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
-    let bytes = serde_json::to_vec(&mod_host::presentation::Output {
-        drawing: mod_render::retained::transfer::Snapshot::from_resources(store.snapshot()),
-        ..Default::default()
-    })
-    .unwrap();
+    let bytes = serde_json::to_vec(&retained_scene(count)).unwrap();
     instance.helper.as_mut().unwrap().presentation.extend(
         bytes
             .chunks(MAX_HOST_OUTPUT / 4)
@@ -1046,9 +1052,11 @@ fn callback_reference_admission_queries_liveness_outside_its_dispatch_context() 
         live.poll(1, CALLBACK_INTERVAL_MS, false, |key| alive && key == actor)
             .unwrap();
         let instance = &live.instances["bundle0"];
-        assert_eq!(instance.stopped.is_none(), alive);
-        if alive {
-            assert_eq!(instance.drawing_references, [actor]);
-        }
+        assert!(instance.stopped.is_none());
+        assert_eq!(instance.presentation.stale_references, u64::from(!alive));
+        assert_eq!(
+            instance.drawing_references,
+            if alive { vec![actor] } else { vec![] }
+        );
     }
 }

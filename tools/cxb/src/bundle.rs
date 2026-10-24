@@ -41,7 +41,7 @@ pub struct Source {
     pub textures: BTreeSet<String>,
     /// Drawing files read only from the signed bundle.
     pub assets: BTreeSet<String>,
-    /// Each template's and texture's bytes, read beside `experience.toml` at its bundle path.
+    /// Each declared file's bytes, read beside `experience.toml` at its bundle path.
     pub files: BTreeMap<String, Vec<u8>>,
 }
 
@@ -73,6 +73,15 @@ struct Client {
 }
 
 impl Source {
+    /// Returns each declared bundle path once, in archive order.
+    fn declared_paths(&self) -> BTreeSet<&String> {
+        self.templates
+            .iter()
+            .chain(&self.textures)
+            .chain(&self.assets)
+            .collect()
+    }
+
     /// Reads the client part that the `experience.toml` at `path` declares, and the screen files
     /// it lists.
     pub fn read(path: &Path) -> Result<Self> {
@@ -101,20 +110,17 @@ impl Source {
             files: BTreeMap::new(),
         };
         let root = path.parent().unwrap_or(Path::new("."));
-        for file in source
-            .templates
-            .iter()
-            .chain(&source.textures)
-            .chain(&source.assets)
-        {
+        let mut files = BTreeMap::new();
+        for file in source.declared_paths() {
             ensure!(
                 server_experience::bundle::safe_path(file),
                 "invalid bundle asset path {file}"
             );
             let bytes = std::fs::read(root.join(file))
                 .with_context(|| format!("reading {}", root.join(file).display()))?;
-            source.files.insert(file.clone(), bytes);
+            files.insert(file.clone(), bytes);
         }
+        source.files = files;
         Ok(source)
     }
 }
@@ -136,12 +142,7 @@ pub fn build(
 ) -> Result<Bundle> {
     let component = componentize(wasm)?;
     let mut entries: Vec<(&str, &[u8])> = vec![(COMPONENT_PATH, &component)];
-    for path in source
-        .templates
-        .iter()
-        .chain(&source.textures)
-        .chain(&source.assets)
-    {
+    for path in source.declared_paths() {
         let bytes = source
             .files
             .get(path)

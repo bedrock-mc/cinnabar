@@ -803,7 +803,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   completion polling, and temporary culling preserves retained mask selections. Actor
   references stay live during callbacks and partial snapshot transfers. Native actor
   liveness admits references and mask selections independently of culling or prior
-  publication; only confirmed despawns or world rebinds revoke them. Guest
+  publication; only confirmed despawns or world rebinds revoke them. Completion
+  discards and counts stale actor references and their dependent draws without
+  stopping the bundle. Declared bundle files are packaged once across screen,
+  texture and drawing asset lists. Guest
   drawing imports share the receiver's per-bundle draw ceiling. Immediate
   primitives share one admitted list whose allocation ranges survive layer merging.
   One frame publisher rebuilds anchor availability from all current contributors,

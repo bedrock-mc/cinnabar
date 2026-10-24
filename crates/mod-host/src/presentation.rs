@@ -92,6 +92,8 @@ pub struct Receiver {
     ledger: Option<mod_render::GpuLedger>,
     pub time: Option<u32>,
     pub weather: Option<[f32; 2]>,
+    /// Stale held references, snapshot references and mask members discarded at completion.
+    pub stale_references: u64,
 }
 
 impl Receiver {
@@ -162,7 +164,7 @@ impl Receiver {
         );
         let mut owners = self.owners.clone();
         let mut output = RenderOutput::default();
-        let resources = input
+        let (resources, mut stale_references) = input
             .drawing
             .admit(
                 self.output.retained.first().map(Arc::as_ref),
@@ -240,15 +242,6 @@ impl Receiver {
                         && entity.dimension == context.dimension,
                     "foreign mask actor"
                 );
-                ensure!(
-                    valid(mod_render::retained::EntityKey {
-                        session: entity.connection,
-                        dimension: entity.dimension,
-                        runtime_id: entity.runtime_id,
-                        spawn_revision: entity.spawn_revision,
-                    }),
-                    "unadmitted mask actor"
-                );
                 if let Some((_, count)) = context.targets.iter().find(|(key, _)| key == entity) {
                     vertices = vertices.saturating_add(*count);
                 }
@@ -257,6 +250,16 @@ impl Receiver {
                 vertices <= mod_api::drawing::MAX_MASK_VERTICES,
                 "mask vertex budget exceeded"
             );
+            let members = mask.entities.len();
+            mask.entities.retain(|entity| {
+                valid(mod_render::retained::EntityKey {
+                    session: entity.connection,
+                    dimension: entity.dimension,
+                    runtime_id: entity.runtime_id,
+                    spawn_revision: entity.spawn_revision,
+                })
+            });
+            stale_references += members - mask.entities.len();
             mask.session = mod_api::drawing::DrawingSession {
                 connection: context.connection,
                 dimension: context.dimension,
@@ -366,6 +369,9 @@ impl Receiver {
         self.revision = mod_render::next_owner();
         self.time = input.time;
         self.weather = input.weather;
+        self.stale_references = self
+            .stale_references
+            .saturating_add(stale_references as u64);
         Ok(())
     }
 }

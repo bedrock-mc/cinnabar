@@ -440,6 +440,8 @@ Each reply reports the guest's held actor references independently of snapshot c
 The application checks returned references and mask selections against the current
 native actor store. A live actor remains admissible outside a callback's candidate
 list or visible frame, including while an older snapshot is transferring.
+If an actor despawns before completion, the host discards and counts its references,
+anchored draws and mask membership. The bundle and its other output keep running.
 While native context is unavailable, new callbacks wait and existing helpers keep
 being polled. Only outstanding work has a deadline; queued replies are judged by
 their completion time. Temporary culling never changes retained mask membership:
@@ -452,6 +454,7 @@ Anchor availability is rebuilt from all current contributors every frame, includ
 when no personal mod runs; unloaded blocks and previous sessions cannot retain it.
 
 List drawing files in `[client].assets` beside `experience.toml`.
+Paths shared with `[client].textures` or `[client].templates` are packaged once.
 `cinnabar-cxb build` signs and indexes them with the other bundle files; the client
 checks every digest before exposing bytes through `world-draw/assets.read`.
 `experience-sdk::declarations::generate` generates typed `Asset` constants and

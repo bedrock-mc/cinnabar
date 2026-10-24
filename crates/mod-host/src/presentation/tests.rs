@@ -558,18 +558,17 @@ fn culled_mask_membership_survives_an_unrelated_publication() {
         position: None,
     });
     let mut receiver = Receiver::default();
-    assert!(
-        receiver
-            .apply(
-                input.clone(),
-                DrawingPermissions::ALL,
-                &context(),
-                u64::MAX,
-                |_| false
-            )
-            .is_err()
-    );
-    assert!(receiver.output().0.masks.is_empty());
+    receiver
+        .apply(
+            input.clone(),
+            DrawingPermissions::ALL,
+            &context(),
+            u64::MAX,
+            |_| false,
+        )
+        .unwrap();
+    assert!(receiver.output().0.masks[0].entities.is_empty());
+    assert_eq!(receiver.stale_references, 1);
     receiver
         .apply(
             input.clone(),
@@ -637,6 +636,14 @@ fn actor_admission_uses_liveness_instead_of_visible_or_published_evidence() {
                 style: None,
                 position: None,
             });
+            input.passes.push(Pass {
+                name: "masked".into(),
+                order: 0,
+                source: "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv); }".into(),
+                enabled: true,
+                params: [0.; mod_api::MAX_PASS_PARAMS],
+                masks: vec![id],
+            });
         } else {
             input.drawing.entities.push((id, key));
         }
@@ -653,13 +660,21 @@ fn actor_admission_uses_liveness_instead_of_visible_or_published_evidence() {
             .unwrap();
         let revision = receiver.output().1;
         // Neither visible coverage nor previously published membership proves liveness.
-        assert!(
-            receiver
-                .apply(input, DrawingPermissions::ALL, &observed, u64::MAX, |_| {
-                    false
-                })
-                .is_err()
-        );
-        assert_eq!(receiver.output().1, revision);
+        receiver
+            .apply(input, DrawingPermissions::ALL, &observed, u64::MAX, |_| {
+                false
+            })
+            .unwrap();
+        assert_ne!(receiver.output().1, revision);
+        assert_eq!(receiver.stale_references, 1);
+        if mask {
+            assert!(receiver.output().0.masks[0].entities.is_empty());
+            assert_eq!(
+                receiver.output().0.passes[0].masks,
+                [receiver.output().0.masks[0].handle]
+            );
+        } else {
+            assert!(receiver.output().0.retained.is_empty());
+        }
     }
 }

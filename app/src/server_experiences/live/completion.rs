@@ -34,6 +34,7 @@ impl<H: Worker> Live<H> {
                 bevy::log::warn!(bundle = %instance.owner.bundle, "client part helper: {line}");
             }
             let Some(result) = result else { continue };
+            let stale_references = instance.presentation.stale_references;
             instance.busy = false;
             instance.initialized |= instance.callback == "init";
             self.scene_revision += 1;
@@ -126,6 +127,11 @@ impl<H: Worker> Live<H> {
             };
             if let Err(error) = result {
                 instance.unavailable(&mut self.budget, &error, now_ms);
+            }
+            let discarded = instance.presentation.stale_references - stale_references;
+            if discarded != 0 {
+                bevy::log::debug!(bundle = %instance.owner.bundle, discarded,
+                    "discarded stale drawing references");
             }
             instance.discard_outputs(
                 &mut self.pending_sends,
@@ -221,7 +227,7 @@ impl<H> Instance<H> {
     /// Records the guest's bounded held references without waiting for scene publication.
     fn accept_references(
         &mut self,
-        references: Vec<mod_render::retained::EntityKey>,
+        mut references: Vec<mod_render::retained::EntityKey>,
         valid: impl Fn(mod_render::retained::EntityKey) -> bool,
     ) -> Result<()> {
         ensure!(
@@ -229,10 +235,15 @@ impl<H> Instance<H> {
                 && references
                     .iter()
                     .all(|key| key.session == self.pending_drawing_context.connection
-                        && key.dimension == self.pending_drawing_context.dimension
-                        && valid(*key)),
+                        && key.dimension == self.pending_drawing_context.dimension),
             "unadmitted drawing references"
         );
+        let count = references.len();
+        references.retain(|key| valid(*key));
+        self.presentation.stale_references = self
+            .presentation
+            .stale_references
+            .saturating_add((count - references.len()) as u64);
         self.drawing_references = references;
         Ok(())
     }
