@@ -44,7 +44,8 @@ const SCREEN: &str = r#"{
       {"item_scroll_panel": {"type": "input_panel", "size": [40, 40],
         "anchor_from": "top_left", "anchor_to": "top_left", "offset": [50, 50],
         "button_mappings": [{"from_button_id": "button.menu_select",
-          "to_button_id": "button.destroy_selection", "mapping_type": "pressed"}]}}
+          "to_button_id": "button.destroy_selection", "mapping_type": "pressed"}],
+        "controls": [{"view": {"type": "scroll_view", "size": ["100%", "100%"]}}]}}
     ]
   }
 }"#;
@@ -107,8 +108,8 @@ fn presses_off_the_sections_drop_the_held_stack() {
     }
 }
 
-/// Vanilla's creative and recipe book item grid maps a press on its empty background
-/// to `button.destroy_selection`.
+/// Vanilla's creative and recipe book item grid maps a press on its empty background,
+/// under the grid's scroll view, to `button.destroy_selection`.
 #[test]
 fn presses_on_an_item_scroll_panel_destroy_the_held_stack() {
     assert_eq!(

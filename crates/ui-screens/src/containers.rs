@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use json_ui::{CollectionItem, DataSource, Scalar, ViewState, hit_test, press_region};
+use json_ui::{CollectionItem, DataSource, HitKind, Scalar, ViewState, hit_test};
 use protocol::NetworkItemStack;
 use serde_json::Value;
 use ui::IconRef;
@@ -592,7 +592,17 @@ pub enum HeldStackPress {
 /// claims presses anywhere on its background, as do its buttons.
 pub fn engine_held_stack_press(frame: &EngineFrame, gui: [f32; 2]) -> Option<HeldStackPress> {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
-    let Some(region) = press_region(&frame.hits, point) else {
+    // A scroll view's viewport takes the wheel, not the press: the press reaches the input
+    // panel around it, as the item grid's background does.
+    let region = frame.hits.iter().rev().find(|region| {
+        region.contains(point)
+            && match region.kind {
+                HitKind::ScrollView => false,
+                HitKind::Panel => region.pressed.is_some(),
+                _ => true,
+            }
+    });
+    let Some(region) = region else {
         return Some(HeldStackPress::Drop);
     };
     match region.pressed.as_deref() {
