@@ -392,14 +392,16 @@ by semver) and receives only the callbacks it exports: one built against 1.0.0 e
 `init` and `dispatch`, and the host skips everything else for it; 1.1.0 adds `action` and
 `epoch`, so a 1.1 bundle only ever receives primary presses; 1.2.0 adds `modal-resized`,
 `text-changed` and `secondary-action`; 1.3.0 adds `scroll-changed`, and later `shift-changed`
-with no import change. 1.4.0 adds `messaging.negotiate`, used by the SDK to hold
-host callbacks until registry confirmation successfully initializes the guest.
-Latest state is replayed first (epoch before UI/input state), then messages and
-actions in order, sharing one callback's fuel and output budgets. Held messages
-keep their originating world epoch; messages from another epoch are discarded
-before replay and stop consuming queue capacity when the epoch changes. Retention is
-bounded by `MAX_QUEUE_MESSAGES` and `MAX_QUEUE_BYTES`; overflow stops the part
-immediately with a trusted status message. Existing components keep their current
+with no import change. 1.4.0 adds `messaging.negotiate`, used by the SDK to defer
+callbacks until registry confirmation successfully initializes the guest. The host
+returns `NotReady` for other callbacks; their caller retains them in its existing
+queues. Confirmation can pass waiting application messages. Latest state is then
+dispatched first (epoch before UI/input state), followed by messages and actions in
+their respective arrival order, with the normal per-callback fuel, output and aggregate
+budgets. A trap drops only the callback that ran; later events remain queued until
+the fresh guest is confirmed. Ingress discards messages from other world epochs.
+The reliable queue's count and byte bounds stop an overflowing part immediately
+with a trusted status message. Existing components keep their current
 initialization behavior. 1.1's two callbacks and
 1.2's three are each exported all or none. The world also imports `cinnabar:session/items@0.1.0`
 from [`session.wit`](../crates/experience-sdk/wit/session/session.wit), the package player mods

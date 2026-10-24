@@ -65,9 +65,9 @@ interface input {
 /// The host validates each record against its signed channel schema.
 interface messaging {
     send: func(channel: string, schema: u16, record-json: list<u8>) -> result<_, string>;
-    /// During init, sends the registry request and holds callbacks until a successful dispatch
+    /// During init, sends the registry request and defers callbacks until a successful dispatch
     /// on confirmation-channel. The SDK validates its fingerprint and runs authored init there.
-    /// The host then replays the latest state before ordered events. Queue overflow stops the part.
+    /// The caller then dispatches latest state before ordered events. Queue overflow stops the part.
     @since(version = 1.4.0)
     negotiate: func(confirmation-channel: string, request-channel: string, schema: u16, fingerprint: string);
 }

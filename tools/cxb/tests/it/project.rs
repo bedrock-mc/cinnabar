@@ -164,10 +164,10 @@ fn runtime_acceptance_child() {
         "only the generated registry request runs before confirmation"
     );
     assert!(
-        matches!(host.dispatch(&Event::Epoch, 1).unwrap().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request")
+        matches!(host.dispatch(&Event::Epoch, 1).unwrap().into_transaction().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request")
     );
     assert!(
-        matches!(host.dispatch(&Event::Epoch, 2).unwrap().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
+        matches!(host.dispatch(&Event::Epoch, 2).unwrap().into_transaction().commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
         "a new world must re-arm pending registry negotiation"
     );
     let schema: serde_json::Value =
@@ -187,16 +187,25 @@ fn runtime_acceptance_child() {
         channel: "space.registry".into(),
         record: serde_json::to_vec(&vec![Scalar::Text(project.fingerprint())]).unwrap(),
     };
-    let output = host.dispatch(&confirmation, 2).unwrap();
+    let output = host.dispatch(&confirmation, 2).unwrap().into_transaction();
     assert!(
         matches!(output.commands.as_slice(),
-            [Command::Send { channel, schema: 1, record }, Command::Send { channel: epoch_channel, record: epoch_record, .. }]
-            if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(42)]
-            && epoch_channel == channel && epoch_record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)]),
-        "authored init runs before the latest held epoch: {output:?}"
+            [Command::Send { channel, schema: 1, record }]
+            if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(42)]),
+        "confirmation runs authored init: {output:?}"
+    );
+    let epoch = host.dispatch(&Event::Epoch, 2).unwrap().into_transaction();
+    assert!(
+        matches!(epoch.commands.as_slice(), [Command::Send { channel, record, .. }]
+        if channel == "space.travel" && record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)]),
+        "the caller replays pending state after initialization"
     );
     assert!(
-        host.dispatch(&confirmation, 2).unwrap().commands.is_empty(),
+        host.dispatch(&confirmation, 2)
+            .unwrap()
+            .into_transaction()
+            .commands
+            .is_empty(),
         "duplicate confirmation never initializes twice"
     );
     let trap = Event::Message {
@@ -209,11 +218,11 @@ fn runtime_acceptance_child() {
         matches!(recovering.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.registry_request"),
         "guest recovery must publish a fresh registry request without another callback"
     );
-    let restarted = host.dispatch(&confirmation, 2).unwrap();
+    let restarted = host.dispatch(&confirmation, 2).unwrap().into_transaction();
     assert!(
         matches!(restarted.commands.as_slice(), [Command::Send { channel, .. }] if channel == "space.travel")
     );
-    let active = host.dispatch(&Event::Epoch, 3).unwrap();
+    let active = host.dispatch(&Event::Epoch, 3).unwrap().into_transaction();
     assert!(
         matches!(active.commands.as_slice(), [Command::Send { record, .. }] if record == &[Scalar::Text("space:home".into()), Scalar::Integer(43)])
     );
@@ -222,7 +231,7 @@ fn runtime_acceptance_child() {
         record: serde_json::to_vec(&vec![Scalar::Text("different".into())]).unwrap(),
     };
     assert!(host.dispatch(&mismatch, 3).is_err());
-    let refused = host.dispatch(&Event::Epoch, 4).unwrap();
+    let refused = host.dispatch(&Event::Epoch, 4).unwrap().into_transaction();
     assert!(refused.commands.iter().all(|command| matches!(command, Command::Send { channel, .. } if channel == "space.registry_request")), "a mismatch must not restore authored callbacks");
 }
 

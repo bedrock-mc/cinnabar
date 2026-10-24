@@ -266,7 +266,9 @@ struct Partial {
     header: Envelope,
     count: u32,
     next: u32,
-    data: String,
+    /// None drains the rest of a fragmented message after its recipient overflowed.
+    data: Option<String>,
+    payload_bytes: usize,
     /// Carrier bytes of the fragments so far.
     bytes: usize,
 }
@@ -285,11 +287,32 @@ pub struct Ingress {
     bytes: usize,
     partial: Option<Partial>,
     failed: bool,
+    /// Overflow is terminal for a recipient for the rest of this session.
+    retired: std::collections::BTreeSet<String>,
     /// Messages of an undeclared channel schema, possibly a newer revision.
     pub skipped: u64,
     /// Messages of another world epoch than the current one when they came up for dispatch.
     pub stale: u64,
 }
+
+/// The recipient whose next message cannot fit in the reliable ingress queue.
+#[derive(Debug)]
+pub struct QueueOverflow {
+    pub bundle: String,
+}
+
+impl std::fmt::Display for QueueOverflow {
+    /// Names the part that must stop rather than lose accepted callbacks silently.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "reliable queue overflow for {}; client part stopped",
+            self.bundle
+        )
+    }
+}
+
+impl std::error::Error for QueueOverflow {}
 
 impl Ingress {
     /// Starts a fresh sequence space after a signed handshake.
@@ -301,13 +324,14 @@ impl Ingress {
             bytes: 0,
             partial: None,
             failed: false,
+            retired: Default::default(),
             skipped: 0,
             stale: 0,
         }
     }
 
-    /// Quarantines the optional channel on replay, a sequence gap, a malformed fragment or
-    /// overflow.
+    /// Quarantines malformed traffic, replay or sequence gaps. Queue overflow retires only
+    /// the named recipient's queued messages; the caller must stop that client part.
     pub fn receive<'a>(
         &mut self,
         bytes: &[u8],
@@ -317,7 +341,18 @@ impl Ingress {
         recipient: impl FnOnce(&str) -> Option<&'a crate::runtime::Capabilities>,
     ) -> Result<()> {
         let result = self.receive_inner(bytes, now_ms, publication, grant, recipient);
-        if result.is_err() {
+        if let Err(error) = &result
+            && let Some(overflow) = error.downcast_ref::<QueueOverflow>()
+        {
+            self.retired.insert(overflow.bundle.clone());
+            self.queue.retain(|(_, bytes, message)| {
+                if message.bundle != overflow.bundle {
+                    return true;
+                }
+                self.bytes -= bytes;
+                false
+            });
+        } else if result.is_err() {
             self.failed = true;
             self.queue.clear();
             self.bytes = 0;
@@ -366,24 +401,7 @@ impl Ingress {
             }
         };
         self.route(&message, grant)?;
-        self.next = self
-            .next
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
-        ensure!(
-            message.generation == INITIAL_BUNDLE_GENERATION
-                && grant
-                    .offer
-                    .offer
-                    .packages
-                    .iter()
-                    .any(|p| p.id == message.bundle),
-            "wrong bundle generation"
-        );
-        ensure!(
-            message.channel.starts_with(&format!("{}.", message.bundle)),
-            "foreign channel namespace"
-        );
+        self.consume_sequence()?;
         let recipient =
             recipient(&message.bundle).ok_or_else(|| anyhow::anyhow!("unknown recipient"))?;
         ensure!(
@@ -403,11 +421,18 @@ impl Ingress {
             return Ok(());
         };
         channel.validate(&message.payload, Direction::ToClient, max_bytes as usize)?;
-        ensure!(
-            self.queue.len() < MAX_QUEUE_MESSAGES
-                && size <= (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes),
-            "reliable queue overflow"
-        );
+        if self.retired.contains(&message.bundle) {
+            self.skipped = self.skipped.saturating_add(1);
+            return Ok(());
+        }
+        if self.queue.len() >= MAX_QUEUE_MESSAGES
+            || size > (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes)
+        {
+            return Err(QueueOverflow {
+                bundle: message.bundle,
+            }
+            .into());
+        }
         self.bytes += size;
         self.queue.push_back((publication, size, message));
         Ok(())
@@ -426,6 +451,29 @@ impl Ingress {
             message.sequence == self.next,
             "replay or reliable sequence gap"
         );
+        ensure!(
+            message.generation == INITIAL_BUNDLE_GENERATION
+                && grant
+                    .offer
+                    .offer
+                    .packages
+                    .iter()
+                    .any(|package| package.id == message.bundle),
+            "wrong bundle generation"
+        );
+        ensure!(
+            message.channel.starts_with(&format!("{}.", message.bundle)),
+            "foreign channel namespace"
+        );
+        Ok(())
+    }
+
+    /// Spends a complete message's sequence even when its overflowing recipient was stopped.
+    fn consume_sequence(&mut self) -> Result<()> {
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
         Ok(())
     }
 
@@ -453,7 +501,8 @@ impl Ingress {
                     header: header.clone(),
                     count: part.count,
                     next: 0,
-                    data: String::new(),
+                    data: Some(String::new()),
+                    payload_bytes: 0,
                     bytes: 0,
                 }
             }
@@ -462,24 +511,39 @@ impl Ingress {
             header == partial.header && part.count == partial.count && part.index == partial.next,
             "fragment out of order"
         );
-        partial.data.push_str(&part.data);
+        partial.payload_bytes += part.data.len();
         partial.bytes += size;
         partial.next += 1;
         ensure!(
-            partial.data.len() <= limits.max_message_bytes as usize,
+            partial.payload_bytes <= limits.max_message_bytes as usize,
             "message too large"
         );
-        ensure!(
-            partial.bytes <= (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes),
-            "reassembly budget exceeded"
-        );
-        if partial.next < partial.count {
-            self.partial = Some(partial);
-            return Ok(None);
+        let overflow = (partial.data.is_some()
+            && partial.bytes > (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes))
+        .then(|| QueueOverflow {
+            bundle: partial.header.bundle.clone(),
+        });
+        if overflow.is_some() {
+            partial.data = None;
         }
-        let mut message = partial.header;
-        message.payload = serde_json::from_str(&partial.data)?;
-        Ok(Some((message, partial.bytes)))
+        if let Some(data) = &mut partial.data {
+            data.push_str(&part.data);
+        }
+        let completed = if partial.next < partial.count {
+            self.partial = Some(partial);
+            None
+        } else if let Some(data) = partial.data {
+            let mut message = partial.header;
+            message.payload = serde_json::from_str(&data)?;
+            Some((message, partial.bytes))
+        } else {
+            self.consume_sequence()?;
+            None
+        };
+        if let Some(overflow) = overflow {
+            return Err(overflow.into());
+        }
+        Ok(completed)
     }
 
     /// Inspects the next committed event without consuming it while its helper is busy.
@@ -502,6 +566,33 @@ impl Ingress {
     pub fn pop(&mut self, committed: u64, world_epoch: u64) -> Option<Envelope> {
         self.peek(committed, world_epoch)?;
         let (_, bytes, message) = self.queue.pop_front()?;
+        self.bytes -= bytes;
+        Some(message)
+    }
+
+    /// Finds an eligible message, allowing registry confirmation to pass a waiting recipient's
+    /// application messages. The ordinary peek rule retires stale work at the queue's front.
+    pub fn peek_matching(
+        &mut self,
+        committed: u64,
+        world_epoch: u64,
+        eligible: impl Fn(&Envelope) -> bool,
+    ) -> Option<&Envelope> {
+        self.peek(committed, world_epoch)?;
+        self.queue
+            .iter()
+            .take_while(|(publication, _, _)| *publication <= committed)
+            .map(|(_, _, message)| message)
+            .find(|message| is_current_epoch(message.world_epoch, world_epoch) && eligible(message))
+    }
+
+    /// Removes only the message whose helper acknowledged it, even if the world changed.
+    pub fn acknowledge(&mut self, sequence: u64) -> Option<Envelope> {
+        let index = self
+            .queue
+            .iter()
+            .position(|(_, _, message)| message.sequence == sequence)?;
+        let (_, bytes, message) = self.queue.remove(index)?;
         self.bytes -= bytes;
         Some(message)
     }

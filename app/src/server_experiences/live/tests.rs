@@ -1,5 +1,6 @@
 use super::*;
 
+mod negotiation;
 mod recovery;
 mod shift;
 use mod_host::helper::{CallFailure, FailureKind};
@@ -21,6 +22,9 @@ struct FakeWorker {
     failure: Option<CallFailure>,
     /// Makes each dispatch fail its callback instead of completing it.
     fail: bool,
+    /// The confirmation channel blocking callbacks, and the channel used after a restart.
+    confirmation: Option<String>,
+    registry: Option<String>,
     dispatched: Vec<Event>,
     /// The modal size each dispatch carried.
     sizes: Vec<Option<GuiSize>>,
@@ -36,6 +40,8 @@ impl Worker for FakeWorker {
             response: None,
             failure: None,
             fail: false,
+            confirmation: None,
+            registry: None,
             dispatched: Vec::new(),
             sizes: Vec::new(),
             items: Vec::new(),
@@ -49,14 +55,21 @@ impl Worker for FakeWorker {
                 Some(transaction) => Reply::Recovered {
                     failure,
                     transaction,
+                    confirmation: self.confirmation.clone(),
                 },
                 None => Reply::Failed(failure),
             }));
         }
         self.response.take().map(|transaction| {
-            Ok(Reply::Committed {
-                transaction,
-                fuel: 1,
+            Ok(match &self.confirmation {
+                Some(confirmation) => Reply::NotReady {
+                    transaction,
+                    confirmation: confirmation.clone(),
+                },
+                None => Reply::Committed {
+                    transaction,
+                    fuel: 1,
+                },
             })
         })
     }
@@ -66,7 +79,20 @@ impl Worker for FakeWorker {
         self.sizes.push(request.gui);
         self.items
             .push(request.items.as_ref().map(|items| items.revision));
+        if let Some(confirmation) = &self.confirmation {
+            if matches!(&request.event, Event::Message { channel, .. } if channel == confirmation) {
+                self.confirmation = None;
+            } else {
+                self.response = Some(Transaction {
+                    owner: self.owner.clone(),
+                    epoch: request.epoch,
+                    commands: Vec::new(),
+                });
+                return Ok(());
+            }
+        }
         if self.fail {
+            self.confirmation.clone_from(&self.registry);
             self.failure = Some(CallFailure {
                 bundle: self.owner.bundle.clone(),
                 callback: "dispatch".into(),
@@ -75,6 +101,13 @@ impl Worker for FakeWorker {
                 fuel: Some(1),
             });
             self.dispatched.push(request.event);
+            if self.confirmation.is_some() {
+                self.response = Some(Transaction {
+                    owner: self.owner.clone(),
+                    epoch: request.epoch,
+                    commands: Vec::new(),
+                });
+            }
             return Ok(());
         }
         self.dispatched.push(request.event);
@@ -171,6 +204,8 @@ fn fixture(count: usize) -> Live<FakeWorker> {
                     owner,
                     contributions: Contributions::default(),
                     busy: true,
+                    pending: None,
+                    waiting_for: None,
                     files: Arc::default(),
                     opened: 0,
                     events: VecDeque::new(),

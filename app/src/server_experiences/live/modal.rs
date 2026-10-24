@@ -1,6 +1,6 @@
 //! The modal screen the client parts draw, and the actions its controls deliver.
 
-use super::{Instance, Live, Worker};
+use super::{Instance, Live, STOPPED_AT_OVERFLOW, Worker, scheduling::Pending};
 use anyhow::Result;
 use mod_host::helper::Event;
 use mod_ui::experience_modal::ExperienceModal;
@@ -99,7 +99,9 @@ impl<H: Worker> Live<H> {
         instance
             .events
             .retain(|event| !matches!(event, Event::Resized { .. }));
-        if instance.events.len() < MAX_PENDING_EVENTS {
+        if instance.events.len() >= MAX_PENDING_EVENTS {
+            instance.stop(&mut self.budget, STOPPED_AT_OVERFLOW);
+        } else {
             instance.events.push_back(Event::Resized { size });
         }
     }
@@ -239,12 +241,42 @@ impl<H: Worker> Live<H> {
             if instance.helper.is_none() {
                 continue;
             }
-            let event = instance.events.pop_front().expect("events checked");
+            let index = instance
+                .events
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, event)| delivery_order(event))
+                .map(|(index, _)| index)
+                .expect("events checked");
+            let event = instance.events[index].clone();
+            if instance.waiting_for.is_some()
+                && (!matches!(event, Event::Epoch) || instance.epoch == epoch)
+            {
+                continue;
+            }
             self.budget.dispatch(&instance.owner)?;
             let gui = size_for(&self.gui, &instance.owner.bundle);
-            instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
+            instance.dispatch(
+                self.session.as_deref(),
+                event.clone(),
+                epoch,
+                gui,
+                Pending::Event(event),
+            )?;
         }
         Ok(())
+    }
+}
+
+/// Delivers current world and UI state before ordered input events.
+fn delivery_order(event: &Event) -> u8 {
+    match event {
+        Event::Epoch => 0,
+        Event::Resized { .. }
+        | Event::Shift { .. }
+        | Event::Text { .. }
+        | Event::Scrolled { .. } => 1,
+        Event::Message { .. } | Event::Action { .. } | Event::SecondaryAction { .. } => 2,
     }
 }
 

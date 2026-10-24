@@ -1,6 +1,6 @@
 //! Bounded process protocol. OS-restricted production launch deliberately fails closed.
 
-use crate::server::BundleHost;
+use crate::server::{BundleHost, DispatchResult};
 use anyhow::{Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use server_experience::{
@@ -32,8 +32,9 @@ const HELPER_DEADLINE: Duration = Duration::from_secs(10);
 /// refuses the start. 2 added `protocol` to the start and replies that are a failure instead of
 /// the helper exiting; 3 the session items a dispatch carries; 4 carries initialization messages
 /// from a restarted guest alongside the failed callback's diagnostic; 5 reports terminal
-/// callback queue overflow separately from recoverable callback failures.
-const HELPER_PROTOCOL: u32 = 5;
+/// callback queue overflow separately from recoverable callback failures; 6 reports callbacks
+/// that must remain queued until registry confirmation.
+const HELPER_PROTOCOL: u32 = 6;
 /// UTF-8 bytes of a failure's reason, its error chain and guest backtrace; the rest is cut off
 /// at a char boundary.
 pub const MAX_FAILURE_REASON_BYTES: usize = 2048;
@@ -167,14 +168,21 @@ pub enum Reply {
     /// The callback returned; its output, to publish whole, and the fuel it consumed of its
     /// `CALLBACK_FUEL`.
     Committed { transaction: Transaction, fuel: u64 },
+    /// The event did not run. Keep it queued; only this confirmation channel may run yet.
+    NotReady {
+        transaction: Transaction,
+        confirmation: String,
+    },
     /// The callback failed and published nothing. Recoverable dispatch failures start a fresh
-    /// guest; queue overflow leaves the part quarantined and must stop it. A failed start exits.
+    /// guest. A failed start exits.
     Failed(CallFailure),
     /// The callback failed, but a fresh guest initialized successfully. Publish only its
     /// initialization messages, unless this failure stops the part.
     Recovered {
         failure: CallFailure,
         transaction: Transaction,
+        /// The fresh guest's confirmation channel, if it requires registry negotiation.
+        confirmation: Option<String>,
     },
 }
 
@@ -191,8 +199,6 @@ pub enum FailureKind {
     /// The host refused the callback or something it did, such as an undeclared action or too
     /// much output.
     Refused,
-    /// Registry negotiation exhausted its reliable callback queue; stop the part immediately.
-    Overload,
     /// The component could not be compiled, linked or initialized.
     Startup,
 }
@@ -216,15 +222,11 @@ impl CallFailure {
     /// guest backtrace of a trap.
     pub(crate) fn of(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
         use wasmtime::Trap;
-        let kind = if error.is::<crate::server::negotiation::Overflow>() {
-            FailureKind::Overload
-        } else {
-            match error.downcast_ref::<Trap>() {
-                Some(Trap::OutOfFuel) => FailureKind::Fuel,
-                Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
-                Some(_) => FailureKind::Trap,
-                None => FailureKind::Refused,
-            }
+        let kind = match error.downcast_ref::<Trap>() {
+            Some(Trap::OutOfFuel) => FailureKind::Fuel,
+            Some(Trap::UnreachableCodeReached) => FailureKind::Panic,
+            Some(_) => FailureKind::Trap,
+            None => FailureKind::Refused,
         };
         Self::new(bundle, callback, kind, error)
     }
@@ -433,9 +435,15 @@ pub fn serve_developer() -> Result<()> {
             return Err(error);
         }
     };
-    let init = Reply::Committed {
-        transaction: host.take_transaction(),
-        fuel: host.last_fuel_used(),
+    let init = match host.waiting_for().map(str::to_owned) {
+        Some(confirmation) => Reply::NotReady {
+            transaction: host.take_transaction(),
+            confirmation,
+        },
+        None => Reply::Committed {
+            transaction: host.take_transaction(),
+            fuel: host.last_fuel_used(),
+        },
     };
     answer(&mut output, init, &bundle, "init")?;
     loop {
@@ -446,9 +454,13 @@ pub fn serve_developer() -> Result<()> {
             host.set_session(std::sync::Arc::new(items.into()));
         }
         let reply = match host.dispatch(&request.event, request.epoch) {
-            Ok(transaction) => Reply::Committed {
+            Ok(DispatchResult::Committed(transaction)) => Reply::Committed {
                 transaction,
                 fuel: host.last_fuel_used(),
+            },
+            Ok(DispatchResult::NotReady(transaction)) => Reply::NotReady {
+                transaction,
+                confirmation: host.waiting_for().expect("negotiation pending").to_owned(),
             },
             Err(error) => {
                 let failure = CallFailure {
@@ -462,6 +474,7 @@ pub fn serve_developer() -> Result<()> {
                     Reply::Recovered {
                         failure,
                         transaction,
+                        confirmation: host.waiting_for().map(str::to_owned),
                     }
                 }
             }

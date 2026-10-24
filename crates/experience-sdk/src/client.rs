@@ -79,7 +79,7 @@ thread_local! {
     };
 }
 
-/// Initializes legacy parts immediately; generated projects ask the host to hold callbacks.
+/// Initializes legacy parts immediately; generated projects defer callbacks until confirmation.
 #[doc(hidden)]
 pub fn initialize<T: ClientPart>() {
     initialize_with::<T>(|registry| {

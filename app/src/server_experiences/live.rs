@@ -22,6 +22,8 @@ use std::{
 };
 
 mod modal;
+mod scheduling;
+use scheduling::Pending;
 
 struct Instance<H> {
     helper: Option<H>,
@@ -30,6 +32,10 @@ struct Instance<H> {
     owner: Principal,
     contributions: Contributions,
     busy: bool,
+    /// The caller-owned event awaiting an acknowledgement from this helper.
+    pending: Option<Pending>,
+    /// While set, only registry confirmation may run guest code.
+    waiting_for: Option<String>,
     /// The bundle's verified templates and textures, shared with the modal presenter.
     files: Arc<screen::Files>,
     /// When its modal last opened, so the most recent one draws on top.
@@ -59,6 +65,7 @@ impl<H: Worker> Instance<H> {
         event: Event,
         epoch: u64,
         gui: Option<GuiSize>,
+        pending: Pending,
     ) -> Result<()> {
         let Some(helper) = &mut self.helper else {
             return Ok(());
@@ -82,6 +89,7 @@ impl<H: Worker> Instance<H> {
         })?;
         self.items_sent = revision.or(self.items_sent);
         self.busy = true;
+        self.pending = Some(pending);
         self.epoch = epoch;
         Ok(())
     }
@@ -108,6 +116,8 @@ impl<H> Instance<H> {
         self.helper = None;
         self.component = None;
         self.busy = false;
+        self.pending = None;
+        self.waiting_for = None;
         self.events.clear();
         self.contributions = Contributions::default();
         budget.quarantine(&self.owner);
@@ -196,6 +206,8 @@ impl<H: Worker> Live<H> {
                     owner,
                     contributions: Contributions::default(),
                     busy,
+                    pending: None,
+                    waiting_for: None,
                     files: Arc::new(files),
                     opened: 0,
                     events: VecDeque::new(),
@@ -257,14 +269,27 @@ impl<H: Worker> Live<H> {
                 continue;
             };
             instance.busy = false;
+            if !matches!(&result, Ok(Reply::NotReady { .. })) {
+                instance.acknowledge(&mut self.ingress, &mut self.media, epoch);
+            } else {
+                instance.pending = None;
+            }
             let transaction = match result {
                 Ok(Reply::Committed { transaction, fuel }) => {
+                    instance.waiting_for = None;
                     bevy::log::debug!(
                         bundle = %instance.owner.bundle,
                         callback = instance.callback,
                         fuel,
                         "client part callback committed"
                     );
+                    transaction
+                }
+                Ok(Reply::NotReady {
+                    transaction,
+                    confirmation,
+                }) => {
+                    instance.waiting_for = Some(confirmation);
                     transaction
                 }
                 Ok(Reply::Failed(failure)) => {
@@ -275,7 +300,9 @@ impl<H: Worker> Live<H> {
                 Ok(Reply::Recovered {
                     failure,
                     transaction,
+                    confirmation,
                 }) => {
+                    instance.waiting_for = confirmation;
                     failed(instance, &mut self.budget, &failure, now_ms);
                     if instance.stopped.is_some() {
                         self.scene_revision += 1;
@@ -374,46 +401,8 @@ impl<H: Worker> Live<H> {
                 packets.push(bytes);
             }
             self.deliver_events(epoch)?;
-            while let Some((bundle, record)) = self.media.next_event() {
-                let Some(instance) = self.instances.get_mut(&bundle) else {
-                    continue;
-                };
-                if instance.stopped.is_some() {
-                    continue;
-                }
-                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                    self.media.defer_event((bundle, record));
-                    break;
-                }
-                self.budget.dispatch(&instance.owner)?;
-                let event = Event::Message {
-                    channel: super::media::EVENT_CHANNEL.into(),
-                    record,
-                };
-                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
-            }
-            while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
-                let instance = self
-                    .instances
-                    .get_mut(&message.bundle)
-                    .ok_or_else(|| anyhow::anyhow!("unknown bundle"))?;
-                if instance.stopped.is_some() {
-                    self.ingress.pop(u64::MAX, epoch);
-                    continue;
-                }
-                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                    break;
-                }
-                let message = self.ingress.pop(u64::MAX, epoch).expect("front checked");
-                self.budget.dispatch(&instance.owner)?;
-                let event = Event::Message {
-                    channel: message.channel,
-                    record: serde_json::to_vec(&message.payload)?,
-                };
-                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
-            }
+            self.deliver_media(epoch)?;
+            self.deliver_messages(epoch)?;
         }
         Ok(packets)
     }
@@ -474,9 +463,19 @@ impl<H: Worker> Live<H> {
     pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
         let instances = &self.instances;
-        self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
+        let result = self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
             instances.get(id).map(|instance| &instance.capabilities)
-        })
+        });
+        if let Err(error) = &result
+            && let Some(overflow) = error.downcast_ref::<wire::QueueOverflow>()
+        {
+            if let Some(instance) = self.instances.get_mut(&overflow.bundle) {
+                instance.stop(&mut self.budget, STOPPED_AT_OVERFLOW);
+                self.scene_revision += 1;
+            }
+            return Ok(());
+        }
+        result
     }
 
     /// Whether a guest may read the session's items, which [`Live::set_session`] then supplies.
@@ -571,7 +570,7 @@ impl<H: Worker> Live<H> {
 }
 
 /// Drops the failed callback's transaction and logs why; a failed start, or the strike that
-/// reaches the limit, or callback queue overflow stops the client part.
+/// reaches the limit stops the client part.
 fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFailure, now_ms: u64) {
     bevy::log::warn!(
         bundle = %failure.bundle,
@@ -583,8 +582,6 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
     );
     let why = if failure.kind == FailureKind::Startup {
         STOPPED_AT_START
-    } else if failure.kind == FailureKind::Overload {
-        STOPPED_AT_OVERFLOW
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS
     } else {

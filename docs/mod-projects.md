@@ -86,11 +86,13 @@ The scaffold's `ClientPart::registry` returns `shared::REGISTRY`. Initialization
 sends a generated registry request, which the existing client sends after Ready.
 `RegisterRegistry` answers it with the server's generated fingerprint. Authored
 initialization and callbacks wait for that exact fingerprint.
-The host retains callbacks while confirmation is pending, including after a guest
-restart. It keeps the latest epoch, modifier state, modal size, edit text per control
-and scroll range per view, then replays that state after authored initialization and
-before queued messages and actions in arrival order. The queue uses the extension's
-message-count and byte budgets; overflow stops the part with a visible error.
+Callbacks stay in the client's existing queues while confirmation is pending,
+including after a guest restart. After authored initialization, the client dispatches
+the latest epoch, modifier state, modal size, edit text per control and scroll range
+per view before queued messages and actions in their respective arrival order.
+Each callback uses the normal fuel, output and aggregate budgets. A trap discards
+only that callback; later events wait for the fresh confirmation. The reliable queue
+uses the extension's count and byte budgets; overflow stops the part with a visible error.
 A pending request is sent again when its world epoch changes.
 A mismatch refuses initialization with a diagnostic; missing confirmation leaves
 it waiting. Duplicate matching confirmations do not initialize twice. Changes to

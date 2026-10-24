@@ -15,8 +15,25 @@ use wasmtime::{
     component::{Component, Func, HasSelf, Instance, Linker},
 };
 
-pub(crate) mod negotiation;
+mod negotiation;
 use negotiation::Negotiation;
+
+/// Whether the callback ran or must remain in its caller's queue until confirmation.
+#[derive(Debug)]
+#[must_use = "retain the callback when dispatch reports NotReady"]
+pub enum DispatchResult {
+    Committed(Transaction),
+    NotReady(Transaction),
+}
+
+impl DispatchResult {
+    /// Takes staged output; `NotReady` output does not acknowledge the callback.
+    pub fn into_transaction(self) -> Transaction {
+        match self {
+            Self::Committed(transaction) | Self::NotReady(transaction) => transaction,
+        }
+    }
+}
 
 wasmtime::component::bindgen!({
     path: ["../experience-sdk/wit/session", "../experience-sdk/wit/client"],
@@ -156,7 +173,7 @@ impl cinnabar::server_experience::input::Host for State {
 }
 
 impl cinnabar::server_experience::messaging::Host for State {
-    /// Arms host-side callback retention and stages the registry request during initialization.
+    /// Requires registry confirmation before callbacks and stages the initialization request.
     fn negotiate(
         &mut self,
         confirmation_channel: String,
@@ -497,10 +514,9 @@ impl BundleHost {
     /// output is discarded because the first instance's still stands. Callers take recovery
     /// output with `take_transaction` after an error. A failed restart quarantines the bundle.
     /// A 1.0 component skips `action` and `epoch` and returns an empty transaction.
-    /// Registry negotiation retains callbacks until confirmation initializes the guest, then
-    /// replays latest state before ordered events within one callback budget. Queue overflow
-    /// quarantines the part immediately instead of restarting it or losing callbacks silently.
-    pub fn dispatch(&mut self, event: &Event, epoch: u64) -> Result<Transaction> {
+    /// During registry negotiation, non-confirmation events return `NotReady` without running.
+    /// The caller retains them and dispatches them normally after a successful confirmation.
+    pub fn dispatch(&mut self, event: &Event, epoch: u64) -> Result<DispatchResult> {
         ensure!(self.active, "bundle quarantined");
         event.check()?;
         let state = self.store.data_mut();
@@ -517,38 +533,36 @@ impl BundleHost {
         let previous_epoch = state.epoch;
         state.epoch = epoch;
         state.begin_output()?;
-        if let Some(negotiation) = &mut state.negotiation {
+        if let Some(negotiation) = &state.negotiation {
             self.last_fuel = 0;
             let confirms = matches!(event, Event::Message { channel, .. } if channel == &negotiation.confirmation);
             if !confirms {
-                if let Err(error) = negotiation.hold(event, epoch) {
-                    self.active = false;
-                    self.store.data_mut().negotiation = None;
-                    return Err(error);
-                }
                 if epoch != previous_epoch {
                     let request = negotiation.request.clone();
                     state.stage(request)?.map_err(anyhow::Error::msg)?;
                 }
-                return Ok(self.take_transaction());
+                return Ok(DispatchResult::NotReady(self.take_transaction()));
             }
         }
         crate::execution::arm(&mut self.store, CALLBACK_FUEL, false)?;
-        let called = self.call(event).and_then(|()| {
-            if let Some(negotiation) = self.store.data_mut().negotiation.take() {
-                for held in negotiation.into_callbacks(epoch) {
-                    self.call(&held)?;
-                }
-            }
-            Ok(())
-        });
+        let called = self.call(event);
         self.last_fuel = self.fuel_used();
         if let Err(error) = called {
             self.store.data_mut().commands.clear();
             self.restart();
             return Err(error);
         }
-        Ok(self.take_transaction())
+        self.store.data_mut().negotiation = None;
+        Ok(DispatchResult::Committed(self.take_transaction()))
+    }
+
+    /// The confirmation channel the caller may deliver while other events remain queued.
+    pub fn waiting_for(&self) -> Option<&str> {
+        self.store
+            .data()
+            .negotiation
+            .as_ref()
+            .map(|pending| pending.confirmation.as_str())
     }
 
     /// Sets the open modal's size that `ui.modal-size` returns from the next callback on; none
@@ -604,7 +618,7 @@ impl BundleHost {
         }
     }
 
-    /// Invokes one export with its input context; replay shares the dispatch's fuel and output budget.
+    /// Invokes one export with its input context and the dispatch's fuel and output budget.
     fn call(&mut self, event: &Event) -> Result<()> {
         let store = &mut self.store;
         let state = store.data_mut();

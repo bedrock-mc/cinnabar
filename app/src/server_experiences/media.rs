@@ -372,9 +372,16 @@ impl Media {
         self.events.pop_front()
     }
 
-    /// Restores an event the guest could not take yet.
-    pub(super) fn defer_event(&mut self, event: (String, Vec<u8>)) {
-        self.events.push_front(event);
+    /// Inspects a transition while the owning helper is busy or negotiating.
+    pub(super) fn peek_event(&self) -> Option<&(String, Vec<u8>)> {
+        self.events.front()
+    }
+
+    /// Removes the transition only after its helper ran the callback.
+    pub(super) fn acknowledge_event(&mut self, event: &(String, Vec<u8>)) {
+        if let Some(index) = self.events.iter().position(|pending| pending == event) {
+            self.events.remove(index);
+        }
     }
 
     fn event(&mut self, (bundle, id): &(String, String), kind: EventKind, position_us: u64) {

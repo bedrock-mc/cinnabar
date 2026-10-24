@@ -276,6 +276,7 @@ fn recovery_output_and_failure_fit_one_reply() {
         Reply::Recovered {
             failure,
             transaction,
+            confirmation: None,
         },
         "fixture",
         "dispatch",

@@ -125,7 +125,9 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
 fn failure(reply: Reply) -> CallFailure {
     match reply {
         Reply::Failed(failure) | Reply::Recovered { failure, .. } => failure,
-        Reply::Committed { transaction, .. } => panic!("committed {transaction:?}"),
+        Reply::NotReady { transaction, .. } | Reply::Committed { transaction, .. } => {
+            panic!("committed {transaction:?}")
+        }
     }
 }
 
@@ -140,6 +142,7 @@ fn count(reply: Reply) -> i64 {
             other => panic!("{other:?}"),
         },
         Reply::Failed(failure) | Reply::Recovered { failure, .. } => panic!("failed {failure:?}"),
+        Reply::NotReady { .. } => panic!("unexpected negotiation"),
     }
 }
 
@@ -241,6 +244,7 @@ fn recovery_messages_cross_helper_ipc_without_another_dispatch() {
     let Reply::Recovered {
         failure,
         transaction,
+        confirmation: None,
     } = call(&mut helper, "demo.fail")
     else {
         panic!("the failed dispatch must include recovery messages");
@@ -253,4 +257,82 @@ fn recovery_messages_cross_helper_ipc_without_another_dispatch() {
         matches!(transaction.commands.as_slice(), [Command::Send { channel, schema: 1, record }]
         if channel == "demo.request" && record == &[Scalar::Bool(false)])
     );
+}
+
+/// Readiness and the restarted guest's confirmation channel cross the actual process boundary.
+#[test]
+fn negotiation_readiness_and_recovery_cross_helper_ipc() {
+    use server_experience::wire::{Channel, Direction, Field};
+
+    let mut capabilities = capabilities();
+    capabilities.scope.permissions =
+        BTreeSet::from([Permission::Ui, Permission::ModalUi, Permission::Messaging]);
+    capabilities.templates.insert("ui/terminal.json".into());
+    capabilities.assets.insert("ui/terminal.json".into());
+    for (id, direction) in [
+        ("demo.registry", Direction::ToClient),
+        ("demo.registry_request", Direction::ToServer),
+    ] {
+        capabilities.channels.push(Channel {
+            id: id.into(),
+            schema: 1,
+            direction,
+            fields: vec![Field::Text { max_bytes: 64 }],
+        });
+    }
+    let component = wat::parse_bytes(include_bytes!("../src/server/guest_negotiation.wat"))
+        .unwrap()
+        .into_owned();
+    let mut helper = spawn(component, capabilities);
+    let Reply::NotReady {
+        confirmation,
+        transaction,
+    } = reply(&mut helper)
+    else {
+        panic!("startup must report pending registry negotiation");
+    };
+    assert_eq!(confirmation, "demo.registry");
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, .. }] if channel == "demo.registry_request")
+    );
+    let Reply::NotReady { transaction, .. } = call(&mut helper, "demo.waiting") else {
+        panic!("an unconfirmed event must remain with its caller");
+    };
+    assert!(transaction.commands.is_empty());
+    assert!(matches!(
+        call(&mut helper, "demo.registry"),
+        Reply::Committed { .. }
+    ));
+    helper
+        .dispatch(Dispatch {
+            event: Event::Message {
+                channel: "demo.fail".into(),
+                record: Vec::new(),
+            },
+            epoch: 1,
+            gui: None,
+            items: None,
+        })
+        .unwrap();
+    let Reply::Recovered {
+        confirmation,
+        failure,
+        transaction,
+    } = reply(&mut helper)
+    else {
+        panic!("a trap must report the fresh guest's negotiation");
+    };
+    assert_eq!(confirmation.as_deref(), Some("demo.registry"));
+    assert_eq!(failure.kind, FailureKind::Panic);
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, .. }] if channel == "demo.registry_request")
+    );
+    assert!(matches!(
+        call(&mut helper, "demo.waiting"),
+        Reply::NotReady { .. }
+    ));
+    assert!(matches!(
+        call(&mut helper, "demo.registry"),
+        Reply::Committed { .. }
+    ));
 }
