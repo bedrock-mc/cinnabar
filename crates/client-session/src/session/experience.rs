@@ -9,7 +9,8 @@ use super::{InboundWorldEvent, NetworkHandle, WorldEvent};
 #[derive(Default)]
 pub(super) struct ExperienceGate {
     state: AtomicU8,
-    acknowledged_epoch: AtomicU64,
+    /// Highest world-notice epoch admitted or acknowledged; anything at or below it is a duplicate.
+    notice_epoch: AtomicU64,
 }
 
 impl ExperienceGate {
@@ -32,8 +33,10 @@ impl ExperienceGate {
             return false;
         }
         if let Some((_, epoch)) = message.world_notice() {
+            // Raising the watermark at admission drops a duplicate that arrives before its
+            // acknowledgment is written, while the peer's next notice still has a higher epoch.
             return message.as_bytes().len() <= protocol::MAX_EXPERIENCE_CONTROL_BYTES
-                && epoch > self.acknowledged_epoch.load(Ordering::Acquire);
+                && self.notice_epoch.fetch_max(epoch, Ordering::AcqRel) < epoch;
         }
         if rate
             .get_or_insert_with(|| RateLimit::new(now_ms))
@@ -48,7 +51,7 @@ impl ExperienceGate {
 
     /// Retires equal and older notices before the acknowledgment reaches the transport.
     pub(super) fn acknowledged(&self, epoch: u64) {
-        self.acknowledged_epoch.fetch_max(epoch, Ordering::AcqRel);
+        self.notice_epoch.fetch_max(epoch, Ordering::AcqRel);
     }
 }
 
