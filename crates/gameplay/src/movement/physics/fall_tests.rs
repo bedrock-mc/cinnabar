@@ -72,6 +72,84 @@ fn correction_preserves_live_fall_distance_while_refreshing_history() {
     );
 }
 
+/// One contextual powder-snow cell with no ordinary solid collision.
+struct PowderSnow([i32; 3]);
+
+impl CollisionWorld for PowderSnow {
+    /// Keeps the correction and mode probes in open air.
+    fn collision_boxes(
+        &self,
+        query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Air.collision_boxes(query)
+    }
+
+    /// Lets the mover choose this snow cell's shape from its retained fall distance.
+    fn collision_boxes_for_mover(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<sim::MoverColliders>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(sim::MoverColliders {
+            colliders: Vec::new(),
+            powder_snow: vec![self.0],
+        }))
+    }
+}
+
+#[test]
+fn a_preserved_live_fall_replays_the_same_powder_snow_landing() {
+    let mut physics = falling_controller();
+    let current = physics.state().unwrap().tick;
+    let anchor = physics
+        .sample_history
+        .iter()
+        .find(|sample| sample.tick == current - 2)
+        .unwrap();
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: anchor.position,
+                tick: anchor.tick,
+                on_ground: false,
+                velocity: Some([0.0, 0.5, 0.0]),
+            },
+            PhysicsCorrectionMode::ReplayIfRetained,
+            None,
+            &Air,
+        )
+        .unwrap();
+    assert!(physics.state().unwrap().fall_distance() > 2.5);
+    assert_eq!(
+        physics.history.state_at(current).unwrap().fall_distance(),
+        0.0
+    );
+    let snow_y = physics.state().unwrap().position.y.floor() as i32 - 1;
+    let world = PowderSnow([0, snow_y, 0]);
+    assert_eq!(physics.queue_server_motion([0.0, -2.0, 0.0], current), None);
+    let live = physics.advance_with_context(
+        simulation_clock::TICK_DURATION,
+        MovementInput::default(),
+        PhysicsSampleContext::default(),
+        &world,
+    );
+    assert_eq!(live.completed_ticks, 1);
+    assert_eq!(
+        physics.state().unwrap().position.y as f32,
+        snow_y as f32 + 0.9
+    );
+    assert!(live.samples[0].grounded_after_tick);
+    for tick in [current, current - 2, current] {
+        let replay = physics.replay_retained_from(tick, &world).unwrap();
+        let sample = replay.replayed_samples.last().unwrap();
+        assert_eq!(sample.movement, live.samples[0].movement, "anchor={tick}");
+        assert_eq!(sample.position, live.samples[0].position, "anchor={tick}");
+        assert_eq!(
+            sample.grounded_after_tick,
+            live.samples[0].grounded_after_tick
+        );
+    }
+}
+
 #[test]
 fn spatial_snap_preserves_live_fall_distance() {
     let mut physics = falling_controller();

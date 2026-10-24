@@ -23,6 +23,8 @@ pub(super) struct ControllerFrame {
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
     pub entry_velocity: [f32; 3],
+    /// A live fall-distance restoration consumed before this tick's movement actions.
+    pub fall_distance_override: Option<f32>,
     pub eye_offset: eye::LocalEyeOffset,
     pub intent: ModeIntent,
     pub jump_edge: bool,
@@ -74,6 +76,9 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        if let Some(distance) = self.fall_distance_override {
+            state.restore_fall_distance(distance);
+        }
         posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);

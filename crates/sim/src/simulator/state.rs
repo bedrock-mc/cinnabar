@@ -117,6 +117,11 @@ impl PlayerState {
         self.fall_distance = previous.fall_distance;
     }
 
+    /// Restores the retained fall distance consumed at a replayed input boundary.
+    pub fn restore_fall_distance(&mut self, distance: f32) {
+        self.fall_distance = distance;
+    }
+
     /// Adopts changed actor contact flags before the next local action and scan.
     pub fn update_climber_contact(
         &mut self,

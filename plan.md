@@ -314,8 +314,9 @@ edits survive unrelated replays before and after consumption, including unstampe
 future-stamped edits. Powder snow uses the mover's contextual query,
 including step and sneak-edge checks: snow-standing wearers get the full block, and falls
 over 2.5 blocks get the 0.9 fall-into shape. Replay refreshes historical fall distance
-while preserving the live value
-through spatial copy-back and snaps. No-move ticks preserve it unless an action or contact
+while preserving the live value through spatial copy-back and snaps. The next input
+retains any restored live value so later replays consume it at the same boundary.
+No-move ticks preserve it unless an action or contact
 clears it. Flight toggles, bubble columns, honey sliding and water entry clear it at their
 movement phases; lava halves the retained distance before the current drop, and slow glide
 uses its entry velocity. The missing touch descend control, first-tick terrain seeding,

@@ -55,6 +55,11 @@ impl LocalPhysicsController {
         input.can_stand_on_snow = context.mode_intent.can_stand_on_snow;
         let item_use_modifier = input.item_use_movement_modifier;
         for tick_index in 0..allowed {
+            let fall_distance_override = self
+                .history
+                .state_at(state.tick)
+                .filter(|captured| captured.fall_distance() != state.fall_distance())
+                .map(|_| state.fall_distance());
             let context = context.for_next_tick(state.tick);
             input.item_use_movement_modifier = context
                 .release_use_modifier
@@ -230,6 +235,7 @@ impl LocalPhysicsController {
                         position_before_tick: before,
                         anchor_state: self.anchor_state,
                         entry_velocity,
+                        fall_distance_override,
                         eye_offset: self.eye_offset,
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
