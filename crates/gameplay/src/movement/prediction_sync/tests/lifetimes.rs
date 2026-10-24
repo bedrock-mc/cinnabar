@@ -813,3 +813,44 @@ fn sync_lifetime_unique_id_conflict_retires_local_bounds() {
         );
     }
 }
+
+/// A replay of the old actor cannot undo writes accepted after its replacement.
+#[test]
+fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
+    let mut physics = due_physics();
+    let anchor = physics
+        .advance(
+            simulation_clock::TICK_DURATION * 3,
+            sim::MovementInput::default(),
+            &OpenWorld,
+        )
+        .samples
+        .remove(0);
+    physics.replace_actor_authority(
+        client_world::MovementFlagUpdate {
+            gliding: Some(true),
+            spinning: Some(true),
+            ..Default::default()
+        },
+        client_world::ExplicitDimensions::for_spawn(1),
+    );
+    physics.apply_server_movement_flags(
+        0,
+        client_world::MovementFlagUpdate {
+            gliding: Some(false),
+            swimming: Some(false),
+            crawling: Some(false),
+            spinning: Some(false),
+            ..Default::default()
+        },
+    );
+    let flags = physics.prediction_sync_flags();
+    let size = physics.prediction_sync_size();
+    assert_eq!(flags.gliding, Some(false));
+    assert_eq!(flags.spinning, Some(false));
+    physics
+        .replay_retained_from(anchor.tick, &OpenWorld)
+        .unwrap();
+    assert_eq!(physics.prediction_sync_flags(), flags);
+    assert_eq!(physics.prediction_sync_size(), size);
+}

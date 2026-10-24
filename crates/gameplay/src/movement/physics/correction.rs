@@ -485,12 +485,12 @@ impl LocalPhysicsController {
         // With no tick replayed, no flag word is rebuilt: the live pose and spin
         // stand, as vanilla's current-tick correction moves the actor without
         // touching its flags.
-        if replay.replayed_ticks == 0
+        let keep_live_flags = replay.replayed_ticks == 0
             || self
                 .sync_pending
                 .iter()
-                .any(|write| matches!(write, posture::ServerWrite::Replacement(..)))
-        {
+                .any(|write| matches!(write, posture::ServerWrite::Replacement(..)));
+        if keep_live_flags {
             modes = live_modes;
             if let (Some(state), Some((spin, swim_pose))) = (self.state.as_mut(), live_flag_state) {
                 state.spin_attack_ticks = spin;
@@ -515,7 +515,9 @@ impl LocalPhysicsController {
             }
         }
         modes.set_glide_counter(self.modes.fall_fly_ticks());
-        posture::replay_actor_modes(&self.sync_pending, &mut modes);
+        if !keep_live_flags {
+            posture::replay_actor_modes(&self.sync_pending, &mut modes);
+        }
         self.modes = modes;
         if let Some(using) = replayed_using {
             self.adopt_replayed_using_item(using);
@@ -528,7 +530,7 @@ impl LocalPhysicsController {
             .map_or(anchor_controller.environment, |frame| frame.environment);
         self.controller_history = controller_frames;
         // Without replayed ticks, no producer superseded the live size or its owner.
-        if replay.replayed_ticks != 0 {
+        if !keep_live_flags {
             sync_state.replay_server(&self.sync_pending);
             self.sync_state = sync_state;
         }
