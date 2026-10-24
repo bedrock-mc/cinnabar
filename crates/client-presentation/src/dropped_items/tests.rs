@@ -398,7 +398,7 @@ fn dropped_torches_use_sprites_and_keep_the_identity_guard_current() {
         .map(|entry| entry.identifier.as_ref())
         .collect();
     assert_eq!(
-        TORCH_ITEM_IDENTIFIERS
+        assets::facts::TORCH_ITEM_IDENTIFIERS
             .into_iter()
             .collect::<std::collections::BTreeSet<_>>(),
         torches
