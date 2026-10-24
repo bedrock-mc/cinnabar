@@ -2,7 +2,7 @@ use std::{fs, path::Path, process::Command};
 
 use experience_runtime::{
     callback, load,
-    protocol::{Call, Info, Op, Outcome, Request},
+    protocol::{Call, Info, Op, Outcome, Request, Scalar},
 };
 use mod_host::{helper::Event, server::BundleHost};
 use server_experience::{
@@ -13,7 +13,6 @@ use server_experience::{
         MAX_MESSAGE_BYTES,
     },
     runtime::{Capabilities, Command as ClientCommand, Principal},
-    wire::Scalar,
 };
 
 #[test]
