@@ -292,6 +292,38 @@ mod review_tests {
     use super::*;
 
     #[test]
+    fn entity_startup_accepts_large_valid_catalogs() {
+        let mut compiled = super::super::test_carriers::synthetic_entity_assets(1);
+        let dependencies = (0..crate::MAX_ENTITY_DEPENDENCIES)
+            .map(|index| crate::EntityDependency {
+                kind: crate::EntityDependencyKind::Geometry,
+                identifier: format!("geometry.{}.{index:03}", "x".repeat(400)).into(),
+                resolution: crate::EntityDependencyResolution::External,
+            })
+            .collect::<Box<[_]>>();
+        let symbol = compiled.symbols[0].clone();
+        compiled.symbols = (0..40)
+            .map(|index| crate::EntityAssetSymbol {
+                identifier: format!("fixture:actor_{index:02}").into(),
+                dependencies: dependencies.clone(),
+                ..symbol.clone()
+            })
+            .collect();
+        let expected_symbols = compiled.symbols.len();
+        let bytes = crate::encode_entity_blob(&compiled.with_unresolved_admissions()).unwrap();
+        assert!(
+            bytes.len() > 8 * 1024 * 1024,
+            "exercise a catalog beyond the old startup cap"
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let world = directory.path().join("world.mcbea");
+        std::fs::write(entity_asset_path(&world), bytes).unwrap();
+        let loaded = load_entity_assets(&world)
+            .unwrap_or_else(|error| panic!("load valid catalog: {error}"));
+        assert_eq!(loaded.runtime().symbols().len(), expected_symbols);
+    }
+
+    #[test]
     fn review_rebuild_paths_cannot_expand_make_shell_functions() {
         let directory =
             std::env::temp_dir().join(format!("cinnabar-make-path-{}", std::process::id()));
