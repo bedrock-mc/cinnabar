@@ -216,5 +216,6 @@ pub fn fixture_item(identifier: &str) -> client_world::CanonicalItemStack {
         damage: None,
         durability: assets::item::durability::ItemDurability::NotDamageable,
         enchanted: false,
+        map_id: None,
     }
 }
