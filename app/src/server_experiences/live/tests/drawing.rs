@@ -11,7 +11,7 @@ fn staggered_drawing_initializers_send_ready_before_overlapping_frames() {
             .insert(Permission::WorldDraw);
     }
     complete(&mut live, "bundle0");
-    assert!(live.poll(1, CALLBACK_INTERVAL_MS).unwrap().is_empty());
+    assert!(live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap().is_empty());
     // Let an early frame stay pending while the second initializer finishes.
     live.instances
         .get_mut("bundle0")
@@ -21,7 +21,7 @@ fn staggered_drawing_initializers_send_ready_before_overlapping_frames() {
         .unwrap()
         .response = None;
     complete(&mut live, "bundle1");
-    let packets = live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    let packets = live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Ready { .. }
@@ -48,7 +48,8 @@ fn initialized(count: usize) -> Live<FakeWorker> {
                 });
             }
         }
-        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true)
+            .unwrap();
     }
     assert!(live.ready);
     live
@@ -65,7 +66,7 @@ fn frame_callbacks_share_the_session_budget_fairly() {
             .insert(Permission::WorldDraw);
     }
     for slice in 4..12 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll(1, slice * CALLBACK_INTERVAL_MS, true).unwrap();
     }
     for instance in live.instances.values() {
         let helper = instance.helper.as_ref().unwrap();
@@ -117,7 +118,7 @@ fn every_multichunk_initial_scene_finishes_under_frame_budget_pressure() {
                 });
             }
         }
-        live.poll(1, slice * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll(1, slice * CALLBACK_INTERVAL_MS, true).unwrap();
     }
     assert!(live.ready);
     for instance in live.instances.values() {
@@ -243,8 +244,8 @@ fn idle_dimension_change_binds_current_entities_before_epoch_callback() {
     };
     live.bind_drawing(&current_context, |key| key == current)
         .unwrap();
-    live.poll(2, CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(2, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(2, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
     let instance = &live.instances["bundle0"];
     assert!(instance.stopped.is_none());
     let context = instance.helper.as_ref().unwrap().contexts.last().unwrap();
@@ -290,7 +291,7 @@ fn pending_initialization_uses_its_original_drawing_fence() {
         ..context(1)
     };
     live.bind_drawing(&changed, |_| false).unwrap();
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
     assert!(live.ready);
     assert_eq!(live.instances["bundle0"].presentation.time, None);
 }
@@ -303,4 +304,417 @@ fn dispatch_requires_a_context_for_the_callback_epoch() {
     instance.drawing_context = Default::default();
     assert!(instance.dispatch(None, Event::Frame, 1, None).is_err());
     assert!(instance.helper.as_ref().unwrap().dispatched.is_empty());
+}
+
+/// Queues one complete retained scene as though the helper had committed it.
+fn scene(live: &mut Live<FakeWorker>, bundle: &str, count: usize) {
+    use mod_render::retained::{self, Anchor, GeometrySpec, Vertex};
+    let mut store = retained::Store::default();
+    let geometry = store
+        .create_geometry(GeometrySpec::Triangles {
+            vertices: [[0.; 3], [1., 0., 0.], [0., 1., 0.]]
+                .map(|position| Vertex {
+                    position,
+                    color: [1.; 4],
+                    uv: [0.; 2],
+                    data: [0.; 4],
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+        })
+        .unwrap();
+    let instance = retained::Instance {
+        geometry,
+        material: None,
+        params: [0.; mod_api::materials::PARAMS],
+        anchor: Anchor::Camera,
+        transform: Default::default(),
+        tint: [1.; 4],
+        depth: retained::Depth::Test,
+        blend: retained::Blend::Premultiplied,
+        width: 1.,
+        width_mode: retained::WidthMode::World,
+        join: retained::Join::Bevel,
+        cap: retained::Cap::Butt,
+    };
+    store
+        .replace_group(
+            "frame".into(),
+            vec![instance; count],
+            mod_api::drawing::DrawingPermissions::ALL,
+        )
+        .unwrap();
+    store.commit();
+    let instance = live.instances.get_mut(bundle).unwrap();
+    instance
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::WorldDraw);
+    instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    let bytes = serde_json::to_vec(&mod_host::presentation::Output {
+        drawing: mod_render::retained::transfer::Snapshot::from_resources(store.snapshot()),
+        ..Default::default()
+    })
+    .unwrap();
+    instance.helper.as_mut().unwrap().presentation.extend(
+        bytes
+            .chunks(MAX_HOST_OUTPUT / 4)
+            .enumerate()
+            .map(|(index, part)| mod_host::presentation::Chunk {
+                revision: 1,
+                offset: (index * (MAX_HOST_OUTPUT / 4)) as u32,
+                total: bytes.len() as u32,
+                bytes: part.to_vec(),
+            }),
+    );
+    complete(live, bundle);
+}
+
+#[test]
+fn over_limit_group_stops_only_its_bundle_while_another_keeps_drawing() {
+    let mut live = initialized(2);
+    scene(&mut live, "bundle0", MAX_DRAWS as usize + 1);
+    scene(&mut live, "bundle1", 1);
+    let pieces = live.instances["bundle0"]
+        .helper
+        .as_ref()
+        .unwrap()
+        .presentation
+        .len();
+    for slice in 1..=pieces as u64 {
+        live.poll(1, slice * CALLBACK_INTERVAL_MS, true).unwrap();
+    }
+    assert!(live.instances["bundle0"].stopped.is_some());
+    assert!(live.instances["bundle0"].helper.is_none());
+    assert!(live.instances["bundle1"].helper.is_some());
+    let (output, _) = live.drawing();
+    assert_eq!(output.retained.len(), 1);
+    assert_eq!(output.retained[0].instances.len(), 1);
+    live.poll(1, (pieces as u64 + 1) * CALLBACK_INTERVAL_MS, true)
+        .unwrap();
+    assert!(live.instances["bundle1"].stopped.is_none());
+    assert!(
+        live.instances["bundle1"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched
+            .len()
+            >= 2
+    );
+}
+
+#[test]
+fn paused_dispatch_keeps_polling_completions_and_defers_all_new_work() {
+    let mut live = initialized(2);
+    for instance in live.instances.values_mut() {
+        instance
+            .capabilities
+            .scope
+            .permissions
+            .insert(Permission::WorldDraw);
+    }
+    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true).unwrap();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance.events.push_back(Event::Epoch);
+    assert!(instance.busy);
+    live.poll(1, 10_000, false).unwrap();
+    for instance in live.instances.values() {
+        assert!(!instance.busy);
+        assert!(instance.stopped.is_none());
+        assert_eq!(instance.helper.as_ref().unwrap().dispatched, [Event::Frame]);
+    }
+    assert_eq!(live.instances["bundle0"].events.len(), 1);
+    live.poll(1, 20_000, false).unwrap();
+    assert_eq!(live.instances["bundle0"].events.len(), 1);
+    live.poll(1, 20_000, true).unwrap();
+    assert_eq!(
+        live.instances["bundle0"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched,
+        [Event::Frame, Event::Epoch]
+    );
+    assert_eq!(
+        live.instances["bundle1"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched,
+        vec![Event::Frame; 2]
+    );
+
+    let mut live = fixture(3);
+    complete(&mut live, "bundle0");
+    complete(&mut live, "bundle1");
+    live.poll(1, 10_000, false).unwrap();
+    assert!(live.instances["bundle2"].helper.is_none());
+    assert!(live.instances["bundle2"].component.is_some());
+}
+
+#[test]
+fn helper_transport_and_dispatch_failures_do_not_stop_another_bundle() {
+    for during_dispatch in [false, true] {
+        let mut live = initialized(2);
+        for instance in live.instances.values_mut() {
+            instance
+                .capabilities
+                .scope
+                .permissions
+                .insert(Permission::WorldDraw);
+        }
+        let helper = live
+            .instances
+            .get_mut("bundle0")
+            .unwrap()
+            .helper
+            .as_mut()
+            .unwrap();
+        helper.transport_error = !during_dispatch;
+        helper.refuse_dispatch = during_dispatch;
+        live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+        assert!(live.instances["bundle0"].stopped.is_some());
+        assert!(live.instances["bundle1"].stopped.is_none());
+        live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+        assert_eq!(
+            live.instances["bundle1"]
+                .helper
+                .as_ref()
+                .unwrap()
+                .dispatched,
+            vec![Event::Frame; 2]
+        );
+    }
+}
+
+#[test]
+fn rejected_drawing_decode_and_transactions_stop_only_their_producer() {
+    for bad_drawing in [false, true] {
+        let mut live = initialized(2);
+        scene(&mut live, "bundle1", 1);
+        complete(&mut live, "bundle0");
+        live.instances
+            .get_mut("bundle0")
+            .unwrap()
+            .capabilities
+            .scope
+            .memory_bytes = MAX_GUEST_MEMORY;
+        let helper = live
+            .instances
+            .get_mut("bundle0")
+            .unwrap()
+            .helper
+            .as_mut()
+            .unwrap();
+        if bad_drawing {
+            helper
+                .presentation
+                .push_back(mod_host::presentation::Chunk {
+                    revision: 1,
+                    offset: 0,
+                    total: 1,
+                    bytes: vec![b'{'],
+                });
+        } else {
+            helper.response.as_mut().unwrap().owner.bundle = "bundle1".into();
+        }
+        live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+        assert!(live.instances["bundle0"].stopped.is_some());
+        assert!(live.instances["bundle1"].stopped.is_none());
+        assert_eq!(live.drawing().0.retained[0].instances.len(), 1);
+    }
+}
+
+#[test]
+fn failed_launch_does_not_block_readiness_or_other_initializers() {
+    let mut live = fixture(3);
+    live.instances.get_mut("bundle2").unwrap().component = Some(vec![255]);
+    complete(&mut live, "bundle0");
+    complete(&mut live, "bundle1");
+    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::Ready { .. }
+    ));
+    assert!(live.instances["bundle2"].stopped.is_some());
+    assert!(live.instances["bundle0"].stopped.is_none());
+    assert!(live.instances["bundle1"].stopped.is_none());
+}
+
+#[test]
+fn routed_payload_rejection_preserves_other_bundles_and_the_reliable_sequence() {
+    let mut live = initialized(2);
+    let message = Envelope {
+        version: live.grant.wire.version,
+        session: live.grant.session.clone(),
+        connection: live.grant.connection.clone(),
+        subclient: live.grant.subclient,
+        bundle: "bundle0".into(),
+        generation: INITIAL_BUNDLE_GENERATION,
+        channel: "bundle0.events0".into(),
+        schema: API_VERSION,
+        sequence: 1,
+        world_epoch: 1,
+        payload: vec![Scalar::Integer(7)],
+    };
+    live.receive(&serde_json::to_vec(&message).unwrap(), 0)
+        .unwrap();
+    assert!(live.instances["bundle0"].stopped.is_some());
+    receive(&mut live, "bundle1", 2);
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    assert!(live.instances["bundle1"].stopped.is_none());
+    assert!(matches!(
+        live.instances["bundle1"]
+            .helper
+            .as_ref()
+            .unwrap()
+            .dispatched
+            .last(),
+        Some(Event::Message { .. })
+    ));
+    assert!(live.receive(b"{", 0).is_err());
+}
+
+#[test]
+fn discarded_initialization_sends_do_not_leave_a_sequence_gap() {
+    let mut live = fixture(2);
+    complete(&mut live, "bundle0");
+    live.poll(1, 0, true).unwrap();
+    live.instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .transport_error = true;
+    complete(&mut live, "bundle1");
+    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    let send: Envelope = serde_json::from_slice(&packets[1]).unwrap();
+    assert_eq!(send.bundle, "bundle1");
+    assert_eq!(send.sequence, 1);
+    assert_eq!(live.sequence, 2);
+    assert!(live.pending_sends.is_empty());
+    assert_eq!(live.pending_send_bytes, 0);
+}
+
+#[test]
+fn guest_rate_exhaustion_cannot_reject_a_host_epoch_control() {
+    let mut live = initialized(2);
+    live.grant.wire = Wire {
+        version: MAX_WIRE_VERSION,
+        limits: Limits::host(),
+    };
+    for _ in 0..MAX_MESSAGES_PER_SECOND {
+        live.egress.charge(1, 0).unwrap();
+    }
+    let packets = live.poll(2, 0, false).unwrap();
+    assert!(matches!(
+        serde_json::from_slice::<Control>(&packets[0]).unwrap(),
+        Control::Epoch { world_epoch: 2, .. }
+    ));
+    assert!(
+        live.instances
+            .values()
+            .all(|instance| instance.stopped.is_none())
+    );
+}
+
+#[test]
+fn a_rejected_commit_releases_shared_queue_space_before_the_next_bundle() {
+    let mut live = initialized(2);
+    scene(&mut live, "bundle1", 1);
+    complete(&mut live, "bundle0");
+    let transaction = live
+        .instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap()
+        .response
+        .as_mut()
+        .unwrap();
+    transaction.commands = vec![transaction.commands[0].clone(); MAX_QUEUE_MESSAGES + 1];
+    assert!(serde_json::to_vec(transaction).unwrap().len() <= MAX_HOST_OUTPUT);
+    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    assert!(live.instances["bundle0"].stopped.is_some());
+    assert!(live.instances["bundle1"].stopped.is_none());
+    assert_eq!(live.drawing().0.retained[0].instances.len(), 1);
+    assert_eq!(packets.len(), 1);
+    assert_eq!(
+        serde_json::from_slice::<Envelope>(&packets[0])
+            .unwrap()
+            .bundle,
+        "bundle1"
+    );
+    assert_eq!(live.pending_send_bytes, 0);
+}
+
+#[test]
+fn stopped_bundles_release_input_queues_even_while_dispatch_is_paused() {
+    for wire_failure in [false, true] {
+        let mut live = initialized(2);
+        receive(&mut live, "bundle0", 1);
+        receive(&mut live, "bundle1", 2);
+        let next = if wire_failure {
+            let message = Envelope {
+                version: live.grant.wire.version,
+                session: live.grant.session.clone(),
+                connection: live.grant.connection.clone(),
+                subclient: live.grant.subclient,
+                bundle: "bundle0".into(),
+                generation: INITIAL_BUNDLE_GENERATION,
+                channel: "bundle0.events0".into(),
+                schema: API_VERSION,
+                sequence: 3,
+                world_epoch: 1,
+                payload: vec![Scalar::Integer(7)],
+            };
+            live.receive(&serde_json::to_vec(&message).unwrap(), CALLBACK_INTERVAL_MS)
+                .unwrap();
+            4
+        } else {
+            live.instances
+                .get_mut("bundle0")
+                .unwrap()
+                .helper
+                .as_mut()
+                .unwrap()
+                .transport_error = true;
+            live.poll(1, CALLBACK_INTERVAL_MS, false).unwrap();
+            3
+        };
+        assert!(live.instances["bundle0"].stopped.is_some());
+        let revision = live.instances["bundle0"].presentation.output().1;
+        receive(&mut live, "bundle0", next);
+        assert_eq!(live.instances["bundle0"].presentation.output().1, revision);
+        receive(&mut live, "bundle1", next + 1);
+        assert_eq!(live.ingress.pop(u64::MAX, 1).unwrap().sequence, 2);
+        assert_eq!(live.ingress.pop(u64::MAX, 1).unwrap().sequence, next + 1);
+        assert!(live.ingress.pop(u64::MAX, 1).is_none());
+        assert!(live.instances["bundle1"].stopped.is_none());
+    }
+}
+
+#[test]
+fn a_rejected_modal_stops_only_its_owner_and_restores_the_other_modal() {
+    let mut live = initialized(2);
+    scene(&mut live, "bundle0", 1);
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    for (index, instance) in live.instances.values_mut().enumerate() {
+        instance.opened = index as u64 + 1;
+        instance.contributions.modal.open(Some(SCREEN.into()));
+    }
+    assert_eq!(live.modal().unwrap().bundle, "bundle1");
+    assert!(live.reject_modal("invalid screen binding", CALLBACK_INTERVAL_MS));
+    assert!(live.instances["bundle1"].stopped.is_some());
+    assert!(live.instances["bundle0"].stopped.is_none());
+    assert_eq!(live.modal().unwrap().bundle, "bundle0");
+    assert_eq!(live.drawing().0.retained[0].instances.len(), 1);
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+    assert!(live.instances["bundle0"].helper.is_some());
+    assert!(live.reject_modal("invalid other screen", 2 * CALLBACK_INTERVAL_MS));
+    assert!(live.modal().is_none());
 }

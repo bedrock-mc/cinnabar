@@ -451,8 +451,15 @@ fn drive(
         .set_experience_labels(labels.as_deref().unwrap_or_default());
     presentation.set_experience_modal(service.live.as_ref().and_then(super::live::Live::modal));
     if let Some(error) = presentation.mod_ui().experience_modal_failure() {
-        bevy::log::warn!(%error, "client part screen rejected; server code disabled");
-        extension.session.disable();
+        bevy::log::warn!(%error, "client part screen rejected");
+        if let Some(live) = service.live.as_mut()
+            && live.reject_modal(error, now_ms)
+        {
+            extension.session.notice = Some(live.text());
+        } else {
+            extension.session.disable();
+        }
+        presentation.set_experience_modal(service.live.as_ref().and_then(super::live::Live::modal));
     }
     if matches!(extension.session.state, State::Disabled) {
         network.set_experience_enabled(false);
@@ -536,11 +543,9 @@ fn advance_runtime(
         while extension.pop().is_some() {}
         return Ok(());
     };
-    let Some(context) = drawing.context(extension.epoch) else {
-        return Ok(());
-    };
+    let context = drawing.context(extension.epoch);
     let deployment_changed = service.select_deployment(grant);
-    if !service.attempted {
+    if !service.attempted && context.is_some() {
         service.attempted = true;
         if std::env::var(server_experience::policy::DEVELOPER_ENV).as_deref() != Ok("1") {
             extension.session.notice = Some(
@@ -558,17 +563,18 @@ fn advance_runtime(
         extension.session.notice =
             Some("Cinnabar: downloading approved experience. F9: cancel".into());
     }
-    if let Some(result) = service
-        .download
-        .as_ref()
-        .and_then(|download| download.poll())
+    if let Some(context) = &context
+        && let Some(result) = service
+            .download
+            .as_ref()
+            .and_then(|download| download.poll())
     {
         service.download = None;
         let client = std::env::current_exe()?;
         service.live = Some(super::live::Live::start(
             grant.clone(),
             result?,
-            &context,
+            context,
             now_ms,
             &mod_host::helper::developer_executable(&client),
             &mod_host::helper::media_executable(&client),
@@ -579,11 +585,13 @@ fn advance_runtime(
         while extension.pop().is_some() {}
     }
     if let Some(live) = &mut service.live {
-        live.bind_drawing(&context, |key| drawing.current(key))?;
+        if let Some(context) = &context {
+            live.bind_drawing(context, |key| drawing.current(key))?;
+        }
         while let Some((received_ms, bytes)) = extension.pop() {
             live.receive(&bytes, received_ms)?;
         }
-        for bytes in live.poll(extension.epoch, now_ms)? {
+        for bytes in live.poll(extension.epoch, now_ms, context.is_some())? {
             let packet = protocol::experience_packet(bytes)
                 .ok_or_else(|| anyhow::anyhow!("outbound envelope too large"))?;
             anyhow::ensure!(

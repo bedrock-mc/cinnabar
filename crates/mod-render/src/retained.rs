@@ -214,6 +214,7 @@ pub struct Store {
     retired_materials: Vec<Arc<crate::material::Material>>,
     material_compiles: u32,
     entity_candidates: Vec<EntityKey>,
+    instance_limit: usize,
 }
 
 impl Default for Store {
@@ -230,11 +231,37 @@ impl Default for Store {
             retired_materials: Vec::new(),
             material_compiles: 0,
             entity_candidates: Vec::new(),
+            instance_limit: mod_api::MAX_DRAW_INSTANCES,
         }
     }
 }
 
 impl Store {
+    /// Narrows instance admission to the caller's remaining presentation allowance.
+    pub fn limit_instances(&mut self, limit: usize) {
+        self.instance_limit = limit.min(mod_api::MAX_DRAW_INSTANCES);
+    }
+
+    /// Counts this callback's placements, excluding groups that expire on its next mutation.
+    pub fn instance_count(&self) -> usize {
+        self.staged.as_ref().map_or_else(
+            || {
+                self.committed
+                    .instances
+                    .keys()
+                    .filter(|id| {
+                        !self
+                            .committed
+                            .groups
+                            .values()
+                            .any(|handles| handles.contains(id))
+                    })
+                    .count()
+            },
+            |staged| staged.instances.len(),
+        )
+    }
+
     /// Binds snapshots to the trusted connection before the guest initializes resources.
     pub fn bind_session(&mut self, connection: u64, dimension: i32) {
         self.revoke();
@@ -380,7 +407,7 @@ impl Store {
         if name.is_empty() || name.len() > mod_api::MAX_DRAW_GROUP_NAME_BYTES {
             return Err(error(ErrorCode::Invalid, "group name"));
         }
-        if instances.len() > mod_api::MAX_DRAW_INSTANCES {
+        if instances.len() > self.instance_limit {
             return Err(error(ErrorCode::BudgetExceeded, "instances"));
         }
         let handles = (0..instances.len())
@@ -496,6 +523,9 @@ impl Store {
         }
         let mut candidate = self.base();
         change(&mut candidate)?;
+        if candidate.instances.len() > self.instance_limit {
+            return Err(error(ErrorCode::BudgetExceeded, "instances"));
+        }
         validation::budget(&candidate, &self.retired)?;
         self.material_budget(&candidate)?;
         self.mutation_bytes = total;

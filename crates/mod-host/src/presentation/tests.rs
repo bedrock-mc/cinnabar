@@ -459,3 +459,58 @@ fn retirement_keeps_resident_and_immediate_geometry_charged() {
     drop(immediate);
     assert_eq!(ledger.used(), 0);
 }
+
+#[test]
+fn culled_mask_membership_survives_an_unrelated_publication() {
+    let actor = mod_api::drawing::MaskEntity {
+        connection: 7,
+        dimension: 0,
+        runtime_id: 5,
+        spawn_revision: 1,
+    };
+    let visible = Context {
+        targets: vec![(actor, 36)],
+        ..context()
+    };
+    let mut input = Output::default();
+    input.masks.push(mod_render::masks::Mask {
+        handle: DrawingHandle {
+            owner: 1,
+            generation: 1,
+            slot: 1,
+        },
+        session: Default::default(),
+        depth: mod_api::drawing::MaskDepth::Test,
+        entities: vec![actor],
+        style: None,
+        position: None,
+    });
+    let mut receiver = Receiver::default();
+    assert!(
+        receiver
+            .apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
+            .is_err()
+    );
+    assert!(receiver.output().0.masks.is_empty());
+    receiver
+        .apply(input.clone(), DrawingPermissions::ALL, &visible, u64::MAX)
+        .unwrap();
+    input.time = Some(18_000);
+    receiver
+        .apply(input, DrawingPermissions::ALL, &context(), u64::MAX)
+        .unwrap();
+    // Returning coverage uses the retained incarnation without another helper publication.
+    let mask = &receiver.output().0.masks[0];
+    assert!(mask.authorized());
+    assert_eq!(mask.entities, [actor]);
+    assert!(
+        visible
+            .targets
+            .iter()
+            .any(|(key, _)| mask.entities.contains(key))
+    );
+    assert!(!mask.entities.contains(&mod_api::drawing::MaskEntity {
+        spawn_revision: 2,
+        ..actor
+    }));
+}

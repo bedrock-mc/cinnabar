@@ -179,8 +179,8 @@ or hot update. Key changes require user approval. Updates take effect on rejoin.
 
 The `disabled` control tag is reserved. The client does not need to send it to
 revoke authority. No fallback relies on receiving a final message from a crashed
-or disconnected client. A protocol failure or a helper that dies ends the session's
-runtime with no restart, as before.
+or disconnected client. Invalid session routes, reliable framing and trusted controls end
+the optional runtime. A failed helper or rejected bundle output stops only that bundle.
 
 A failed client part callback does not. The developer helper (`mod-host server-helper`,
 the current helper IPC protocol, which the client and its helper share) answers a callback that
@@ -202,6 +202,11 @@ stopped after repeated errors. F9: disable server code"), and the session and th
 parts go on. The helper's stderr reaches the client's log, each line cut to
 `MAX_LOG_LINE_BYTES` and at most `MAX_LOG_LINES_PER_SECOND` lines a second, the rest
 counted.
+
+The host uses the same failure path for an unavailable helper, reply decoding failure,
+or rejected presentation, transaction or routed message. These failures stop that part
+immediately because its retained state cannot safely continue. Its pending sends and
+media work are removed; other bundles keep their reliable sequence and contributions.
 
 Trust lives in `server-experiences.json` alongside the existing menu settings.
 Fields are `disabled`, `media_muted`, `media_autoplay`, `pins`. A pin contains
@@ -431,6 +436,12 @@ lets the guest rebuild without restarting its component. Before `init()` and eac
 later callback, the host binds drawing to the current native connection, world
 epoch, dimension type and actor identities together. A changed binding revokes old
 references before guest code runs; an unbound or stale context cannot dispatch.
+While native context is unavailable, new callbacks wait and existing helpers keep
+being polled. Only outstanding work has a deadline; queued replies are judged by
+their completion time. Temporary culling never changes retained mask membership:
+the renderer matches current coverage against the selected actor incarnation.
+The helper enforces `MAX_DRAWS` at drawing imports, combining retained instances
+and immediate primitives under the same ceiling the application rechecks.
 The combined scene admits immediate primitives once within the shared limits and
 tags their allocation owners. GPU reservations partition that admitted list.
 Anchor availability is rebuilt from all current contributors every frame, including

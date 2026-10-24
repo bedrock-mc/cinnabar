@@ -103,6 +103,11 @@ pub struct Primitives {
 }
 
 impl Primitives {
+    /// Counts the immediate placements charged against a producer's draw allowance.
+    pub fn draw_count(&self) -> usize {
+        self.decals.len() + self.ribbons.len() + self.beams.len() + self.billboards.len()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.decals.is_empty()
             && self.ribbons.is_empty()

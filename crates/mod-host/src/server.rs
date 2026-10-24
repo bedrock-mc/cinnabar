@@ -530,6 +530,7 @@ impl BundleHost {
             bytes: 0,
             calls: 0,
         };
+        state.presentation.render.limit_draws(MAX_DRAWS as usize);
         state.presentation.bind_presentation(drawing)?;
         state.presentation.asset_files = assets;
         state.begin_output()?;

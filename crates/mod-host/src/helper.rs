@@ -198,6 +198,8 @@ pub enum FailureKind {
     Refused,
     /// The component could not be compiled, linked or initialized.
     Startup,
+    /// The helper or its output cannot be used safely; this bundle must stop.
+    Unavailable,
 }
 
 /// A failed callback: its bundle, the guest export it called, the kind of failure and a bounded
@@ -229,8 +231,13 @@ impl CallFailure {
     }
 
     /// A start of `bundle` that failed with `error`.
-    fn startup(bundle: &str, error: &anyhow::Error) -> Self {
+    pub fn startup(bundle: &str, error: &anyhow::Error) -> Self {
         Self::new(bundle, "init", FailureKind::Startup, error)
+    }
+
+    /// Reports a fatal host-side rejection using the same bounded callback diagnostics.
+    pub fn unavailable(bundle: &str, callback: &str, error: &anyhow::Error) -> Self {
+        Self::new(bundle, callback, FailureKind::Unavailable, error)
     }
 
     fn new(bundle: &str, callback: &str, kind: FailureKind, error: &anyhow::Error) -> Self {
@@ -268,7 +275,7 @@ pub struct Dispatch {
 pub struct Helper {
     process: supervisor::Process,
     requests: mpsc::SyncSender<Dispatch>,
-    responses: Mutex<mpsc::Receiver<Result<Reply>>>,
+    responses: Mutex<mpsc::Receiver<(Instant, Result<Reply>)>>,
     /// The helper's stderr lines, cut and rate-limited.
     log: Mutex<mpsc::Receiver<String>>,
     pending_since: Option<Instant>,
@@ -385,19 +392,25 @@ impl Helper {
     /// callback is an `Ok` failure reply and the helper runs on; an `Err` means the helper is
     /// gone.
     pub fn poll(&mut self) -> Option<Result<Reply>> {
+        self.poll_at(Instant::now())
+    }
+
+    /// Uses completion time for queued replies and caller time only for unfinished work.
+    fn poll_at(&mut self, now: Instant) -> Option<Result<Reply>> {
         if self.quarantined {
             return None;
         }
+        let response = self.responses.lock().ok()?.try_recv();
+        let finished = response.as_ref().map_or(now, |(at, _)| *at);
         if self
             .pending_since
-            .is_some_and(|since| since.elapsed() >= HELPER_DEADLINE)
+            .is_some_and(|since| finished.saturating_duration_since(since) >= HELPER_DEADLINE)
         {
             self.kill();
             return Some(Err(anyhow::anyhow!("helper deadline exceeded")));
         }
-        let response = self.responses.lock().ok()?.try_recv();
         match response {
-            Ok(result) => {
+            Ok((_, result)) => {
                 self.pending_since = None;
                 if result.is_err() {
                     self.kill();

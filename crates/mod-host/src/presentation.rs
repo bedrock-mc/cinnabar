@@ -193,11 +193,7 @@ impl Receiver {
                 <= server_experience::policy::MAX_TRIANGLES as usize,
             "bundle triangle budget exceeded"
         );
-        let draws = resources.instances.len()
-            + primitives.decals.len()
-            + primitives.ribbons.len()
-            + primitives.beams.len()
-            + primitives.billboards.len();
+        let draws = resources.instances.len() + primitives.draw_count();
         ensure!(
             draws <= server_experience::policy::MAX_DRAWS as usize,
             "bundle draw budget exceeded"
@@ -217,6 +213,14 @@ impl Receiver {
         );
         let mut masks = Vec::new();
         for mut mask in input.masks {
+            mask.handle.owner = *owners
+                .entry(mask.handle.owner)
+                .or_insert_with(mod_render::next_owner);
+            let previous = self
+                .output
+                .masks
+                .iter()
+                .find(|old| old.handle == mask.handle);
             ensure!(
                 permissions.entity_highlight
                     && (mask.depth == mod_api::drawing::MaskDepth::Test
@@ -238,17 +242,17 @@ impl Receiver {
                 );
                 if let Some((_, count)) = context.targets.iter().find(|(key, _)| key == entity) {
                     vertices = vertices.saturating_add(*count);
+                } else {
+                    ensure!(
+                        previous.is_some_and(|old| old.entities.contains(entity)),
+                        "unadmitted mask actor"
+                    );
                 }
             }
-            mask.entities
-                .retain(|entity| context.targets.iter().any(|(key, _)| key == entity));
             ensure!(
                 vertices <= mod_api::drawing::MAX_MASK_VERTICES,
                 "mask vertex budget exceeded"
             );
-            mask.handle.owner = *owners
-                .entry(mask.handle.owner)
-                .or_insert_with(mod_render::next_owner);
             mask.session = mod_api::drawing::DrawingSession {
                 connection: context.connection,
                 dimension: context.dimension,

@@ -271,6 +271,22 @@ struct Partial {
     bytes: usize,
 }
 
+/// A routed message failed one bundle's admission without corrupting the session framing.
+#[derive(Debug)]
+pub struct BundleFailure {
+    pub bundle: String,
+    error: anyhow::Error,
+}
+
+impl std::fmt::Display for BundleFailure {
+    /// Preserves the admission reason for the bundle's trusted failure diagnostics.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.error, formatter)
+    }
+}
+
+impl std::error::Error for BundleFailure {}
+
 /// One reliable direction, shared by every bundle in a server session.
 #[derive(Debug)]
 pub struct Ingress {
@@ -312,7 +328,10 @@ impl Ingress {
         recipient: impl FnOnce(&str) -> Option<&'a crate::runtime::Capabilities>,
     ) -> Result<()> {
         let result = self.receive_inner(bytes, now_ms, publication, grant, recipient);
-        if result.is_err() {
+        if result
+            .as_ref()
+            .is_err_and(|error| error.downcast_ref::<BundleFailure>().is_none())
+        {
             self.failed = true;
             self.queue.clear();
             self.bytes = 0;
@@ -366,43 +385,53 @@ impl Ingress {
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
         ensure!(
-            message.generation == INITIAL_BUNDLE_GENERATION
-                && grant
-                    .offer
-                    .offer
-                    .packages
-                    .iter()
-                    .any(|p| p.id == message.bundle),
-            "wrong bundle generation"
+            grant
+                .offer
+                .offer
+                .packages
+                .iter()
+                .any(|p| p.id == message.bundle),
+            "unknown bundle"
         );
-        ensure!(
-            message.channel.starts_with(&format!("{}.", message.bundle)),
-            "foreign channel namespace"
-        );
-        let recipient =
-            recipient(&message.bundle).ok_or_else(|| anyhow::anyhow!("unknown recipient"))?;
-        ensure!(
-            recipient
-                .scope
-                .permissions
-                .contains(&crate::manifest::Permission::Messaging),
-            "recipient messaging permission denied"
-        );
-        let channels = &recipient.channels;
-        ensure!(channels.len() <= MAX_CHANNELS, "channel limit exceeded");
-        let Some(channel) = channels
-            .iter()
-            .find(|c| c.id == message.channel && c.schema == message.schema)
-        else {
-            self.skipped = self.skipped.saturating_add(1);
+        let bundle = message.bundle.clone();
+        let result = (|| {
+            ensure!(
+                message.generation == INITIAL_BUNDLE_GENERATION,
+                "wrong bundle generation"
+            );
+            ensure!(
+                message.channel.starts_with(&format!("{}.", message.bundle)),
+                "foreign channel namespace"
+            );
+            let recipient =
+                recipient(&message.bundle).ok_or_else(|| anyhow::anyhow!("unknown recipient"))?;
+            ensure!(
+                recipient
+                    .scope
+                    .permissions
+                    .contains(&crate::manifest::Permission::Messaging),
+                "recipient messaging permission denied"
+            );
+            let channels = &recipient.channels;
+            ensure!(channels.len() <= MAX_CHANNELS, "channel limit exceeded");
+            let Some(channel) = channels
+                .iter()
+                .find(|c| c.id == message.channel && c.schema == message.schema)
+            else {
+                self.skipped = self.skipped.saturating_add(1);
+                return Ok(false);
+            };
+            channel.validate(&message.payload, Direction::ToClient, max_bytes as usize)?;
+            ensure!(
+                self.queue.len() < MAX_QUEUE_MESSAGES
+                    && size <= (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes),
+                "reliable queue overflow"
+            );
+            Ok(true)
+        })();
+        if !result.map_err(|error| BundleFailure { bundle, error })? {
             return Ok(());
-        };
-        channel.validate(&message.payload, Direction::ToClient, max_bytes as usize)?;
-        ensure!(
-            self.queue.len() < MAX_QUEUE_MESSAGES
-                && size <= (limits.max_reassembly_bytes as usize).saturating_sub(self.bytes),
-            "reliable queue overflow"
-        );
+        }
         self.bytes += size;
         self.queue.push_back((publication, size, message));
         Ok(())
@@ -473,8 +502,41 @@ impl Ingress {
             return Ok(None);
         }
         let mut message = partial.header;
-        message.payload = serde_json::from_str(&partial.data)?;
+        message.payload = match serde_json::from_str(&partial.data) {
+            Ok(payload) => payload,
+            Err(error)
+                if grant
+                    .offer
+                    .offer
+                    .packages
+                    .iter()
+                    .any(|p| p.id == message.bundle)
+                    && message.generation == INITIAL_BUNDLE_GENERATION =>
+            {
+                self.next = self
+                    .next
+                    .checked_add(1)
+                    .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
+                return Err(BundleFailure {
+                    bundle: message.bundle,
+                    error: error.into(),
+                }
+                .into());
+            }
+            Err(error) => return Err(error.into()),
+        };
         Ok(Some((message, partial.bytes)))
+    }
+
+    /// Releases a stopped bundle's queued records without changing the shared sequence or framing.
+    pub fn discard_bundle(&mut self, bundle: &str) {
+        self.queue.retain(|(_, bytes, message)| {
+            let keep = message.bundle != bundle;
+            if !keep {
+                self.bytes -= bytes;
+            }
+            keep
+        });
     }
 
     /// Inspects the next committed event without consuming it while its helper is busy.

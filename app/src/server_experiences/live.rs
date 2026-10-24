@@ -21,6 +21,8 @@ use std::{
     sync::Arc,
 };
 
+mod callbacks;
+mod completion;
 mod modal;
 
 struct Instance<H> {
@@ -141,7 +143,7 @@ pub(super) struct Live<H = Helper> {
     scene_revision: u64,
     instances: BTreeMap<String, Instance<H>>,
     executable: PathBuf,
-    pending_sends: VecDeque<Vec<u8>>,
+    pending_sends: VecDeque<(Envelope, usize)>,
     pending_send_bytes: usize,
     budget: Budget,
     ingress: Ingress,
@@ -177,18 +179,11 @@ impl<H: Worker> Live<H> {
     ) -> Result<Self> {
         context.check(context.epoch)?;
         let epoch = context.epoch;
-        ensure!(
-            bundles
-                .iter()
-                .map(|bundle| bundle.manifest.channels.len())
-                .sum::<usize>()
-                <= MAX_CHANNELS,
-            "aggregate channel limit exceeded"
-        );
         let mut budget = Budget::default();
         budget.begin_slice();
         let mut instances = BTreeMap::new();
         let mut media = super::media::Media::new(grant.clone(), epoch, media_helper.to_owned());
+        let mut channels = 0;
         for mut bundle in bundles {
             let owner = Principal {
                 session: grant.session.clone(),
@@ -197,11 +192,11 @@ impl<H: Worker> Live<H> {
             };
             let assets = bundle.paths().map(str::to_owned).collect();
             let capabilities = capabilities(&grant, &bundle.manifest, assets);
-            budget.reserve(
+            let reservation = budget.reserve(
                 owner.clone(),
                 capabilities.scope.memory_bytes,
                 capabilities.scope.gpu_bytes,
-            )?;
+            );
             let assets = if capabilities
                 .scope
                 .permissions
@@ -215,40 +210,50 @@ impl<H: Worker> Live<H> {
             } else {
                 BTreeMap::new()
             };
-            ensure!(
-                assets.values().map(Vec::len).sum::<usize>() as u64
-                    <= capabilities.scope.memory_bytes,
-                "drawing asset memory budget exceeded"
-            );
+            let admission = reservation.and_then(|()| {
+                ensure!(
+                    assets.values().map(Vec::len).sum::<usize>() as u64
+                        <= capabilities.scope.memory_bytes,
+                    "drawing asset memory budget exceeded"
+                );
+                ensure!(
+                    channels + capabilities.channels.len() <= MAX_CHANNELS,
+                    "aggregate channel limit exceeded"
+                );
+                channels += capabilities.channels.len();
+                Ok(())
+            });
             let files = bundle.take_screen_files();
             let component = bundle.take_component();
             media.register(bundle);
             let busy = component.is_some();
-            instances.insert(
-                owner.bundle.clone(),
-                Instance {
-                    helper: None,
-                    assets,
-                    presentation: Default::default(),
-                    component,
-                    capabilities,
-                    owner,
-                    contributions: Contributions::default(),
-                    busy,
-                    initialized: !busy,
-                    files: Arc::new(files),
-                    opened: 0,
-                    events: VecDeque::new(),
-                    epoch,
-                    strikes: VecDeque::new(),
-                    stopped: None,
-                    callback: "init",
-                    items_sent: None,
-                    shift: Some(false),
-                    drawing_context: Default::default(),
-                    pending_drawing_context: Default::default(),
-                },
-            );
+            let mut instance = Instance {
+                helper: None,
+                assets,
+                presentation: Default::default(),
+                component,
+                capabilities,
+                owner,
+                contributions: Contributions::default(),
+                busy,
+                initialized: !busy,
+                files: Arc::new(files),
+                opened: 0,
+                events: VecDeque::new(),
+                epoch,
+                strikes: VecDeque::new(),
+                stopped: None,
+                callback: "init",
+                items_sent: None,
+                shift: Some(false),
+                drawing_context: Default::default(),
+                pending_drawing_context: Default::default(),
+            };
+            if let Err(error) = admission {
+                let failure = CallFailure::startup(&instance.owner.bundle, &error);
+                failed(&mut instance, &mut budget, &failure, now_ms);
+            }
+            instances.insert(instance.owner.bundle.clone(), instance);
         }
         let mut live = Self {
             grant,
@@ -278,248 +283,14 @@ impl<H: Worker> Live<H> {
             session: None,
         };
         live.bind_drawing(context, |_| false)?;
-        live.initialize()?;
+        live.initialize(now_ms);
         Ok(live)
-    }
-
-    /// Publishes complete transactions only; failure revokes every contribution in this preview.
-    pub(super) fn poll(&mut self, epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
-        let mut packets = Vec::new();
-        if epoch != self.epoch {
-            self.change_epoch(epoch, now_ms, &mut packets)?;
-        }
-        if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
-            self.slice_ms = now_ms;
-            self.budget.begin_slice();
-        }
-        self.initialize()?;
-
-        for instance in self.instances.values_mut() {
-            let Some(helper) = &mut instance.helper else {
-                continue;
-            };
-            let result = helper.poll();
-            for line in helper.drain_log() {
-                bevy::log::warn!(bundle = %instance.owner.bundle, "client part helper: {line}");
-            }
-            let Some(result) = result else {
-                continue;
-            };
-            instance.busy = false;
-            instance.initialized |= instance.callback == "init";
-            let transaction = match result {
-                Ok(Reply::Committed {
-                    transaction,
-                    fuel,
-                    presentation,
-                }) => {
-                    if transaction.epoch == self.epoch
-                        && Some(instance.pending_drawing_context.fence()) == self.drawing_fence
-                        && let Some(presentation) = presentation
-                    {
-                        instance.presentation.receive(
-                            *presentation,
-                            mod_host::server::drawing_grants(&instance.capabilities)
-                                .drawing_permissions(),
-                            &instance.pending_drawing_context,
-                            instance.capabilities.scope.memory_bytes,
-                            instance.capabilities.scope.gpu_bytes,
-                        )?;
-                    }
-                    bevy::log::debug!(
-                        bundle = %instance.owner.bundle,
-                        callback = instance.callback,
-                        fuel,
-                        "client part callback committed"
-                    );
-                    transaction
-                }
-                Ok(Reply::Failed(failure)) => {
-                    failed(instance, &mut self.budget, &failure, now_ms);
-                    self.scene_revision += 1;
-                    continue;
-                }
-                Err(error) => {
-                    self.budget.quarantine(&instance.owner);
-                    instance.contributions = Contributions::default();
-                    self.scene_revision += 1;
-                    return Err(error);
-                }
-            };
-            // A callback that began before an epoch change still publishes; its sends carry the
-            // epoch it began in, which the server drops and counts.
-            self.scene_revision += 1;
-            instance.contributions.apply(
-                &transaction,
-                &instance.owner,
-                instance.epoch,
-                &instance.capabilities,
-            )?;
-            modal::note_opened(instance, &transaction, &mut self.modal_order);
-            for command in transaction.commands {
-                if let Command::Media {
-                    id,
-                    operation,
-                    position_ms,
-                } = command
-                {
-                    self.media
-                        .queue(&instance.owner, id, operation, position_ms)?;
-                } else if let Command::Send {
-                    channel,
-                    schema,
-                    record,
-                } = command
-                {
-                    let send = Envelope {
-                        version: self.grant.wire.version,
-                        session: self.grant.session.clone(),
-                        connection: self.grant.connection.clone(),
-                        subclient: self.grant.subclient,
-                        bundle: instance.owner.bundle.clone(),
-                        generation: instance.owner.generation,
-                        channel,
-                        schema,
-                        sequence: self.sequence,
-                        world_epoch: instance.epoch,
-                        payload: record,
-                    };
-                    for bytes in wire::encode(&send, &self.grant.wire)? {
-                        ensure!(
-                            self.pending_sends.len() < MAX_QUEUE_MESSAGES
-                                && bytes.len() <= MAX_QUEUE_BYTES - self.pending_send_bytes,
-                            "outbound initialization queue overflow"
-                        );
-                        self.pending_send_bytes += bytes.len();
-                        self.pending_sends.push_back(bytes);
-                    }
-                    self.sequence = self
-                        .sequence
-                        .checked_add(1)
-                        .ok_or_else(|| anyhow::anyhow!("outbound sequence exhausted"))?;
-                }
-            }
-        }
-        if !self.ready && self.instances.values().all(|instance| instance.initialized) {
-            self.ready = true;
-            packets.push(serde_json::to_vec(&Control::Ready {
-                session: self.grant.session.clone(),
-                packages: self
-                    .grant
-                    .offer
-                    .offer
-                    .packages
-                    .iter()
-                    .map(|p| p.digest.clone())
-                    .collect(),
-                generation: INITIAL_BUNDLE_GENERATION,
-                permissions: self
-                    .instances
-                    .iter()
-                    .map(|(id, instance)| {
-                        (id.clone(), instance.capabilities.scope.permissions.clone())
-                    })
-                    .collect(),
-                world_epoch: self.epoch,
-            })?);
-        }
-        if self.ready {
-            while let Some(bytes) = self.pending_sends.pop_front() {
-                self.pending_send_bytes -= bytes.len();
-                self.egress.charge(bytes.len(), now_ms)?;
-                packets.push(bytes);
-            }
-            self.deliver_events(epoch)?;
-            while let Some((bundle, record)) = self.media.next_event() {
-                let Some(instance) = self.instances.get_mut(&bundle) else {
-                    continue;
-                };
-                if instance.stopped.is_some() {
-                    continue;
-                }
-                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                    self.media.defer_event((bundle, record));
-                    break;
-                }
-                self.budget.dispatch(&instance.owner)?;
-                let event = Event::Message {
-                    channel: super::media::EVENT_CHANNEL.into(),
-                    record,
-                };
-                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
-            }
-            while let Some(message) = self.ingress.peek(u64::MAX, epoch) {
-                let instance = self
-                    .instances
-                    .get_mut(&message.bundle)
-                    .ok_or_else(|| anyhow::anyhow!("unknown bundle"))?;
-                if instance.stopped.is_some() {
-                    self.ingress.pop(u64::MAX, epoch);
-                    continue;
-                }
-                if instance.busy || !self.budget.can_dispatch(&instance.owner) {
-                    break;
-                }
-                let message = self.ingress.pop(u64::MAX, epoch).expect("front checked");
-                self.budget.dispatch(&instance.owner)?;
-                let event = Event::Message {
-                    channel: message.channel,
-                    record: serde_json::to_vec(&message.payload)?,
-                };
-                let gui = modal::size_for(&self.gui, &instance.owner.bundle);
-                instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
-            }
-        }
-        if self.ready {
-            self.dispatch_frames(epoch)?;
-        }
-        Ok(packets)
-    }
-
-    /// Rotates after the last dispatched bundle while preserving the aggregate fuel allowance.
-    fn dispatch_frames(&mut self, epoch: u64) -> Result<()> {
-        let mut ids: Vec<_> = self.instances.keys().cloned().collect();
-        let start =
-            ids.partition_point(|id| self.frame_cursor.as_ref().is_some_and(|last| id <= last));
-        ids.rotate_left(start);
-        for id in ids {
-            let instance = self.instances.get_mut(&id).expect("current bundle");
-            if instance.stopped.is_none()
-                && instance.helper.is_some()
-                && !instance.busy
-                && instance
-                    .capabilities
-                    .scope
-                    .permissions
-                    .iter()
-                    .any(|permission| {
-                        matches!(
-                            permission,
-                            Permission::WorldDraw
-                                | Permission::RenderPost
-                                | Permission::EntityHighlight
-                        )
-                    })
-                && self.budget.can_dispatch(&instance.owner)
-            {
-                self.budget.dispatch(&instance.owner)?;
-                instance.dispatch(
-                    self.session.as_deref(),
-                    Event::Frame,
-                    epoch,
-                    modal::size_for(&self.gui, &instance.owner.bundle),
-                )?;
-                self.frame_cursor = Some(id);
-            }
-        }
-        Ok(())
     }
 
     /// Keeps a wire v2 runtime through a world epoch change: once Ready has named the old epoch,
     /// an `epoch` control names the new one ahead of every later send, and each guest is called
     /// back to resend its state. A v1 session cannot continue.
-    fn change_epoch(&mut self, epoch: u64, now_ms: u64, packets: &mut Vec<Vec<u8>>) -> Result<()> {
+    fn change_epoch(&mut self, epoch: u64, packets: &mut Vec<Vec<u8>>) -> Result<()> {
         ensure!(
             self.grant.wire.version != WIRE_VERSION,
             "world epoch changed; extension snapshot required"
@@ -530,7 +301,6 @@ impl<H: Worker> Live<H> {
                 session: self.grant.session.clone(),
                 world_epoch: epoch,
             })?;
-            self.egress.charge(control.len(), now_ms)?;
             packets.push(control);
         }
         for instance in self.instances.values_mut() {
@@ -547,37 +317,30 @@ impl<H: Worker> Live<H> {
         Ok(())
     }
 
-    /// Starts pending initializers only when the aggregate callback slice has room.
-    fn initialize(&mut self) -> Result<()> {
-        for instance in self.instances.values_mut() {
-            if instance.component.is_none() || !self.budget.can_dispatch(&instance.owner) {
-                continue;
-            }
-            instance.drawing_context.check(self.epoch)?;
-            self.budget.dispatch(&instance.owner)?;
-            let component = instance.component.take().expect("component checked");
-            instance.helper = Some(H::spawn(
-                &self.executable,
-                component,
-                instance.owner.clone(),
-                instance.capabilities.clone(),
-                instance.drawing_context.clone(),
-                std::mem::take(&mut instance.assets),
-            )?);
-            instance.pending_drawing_context = instance.drawing_context.clone();
-            instance.epoch = self.epoch;
-            instance.callback = "init";
-        }
-        Ok(())
-    }
-
     /// Applies aggregate limits and signed schemas before guest dispatch.
     pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
         let instances = &self.instances;
-        self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
-            instances.get(id).map(|instance| &instance.capabilities)
-        })
+        let result = self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
+            instances
+                .get(id)
+                .filter(|instance| instance.stopped.is_none())
+                .map(|instance| &instance.capabilities)
+        });
+        if let Err(error) = result {
+            if let Some(failure) = error.downcast_ref::<wire::BundleFailure>()
+                && let Some(instance) = self.instances.get_mut(&failure.bundle)
+            {
+                if instance.stopped.is_none() {
+                    instance.unavailable(&mut self.budget, &error, now_ms);
+                    self.scene_revision += 1;
+                }
+                self.ingress.discard_bundle(&instance.owner.bundle);
+            } else {
+                return Err(error);
+            }
+        }
+        Ok(())
     }
 
     /// Whether a guest may read the session's items, which [`Live::set_session`] then supplies.
@@ -754,6 +517,8 @@ fn failed<H>(instance: &mut Instance<H>, budget: &mut Budget, failure: &CallFail
     );
     let why = if failure.kind == FailureKind::Startup {
         STOPPED_AT_START
+    } else if failure.kind == FailureKind::Unavailable {
+        "because its helper failed"
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS
     } else {

@@ -113,3 +113,128 @@ fn dispatch_refuses_unbound_stale_or_foreign_drawing_contexts() {
     host.dispatch(&Event::Frame, 1, &drawing_context(1))
         .unwrap();
 }
+
+/// Creates a canonical drawing instance through a real bundle host's shared imports.
+fn placement(host: &mut BundleHost) -> crate::runtime::cinnabar::world_draw::drawing::Instance {
+    use crate::runtime::cinnabar::world_draw::drawing as draw;
+    use draw::Host as _;
+    let state = &mut host.store.data_mut().presentation;
+    state.grants.world_draw = true;
+    let geometry = state
+        .create_geometry(draw::GeometrySpec::Triangles(draw::Mesh {
+            vertices: [(0., 0., 0.), (1., 0., 0.), (0., 1., 0.)]
+                .map(|position| draw::Vertex {
+                    position,
+                    color: (1., 1., 1., 1.),
+                    uv: (0., 0.),
+                    data: (0., 0., 0., 0.),
+                })
+                .to_vec(),
+            indices: vec![0, 1, 2],
+        }))
+        .unwrap()
+        .unwrap();
+    state.commit_presentation();
+    draw::Instance {
+        geometry,
+        material: None,
+        params: Vec::new(),
+        anchor: draw::Anchor::Camera,
+        transform: draw::Transform {
+            translation: (0., 0., 0.),
+            rotation: (0., 0., 0., 1.),
+            scale: (1., 1., 1.),
+        },
+        tint: (1., 1., 1., 1.),
+        depth: draw::Depth::Test,
+        blend: draw::Blend::Premultiplied,
+        width: 1.,
+        width_mode: draw::WidthMode::World,
+        join: draw::Join::Bevel,
+        cap: draw::Cap::Butt,
+    }
+}
+
+#[test]
+fn bundle_draw_limit_rejects_the_guest_call_before_it_can_publish() {
+    use crate::runtime::cinnabar::world_draw::drawing as draw;
+    use draw::Host as _;
+    let mut host = mask_host();
+    let instance = placement(&mut host);
+    let state = &mut host.store.data_mut().presentation;
+    state.begin_presentation();
+    let error = state
+        .replace_frame_group(
+            "frame".into(),
+            vec![instance.clone(); MAX_DRAWS as usize + 1],
+        )
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.code, draw::ErrorCode::BudgetExceeded);
+    state
+        .replace_frame_group("frame".into(), vec![instance.clone(); MAX_DRAWS as usize])
+        .unwrap()
+        .unwrap();
+    let error = state.create(instance).unwrap().unwrap_err();
+    assert_eq!(error.code, draw::ErrorCode::BudgetExceeded);
+    state.commit_presentation();
+    let mut receiver = crate::presentation::Receiver::default();
+    receiver
+        .apply(
+            state.presentation_output(),
+            mod_api::drawing::DrawingPermissions::ALL,
+            &drawing_context(1),
+            u64::MAX,
+        )
+        .unwrap();
+    assert_eq!(
+        receiver.output().0.retained[0].instances.len(),
+        MAX_DRAWS as usize
+    );
+}
+
+#[test]
+fn bundle_draw_limit_combines_immediate_and_retained_imports_in_either_order() {
+    use crate::runtime::cinnabar::{extension::render, world_draw::drawing as draw};
+    use {draw::Host as _, render::Host as _};
+    for immediate_first in [false, true] {
+        let mut host = mask_host();
+        let instance = placement(&mut host);
+        let state = &mut host.store.data_mut().presentation;
+        state.begin_presentation();
+        let lines = vec![render::Line {
+            points: vec![
+                render::Vector3 {
+                    x: 0.,
+                    y: 0.,
+                    z: 0.,
+                },
+                render::Vector3 {
+                    x: 1.,
+                    y: 0.,
+                    z: 0.,
+                },
+            ],
+            width: 1.,
+            color: render::Rgba {
+                r: 1.,
+                g: 1.,
+                b: 1.,
+                a: 1.,
+            },
+            pattern: render::LinePattern::Solid,
+        }];
+        if immediate_first {
+            state.draw_lines(lines.clone()).unwrap().unwrap();
+        }
+        let result = state
+            .replace_frame_group("frame".into(), vec![instance; MAX_DRAWS as usize])
+            .unwrap();
+        if immediate_first {
+            assert_eq!(result.unwrap_err().code, draw::ErrorCode::BudgetExceeded);
+        } else {
+            result.unwrap();
+            assert!(state.draw_lines(lines).unwrap().is_err());
+        }
+    }
+}

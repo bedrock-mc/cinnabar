@@ -798,7 +798,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Drawing authority and current actor identities bind together before initialization or any
   callback; unbound and stale contexts are refused. Session teardown, epoch actor
   context, actor-only snapshots, staggered initialization,
-  fair frame callbacks and expanded triangle limits have regression coverage. Immediate
+  fair frame callbacks and expanded triangle limits have regression coverage. Bundle
+  admission and helper failures revoke only their producer; paused dispatch continues
+  completion polling, and temporary culling preserves retained mask selections. Guest
+  drawing imports share the receiver's per-bundle draw ceiling. Immediate
   primitives share one admitted list whose allocation ranges survive layer merging.
   One frame publisher rebuilds anchor availability from all current contributors,
   including server-only configurations. One allocation ledger per bundle

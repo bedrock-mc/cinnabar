@@ -28,6 +28,7 @@ pub(crate) struct RenderState {
     native_ribbons: Vec<mod_render::Ribbon>,
     native_generation: u64,
     combined: Option<RenderOutput>,
+    draw_limit: Option<usize>,
 }
 
 impl RenderState {
@@ -45,7 +46,30 @@ impl RenderState {
             native_ribbons: Vec::new(),
             native_generation: 0,
             combined: None,
+            draw_limit: None,
         }
+    }
+
+    /// Applies a bundle ceiling before any guest drawing imports can run.
+    pub(crate) fn limit_draws(&mut self, limit: usize) {
+        self.draw_limit = Some(limit);
+        self.retained.limit_instances(limit);
+    }
+
+    /// Admits immediate and retained placements under the same per-bundle draw ceiling.
+    fn append_primitives(&mut self, primitives: Primitives) -> Result<(), String> {
+        let immediate = self.staged_primitives.draw_count() + primitives.draw_count();
+        if self
+            .draw_limit
+            .is_some_and(|limit| self.retained.instance_count() + immediate > limit)
+        {
+            return Err("bundle draw budget exceeded".into());
+        }
+        self.staged_primitives.append_checked(primitives)?;
+        if let Some(limit) = self.draw_limit {
+            self.retained.limit_instances(limit - immediate);
+        }
+        Ok(())
     }
 
     pub fn output(&self) -> &RenderOutput {
@@ -71,6 +95,9 @@ impl RenderState {
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
+        if let Some(limit) = self.draw_limit {
+            self.retained.limit_instances(limit);
+        }
     }
 
     /// Publishes masks, geometry and effects together after a successful callback.
@@ -149,6 +176,9 @@ impl RenderState {
         self.retained.revoke();
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
+        if let Some(limit) = self.draw_limit {
+            self.retained.limit_instances(limit);
+        }
         if native || self.committed != RenderOutput::default() {
             self.committed = RenderOutput::default();
             self.generation = mod_render::next_owner();
@@ -414,17 +444,14 @@ impl wit::Host for State {
                 .collect(),
             ..Default::default()
         };
-        Ok(self.render.staged_primitives.append_checked(primitives))
+        Ok(self.render.append_primitives(primitives))
     }
 
     fn draw(&mut self, primitives: wit::Primitives) -> Result<Result<(), String>> {
         if let Err(denied) = self.render_allowed()? {
             return Ok(Err(denied));
         }
-        Ok(self
-            .render
-            .staged_primitives
-            .append_checked(convert(primitives)))
+        Ok(self.render.append_primitives(convert(primitives)))
     }
 }
 

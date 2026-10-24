@@ -23,6 +23,8 @@ struct FakeWorker {
     failure: Option<CallFailure>,
     /// Makes each dispatch fail its callback instead of completing it.
     fail: bool,
+    transport_error: bool,
+    refuse_dispatch: bool,
     dispatched: Vec<Event>,
     /// Makes epoch callbacks publish the actor references they observe.
     observe_epoch: bool,
@@ -38,17 +40,20 @@ impl Worker for FakeWorker {
     /// Leaves initialization pending until the test supplies its completion.
     fn spawn(
         _: &Path,
-        _: Vec<u8>,
+        bytes: Vec<u8>,
         owner: Principal,
         _: Capabilities,
         drawing: mod_host::presentation::Context,
         _: BTreeMap<String, Vec<u8>>,
     ) -> Result<Self> {
+        ensure!(bytes != [255], "fixture launch failed");
         Ok(Self {
             response: None,
             presentation: VecDeque::new(),
             failure: None,
             fail: false,
+            transport_error: false,
+            refuse_dispatch: false,
             dispatched: Vec::new(),
             observe_epoch: false,
             contexts: vec![drawing],
@@ -59,6 +64,9 @@ impl Worker for FakeWorker {
     }
     /// Delivers only explicitly completed transactions and failures.
     fn poll(&mut self) -> Option<Result<Reply>> {
+        if self.transport_error {
+            return Some(Err(anyhow::anyhow!("fixture reply decode failed")));
+        }
         if let Some(failure) = self.failure.take() {
             return Some(Ok(Reply::Failed(failure)));
         }
@@ -73,6 +81,7 @@ impl Worker for FakeWorker {
     /// Records delivered events and completes them on the next poll, in the dispatch's epoch,
     /// or fails them when the test asks.
     fn dispatch(&mut self, request: Dispatch) -> Result<()> {
+        ensure!(!self.refuse_dispatch, "fixture dispatch failed");
         let context = request.drawing.clone();
         self.contexts.push(context.clone());
         if self.observe_epoch && matches!(request.event, Event::Epoch) {
@@ -263,7 +272,7 @@ fn fixture(count: usize) -> Live<FakeWorker> {
         session: None,
     };
     live.bind_drawing(&context(1), |_| false).unwrap();
-    live.initialize().unwrap();
+    live.initialize(0);
     live
 }
 
@@ -298,7 +307,7 @@ fn modal_presses_reach_only_declared_actions_of_the_open_screen() {
             template: Some(SCREEN.into()),
         }],
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true).unwrap();
     let modal = live.modal().unwrap();
     assert_eq!(
         (modal.bundle, modal.modal.template.as_deref()),
@@ -306,7 +315,7 @@ fn modal_presses_reach_only_declared_actions_of_the_open_screen() {
     );
     assert!(!live.press("bundle0.other", Some(2)));
     assert!(live.press("bundle0.pick", Some(2)));
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert_eq!(
         helper.dispatched,
@@ -350,7 +359,7 @@ fn session_items_reach_only_granted_guests_once_per_revision() {
             }],
         });
     }
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true).unwrap();
     let mut now = 0;
     let mut press = |live: &mut Live<FakeWorker>, id: &str| {
         let bundle = id.split('.').next().unwrap().to_owned();
@@ -358,9 +367,9 @@ fn session_items_reach_only_granted_guests_once_per_revision() {
         live.instances.get_mut(&bundle).unwrap().opened = live.modal_order;
         assert!(live.press(id, None));
         now += CALLBACK_INTERVAL_MS;
-        live.poll(1, now).unwrap();
+        live.poll(1, now, true).unwrap();
         now += CALLBACK_INTERVAL_MS;
-        live.poll(1, now).unwrap();
+        live.poll(1, now, true).unwrap();
     };
     press(&mut live, "bundle0.pick");
     press(&mut live, "bundle0.pick");
@@ -395,11 +404,11 @@ fn receive(live: &mut Live<FakeWorker>, id: &str, sequence: u64) {
 fn staggered_initialization_retains_sends_and_publishes_ready_first() {
     let mut live = fixture(2);
     complete(&mut live, "bundle0");
-    assert!(live.poll(1, 0).unwrap().is_empty());
+    assert!(live.poll(1, 0, true).unwrap().is_empty());
     assert!(!live.ready);
     assert_eq!(live.pending_sends.len(), 1);
     complete(&mut live, "bundle1");
-    let packets = live.poll(1, 1).unwrap();
+    let packets = live.poll(1, 1, true).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Ready { .. }
@@ -417,28 +426,21 @@ fn staggered_initialization_retains_sends_and_publishes_ready_first() {
     assert_eq!(live.pending_send_bytes, 0);
 }
 
-/// Outbound guest messages consume shared rate credit and resume when the caller advances time.
+/// Rate rejection stops its producer while the session retains its shared wire budget.
 #[test]
 fn outbound_sends_enforce_the_shared_rate_limit() {
     let mut live = fixture(1);
     for sequence in 1..=MAX_MESSAGES_PER_SECOND {
         complete(&mut live, "bundle0");
-        let packets = live.poll(1, 0).unwrap();
+        let packets = live.poll(1, 0, true).unwrap();
         let send: Envelope = serde_json::from_slice(packets.last().unwrap()).unwrap();
         assert_eq!(send.sequence, sequence);
     }
 
     complete(&mut live, "bundle0");
-    assert_eq!(
-        live.poll(1, 0).unwrap_err().to_string(),
-        "channel rate exceeded"
-    );
-
-    complete(&mut live, "bundle0");
-    let packets = live.poll(1, 1000).unwrap();
-    assert_eq!(packets.len(), 1);
-    let send: Envelope = serde_json::from_slice(&packets[0]).unwrap();
-    assert_eq!(send.payload, vec![Scalar::Bool(true)]);
+    assert!(live.poll(1, 0, true).unwrap().is_empty());
+    assert!(live.instances["bundle0"].stopped.is_some());
+    assert!(live.poll(1, 1000, true).unwrap().is_empty());
 }
 
 #[test]
@@ -453,19 +455,23 @@ fn four_components_initialize_across_slices_before_readiness() {
     );
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    assert!(live.poll(1, 0).unwrap().is_empty());
+    assert!(live.poll(1, 0, true).unwrap().is_empty());
     assert!(!live.ready);
-    assert!(live.poll(1, CALLBACK_INTERVAL_MS).unwrap().is_empty());
+    assert!(live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap().is_empty());
     assert!(
         live.instances
             .values()
             .all(|instance| instance.helper.is_some())
     );
     complete(&mut live, "bundle2");
-    assert!(live.poll(1, CALLBACK_INTERVAL_MS + 1).unwrap().is_empty());
+    assert!(
+        live.poll(1, CALLBACK_INTERVAL_MS + 1, true)
+            .unwrap()
+            .is_empty()
+    );
     complete(&mut live, "bundle3");
     assert_eq!(
-        live.poll(1, CALLBACK_INTERVAL_MS + 2).unwrap().len(),
+        live.poll(1, CALLBACK_INTERVAL_MS + 2, true).unwrap().len(),
         MAX_BUNDLES + 1
     );
     assert!(live.ready);
@@ -476,19 +482,19 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
     let mut live = fixture(3);
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
     complete(&mut live, "bundle2");
-    live.poll(1, CALLBACK_INTERVAL_MS + 1).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS + 1, true).unwrap();
     for (index, id) in ["bundle0", "bundle0", "bundle1", "bundle2"]
         .into_iter()
         .enumerate()
     {
         receive(&mut live, id, index as u64 + 1);
     }
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
     assert!(live.instances["bundle0"].busy);
     assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 2);
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS + 1).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS + 1, true).unwrap();
     assert_eq!(live.ingress.peek(u64::MAX, 1).unwrap().sequence, 3);
     assert!(
         live.instances["bundle1"]
@@ -499,7 +505,7 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
             .is_empty()
     );
     for tick in 3..=6 {
-        live.poll(1, tick * CALLBACK_INTERVAL_MS).unwrap();
+        live.poll(1, tick * CALLBACK_INTERVAL_MS, true).unwrap();
     }
     let delivered = live
         .instances
@@ -524,7 +530,7 @@ fn reliable_bursts_wait_for_busy_helpers_and_aggregate_callback_budget() {
 fn a_v1_dimension_change_rejects_completed_old_epoch_output_before_publication() {
     let mut live = fixture(1);
     complete(&mut live, "bundle0");
-    assert!(live.poll(2, CALLBACK_INTERVAL_MS).is_err());
+    assert!(live.poll(2, CALLBACK_INTERVAL_MS, true).is_err());
     assert_eq!(live.sequence, 1);
     assert!(!live.ready);
     assert!(live.pending_sends.is_empty());
@@ -641,7 +647,7 @@ fn sent(live: &mut Live<FakeWorker>, id: &str, record: Vec<Scalar>, epoch: u64) 
 fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     let mut live = fixture_v2(1);
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true).unwrap();
     assert!(live.ready);
     let message = |live: &Live<FakeWorker>, sequence, world_epoch| {
         serde_json::to_vec(&Envelope {
@@ -661,11 +667,11 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     };
     // A callback dispatched in epoch 1 is still running when the world moves to epoch 2.
     live.receive(&message(&live, 1, 1), 1).unwrap();
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 1);
     live.receive(&message(&live, 2, 1), 2).unwrap();
     live.bind_drawing(&context(2), |_| false).unwrap();
-    let packets = live.poll(2, 2 * CALLBACK_INTERVAL_MS).unwrap();
+    let packets = live.poll(2, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
     let Control::Epoch {
         session,
         world_epoch,
@@ -685,8 +691,8 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     // Its transaction carries the new epoch, and the new epoch's messages reach the guest.
     live.receive(&message(&live, 3, 2), 3 * CALLBACK_INTERVAL_MS)
         .unwrap();
-    live.poll(2, 3 * CALLBACK_INTERVAL_MS).unwrap();
-    live.poll(2, 4 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(2, 3 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(2, 4 * CALLBACK_INTERVAL_MS, true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert!(matches!(
         &helper.dispatched[2],
@@ -694,7 +700,7 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
     ));
     // A later send carries the new epoch.
     sent(&mut live, "bundle0", vec![Scalar::List(Vec::new())], 2);
-    let packets = live.poll(2, 5 * CALLBACK_INTERVAL_MS).unwrap();
+    let packets = live.poll(2, 5 * CALLBACK_INTERVAL_MS, true).unwrap();
     let next: Envelope = serde_json::from_slice(&packets[0]).unwrap();
     assert_eq!((next.sequence, next.world_epoch), (3, 2));
 }
@@ -703,7 +709,7 @@ fn a_v2_epoch_change_keeps_the_runtime_and_announces_the_new_epoch() {
 fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
     let mut live = fixture_v2(1);
     sent(&mut live, "bundle0", large_list(), 1);
-    let packets = live.poll(1, 0).unwrap();
+    let packets = live.poll(1, 0, true).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Ready { .. }
@@ -739,7 +745,7 @@ fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
     for bytes in wire::encode(&incoming, &live.grant.wire).unwrap() {
         live.receive(&bytes, 1).unwrap();
     }
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert_eq!(
         helper.dispatched,
@@ -754,7 +760,7 @@ fn v2_records_over_the_inline_limit_travel_in_fragments_both_ways() {
 fn failing() -> Live<FakeWorker> {
     let mut live = fixture(1);
     complete(&mut live, "bundle0");
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true).unwrap();
     assert!(live.ready);
     live.instances
         .get_mut("bundle0")
@@ -769,8 +775,8 @@ fn failing() -> Live<FakeWorker> {
 /// Delivers one message to `bundle0` at `now_ms` and polls until its reply is handled.
 fn fail_once(live: &mut Live<FakeWorker>, sequence: u64, now_ms: u64) {
     receive(live, "bundle0", sequence);
-    live.poll(1, now_ms).unwrap();
-    live.poll(1, now_ms).unwrap();
+    live.poll(1, now_ms, true).unwrap();
+    live.poll(1, now_ms, true).unwrap();
 }
 
 /// A failed callback is one dropped transaction: the helper is free for the next event, the
@@ -812,7 +818,7 @@ fn repeated_failures_stop_the_client_part_and_say_so() {
     );
     // Its later messages are dropped, and polling goes on.
     receive(&mut live, "bundle0", MAX_GUEST_STRIKES as u64 + 1);
-    live.poll(1, 10 * CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, 10 * CALLBACK_INTERVAL_MS, true).unwrap();
 }
 
 /// Failures farther apart than the window never add up to the limit.
@@ -847,7 +853,7 @@ fn a_failed_start_stops_the_part() {
         reason: "import not found".into(),
         fuel: None,
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true).unwrap();
     assert!(live.ready);
     assert!(live.instances["bundle0"].helper.is_none());
     assert_eq!(
@@ -873,7 +879,7 @@ fn opened() -> Live<FakeWorker> {
             template: Some(SCREEN.into()),
         }],
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true).unwrap();
     live
 }
 
@@ -898,7 +904,7 @@ fn modal_size_changes_reach_the_open_bundle_once_each() {
         pending.iter().cloned().collect::<Vec<_>>(),
         [Event::Resized { size: size(400.0) }]
     );
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     assert_eq!(helper.dispatched, [Event::Resized { size: size(400.0) }]);
     assert_eq!(helper.sizes, [Some(size(400.0))]);
@@ -1012,10 +1018,10 @@ fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
             position_ms: 0,
         }],
     });
-    live.poll(1, 0).unwrap();
+    live.poll(1, 0, true).unwrap();
     // No verified descriptor was registered, so the player is refused and reported stopped.
     live.media_mut().service(0, 0, true);
-    live.poll(1, CALLBACK_INTERVAL_MS).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
     let [Event::Message { channel, record }] = helper.dispatched.as_slice() else {
         panic!("one media event, not {:?}", helper.dispatched);

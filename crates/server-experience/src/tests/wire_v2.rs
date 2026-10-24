@@ -542,3 +542,98 @@ fn boolean_fields_reject_unknown_members_at_every_depth() {
         );
     }
 }
+
+#[test]
+fn routed_rejections_preserve_queued_messages_and_consume_only_their_sequence() {
+    for wire in [Wire::v1(), v2()] {
+        let grant = grant(wire);
+        let mut receiver = Receiver::new();
+        let encode = |sequence| {
+            wire::encode(
+                &envelope(&grant, sequence, 7, vec![item(1, "valid")]),
+                &grant.wire,
+            )
+            .unwrap()
+        };
+        receiver.feed(&grant, &encode(1)).unwrap();
+        let mut rejected = envelope(&grant, 2, 7, Vec::new());
+        rejected.payload = vec![Scalar::Bool(false)];
+        let error = receiver
+            .feed(&grant, &wire::encode(&rejected, &grant.wire).unwrap())
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<wire::BundleFailure>().unwrap().bundle,
+            rejected.bundle
+        );
+        receiver.feed(&grant, &encode(3)).unwrap();
+        assert_eq!(receiver.ingress.pop(u64::MAX, 7).unwrap().sequence, 1);
+        assert_eq!(receiver.ingress.pop(u64::MAX, 7).unwrap().sequence, 3);
+        assert!(receiver.ingress.pop(u64::MAX, 7).is_none());
+    }
+}
+
+#[test]
+fn a_routed_fragment_payload_decode_failure_preserves_the_session() {
+    let grant = grant(v2());
+    let mut receiver = Receiver::new();
+    let message = envelope(&grant, 1, 7, large_items(250));
+    let template = fragments(&wire::encode(&message, &grant.wire).unwrap())[0].clone();
+    let fragments = ["{", "}"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, data)| {
+            let mut fragment = template.clone();
+            fragment.fragment = wire::Part {
+                index: index as u32,
+                count: 2,
+                data: data.into(),
+            };
+            bytes(&fragment)
+        })
+        .collect::<Vec<_>>();
+    let error = receiver.feed(&grant, &fragments).unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<wire::BundleFailure>().unwrap().bundle,
+        message.bundle
+    );
+    let valid = wire::encode(&envelope(&grant, 2, 7, vec![item(1, "valid")]), &grant.wire).unwrap();
+    receiver.feed(&grant, &valid).unwrap();
+    assert_eq!(receiver.ingress.pop(u64::MAX, 7).unwrap().sequence, 2);
+}
+
+#[test]
+fn discarding_one_bundle_preserves_other_records_and_the_reliable_sequence() {
+    let mut grant = grant(v2());
+    let first = grant.offer.offer.packages[0].id.clone();
+    let mut other = grant.offer.offer.packages[0].clone();
+    other.id = "other".into();
+    grant.offer.offer.packages.push(other);
+    let first_caps = capabilities(&grant);
+    let mut other_caps = first_caps.clone();
+    other_caps.channels[0].id = "other.items".into();
+    let mut ingress = Ingress::new(0);
+    for sequence in 1..=4 {
+        let mut message = envelope(&grant, sequence, 7, vec![item(1, "valid")]);
+        if sequence.is_multiple_of(2) {
+            message.bundle = "other".into();
+            message.channel = "other.items".into();
+        }
+        for bytes in wire::encode(&message, &grant.wire).unwrap() {
+            ingress
+                .receive(&bytes, sequence * 1000, 0, &grant, |id| {
+                    Some(if id == first {
+                        &first_caps
+                    } else {
+                        &other_caps
+                    })
+                })
+                .unwrap();
+        }
+        if sequence == 3 {
+            ingress.discard_bundle(&first);
+            assert_eq!(ingress.pop(u64::MAX, 7).unwrap().sequence, 2);
+            assert!(ingress.pop(u64::MAX, 7).is_none());
+        }
+    }
+    assert_eq!(ingress.pop(u64::MAX, 7).unwrap().sequence, 4);
+}

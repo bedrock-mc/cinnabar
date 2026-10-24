@@ -1,7 +1,6 @@
 //! The modal screen the client parts draw, and the actions its controls deliver.
 
 use super::{Instance, Live, Worker};
-use anyhow::Result;
 use mod_host::helper::Event;
 use mod_ui::experience_modal::ExperienceModal;
 use server_experience::{
@@ -35,7 +34,7 @@ impl<H: Worker> Live<H> {
         let (bundle, instance) = self
             .instances
             .iter()
-            .filter(|(_, instance)| instance.opened > 0)
+            .filter(|(_, instance)| instance.opened > 0 && instance.stopped.is_none())
             .max_by_key(|(_, instance)| {
                 (
                     instance.contributions.modal.template.is_some(),
@@ -47,6 +46,29 @@ impl<H: Worker> Live<H> {
             files: &instance.files,
             modal: &instance.contributions.modal,
         })
+    }
+
+    /// Stops only the producer of a rejected screen and releases its queued side effects.
+    pub(in crate::server_experiences) fn reject_modal(
+        &mut self,
+        reason: &str,
+        now_ms: u64,
+    ) -> bool {
+        let Some(bundle) = self.modal().map(|modal| modal.bundle.to_owned()) else {
+            return false;
+        };
+        let instance = self
+            .instances
+            .get_mut(&bundle)
+            .expect("selected modal bundle");
+        instance.unavailable(
+            &mut self.budget,
+            &anyhow::anyhow!(reason.to_owned()),
+            now_ms,
+        );
+        self.scene_revision += 1;
+        self.discard_stopped();
+        true
     }
 
     /// Escape closes the open modal on the host side; its bound data stays for the next open.
@@ -228,7 +250,7 @@ impl<H: Worker> Live<H> {
     }
 
     /// Hands each idle helper its oldest waiting event within the aggregate callback budget.
-    pub(super) fn deliver_events(&mut self, epoch: u64) -> Result<()> {
+    pub(super) fn deliver_events(&mut self, epoch: u64, now_ms: u64) {
         for instance in self.instances.values_mut() {
             if instance.busy
                 || instance.events.is_empty()
@@ -240,11 +262,16 @@ impl<H: Worker> Live<H> {
                 continue;
             }
             let event = instance.events.pop_front().expect("events checked");
-            self.budget.dispatch(&instance.owner)?;
             let gui = size_for(&self.gui, &instance.owner.bundle);
-            instance.dispatch(self.session.as_deref(), event, epoch, gui)?;
+            instance.admit(
+                &mut self.budget,
+                self.session.as_deref(),
+                event,
+                epoch,
+                gui,
+                now_ms,
+            );
         }
-        Ok(())
     }
 }
 

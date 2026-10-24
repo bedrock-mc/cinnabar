@@ -31,7 +31,7 @@ impl Process {
         executable: PathBuf,
         prepare: impl FnOnce() -> Result<Start> + Send + 'static,
         requests: mpsc::Receiver<Dispatch>,
-        responses: mpsc::SyncSender<Result<Reply>>,
+        responses: mpsc::SyncSender<(Instant, Result<Reply>)>,
         log: mpsc::SyncSender<String>,
     ) -> Result<Self> {
         let process = Self::default();
@@ -51,20 +51,20 @@ impl Process {
                 let (mut input, mut output, reply) = match startup {
                     Ok(startup) => startup,
                     Err(error) => {
-                        let _ = responses.send(Err(error));
+                        let _ = responses.send((Instant::now(), Err(error)));
                         return;
                     }
                 };
                 // A failed start is the helper's last word.
                 let started = matches!(reply, Reply::Committed { .. });
-                if responses.send(Ok(reply)).is_err() || !started {
+                if responses.send((Instant::now(), Ok(reply))).is_err() || !started {
                     return;
                 }
                 while let Ok(request) = requests.recv() {
                     let result = write_frame(&mut input, &request, MAX_DISPATCH_IPC)
                         .and_then(|()| read_frame(&mut output, MAX_REPLY_IPC));
                     let failed = result.is_err();
-                    if responses.send(result).is_err() || failed {
+                    if responses.send((Instant::now(), result)).is_err() || failed {
                         return;
                     }
                 }
