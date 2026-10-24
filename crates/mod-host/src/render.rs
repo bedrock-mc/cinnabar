@@ -127,6 +127,7 @@ impl RenderState {
         if snapshot.geometry.is_empty()
             && snapshot.instances.is_empty()
             && snapshot.materials.is_empty()
+            && snapshot.entities.is_empty()
         {
             let changed = !self.committed.retained.is_empty();
             self.committed.retained.clear();

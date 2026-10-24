@@ -461,6 +461,7 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
         &device,
         &PipelineCache::new(device.clone(), true),
         &original,
+        None,
     )
     .unwrap();
     assert!(mask.matches(&original));
@@ -470,6 +471,7 @@ fn mask_attachments_reject_stale_resolution_and_sample_counts() {
         &device,
         &PipelineCache::new(device.clone(), true),
         &test_depth(&device, 127, 4),
+        None,
     )
     .unwrap();
     assert!(multisampled.matches(&test_depth(&device, 127, 4)));

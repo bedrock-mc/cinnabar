@@ -29,7 +29,7 @@ use std::{
 
 pub(super) struct Mesh {
     pub _geometry: Arc<Geometry>,
-    pub buffer: Buffer,
+    pub buffer: mod_render::GpuAllocation<Buffer>,
     pub count: u32,
 }
 pub(super) struct Batch {
@@ -41,18 +41,20 @@ pub(super) struct Batch {
     pub key: pipeline::Key,
 }
 pub(super) struct ViewGpu {
-    pub buffer: Buffer,
+    pub bindings: BTreeMap<DrawingHandle, BindGroup>,
+    pub buffer: mod_render::GpuAllocation<Buffer>,
     pub uploaded: Vec<GpuInstance>,
     pub batches: Vec<Batch>,
-    pub bindings: BTreeMap<DrawingHandle, BindGroup>,
-    pub frame: Buffer,
+    pub frame: mod_render::GpuAllocation<Buffer>,
     pub frame_uploaded: CameraFrame,
 }
 #[derive(Resource, Default)]
 pub(super) struct Gpu {
     pub meshes: BTreeMap<DrawingHandle, Mesh>,
-    pub views: HashMap<Entity, ViewGpu>,
+    pub views: HashMap<(Entity, u64), ViewGpu>,
+    pub draws: HashMap<Entity, Vec<(u64, usize)>>,
     retired: Vec<Mesh>,
+    retired_views: Vec<ViewGpu>,
 }
 
 /// Fixed host camera/animation uniform shared by vertex and fragment stages.
@@ -141,9 +143,26 @@ pub(super) fn queue(
             gpu.retired.push(mesh);
         }
     }
-    gpu.views.retain(|entity, _| views.get(*entity).is_ok());
+    let removed: Vec<_> = gpu
+        .views
+        .keys()
+        .copied()
+        .filter(|(entity, owner)| {
+            views.get(*entity).is_err()
+                || !resources
+                    .iter()
+                    .any(|r| r.geometry.keys().any(|h| h.owner == *owner))
+        })
+        .collect();
+    for key in removed {
+        if let Some(view) = gpu.views.remove(&key) {
+            gpu.retired_views.push(view);
+        }
+    }
+    gpu.draws.clear();
     if resources.is_empty() || panorama.is_some_and(|scene| !scene.game_visible()) {
-        gpu.views.clear();
+        let removed = std::mem::take(&mut gpu.views);
+        gpu.retired_views.extend(removed.into_values());
         return;
     }
     // Each missing geometry is attempted once per frame however many instances share it;
@@ -159,17 +178,24 @@ pub(super) fn queue(
                 continue;
             };
             let vertices = mesh::build(geometry);
-            let storage = if vertices.is_empty() {
-                buffer(&device, GEOMETRY_LABEL, std::mem::size_of::<GpuVertex>())
-            } else {
-                crate::gpu_allocation::buffer_with_data(
-                    &device,
-                    &queue,
-                    GEOMETRY_LABEL,
-                    bytemuck::cast_slice(&vertices),
-                    BufferUsages::STORAGE,
-                )
-            };
+            let bytes = vertices.len().max(1) * std::mem::size_of::<GpuVertex>();
+            let storage = mod_render::GpuAllocation::new(
+                mod_render::GpuReservation::ledger_for(&scene.gpu_reservations, handle.owner),
+                bytes as u64,
+                || {
+                    if vertices.is_empty() {
+                        buffer(&device, GEOMETRY_LABEL, std::mem::size_of::<GpuVertex>())
+                    } else {
+                        crate::gpu_allocation::buffer_with_data(
+                            &device,
+                            &queue,
+                            GEOMETRY_LABEL,
+                            bytemuck::cast_slice(&vertices),
+                            BufferUsages::STORAGE,
+                        )
+                    }
+                },
+            );
             let Some(storage) = storage else {
                 continue;
             };
@@ -189,9 +215,13 @@ pub(super) fn queue(
             continue;
         };
         let camera = view.world_from_view;
-        let mut instances = Vec::new();
-        let mut batches: Vec<Batch> = Vec::new();
         for resources in &resources {
+            let Some(owner) = resources.geometry.keys().next().map(|h| h.owner) else {
+                continue;
+            };
+            let ledger = mod_render::GpuReservation::ledger_for(&scene.gpu_reservations, owner);
+            let mut instances = Vec::new();
+            let mut batches: Vec<Batch> = Vec::new();
             for instance in resources.instances.values() {
                 let Some(resolved) = resolve(instance, &frame, &camera) else {
                     continue;
@@ -228,109 +258,143 @@ pub(super) fn queue(
                     });
                 }
             }
-        }
-        let prepared = gpu.views.entry(entity).or_insert_with(|| ViewGpu {
-            buffer: device.create_buffer(&BufferDescriptor {
-                label: Some(LABEL),
-                size: std::mem::size_of::<GpuInstance>().max(16) as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            uploaded: Vec::new(),
-            batches: Vec::new(),
-            bindings: BTreeMap::new(),
-            frame: device.create_buffer(&BufferDescriptor {
-                label: Some("mod drawing camera"),
-                size: std::mem::size_of::<CameraFrame>() as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            frame_uploaded: CameraFrame::default(),
-        });
-        let view_matrix = camera.to_matrix();
-        let rotation = Mat4::from_cols(
-            view_matrix.x_axis,
-            view_matrix.y_axis,
-            view_matrix.z_axis,
-            Vec4::W,
-        )
-        .inverse();
-        let camera_frame = CameraFrame {
-            clip: (view.clip_from_view * rotation).to_cols_array_2d(),
-            viewport: [
-                view.viewport.z as f32,
-                view.viewport.w as f32,
-                view.clip_from_view.y_axis.y,
-                0.,
-            ],
-            animation: [clock.phase, 0., 0., 0.],
-        };
-        if camera_frame != prepared.frame_uploaded {
-            queue.profiled_write_buffer(&prepared.frame, 0, bytemuck::bytes_of(&camera_frame));
-            prepared.frame_uploaded = camera_frame;
-        }
-        let bytes = instances.len() * std::mem::size_of::<GpuInstance>();
-        if bytes as u64 > prepared.buffer.size() {
-            if let Some(grown) = buffer(&device, LABEL, bytes.next_power_of_two()) {
-                prepared.buffer = grown;
-                prepared.bindings.clear();
-            } else {
-                // Out of memory draws the instances the current buffer holds.
-                let capacity = prepared.buffer.size() as usize / std::mem::size_of::<GpuInstance>();
-                truncate_to(&mut instances, &mut batches, capacity);
-            }
-        }
-        if instances != prepared.uploaded {
-            if !instances.is_empty() {
-                queue.profiled_write_buffer(&prepared.buffer, 0, bytemuck::cast_slice(&instances));
-            }
-            prepared.uploaded = instances;
-        }
-        prepared.batches = batches;
-        for (index, batch) in prepared.batches.iter().enumerate() {
-            let key = batch.key;
-            if let Some(handle) = batch.material {
-                let Some(material) = resources.iter().find_map(|r| r.materials.get(&handle)) else {
+            let key = (entity, owner);
+            if let std::collections::hash_map::Entry::Vacant(entry) = gpu.views.entry(key) {
+                let Some(instance_buffer) = mod_render::GpuAllocation::new(
+                    ledger,
+                    std::mem::size_of::<GpuInstance>() as u64,
+                    || buffer(&device, LABEL, std::mem::size_of::<GpuInstance>()),
+                ) else {
                     continue;
                 };
-                if !materials.ensure(
-                    handle,
-                    material,
-                    key,
-                    &device,
-                    &cache,
-                    &pipeline.layout,
-                    &mut compiles_left,
-                ) {
+                let Some(frame_buffer) = mod_render::GpuAllocation::new(
+                    ledger,
+                    std::mem::size_of::<CameraFrame>() as u64,
+                    || {
+                        crate::gpu_allocation::buffer(
+                            &device,
+                            &BufferDescriptor {
+                                label: Some("mod drawing camera"),
+                                size: std::mem::size_of::<CameraFrame>() as u64,
+                                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            },
+                        )
+                    },
+                ) else {
                     continue;
+                };
+                entry.insert(ViewGpu {
+                    buffer: instance_buffer,
+                    uploaded: Vec::new(),
+                    batches: Vec::new(),
+                    bindings: BTreeMap::new(),
+                    frame: frame_buffer,
+                    frame_uploaded: CameraFrame::default(),
+                });
+            }
+            let gpu_draw_start = gpu.draws.get(&entity).map_or(0, Vec::len);
+            let prepared = gpu.views.get_mut(&key).unwrap();
+            let view_matrix = camera.to_matrix();
+            let rotation = Mat4::from_cols(
+                view_matrix.x_axis,
+                view_matrix.y_axis,
+                view_matrix.z_axis,
+                Vec4::W,
+            )
+            .inverse();
+            let camera_frame = CameraFrame {
+                clip: (view.clip_from_view * rotation).to_cols_array_2d(),
+                viewport: [
+                    view.viewport.z as f32,
+                    view.viewport.w as f32,
+                    view.clip_from_view.y_axis.y,
+                    0.,
+                ],
+                animation: [clock.phase, 0., 0., 0.],
+            };
+            if camera_frame != prepared.frame_uploaded {
+                queue.profiled_write_buffer(&prepared.frame, 0, bytemuck::bytes_of(&camera_frame));
+                prepared.frame_uploaded = camera_frame;
+            }
+            let bytes = instances.len() * std::mem::size_of::<GpuInstance>();
+            if bytes as u64 > prepared.buffer.size() {
+                if let Some(grown) =
+                    mod_render::GpuAllocation::new(ledger, bytes.next_power_of_two() as u64, || {
+                        buffer(&device, LABEL, bytes.next_power_of_two())
+                    })
+                {
+                    prepared.bindings.clear();
+                    let old = std::mem::replace(&mut prepared.buffer, grown);
+                    crate::device_poll::on_frame_complete(&queue, move || drop(old));
+                } else {
+                    // Budget pressure or out of memory draws only what the current buffer holds.
+                    let capacity =
+                        prepared.buffer.size() as usize / std::mem::size_of::<GpuInstance>();
+                    truncate_to(&mut instances, &mut batches, capacity);
                 }
             }
-            let Ok(pipeline) = pipeline.variants.specialize(&cache, key) else {
-                continue;
-            };
-            crate::transparent_phase::add(
-                phase,
-                Transparent3d {
-                    sorting_info:
-                        bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
-                    entity: (entity, *main),
-                    pipeline,
-                    draw_function: draw,
-                    distance: super::super::primitives::PRIMITIVE_DISTANCE,
-                    batch_range: index as u32..index as u32 + 1,
-                    extra_index: PhaseItemExtraIndex::None,
-                    indexed: false,
-                },
-            );
+            if instances != prepared.uploaded {
+                if !instances.is_empty() {
+                    queue.profiled_write_buffer(
+                        &prepared.buffer,
+                        0,
+                        bytemuck::cast_slice(&instances),
+                    );
+                }
+                prepared.uploaded = instances;
+            }
+            prepared.batches = batches;
+            let mut draws = Vec::new();
+            for (index, batch) in prepared.batches.iter().enumerate() {
+                let key = batch.key;
+                if let Some(handle) = batch.material {
+                    let Some(material) = resources.materials.get(&handle) else {
+                        continue;
+                    };
+                    if !materials.ensure(
+                        handle,
+                        material,
+                        key,
+                        &device,
+                        &cache,
+                        &pipeline.layout,
+                        &mut compiles_left,
+                    ) {
+                        continue;
+                    }
+                }
+                let Ok(pipeline) = pipeline.variants.specialize(&cache, key) else {
+                    continue;
+                };
+                crate::transparent_phase::add(
+                    phase,
+                    Transparent3d {
+                        sorting_info:
+                            bevy::core_pipeline::core_3d::TransparentSortingInfo3d::AlwaysOnTop,
+                        entity: (entity, *main),
+                        pipeline,
+                        draw_function: draw,
+                        distance: super::super::primitives::PRIMITIVE_DISTANCE,
+                        batch_range: (gpu_draw_start + draws.len()) as u32
+                            ..(gpu_draw_start + draws.len() + 1) as u32,
+                        extra_index: PhaseItemExtraIndex::None,
+                        indexed: false,
+                    },
+                );
+                draws.push((owner, index));
+            }
+            gpu.draws.entry(entity).or_default().extend(draws);
         }
     }
 }
 
 /// Keeps removed geometry charged until the last submitted GPU work using it has completed.
 pub(super) fn retire(mut gpu: ResMut<Gpu>, queue: Res<RenderQueue>) {
-    if gpu.retired.is_empty() {
+    if gpu.retired.is_empty() && gpu.retired_views.is_empty() {
         return;
     }
     let retired = std::mem::take(&mut gpu.retired);
-    crate::device_poll::on_frame_complete(&queue, move || drop(retired));
+    let views = std::mem::take(&mut gpu.retired_views);
+    crate::device_poll::on_frame_complete(&queue, move || drop((retired, views)));
 }

@@ -57,7 +57,8 @@ fn pixels(device: &RenderDevice, queue: &RenderQueue, mode: MaskDepth, paired: b
         Some(0.0),
         None,
     );
-    let mut target = MaskTarget::new(device, world.resource::<PipelineCache>(), &depth).unwrap();
+    let mut target =
+        MaskTarget::new(device, world.resource::<PipelineCache>(), &depth, None).unwrap();
     target.texture = texture(
         FORMAT,
         TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,

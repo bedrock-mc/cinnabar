@@ -7,14 +7,13 @@ pub const MAX_MEDIA_SCREENS: usize = 4;
 #[extract_app(bevy::render::RenderApp)]
 pub struct MediaScreenScene {
     pub screens: Vec<MediaScreen>,
-    /// Texture bytes all screens together may allocate.
-    pub gpu_budget_bytes: u64,
 }
 
 #[derive(Clone)]
 pub struct MediaScreen {
     /// Keys the retained texture across frames.
     pub id: u64,
+    pub ledger: Option<mod_render::GpuLedger>,
     pub center: [f32; 3],
     pub half_right: [f32; 3],
     pub half_up: [f32; 3],

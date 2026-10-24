@@ -875,7 +875,7 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
             }
         }
     }
-    let (temporary_path, mut file) = temporary.ok_or_else(|| AssetError::Io {
+    let (temporary_path, file) = temporary.ok_or_else(|| AssetError::Io {
         path: path.to_path_buf(),
         source: io::Error::new(
             io::ErrorKind::AlreadyExists,
@@ -883,10 +883,12 @@ pub fn write_blob_atomic(path: &Path, bytes: &[u8]) -> Result<(), AssetError> {
         ),
     })?;
     let result = (|| -> io::Result<()> {
-        file.write_all(bytes)?;
-        file.flush()?;
-        file.sync_all()?;
-        drop(file);
+        {
+            let mut file = file;
+            file.write_all(bytes)?;
+            file.flush()?;
+            file.sync_all()?;
+        }
         fs::rename(&temporary_path, path)
     })();
     if let Err(source) = result {

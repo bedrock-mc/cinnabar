@@ -52,31 +52,26 @@ pub struct Receiver {
     assembly: transfer::Assembly,
     output: RenderOutput,
     revision: u64,
-    retired: Vec<Arc<mod_render::retained::Geometry>>,
+    ledger: Option<mod_render::GpuLedger>,
     pub time: Option<u32>,
     pub weather: Option<[f32; 2]>,
 }
 
 impl Receiver {
-    /// Releases completed geometry retirements and republishes their GPU reservation.
-    /// Call every frame, including frames without a new guest snapshot.
-    pub fn reap_retired(&mut self) {
-        let mut released_bytes = 0u64;
-        self.retired.retain(|geometry| {
-            if Arc::strong_count(geometry) > 1 {
-                true
-            } else {
-                released_bytes = released_bytes.saturating_add(geometry.gpu_bytes());
-                false
-            }
-        });
-        if released_bytes != 0 {
-            for reservation in &mut self.output.gpu_reservations {
-                reservation.geometry_bytes =
-                    reservation.geometry_bytes.saturating_sub(released_bytes);
-            }
-            self.revision = mod_render::next_owner();
-        }
+    /// Returns the allocation ledger shared by drawing and media for this bundle lifetime.
+    pub fn ledger(&mut self, limit: u64) -> &mod_render::GpuLedger {
+        self.ledger
+            .get_or_insert_with(|| mod_render::GpuLedger::new(limit))
+    }
+
+    /// Clears old-world presentation while outstanding storage keeps its bundle ledger.
+    pub fn clear(&mut self) {
+        self.owners.clear();
+        self.assembly = Default::default();
+        self.output = Default::default();
+        self.time = None;
+        self.weather = None;
+        self.revision = mod_render::next_owner();
     }
 
     /// Returns only the latest fully validated output and its local identity.
@@ -142,43 +137,6 @@ impl Receiver {
                 },
             )
             .map_err(|error| anyhow::anyhow!("drawing: {}", error.detail))?;
-        let mut retired: Vec<_> = self
-            .retired
-            .iter()
-            .filter(|geometry| Arc::strong_count(geometry) > 1)
-            .cloned()
-            .collect();
-        for old in self
-            .output
-            .retained
-            .iter()
-            .flat_map(|resources| resources.geometry.values())
-        {
-            if !resources
-                .geometry
-                .values()
-                .any(|live| Arc::ptr_eq(live, old))
-                && !retired.iter().any(|kept| Arc::ptr_eq(kept, old))
-            {
-                retired.push(Arc::clone(old));
-            }
-        }
-        Snapshot::check_budget(&resources, &retired)
-            .map_err(|error| anyhow::anyhow!("drawing: {}", error.detail))?;
-        let retiring_bytes: u64 = retired
-            .iter()
-            .filter(|old| {
-                !resources
-                    .geometry
-                    .values()
-                    .any(|live| Arc::ptr_eq(live, old))
-            })
-            .map(|geometry| geometry.gpu_bytes())
-            .sum();
-        ensure!(
-            Snapshot::gpu_bytes(&resources).saturating_add(retiring_bytes) <= gpu_bytes,
-            "drawing GPU budget exceeded"
-        );
         ensure!(
             resources.instances.len() <= server_experience::policy::MAX_DRAWS as usize,
             "bundle draw budget exceeded"
@@ -199,12 +157,6 @@ impl Receiver {
                 <= server_experience::policy::MAX_TRIANGLES as usize,
             "bundle triangle budget exceeded"
         );
-        let geometry_bytes = Snapshot::gpu_bytes(&resources)
-            .saturating_add(retiring_bytes)
-            .saturating_add(
-                (vertices * std::mem::size_of::<mod_render::geometry::ModVertex>()) as u64,
-            );
-        ensure!(geometry_bytes <= gpu_bytes, "drawing GPU budget exceeded");
         let draws = resources.instances.len()
             + primitives.decals.len()
             + primitives.ribbons.len()
@@ -337,6 +289,7 @@ impl Receiver {
         if !resources.geometry.is_empty()
             || !resources.materials.is_empty()
             || !resources.instances.is_empty()
+            || !resources.entities.is_empty()
         {
             let retained = self
                 .output
@@ -360,10 +313,10 @@ impl Receiver {
         });
         output.gpu_reservations.push(mod_render::GpuReservation {
             owners: owners.values().copied().collect(),
-            geometry_bytes,
-            limit_bytes: gpu_bytes,
+            ledger: self.ledger(gpu_bytes).clone(),
+            primitives: Arc::clone(&output.primitives),
+            passes: output.passes.iter().map(|pass| pass.revision).collect(),
         });
-        self.retired = retired;
         self.owners = owners;
         self.output = output;
         self.revision = mod_render::next_owner();

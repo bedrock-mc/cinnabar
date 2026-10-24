@@ -795,9 +795,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.
-  Session teardown, fair frame callbacks, expanded triangle limits and combined geometry /
-  actor-mask GPU reservations have regression coverage, including retirement cleanup
-  without new guest snapshots. Atmosphere and shader packs share time-override precedence:
+  Session teardown, epoch actor context, actor-only snapshots, fair frame callbacks and
+  expanded triangle limits have regression coverage. One allocation ledger per bundle
+  covers drawing, every view's resident instance capacity, masks and media textures;
+  retired storage releases charges without new guest snapshots. Atmosphere and shader packs share time-override precedence:
   capture pin, personal mod, client part, then authoritative server time. Headless planet /
   star-cube rendering and F9 teardown are captured; hardware performance qualification
   remains incomplete.

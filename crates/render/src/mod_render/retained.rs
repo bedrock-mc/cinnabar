@@ -10,6 +10,8 @@ use bevy::{
 use render_scene::mod_scene::retained::DrawingFrame;
 mod clock;
 mod gpu;
+#[cfg(test)]
+mod ledger_tests;
 mod materials;
 mod pipeline;
 #[cfg(test)]

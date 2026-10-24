@@ -43,7 +43,8 @@ pub(crate) fn install(render_app: &mut SubApp) {
 }
 
 /// Runs callback from a device poll after all submissions so far, including this frame, complete.
-/// Call from a FrameSubmissions system; registering it requires no extra submit.
+/// Call after the resource's last submission. Before rendering, only retire storage that
+/// this frame no longer uses; FrameSubmissions systems may also retire this frame's storage.
 pub(crate) fn on_frame_complete(queue: &RenderQueue, callback: impl FnOnce() + Send + 'static) {
     queue.on_submitted_work_done(callback);
 }

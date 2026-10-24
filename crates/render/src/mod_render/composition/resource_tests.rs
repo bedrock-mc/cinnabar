@@ -93,7 +93,7 @@ fn unchanged_compositor_inputs_reuse_both_bindings_without_allocating() {
     let sampler = device.create_sampler(&default());
     let sources = [sampled_view(device), sampled_view(device)];
     let masks = [sampled_view(device), sampled_view(device)];
-    let mut style = StyleGpu::new(device);
+    let mut style = StyleGpu::new(device, None).unwrap();
     style.prepare_bindings(
         device,
         cache,
@@ -129,7 +129,7 @@ fn compositor_bindings_replace_only_changed_resources_and_stay_bounded() {
     let sampler = device.create_sampler(&default());
     let mut sources = [sampled_view(device), sampled_view(device)];
     let mut masks = [sampled_view(device), sampled_view(device)];
-    let mut style = StyleGpu::new(device);
+    let mut style = StyleGpu::new(device, None).unwrap();
     style.prepare_bindings(
         device,
         cache,
@@ -169,7 +169,7 @@ fn compositor_bindings_replace_only_changed_resources_and_stay_bounded() {
             assert_ne!(style.binding(source.id()).unwrap().id(), old);
         }
     }
-    let mut other_style = StyleGpu::new(device);
+    let mut other_style = StyleGpu::new(device, None).unwrap();
     other_style.prepare_bindings(
         device,
         cache,
@@ -198,4 +198,20 @@ fn compositor_bindings_replace_only_changed_resources_and_stay_bounded() {
         assert_ne!(style.binding(source.id()).unwrap().id(), old);
     }
     assert_eq!(style.bindings.len(), sources.len());
+}
+
+#[test]
+fn style_uniform_storage_shares_the_bundle_ledger() {
+    let (app, _) = crate::queue_review_support::app();
+    let device = app.world().resource::<RenderDevice>();
+    let bytes = mod_render::shader::FRAME_UNIFORM_BYTES as u64;
+    let ledger = mod_render::GpuLedger::new(bytes);
+    let occupied = ledger.allocate(1, || Some(())).unwrap();
+    assert!(StyleGpu::new(device, Some(&ledger)).is_none());
+    assert_eq!(ledger.used(), 1);
+    drop(occupied);
+    let style = StyleGpu::new(device, Some(&ledger)).unwrap();
+    assert_eq!(ledger.used(), style.uniform.size());
+    drop(style);
+    assert_eq!(ledger.used(), 0);
 }

@@ -38,8 +38,11 @@ use mod_render::geometry::ModVertex;
 use render_scene::ModRenderScene;
 use std::sync::Arc;
 
+pub(crate) mod bundles;
+
 const PRIMITIVE_SHADER: Handle<Shader> = uuid_handle!("8e1f4b6c-2d7a-4c93-b5e0-7a19c3d84f26");
 const VERTEX_BYTES: u64 = std::mem::size_of::<ModVertex>() as u64;
+const FRAME_BYTES: u64 = std::mem::size_of::<[f32; 4]>() as u64;
 /// After the world's own transparent geometry, before the camera overlay at `f32::MAX`.
 pub(crate) const PRIMITIVE_DISTANCE: f32 = f32::MAX / 2.0;
 
@@ -54,6 +57,7 @@ pub(super) fn install(app: &mut App) {
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<PrimitivePipeline>()
+        .init_resource::<bundles::BundleGpu>()
         .add_render_command::<Transparent3d, DrawPrimitiveCommands>()
         .add_render_command::<Transparent3d, DrawBlockHighlightCommands>()
         .add_systems(RenderStartup, init_gpu)
@@ -71,15 +75,15 @@ pub(super) fn install(app: &mut App) {
 
 #[derive(Resource)]
 pub(crate) struct PrimitiveGpu {
-    vertices: Buffer,
+    bind_group: Option<BindGroup>,
+    vertices: mod_render::GpuAllocation<Buffer>,
     capacity: u64,
     uploaded: Arc<[ModVertex]>,
     uploaded_marker: Arc<[ModVertex]>,
     uploaded_blocks: Arc<[ModVertex]>,
     block_count: u32,
     pub(crate) vertex_count: u32,
-    frame: Buffer,
-    bind_group: Option<BindGroup>,
+    frame: mod_render::GpuAllocation<Buffer>,
     view_buffer_id: Option<BufferId>,
 }
 
@@ -92,28 +96,42 @@ fn vertex_descriptor(vertices: u64) -> BufferDescriptor<'static> {
     }
 }
 
-fn vertex_buffer(device: &RenderDevice, vertices: u64) -> Buffer {
-    device.create_buffer(&vertex_descriptor(vertices))
+/// Creates the shared host primitive buffer independently of signed bundle allocations.
+pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
+    commands.init_resource::<bundles::BundleGpu>();
+    if let Some(gpu) = PrimitiveGpu::new(&device, None) {
+        commands.insert_resource(gpu);
+    }
 }
 
-pub(crate) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
-    commands.insert_resource(PrimitiveGpu {
-        vertices: vertex_buffer(&device, 6),
-        capacity: 6,
-        uploaded: Arc::from([]),
-        uploaded_marker: Arc::from([]),
-        uploaded_blocks: Arc::from([]),
-        block_count: 0,
-        vertex_count: 0,
-        frame: device.create_buffer(&BufferDescriptor {
-            label: Some("mod primitive frame"),
-            size: 16,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        }),
-        bind_group: None,
-        view_buffer_id: None,
-    });
+impl PrimitiveGpu {
+    /// Allocates vertex capacity and the animation uniform through their owner's ledger.
+    fn new(device: &RenderDevice, ledger: Option<&mod_render::GpuLedger>) -> Option<Self> {
+        Some(Self {
+            vertices: mod_render::GpuAllocation::new(ledger, vertex_descriptor(6).size, || {
+                crate::gpu_allocation::buffer(device, &vertex_descriptor(6))
+            })?,
+            capacity: 6,
+            uploaded: Arc::from([]),
+            uploaded_marker: Arc::from([]),
+            uploaded_blocks: Arc::from([]),
+            block_count: 0,
+            vertex_count: 0,
+            frame: mod_render::GpuAllocation::new(ledger, FRAME_BYTES, || {
+                crate::gpu_allocation::buffer(
+                    device,
+                    &BufferDescriptor {
+                        label: Some("mod primitive frame"),
+                        size: FRAME_BYTES,
+                        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    },
+                )
+            })?,
+            bind_group: None,
+            view_buffer_id: None,
+        })
+    }
 }
 
 fn prepare(
@@ -122,9 +140,39 @@ fn prepare(
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
     mut gpu: ResMut<PrimitiveGpu>,
+    mut bundles: ResMut<bundles::BundleGpu>,
 ) {
     let Some(scene) = scene else { return };
-    let needed = scene.vertex_count() as u64;
+    let time = [time.elapsed_secs_wrapped(), time.delta_secs()];
+    upload(
+        &mut gpu,
+        &scene.vertices,
+        &scene.marker_vertices,
+        &scene.block_vertices,
+        time,
+        &device,
+        &queue,
+        None,
+    );
+    bundles.prepare(&scene, time, &device, &queue);
+}
+
+/// Updates one owner's primitive storage without releasing capacity when its scene shrinks.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one upload owns its input slices, clock, device and ledger"
+)]
+fn upload(
+    gpu: &mut PrimitiveGpu,
+    vertices: &Arc<[ModVertex]>,
+    marker_vertices: &Arc<[ModVertex]>,
+    block_vertices: &Arc<[ModVertex]>,
+    time: [f32; 2],
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    ledger: Option<&mod_render::GpuLedger>,
+) {
+    let needed = (vertices.len() + marker_vertices.len() + block_vertices.len()) as u64;
     let grew = needed > gpu.capacity;
     if grew {
         let capacity = needed.next_power_of_two().min(
@@ -133,12 +181,17 @@ fn prepare(
                 + mod_api::MAX_BLOCK_HIGHLIGHTS * super::block_highlights::MAX_VERTICES_PER_BLOCK)
                 as u64,
         );
-        let Some(vertices) = crate::gpu_allocation::buffer(&device, &vertex_descriptor(capacity))
+        let Some(vertices) =
+            mod_render::GpuAllocation::new(ledger, vertex_descriptor(capacity).size, || {
+                crate::gpu_allocation::buffer(device, &vertex_descriptor(capacity))
+            })
         else {
-            // Out of memory keeps drawing the previous upload and retries next frame.
+            // Budget pressure or out of memory keeps the previous upload for this frame.
             return;
         };
-        gpu.vertices = vertices;
+        gpu.bind_group = None;
+        let old = std::mem::replace(&mut gpu.vertices, vertices);
+        crate::device_poll::on_frame_complete(queue, move || drop(old));
         gpu.capacity = capacity;
         gpu.bind_group = None;
     }
@@ -146,48 +199,48 @@ fn prepare(
     let [guest_changed, marker_changed] = upload_changes(
         &gpu.uploaded,
         &gpu.uploaded_marker,
-        &scene.vertices,
-        &scene.marker_vertices,
+        vertices,
+        marker_vertices,
         grew,
     );
-    if guest_changed && !scene.vertices.is_empty() {
-        queue.profiled_write_buffer(&gpu.vertices, 0, bytemuck::cast_slice(&scene.vertices));
+    if guest_changed && !vertices.is_empty() {
+        queue.profiled_write_buffer(&gpu.vertices, 0, bytemuck::cast_slice(vertices));
     }
-    if marker_changed && !scene.marker_vertices.is_empty() {
+    if marker_changed && !marker_vertices.is_empty() {
         queue.profiled_write_buffer(
             &gpu.vertices,
-            scene.vertices.len() as u64 * VERTEX_BYTES,
-            bytemuck::cast_slice(&scene.marker_vertices),
+            vertices.len() as u64 * VERTEX_BYTES,
+            bytemuck::cast_slice(marker_vertices),
         );
     }
     if guest_changed {
-        gpu.uploaded = Arc::clone(&scene.vertices);
+        gpu.uploaded = Arc::clone(vertices);
     }
     if marker_changed {
-        gpu.uploaded_marker = Arc::clone(&scene.marker_vertices);
+        gpu.uploaded_marker = Arc::clone(marker_vertices);
     }
-    let primitive_count = scene.vertices.len() + scene.marker_vertices.len();
+    let primitive_count = vertices.len() + marker_vertices.len();
     let blocks_changed = block_upload_changed(
         &gpu.uploaded_blocks,
-        &scene.block_vertices,
+        block_vertices,
         previous_primitive_count,
         primitive_count,
         grew,
     );
-    if blocks_changed && !scene.block_vertices.is_empty() {
+    if blocks_changed && !block_vertices.is_empty() {
         queue.profiled_write_buffer(
             &gpu.vertices,
             primitive_count as u64 * VERTEX_BYTES,
-            bytemuck::cast_slice(&scene.block_vertices),
+            bytemuck::cast_slice(block_vertices),
         );
     }
     if blocks_changed {
-        gpu.uploaded_blocks = Arc::clone(&scene.block_vertices);
+        gpu.uploaded_blocks = Arc::clone(block_vertices);
     }
     gpu.vertex_count = primitive_count as u32;
-    gpu.block_count = scene.block_vertices.len() as u32;
+    gpu.block_count = block_vertices.len() as u32;
     if needed > 0 {
-        let frame = [time.elapsed_secs_wrapped(), time.delta_secs(), 0.0, 0.0];
+        let frame = [time[0], time[1], 0.0, 0.0];
         queue.profiled_write_buffer(&gpu.frame, 0, bytemuck::cast_slice(&frame));
     }
 }
@@ -293,7 +346,7 @@ impl FromWorld for PrimitivePipeline {
                     ty: BindingType::Buffer {
                         ty: BufferBindingType::Uniform,
                         has_dynamic_offset: false,
-                        min_binding_size: BufferSize::new(16),
+                        min_binding_size: BufferSize::new(FRAME_BYTES),
                     },
                     count: None,
                 },
@@ -388,6 +441,23 @@ fn prepare_bind_group(
     pipeline: Res<PrimitivePipeline>,
     view_uniforms: Res<ViewUniforms>,
     mut gpu: ResMut<PrimitiveGpu>,
+    mut bundles: ResMut<bundles::BundleGpu>,
+) {
+    bind(&device, &cache, &pipeline, &view_uniforms, &mut gpu);
+    for (_, bundle) in &mut bundles.0 {
+        if let Some(bundle) = bundle {
+            bind(&device, &cache, &pipeline, &view_uniforms, bundle);
+        }
+    }
+}
+
+/// Rebuilds a primitive binding only after one of its buffers changes.
+fn bind(
+    device: &RenderDevice,
+    cache: &PipelineCache,
+    pipeline: &PrimitivePipeline,
+    view_uniforms: &ViewUniforms,
+    gpu: &mut PrimitiveGpu,
 ) {
     let Some(view_binding) = view_uniforms.uniforms.binding() else {
         gpu.bind_group = None;
@@ -444,8 +514,18 @@ pub(crate) fn queue(
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
-        for through_world in [false, true] {
-            if !(if through_world { highlights } else { regular }) {
+        for (draw_index, through_world) in std::iter::once((0, false))
+            .chain(std::iter::once((0, true)))
+            .chain(
+                scene
+                    .bundle_vertices
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (_, vertices))| !vertices.is_empty())
+                    .map(|(index, _)| (index + 1, false)),
+            )
+        {
+            if draw_index == 0 && !(if through_world { highlights } else { regular }) {
                 continue;
             }
             let Ok(pipeline_id) = pipeline.specialize(
@@ -476,7 +556,7 @@ pub(crate) fn queue(
                         } else {
                             0.0
                         },
-                    batch_range: 0..1,
+                    batch_range: draw_index as u32..draw_index as u32 + 1,
                     extra_index: PhaseItemExtraIndex::None,
                     indexed: false,
                 },
@@ -498,18 +578,25 @@ pub(crate) type DrawBlockHighlightCommands = crate::gpu_timing::GpuDrawSpan<
 pub(crate) struct SetPrimitiveBindGroup;
 
 impl<P: PhaseItem> RenderCommand<P> for SetPrimitiveBindGroup {
-    type Param = SRes<PrimitiveGpu>;
+    type Param = (SRes<PrimitiveGpu>, SRes<bundles::BundleGpu>);
     type ViewQuery = Read<ViewUniformOffset>;
     type ItemQuery = ();
 
     fn render<'w>(
-        _item: &P,
+        item: &P,
         view_offset: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let Some(bind_group) = &gpu.into_inner().bind_group else {
+        let Some(gpu) = bundles::select(
+            gpu.0.into_inner(),
+            gpu.1.into_inner(),
+            item.batch_range().start,
+        ) else {
+            return RenderCommandResult::Skip;
+        };
+        let Some(bind_group) = &gpu.bind_group else {
             return RenderCommandResult::Skip;
         };
         pass.set_bind_group(0, bind_group, &[view_offset.offset]);
@@ -520,18 +607,25 @@ impl<P: PhaseItem> RenderCommand<P> for SetPrimitiveBindGroup {
 pub(crate) struct DrawPrimitives;
 
 impl<P: PhaseItem> RenderCommand<P> for DrawPrimitives {
-    type Param = SRes<PrimitiveGpu>;
+    type Param = (SRes<PrimitiveGpu>, SRes<bundles::BundleGpu>);
     type ViewQuery = ();
     type ItemQuery = ();
 
     fn render<'w>(
-        _item: &P,
+        item: &P,
         _view: ROQueryItem<'w, '_, Self::ViewQuery>,
         _item_query: Option<ROQueryItem<'w, '_, Self::ItemQuery>>,
         gpu: SystemParamItem<'w, '_, Self::Param>,
         pass: &mut TrackedRenderPass<'w>,
     ) -> RenderCommandResult {
-        let count = gpu.into_inner().vertex_count;
+        let Some(gpu) = bundles::select(
+            gpu.0.into_inner(),
+            gpu.1.into_inner(),
+            item.batch_range().start,
+        ) else {
+            return RenderCommandResult::Skip;
+        };
+        let count = gpu.vertex_count;
         if count == 0 {
             return RenderCommandResult::Skip;
         }

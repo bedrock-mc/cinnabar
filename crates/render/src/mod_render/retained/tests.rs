@@ -422,9 +422,13 @@ fn out_of_memory_draws_what_fits_and_uploads_geometry_later() {
     let geometry_attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     {
         let attempts = std::rc::Rc::clone(&geometry_attempts);
-        let _failure = crate::gpu_allocation::inject(move |label, _| {
+        let _failure = crate::gpu_allocation::inject(move |label, bytes| {
             attempts.set(attempts.get() + usize::from(label == "mod retained geometry"));
-            label.starts_with("mod retained")
+            label == "mod retained geometry"
+                || (label == "mod retained drawing"
+                    && bytes
+                        > std::mem::size_of::<render_scene::mod_scene::retained::GpuInstance>()
+                            as u64)
         });
         app.world_mut().run_system_once(gpu::queue).unwrap();
     }

@@ -48,6 +48,8 @@ pub(crate) struct FrameUniform {
 
 #[derive(Resource)]
 pub(crate) struct PassGpu {
+    /// The scene alternates between two main textures, so each pass reuses two bind groups.
+    bind_groups: Mutex<HashMap<BindGroupKey, MaskedBinding>>,
     /// Indexed by whether the pass reads depth.
     layouts: HashMap<(bool, usize), BindGroupLayoutDescriptor>,
     sampler: Sampler,
@@ -55,10 +57,13 @@ pub(crate) struct PassGpu {
     dummy_depth_view: TextureView,
     /// Owned rather than in Bevy's append-only cache, so dropping an entry frees it.
     pub(crate) pipelines: HashMap<(u64, TextureFormat), PipelineState>,
-    uniforms: HashMap<(Entity, u64), Buffer>,
+    uniforms: HashMap<(Entity, u64), mod_render::GpuAllocation<Buffer>>,
     resolved_depth: HashMap<Entity, ResolvedDepth>,
-    /// The scene alternates between two main textures, so each pass reuses two bind groups.
-    bind_groups: Mutex<HashMap<BindGroupKey, BindGroup>>,
+}
+
+struct MaskedBinding {
+    binding: BindGroup,
+    _masks: Vec<mod_render::GpuAllocation<()>>,
 }
 
 pub(crate) enum PipelineState {
@@ -390,8 +395,14 @@ fn prepare(
             }
         }
     }
-    gpu.uniforms
-        .retain(|(view, revision), _| views.contains(*view) && current(*revision));
+    let retired: Vec<_> = gpu
+        .uniforms
+        .extract_if(|(view, revision), _| !(views.contains(*view) && current(*revision)))
+        .map(|(_, uniform)| uniform)
+        .collect();
+    if !retired.is_empty() {
+        crate::device_poll::on_frame_complete(&queue, move || drop(retired));
+    }
     let resolved_depth = &gpu.resolved_depth;
     let dummy_depth = gpu.dummy_depth_view.id();
     gpu.bind_groups
@@ -445,17 +456,31 @@ fn prepare(
                 slot,
                 pass.params,
             );
-            let buffer = gpu
-                .uniforms
-                .entry((entity, pass.revision))
-                .or_insert_with(|| {
-                    device.create_buffer(&BufferDescriptor {
-                        label: Some("mod pass frame"),
-                        size: FRAME_UNIFORM_BYTES as u64,
-                        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    })
-                });
+            let key = (entity, pass.revision);
+            if let std::collections::hash_map::Entry::Vacant(entry) = gpu.uniforms.entry(key) {
+                let Some(buffer) = mod_render::GpuAllocation::new(
+                    mod_render::GpuReservation::ledger_for_pass(
+                        &scene.gpu_reservations,
+                        pass.revision,
+                    ),
+                    FRAME_UNIFORM_BYTES as u64,
+                    || {
+                        crate::gpu_allocation::buffer(
+                            &device,
+                            &BufferDescriptor {
+                                label: Some("mod pass frame"),
+                                size: FRAME_UNIFORM_BYTES as u64,
+                                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                                mapped_at_creation: false,
+                            },
+                        )
+                    },
+                ) else {
+                    continue;
+                };
+                entry.insert(buffer);
+            }
+            let buffer = &gpu.uniforms[&key];
             queue.profiled_write_buffer(buffer, 0, bytemuck::bytes_of(&uniform));
         }
     }
@@ -602,13 +627,28 @@ pub(crate) fn mod_passes(
                             resource: BindingResource::TextureView(view),
                         }
                     }));
-                    context.render_device().create_bind_group(
+                    let binding = context.render_device().create_bind_group(
                         "mod pass",
                         &cache.get_bind_group_layout(&gpu.layouts[&(pass.depth, pass.masks.len())]),
                         &entries,
-                    )
+                    );
+                    let masks = pass
+                        .masks
+                        .iter()
+                        .filter_map(|handle| {
+                            world
+                                .get_resource::<crate::actor_render::masks::MaskGpu>()?
+                                .targets
+                                .get(&(view, *handle))
+                                .map(|target| target.allocation())
+                        })
+                        .collect();
+                    MaskedBinding {
+                        binding,
+                        _masks: masks,
+                    }
                 });
-            let bind_group = bind_group.clone();
+            let bind_group = bind_group.binding.clone();
             drop(bind_groups);
             let attachments = [Some(RenderPassColorAttachment {
                 view: post.destination,

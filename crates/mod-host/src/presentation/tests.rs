@@ -78,10 +78,11 @@ fn receiver_keeps_one_gpu_reservation_for_all_remapped_mask_owners() {
     let [reservation] = output.gpu_reservations.as_slice() else {
         panic!("one bundle must keep one GPU reservation");
     };
-    assert_eq!(reservation.limit_bytes, 8192);
+    assert_eq!(reservation.ledger.limit(), 8192);
     assert_eq!(
-        reservation.geometry_bytes,
-        Snapshot::gpu_bytes(&output.retained[0])
+        reservation.ledger.used(),
+        0,
+        "CPU snapshots allocate no GPU storage"
     );
     assert!(
         output
@@ -95,88 +96,63 @@ fn receiver_keeps_one_gpu_reservation_for_all_remapped_mask_owners() {
 fn retired_geometry_reservation_expires_without_another_guest_snapshot() {
     let mut receiver = Receiver::default();
     receiver
-        .apply(planet(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(planet(), DrawingPermissions::ALL, &context(), 8192)
         .unwrap();
-    let gpu_mesh = Arc::clone(
-        receiver.output().0.retained[0]
-            .geometry
-            .values()
-            .next()
-            .unwrap(),
-    );
-    let mesh_bytes = gpu_mesh.gpu_bytes();
-    let mut masks_only = Output::default();
-    masks_only.masks.push(mod_render::masks::Mask {
-        handle: DrawingHandle {
-            owner: 10,
-            generation: 1,
-            slot: 1,
-        },
-        session: Default::default(),
-        depth: mod_api::drawing::MaskDepth::Test,
-        entities: Vec::new(),
-        style: None,
-        position: None,
-    });
+    let ledger = receiver.output().0.gpu_reservations[0].ledger.clone();
+    let resident = ledger.allocate(4096, || Some(())).unwrap();
     receiver
-        .apply(masks_only, DrawingPermissions::ALL, &context(), mesh_bytes)
+        .apply(Output::default(), DrawingPermissions::ALL, &context(), 8192)
         .unwrap();
+    assert_eq!(receiver.output().0.gpu_reservations[0].ledger, ledger);
+    assert_eq!(ledger.used(), 4096);
     let revision = receiver.output().1;
-    receiver.reap_retired();
+    drop(resident);
+    assert_eq!(ledger.used(), 0);
     assert_eq!(
-        receiver.output().0.gpu_reservations[0].geometry_bytes,
-        mesh_bytes
+        receiver.output().1,
+        revision,
+        "allocation release needs no new snapshot"
     );
-    assert_eq!(receiver.output().1, revision);
-    drop(gpu_mesh);
-    receiver.reap_retired();
-    assert_eq!(receiver.output().0.gpu_reservations[0].geometry_bytes, 0);
-    assert_eq!(receiver.output().0.masks.len(), 1);
-    assert_ne!(receiver.output().1, revision);
-    let released_revision = receiver.output().1;
-    receiver.reap_retired();
-    assert_eq!(receiver.output().1, released_revision);
 }
 
 #[test]
-fn retirement_keeps_resident_and_immediate_geometry_charged() {
+fn entity_only_snapshots_keep_live_actor_handles_beyond_nearest_candidates() {
     let mut receiver = Receiver::default();
+    let actor = retained::EntityKey {
+        session: 7,
+        dimension: 0,
+        runtime_id: 5,
+        spawn_revision: 1,
+    };
+    let id = DrawingHandle {
+        owner: 3,
+        generation: 1,
+        slot: 1,
+    };
+    let context = Context {
+        live: vec![actor],
+        ..context()
+    };
+    let input = Output {
+        drawing: Snapshot {
+            entities: vec![(id, actor)],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     receiver
-        .apply(planet(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(input.clone(), DrawingPermissions::ALL, &context, 0)
         .unwrap();
-    let gpu_mesh = Arc::clone(
-        receiver.output().0.retained[0]
-            .geometry
-            .values()
-            .next()
-            .unwrap(),
+    let resources = &receiver.output().0.retained[0];
+    assert_eq!(
+        resources.entities.values().copied().collect::<Vec<_>>(),
+        vec![actor]
     );
-    let mut replacement = planet();
-    replacement.primitives.beams.push(mod_render::Beam {
-        start: [0.; 3],
-        end: [1.; 3],
-        width: 1.,
-        color: [1.; 4],
-        intensity: 1.,
-    });
+    let token = *resources.entities.keys().next().unwrap();
     receiver
-        .apply(replacement, DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(input, DrawingPermissions::ALL, &context, 0)
         .unwrap();
-    let charged = receiver.output().0.gpu_reservations[0].geometry_bytes;
-    let retired_bytes = gpu_mesh.gpu_bytes();
-    receiver.reap_retired();
-    assert_eq!(
-        receiver.output().0.gpu_reservations[0].geometry_bytes,
-        charged
-    );
-    drop(gpu_mesh);
-    receiver.reap_retired();
-    let output = receiver.output().0;
-    assert_eq!(
-        output.gpu_reservations[0].geometry_bytes,
-        charged - retired_bytes
-    );
-    assert!(output.gpu_reservations[0].geometry_bytes > Snapshot::gpu_bytes(&output.retained[0]));
+    assert_eq!(receiver.output().0.retained[0].entities[&token], actor);
 }
 
 #[test]
@@ -196,18 +172,12 @@ fn bundle_planet_and_environment_require_drawing_authority() {
 }
 
 #[test]
-fn bundle_budget_rejection_preserves_the_previous_scene() {
+fn invalid_output_preserves_the_previous_scene() {
     let mut receiver = Receiver::default();
     receiver
         .apply(planet(), DrawingPermissions::ALL, &context(), u64::MAX)
         .unwrap();
     let revision = receiver.output().1;
-    assert!(
-        receiver
-            .apply(planet(), DrawingPermissions::ALL, &context(), 0)
-            .is_err()
-    );
-    assert_eq!(receiver.output().1, revision);
     let mut invalid = planet();
     invalid.drawing.geometry[0].1 = GeometrySpec::Triangles {
         vertices: Vec::new(),
@@ -338,6 +308,14 @@ fn large_scenes_stream_within_callback_limits_and_publish_only_when_complete() {
     assert!(pieces > 1);
     assert_eq!(receiver.output().0.retained[0].instances.len(), 1);
     assert_eq!(receiver.output().0.passes.len(), 1);
+    let output = receiver.output().0;
+    assert_eq!(
+        mod_render::GpuReservation::ledger_for_pass(
+            &output.gpu_reservations,
+            output.passes[0].revision
+        ),
+        Some(&output.gpu_reservations[0].ledger)
+    );
 }
 
 #[test]
@@ -459,4 +437,25 @@ fn bundle_triangle_budget_combines_retained_and_immediate_geometry() {
         .unwrap_err();
     assert_eq!(error.to_string(), "bundle triangle budget exceeded");
     assert_eq!(receiver.output().1, revision);
+}
+
+#[test]
+fn retirement_keeps_resident_and_immediate_geometry_charged() {
+    let mut receiver = Receiver::default();
+    receiver
+        .apply(planet(), DrawingPermissions::ALL, &context(), 8192)
+        .unwrap();
+    let ledger = receiver.output().0.gpu_reservations[0].ledger.clone();
+    let retained = ledger.allocate(1024, || Some(())).unwrap();
+    let immediate = ledger.allocate(2048, || Some(())).unwrap();
+    receiver.clear();
+    receiver
+        .apply(planet(), DrawingPermissions::ALL, &context(), 8192)
+        .unwrap();
+    assert_eq!(receiver.output().0.gpu_reservations[0].ledger, ledger);
+    assert_eq!(ledger.used(), 3072);
+    drop(retained);
+    assert_eq!(ledger.used(), 2048);
+    drop(immediate);
+    assert_eq!(ledger.used(), 0);
 }

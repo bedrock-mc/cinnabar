@@ -415,3 +415,26 @@ fn bundle_and_personal_pass_revisions_share_one_namespace() {
         assert!(before < personal && personal < bundle && bundle < after);
     }
 }
+
+#[test]
+fn entity_only_changes_publish_and_keep_live_handles_outside_candidates() {
+    let mut render = RenderState::new();
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 7,
+        spawn_revision: 1,
+    };
+    render.retained.bind_session(1, 0);
+    render.update_entities(vec![actor], &[]).unwrap();
+    let before = render.generation();
+    render.begin_callback();
+    let entity = render.retained.observe_entities().unwrap()[0].0;
+    render.commit_retained();
+    assert_ne!(render.generation(), before);
+    assert_eq!(render.output().retained[0].entities[&entity], actor);
+    render.update_entities(Vec::new(), &[]).unwrap();
+    assert_eq!(render.output().retained[0].entities[&entity], actor);
+    render.update_entities(Vec::new(), &[actor]).unwrap();
+    assert!(render.output().retained.is_empty());
+}

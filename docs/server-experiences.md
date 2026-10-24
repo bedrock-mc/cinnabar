@@ -540,9 +540,11 @@ also consume the aggregate budget and wait across slices when it is exhausted.
 Drawing frame callbacks rotate between ready bundles. Committed drawing snapshots
 continue across callbacks until every piece arrives. Expanded retained triangles
 count per placement and share the triangle allowance with immediate primitives.
-Each bundle's GPU reservation covers geometry and actor-mask coverage, depth,
-resolve and halo attachments across every view. Resizing or changing multisampling
-rechecks that combined allowance before allocating; coverage resumes when it fits.
+Each bundle has one GPU allocation ledger shared by retained and immediate geometry,
+per-view instance capacity, actor-mask coverage, depth, resolve and halo attachments,
+and media textures. Every allocation checks the signed ceiling before creating storage.
+Shrinking a scene keeps its resident capacity charged; retired storage releases its
+charge after its final GPU use. Resizing and multisampling use the same ledger.
 Readiness waits for every initializer; their bounded sends follow the ready record.
 These are not OS resident-memory or compiler limits.
 

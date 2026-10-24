@@ -54,11 +54,6 @@ impl Geometry {
         self.bounds
     }
 
-    /// Counts the immutable native storage needed by this admitted mesh.
-    pub fn gpu_bytes(&self) -> u64 {
-        (self.expanded_vertices * std::mem::size_of::<mesh::GpuVertex>()) as u64
-    }
-
     /// Bounds expanded triangles, including immutable line joins and caps.
     pub fn triangles(&self) -> usize {
         self.expanded_vertices / 3

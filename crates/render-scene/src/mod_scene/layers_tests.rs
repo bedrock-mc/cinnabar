@@ -7,8 +7,9 @@ fn bundle_gpu_reservations_survive_merging_extraction_and_revocation() {
         .map(|owner| RenderOutput {
             gpu_reservations: vec![mod_render::GpuReservation {
                 owners: vec![owner],
-                geometry_bytes: owner * 16,
-                limit_bytes: owner * 64,
+                ledger: mod_render::GpuLedger::new(owner * 64),
+                primitives: Arc::default(),
+                passes: Vec::new(),
             }],
             ..Default::default()
         })

@@ -24,47 +24,44 @@ pub enum MediaUpload {
 }
 
 pub struct MediaTexture {
-    texture: Texture,
     view: TextureView,
+    texture: mod_render::GpuAllocation<Texture>,
     size: [u32; 2],
     generation: u64,
 }
 
 impl MediaTexture {
-    /// Reserves one allocation; the caller charges these bytes to its server GPU budget.
+    /// Allocates one texture against its bundle's shared GPU ledger.
     pub fn new(
         device: &RenderDevice,
         size: [u32; 2],
         generation: u64,
-        remaining_bytes: u64,
+        ledger: Option<&mod_render::GpuLedger>,
     ) -> Option<Self> {
         let [width, height] = size;
         let bytes = u64::from(width)
             .checked_mul(u64::from(height))?
             .checked_mul(4)?;
         let max_side = device.limits().max_texture_dimension_2d;
-        if width == 0
-            || height == 0
-            || width > max_side
-            || height > max_side
-            || bytes > remaining_bytes
-        {
+        if width == 0 || height == 0 || width > max_side || height > max_side {
             return None;
         }
-        let texture = crate::gpu_allocation::checked(device, TEXTURE_LABEL, bytes, || {
-            device.create_texture(&TextureDescriptor {
-                label: Some(TEXTURE_LABEL),
-                size: Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format: TextureFormat::Rgba8UnormSrgb,
-                usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
+        let texture = mod_render::GpuAllocation::new(ledger, bytes, || {
+            crate::gpu_allocation::checked(device, TEXTURE_LABEL, bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some(TEXTURE_LABEL),
+                    size: Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Rgba8UnormSrgb,
+                    usage: TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
             })
         })?;
         let view = texture.create_view(&TextureViewDescriptor::default());

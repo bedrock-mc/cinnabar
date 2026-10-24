@@ -358,6 +358,7 @@ pub struct BundleHost {
     last_fuel: u64,
     presentation_sent: Option<(u64, Option<u32>, Option<[f32; 2]>)>,
     presentation_pending: Option<crate::presentation::Pending>,
+    drawing_context: Option<crate::presentation::Context>,
     _ticker: crate::execution::EpochTicker,
 }
 
@@ -466,6 +467,7 @@ impl BundleHost {
             last_fuel: 0,
             presentation_sent: None,
             presentation_pending: None,
+            drawing_context: None,
             _ticker: ticker,
         };
         host.last_fuel = host.fuel_used();
@@ -555,6 +557,9 @@ impl BundleHost {
         };
         if state.epoch != epoch || matches!(event, Event::Epoch) {
             state.presentation.reset_presentation();
+        }
+        if let Some(context) = self.drawing_context.take() {
+            state.presentation.presentation_context(&context)?;
         }
         state.epoch = epoch;
         state.begin_output()?;
@@ -719,10 +724,8 @@ impl BundleHost {
                 && context.targets.len() <= mod_api::drawing::MAX_MASK_ENTITIES,
             "drawing context budget exceeded"
         );
-        self.store
-            .data_mut()
-            .presentation
-            .presentation_context(context)
+        self.drawing_context = Some(context.clone());
+        Ok(())
     }
 
     /// Returns changed drawing only; bundles without drawing authority publish no presentation.

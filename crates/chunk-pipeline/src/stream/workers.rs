@@ -197,6 +197,7 @@ pub fn world_worker_threads(cores: usize) -> usize {
 }
 
 /// Diagnostic cap on the logical processors every thread pool sizes itself for.
+#[cfg(not(target_arch = "wasm32"))]
 const CORES_ENV: &str = "CINNABAR_CPU_CORES";
 
 /// Logical processors the client's pools are sized for: the machine's count, or fewer when

@@ -116,7 +116,7 @@ impl<H> Instance<H> {
         self.busy = false;
         self.events.clear();
         self.contributions = Contributions::default();
-        self.presentation = Default::default();
+        self.presentation.clear();
         self.assets.clear();
         budget.quarantine(&self.owner);
         self.stopped = Some(why);
@@ -533,7 +533,7 @@ impl<H: Worker> Live<H> {
             packets.push(control);
         }
         for instance in self.instances.values_mut() {
-            instance.presentation = Default::default();
+            instance.presentation.clear();
             let guest = instance.helper.is_some() || instance.component.is_some();
             if guest
                 && !instance
@@ -610,7 +610,7 @@ impl<H: Worker> Live<H> {
             instance.drawing_context.dimension = dimension;
         }
         for instance in self.instances.values_mut() {
-            instance.presentation = Default::default();
+            instance.presentation.clear();
         }
         self.drawing_sources.clear();
     }
@@ -651,9 +651,6 @@ impl<H: Worker> Live<H> {
 
     /// Merges only changed client-part output; stopped parts release their renderer resources.
     pub(super) fn drawing(&mut self) -> (&mod_render::RenderOutput, u64) {
-        for instance in self.instances.values_mut() {
-            instance.presentation.reap_retired();
-        }
         if !self.drawing_sources.iter().copied().eq(self
             .instances
             .values()
@@ -695,7 +692,7 @@ impl<H: Worker> Live<H> {
         }
         self.screens_built = Some(built);
         self.screens.clear();
-        'instances: for (index, instance) in self.instances.values().enumerate() {
+        'instances: for (index, instance) in self.instances.values_mut().enumerate() {
             for (id, object) in &instance.contributions.scene {
                 if self.screens.len() == render_scene::MAX_MEDIA_SCREENS {
                     break 'instances;
@@ -706,17 +703,18 @@ impl<H: Worker> Live<H> {
                     continue;
                 };
                 if let Some(frame) = self.media.frame(&instance.owner.bundle, texture) {
+                    screen.ledger = Some(
+                        instance
+                            .presentation
+                            .ledger(instance.capabilities.scope.gpu_bytes)
+                            .clone(),
+                    );
                     screen.frame = frame;
                     self.screens.push(screen);
                 }
             }
         }
         Some(&self.screens)
-    }
-
-    /// Texture bytes the signed scope lets media screens allocate.
-    pub(super) fn gpu_budget_bytes(&self) -> u64 {
-        self.grant.offer.offer.scope.gpu_bytes.min(MAX_GPU_BYTES)
     }
 
     /// Uses only host-owned status text in the persistent execution indicator; a stopped client

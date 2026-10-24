@@ -14,6 +14,7 @@ use launcher::install_layout::InstallLayout;
 pub mod catalog;
 
 /// Session-only fallback entries retain the identity supplied by the browser host.
+#[cfg(not(target_arch = "wasm32"))]
 const SESSION_SKIN_ID_PREFIX: &str = "session:";
 
 /// The local player's client-authored skin and stable local uuid. Cheap to clone (Arc-backed):

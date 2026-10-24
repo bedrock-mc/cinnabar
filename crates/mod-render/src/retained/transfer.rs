@@ -181,20 +181,4 @@ impl Snapshot {
     pub fn check_budget(resources: &Resources, retired: &[Arc<Geometry>]) -> Result<(), DrawError> {
         validation::budget(resources, retired)
     }
-
-    /// Counts expanded GPU geometry, including the per-instance record allocation.
-    pub fn gpu_bytes(resources: &Resources) -> u64 {
-        let vertices: usize = resources
-            .geometry
-            .values()
-            .map(|geometry| geometry.expanded_vertices)
-            .sum();
-        (vertices * std::mem::size_of::<mesh::GpuVertex>()
-            + if resources.instances.is_empty() {
-                0
-            } else {
-                (resources.instances.len() * mod_api::drawing::INSTANCE_GPU_BYTES)
-                    .next_power_of_two()
-            }) as u64
-    }
 }

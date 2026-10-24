@@ -45,6 +45,7 @@ pub struct ModRenderScene {
     pub gpu_reservations: Vec<mod_render::GpuReservation>,
     pub masks: Arc<[mod_render::masks::Mask]>,
     pub vertices: Arc<[ModVertex]>,
+    pub bundle_vertices: Vec<(mod_render::GpuLedger, Arc<[ModVertex]>)>,
     primitives: Arc<mod_render::Primitives>,
     pub marker_vertices: Arc<[ModVertex]>,
     position_box: Option<[[f32; 3]; 2]>,
@@ -90,11 +91,36 @@ impl ModRenderScene {
         self.generation = self.generation.wrapping_add(1);
         self.passes.clone_from(&output.passes);
         self.retained.clone_from(&output.retained);
+        if self.gpu_reservations.len() != output.gpu_reservations.len()
+            || !self
+                .gpu_reservations
+                .iter()
+                .zip(&output.gpu_reservations)
+                .all(|(old, new)| {
+                    old.ledger == new.ledger && Arc::ptr_eq(&old.primitives, &new.primitives)
+                })
+        {
+            self.bundle_vertices = output
+                .gpu_reservations
+                .iter()
+                .map(|r| {
+                    (
+                        r.ledger.clone(),
+                        mod_render::geometry::build(&r.primitives).into(),
+                    )
+                })
+                .collect();
+        }
         self.gpu_reservations.clone_from(&output.gpu_reservations);
         self.masks = Arc::clone(&output.masks);
-        if !Arc::ptr_eq(&self.primitives, &output.primitives) {
-            self.primitives = Arc::clone(&output.primitives);
-            self.vertices = mod_render::geometry::build(&output.primitives).into();
+        let primitives = if self.gpu_reservations.is_empty() {
+            &output.primitives
+        } else {
+            &self.personal.primitives
+        };
+        if !Arc::ptr_eq(&self.primitives, primitives) {
+            self.primitives = Arc::clone(primitives);
+            self.vertices = mod_render::geometry::build(primitives).into();
         }
     }
 
@@ -179,7 +205,14 @@ impl ModRenderScene {
     }
 
     pub fn vertex_count(&self) -> usize {
-        self.vertices.len() + self.marker_vertices.len() + self.block_vertices.len()
+        self.vertices.len()
+            + self.marker_vertices.len()
+            + self.block_vertices.len()
+            + self
+                .bundle_vertices
+                .iter()
+                .map(|(_, vertices)| vertices.len())
+                .sum::<usize>()
     }
 }
 

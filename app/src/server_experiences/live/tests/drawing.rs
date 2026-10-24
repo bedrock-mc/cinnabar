@@ -133,13 +133,8 @@ fn drawing_releases_retired_gpu_charges_without_a_helper_reply() {
         .presentation
         .apply(input, DrawingPermissions::ALL, &context, u64::MAX)
         .unwrap();
-    let gpu_mesh = Arc::clone(
-        live.drawing().0.retained[0]
-            .geometry
-            .values()
-            .next()
-            .unwrap(),
-    );
+    let ledger = live.drawing().0.gpu_reservations[0].ledger.clone();
+    let gpu_mesh = ledger.allocate(256, || Some(())).unwrap();
     live.instances
         .values_mut()
         .next()
@@ -153,13 +148,10 @@ fn drawing_releases_retired_gpu_charges_without_a_helper_reply() {
         )
         .unwrap();
     let (output, revision) = live.drawing();
-    assert_eq!(
-        output.gpu_reservations[0].geometry_bytes,
-        gpu_mesh.gpu_bytes()
-    );
+    assert_eq!(output.gpu_reservations[0].ledger.used(), 256);
     drop(gpu_mesh);
     let (output, released_revision) = live.drawing();
-    assert_eq!(output.gpu_reservations[0].geometry_bytes, 0);
-    assert_ne!(released_revision, revision);
+    assert_eq!(output.gpu_reservations[0].ledger.used(), 0);
+    assert_eq!(released_revision, revision);
     assert_eq!(live.drawing().1, released_revision);
 }

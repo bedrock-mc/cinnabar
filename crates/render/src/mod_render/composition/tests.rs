@@ -227,7 +227,7 @@ fn composed(
     let coverage = mask.create_view(&default());
     let scene_view = scene.create_view(&default());
     let sampler = &compositor.sampler;
-    let pyramid = Pyramid::new(&device, &queue, cache, sampler, &coverage, &view).unwrap();
+    let pyramid = Pyramid::new(&device, &queue, cache, sampler, &coverage, &view, None).unwrap();
     let blur = cache.get_render_pipeline(compositor.blur.unwrap()).unwrap();
     let composite = cache
         .get_render_pipeline(compositor.composite[&format])
@@ -245,7 +245,7 @@ fn composed(
         view_formats: &[],
     });
     let output_view = output.create_view(&default());
-    let mut style_gpu = StyleGpu::new(&device);
+    let mut style_gpu = StyleGpu::new(&device, None).unwrap();
     queue.profiled_write_buffer(
         &style_gpu.uniform,
         0,

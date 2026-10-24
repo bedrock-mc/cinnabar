@@ -223,10 +223,17 @@ impl RenderCommand<Transparent3d> for DrawBatch {
         let (gpu, materials) = gpu;
         let gpu = gpu.into_inner();
         let materials = materials.into_inner();
-        let Some(view) = gpu.views.get(&item.entity()) else {
+        let Some(&(owner, index)) = gpu
+            .draws
+            .get(&item.entity())
+            .and_then(|draws| draws.get(item.batch_range().start as usize))
+        else {
             return RenderCommandResult::Skip;
         };
-        let Some(batch) = view.batches.get(item.batch_range().start as usize) else {
+        let Some(view) = gpu.views.get(&(item.entity(), owner)) else {
+            return RenderCommandResult::Skip;
+        };
+        let Some(batch) = view.batches.get(index) else {
             return RenderCommandResult::Skip;
         };
         let (Some(mesh), Some(binding)) = (

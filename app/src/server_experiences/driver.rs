@@ -494,7 +494,6 @@ fn present_media(
             muted,
             local_us,
         );
-        let budget = live.gpu_budget_bytes();
         // Writes only on change, so an unchanged scene neither allocates nor re-extracts.
         if let Some(screens) = live.changed_screens()
             && let Some(scene) = scene.as_mut()
@@ -502,7 +501,6 @@ fn present_media(
         {
             scene.screens.clear();
             scene.screens.extend_from_slice(screens);
-            scene.gpu_budget_bytes = budget;
         }
     } else if let Some(scene) = scene.as_mut()
         && !scene.screens.is_empty()

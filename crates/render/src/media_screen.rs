@@ -80,14 +80,15 @@ pub(crate) fn install_media_screen_render(app: &mut App) {
 }
 
 struct ScreenState {
+    bind_group: Option<BindGroup>,
     texture: Option<MediaTexture>,
     texture_generation: u64,
     serial: Option<u64>,
     uploaded: bool,
     record: Option<[f32; 12]>,
-    record_buffer: Buffer,
-    bind_group: Option<BindGroup>,
+    record_buffer: mod_render::GpuAllocation<Buffer>,
     bound: Option<(BufferId, Option<u64>)>,
+    ledger: Option<mod_render::GpuLedger>,
 }
 
 impl ScreenState {
@@ -166,8 +167,16 @@ fn prepare_media_screens(
     gpu.draws.clear();
     // At most MAX_MEDIA_SCREENS entries, so linear scans beat allocating sets each frame.
     let screens = &scene.screens[..scene.screens.len().min(MAX_MEDIA_SCREENS)];
-    gpu.screens
-        .retain(|id, _| screens.iter().any(|screen| screen.id == *id));
+    let mut retired = Vec::new();
+    let retired_screens: Vec<_> = gpu
+        .screens
+        .extract_if(|id, state| {
+            !screens
+                .iter()
+                .any(|screen| screen.id == *id && screen.ledger == state.ledger)
+        })
+        .map(|(_, state)| state)
+        .collect();
     let view = view_uniforms
         .uniforms
         .binding()
@@ -180,28 +189,36 @@ fn prepare_media_screens(
             gpu.draws.push(None);
             continue;
         }
-        let others: u64 = gpu
-            .screens
-            .iter()
-            .filter(|(id, _)| **id != screen.id)
-            .filter_map(|(_, state)| state.texture.as_ref())
-            .map(MediaTexture::allocated_bytes)
-            .sum();
-        let state = gpu.screens.entry(screen.id).or_insert_with(|| ScreenState {
-            texture: None,
-            texture_generation: 0,
-            serial: None,
-            uploaded: false,
-            record: None,
-            record_buffer: uploads.device.create_buffer(&BufferDescriptor {
-                label: Some("media screen record"),
-                size: RECORD_BYTES,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            bind_group: None,
-            bound: None,
-        });
+        if let std::collections::hash_map::Entry::Vacant(entry) = gpu.screens.entry(screen.id) {
+            let Some(record_buffer) =
+                mod_render::GpuAllocation::new(screen.ledger.as_ref(), RECORD_BYTES, || {
+                    crate::gpu_allocation::buffer(
+                        &uploads.device,
+                        &BufferDescriptor {
+                            label: Some("media screen record"),
+                            size: RECORD_BYTES,
+                            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        },
+                    )
+                })
+            else {
+                gpu.draws.push(None);
+                continue;
+            };
+            entry.insert(ScreenState {
+                texture: None,
+                texture_generation: 0,
+                serial: None,
+                uploaded: false,
+                record: None,
+                record_buffer,
+                bind_group: None,
+                bound: None,
+                ledger: screen.ledger.clone(),
+            });
+        }
+        let state = gpu.screens.get_mut(&screen.id).unwrap();
         if let Some(frame) = &screen.frame
             && state.serial != Some(frame.serial)
         {
@@ -212,16 +229,16 @@ fn prepare_media_screens(
                 .as_ref()
                 .is_none_or(|texture| texture.size() != size)
             {
-                // The old size cannot hold this frame; releasing it first lowers the peak.
-                state.texture = None;
+                // Drop old bindings before retiring storage and admitting the new size.
+                state.bind_group = None;
+                state.bound = None;
+                if let Some(texture) = state.texture.take() {
+                    retired.push(texture);
+                }
                 state.uploaded = false;
                 let generation = state.texture_generation + 1;
-                state.texture = MediaTexture::new(
-                    &uploads.device,
-                    size,
-                    generation,
-                    scene.gpu_budget_bytes.saturating_sub(others),
-                );
+                state.texture =
+                    MediaTexture::new(&uploads.device, size, generation, screen.ledger.as_ref());
                 if state.texture.is_some() {
                     state.texture_generation = generation;
                 } else {
@@ -289,6 +306,11 @@ fn prepare_media_screens(
             state.bound = Some(state.bind_key(view_buffer));
         }
         gpu.draws.push(Some(screen.id));
+    }
+    if !retired.is_empty() || !retired_screens.is_empty() {
+        crate::device_poll::on_frame_complete(&uploads.queue, move || {
+            drop((retired, retired_screens))
+        });
     }
 }
 
@@ -543,6 +565,7 @@ mod tests {
     fn screen(id: u64, z: f32) -> MediaScreen {
         MediaScreen {
             id,
+            ledger: None,
             center: [0.0, 0.0, z],
             half_right: [1.0, 0.0, 0.0],
             half_up: [0.0, 1.0, 0.0],
@@ -623,13 +646,15 @@ mod tests {
         };
         {
             let mut scene = app.world_mut().resource_mut::<MediaScreenScene>();
-            scene.gpu_budget_bytes = 16;
+            let ledger = mod_render::GpuLedger::new(2 * RECORD_BYTES + 16);
             scene.screens = vec![
                 MediaScreen {
+                    ledger: Some(ledger.clone()),
                     frame: Some(frame.clone()),
                     ..screen(7, 0.0)
                 },
                 MediaScreen {
+                    ledger: Some(ledger.clone()),
                     frame: Some(frame.clone()),
                     ..screen(8, 0.0)
                 },
@@ -646,6 +671,14 @@ mod tests {
             .filter(|state| state.texture.is_some())
             .count();
         assert_eq!(budgeted, 1, "the second texture exceeds the shared budget");
+        assert_eq!(
+            app.world().resource::<MediaScreenScene>().screens[0]
+                .ledger
+                .as_ref()
+                .unwrap()
+                .used(),
+            2 * RECORD_BYTES + 16
+        );
         let generation = gpu.screens[&7].texture_generation;
         app.world_mut()
             .run_system_once(prepare_media_screens)
@@ -668,8 +701,18 @@ mod tests {
     fn prepared(app: &mut App, screens: Vec<MediaScreen>) {
         {
             let mut scene = app.world_mut().resource_mut::<MediaScreenScene>();
-            scene.gpu_budget_bytes = 16;
-            scene.screens = screens;
+            let ledger = scene
+                .screens
+                .first()
+                .and_then(|screen| screen.ledger.clone())
+                .unwrap_or_else(|| mod_render::GpuLedger::new(2 * RECORD_BYTES + 16));
+            scene.screens = screens
+                .into_iter()
+                .map(|mut screen| {
+                    screen.ledger = Some(ledger.clone());
+                    screen
+                })
+                .collect();
         }
         app.world_mut()
             .run_system_once(prepare_media_screens)
@@ -709,6 +752,12 @@ mod tests {
                 .texture
                 .is_none()
         );
+        prepared(&mut app, vec![with(8)]);
+        app.world().resource::<RenderQueue>().submit([]);
+        app.world()
+            .resource::<RenderDevice>()
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
         prepared(&mut app, vec![with(8)]);
         assert!(
             app.world().resource::<MediaScreenGpu>().screens[&8]
@@ -764,12 +813,13 @@ mod tests {
             frame: Some(frame),
             ..screen(7, 0.0)
         };
+        app.world_mut().resource_mut::<MediaScreenScene>().screens = vec![MediaScreen {
+            ledger: Some(mod_render::GpuLedger::new(RECORD_BYTES + 64)),
+            ..screen(7, 0.)
+        }];
         prepared(&mut app, vec![with(frame(1, 2))]);
         let before = app.world().resource::<MediaScreenGpu>().screens[&7].bind_key(view);
-        app.world_mut()
-            .resource_mut::<MediaScreenScene>()
-            .gpu_budget_bytes = 64;
-        app.world_mut().resource_mut::<MediaScreenScene>().screens = vec![with(frame(2, 4))];
+        prepared(&mut app, vec![with(frame(2, 4))]);
         app.world_mut()
             .run_system_once(prepare_media_screens)
             .unwrap();

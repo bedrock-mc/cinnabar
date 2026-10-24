@@ -4,7 +4,7 @@ pub mod block_highlights;
 mod budget;
 pub mod geometry;
 pub mod position_box;
-pub use budget::GpuReservation;
+pub use budget::{GpuAllocation, GpuLedger, GpuReservation};
 mod identity;
 pub use identity::next_owner;
 pub mod masks;

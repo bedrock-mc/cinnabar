@@ -932,3 +932,95 @@ fn canonical_drawing_import_reports_only_bundle_grants() {
         host.dispatch(&Event::Frame, 1).unwrap();
     }
 }
+
+/// The epoch export resolves both observation and highlighting imports after its reset.
+#[test]
+fn epoch_callback_observes_entities_and_resolves_mask_targets() {
+    let guest = r#"(component
+        (import "cinnabar:world-draw/drawing@0.1.0" (instance $drawing
+            (type $handle (record (field "owner" u64) (field "generation" u64) (field "slot" u64)))
+            (export "handle" (type $h (eq $handle)))
+            (type $code (enum "denied" "invalid" "budget-exceeded" "stale-handle" "unsupported" "in-use"))
+            (export "error-code" (type $c (eq $code)))
+            (type $error (record (field "code" $c) (field "detail" string)))
+            (export "draw-error" (type $e (eq $error)))
+            (type $observed (record (field "entity" $h) (field "runtime-id" u64)))
+            (export "observed-entity" (type $o (eq $observed)))
+            (export "observe-entities" (func (result (result (list $o) (error $e)))))))
+        (alias export $drawing "handle" (type $h))
+        (alias export $drawing "draw-error" (type $e))
+        (import "cinnabar:world-draw/masks@0.1.0" (instance $masks
+            (export "handle" (type (eq $h)))
+            (export "draw-error" (type (eq $e)))
+            (export "entity" (func (param "runtime-id" u64) (result (result $h (error $e)))))))
+        (core module $memory
+            (memory (export "memory") 1)
+            (global $next (mut i32) (i32.const 4096))
+            (func (export "realloc") (param i32 i32 i32 i32) (result i32)
+                (local $old i32) global.get $next local.tee $old local.get 3 i32.add global.set $next local.get $old))
+        (core instance $mem (instantiate $memory))
+        (alias core export $mem "memory" (core memory $memory-ref))
+        (alias core export $mem "realloc" (core func $realloc))
+        (alias export $drawing "observe-entities" (func $observe))
+        (alias export $masks "entity" (func $entity))
+        (core func $observe-low (canon lower (func $observe) (memory $memory-ref) (realloc $realloc)))
+        (core func $entity-low (canon lower (func $entity) (memory $memory-ref) (realloc $realloc)))
+        (core module $code
+            (import "host" "observe" (func $observe (param i32)))
+            (import "host" "entity" (func $entity (param i64 i32)))
+            (import "host" "memory" (memory 1))
+            (func (export "init"))
+            (func (export "action") (param i32 i32 i32 i32))
+            (func (export "epoch")
+                i32.const 128 call $observe
+                i32.const 128 i32.load if unreachable end
+                i32.const 136 i32.load i32.const 1 i32.ne if unreachable end
+                i64.const 42 i32.const 256 call $entity
+                i32.const 256 i32.load if unreachable end)
+            (func (export "dispatch") (param i32 i32 i32 i32)))
+        (core instance $host
+            (export "observe" (func $observe-low)) (export "entity" (func $entity-low)) (export "memory" (memory $memory-ref)))
+        (core instance $run (instantiate $code (with "host" (instance $host))))
+        (func (export "init") (canon lift (core func $run "init")))
+        (func (export "epoch") (canon lift (core func $run "epoch")))
+        (func (export "action") (param "id" string) (param "index" (option u32))
+            (canon lift (core func $run "action") (memory $memory-ref) (realloc $realloc)))
+        (func (export "dispatch") (param "channel" string) (param "record-json" (list u8))
+            (canon lift (core func $run "dispatch") (memory $memory-ref) (realloc $realloc))))"#;
+    let mut host = BundleHost::launch(
+        guest.as_bytes(),
+        owner(),
+        screen_capabilities(&[
+            Permission::WorldDraw,
+            Permission::EntityObserve,
+            Permission::EntityHighlight,
+            Permission::RenderThroughWalls,
+        ]),
+        1,
+        Default::default(),
+    )
+    .unwrap();
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    let target = mod_api::drawing::MaskEntity {
+        connection: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    for _ in 0..2 {
+        host.set_drawing_context(&crate::presentation::Context {
+            connection: 1,
+            dimension: 0,
+            candidates: vec![actor],
+            live: vec![actor],
+            targets: vec![(target, 3)],
+        })
+        .unwrap();
+        host.dispatch(&Event::Epoch, 2).unwrap();
+    }
+}

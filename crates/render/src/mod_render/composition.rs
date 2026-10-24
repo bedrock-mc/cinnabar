@@ -36,6 +36,7 @@ struct Level {
 struct Pyramid {
     levels: Vec<Level>,
     size: Extent3d,
+    _allocation: mod_render::GpuAllocation<()>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -46,22 +47,35 @@ struct BindingKey {
 }
 
 struct StyleGpu {
-    uniform: Buffer,
     bindings: Vec<(BindingKey, BindGroup)>,
+    uniform: mod_render::GpuAllocation<Buffer>,
+    coverage: Option<mod_render::GpuAllocation<()>>,
+    halo: Option<mod_render::GpuAllocation<()>>,
 }
 
 impl StyleGpu {
     /// Keeps a style's uniform and its dependent bindings under the same lifetime.
-    fn new(device: &RenderDevice) -> Self {
-        Self {
-            uniform: device.create_buffer(&BufferDescriptor {
-                label: Some("host selection style"),
-                size: mod_render::shader::FRAME_UNIFORM_BYTES as u64,
-                usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
+    fn new(device: &RenderDevice, ledger: Option<&mod_render::GpuLedger>) -> Option<Self> {
+        Some(Self {
+            uniform: mod_render::GpuAllocation::new(
+                ledger,
+                mod_render::shader::FRAME_UNIFORM_BYTES as u64,
+                || {
+                    crate::gpu_allocation::buffer(
+                        device,
+                        &BufferDescriptor {
+                            label: Some("host selection style"),
+                            size: mod_render::shader::FRAME_UNIFORM_BYTES as u64,
+                            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        },
+                    )
+                },
+            )?,
             bindings: Vec::new(),
-        }
+            coverage: None,
+            halo: None,
+        })
     }
 
     /// Prepares both scene inputs with the current coverage and selected halo level.
@@ -304,6 +318,7 @@ impl Pyramid {
         sampler: &Sampler,
         source: &TextureView,
         view: &ExtractedView,
+        ledger: Option<&mod_render::GpuLedger>,
     ) -> Option<Self> {
         let size = source.texture().size();
         let sizes = level_sizes(size);
@@ -311,6 +326,9 @@ impl Pyramid {
             .iter()
             .map(|size| u64::from(size.width) * u64::from(size.height) * 4)
             .sum();
+        let uniform_bytes = (sizes.len() * mod_render::shader::FRAME_UNIFORM_BYTES) as u64;
+        let allocation =
+            mod_render::GpuAllocation::new(ledger, bytes.checked_add(uniform_bytes)?, || Some(()))?;
         crate::gpu_allocation::checked(device, "shared selection halo", bytes, || {
             let mut levels: Vec<Level> = Vec::new();
             let mut previous_size = size;
@@ -351,7 +369,11 @@ impl Pyramid {
                 });
                 previous_size = size;
             }
-            Self { levels, size }
+            Self {
+                levels,
+                size,
+                _allocation: allocation,
+            }
         })
     }
 }
@@ -377,50 +399,70 @@ fn prepare(
                 .is_some_and(|style| style.glow[3] > 0.0 && style.glow_radius > 0.0)
                 && let Some(source) = masks.planned(entity, mask.handle)
             {
-                sources.insert(source.id(), (source, view));
+                sources.insert(
+                    source.id(),
+                    (
+                        source,
+                        view,
+                        mod_render::GpuReservation::ledger_for(
+                            &scene.gpu_reservations,
+                            mask.handle.owner,
+                        ),
+                    ),
+                );
             }
         }
     }
-    gpu.pyramids.retain(|id, _| sources.contains_key(id));
+    let mut retired_pyramids: Vec<_> = gpu
+        .pyramids
+        .extract_if(|id, _| !sources.contains_key(id))
+        .map(|(_, pyramid)| pyramid)
+        .collect();
     let bytes: u64 = sources
         .values()
-        .flat_map(|(source, _)| level_sizes(source.texture().size()))
+        .flat_map(|(source, _, _)| level_sizes(source.texture().size()))
         .map(|size| u64::from(size.width) * u64::from(size.height) * 4)
         .sum();
     let halo_budget = bytes
         .checked_add(masks.attachment_bytes)
         .is_some_and(|bytes| bytes <= MAX_MASK_ATTACHMENT_BYTES);
     if !halo_budget {
-        gpu.pyramids.clear();
+        retired_pyramids.extend(gpu.pyramids.drain().map(|(_, pyramid)| pyramid));
     }
     if halo_budget
         && gpu
             .blur
             .is_some_and(|id| cache.get_render_pipeline(id).is_some())
     {
-        for (id, (source, view)) in sources {
+        for (id, (source, view, ledger)) in sources {
             if gpu
                 .pyramids
                 .get(&id)
                 .is_none_or(|pyramid| pyramid.size != source.texture().size())
             {
-                gpu.pyramids.remove(&id);
+                if let Some(old) = gpu.pyramids.remove(&id) {
+                    retired_pyramids.push(old);
+                }
                 if let Some(pyramid) =
-                    Pyramid::new(&device, &queue, &cache, &gpu.sampler, source, view)
+                    Pyramid::new(&device, &queue, &cache, &gpu.sampler, source, view, ledger)
                 {
                     gpu.pyramids.insert(id, pyramid);
                 }
             }
         }
     }
-    gpu.styles.retain(|(entity, handle), _| {
-        views.contains(*entity)
-            && masks.planned(*entity, *handle).is_some()
-            && scene
-                .masks
-                .iter()
-                .any(|mask| mask.handle == *handle && mask.style.is_some())
-    });
+    let retired_styles: Vec<_> = gpu
+        .styles
+        .extract_if(|(entity, handle), _| {
+            !(views.contains(*entity)
+                && masks.planned(*entity, *handle).is_some()
+                && scene
+                    .masks
+                    .iter()
+                    .any(|mask| mask.handle == *handle && mask.style.is_some()))
+        })
+        .map(|(_, style)| style)
+        .collect();
     for (entity, view, target) in &views {
         if !scene.masks.iter().any(|mask| mask.style.is_some()) {
             continue;
@@ -438,9 +480,20 @@ fn prepare(
                 sampler,
                 ..
             } = &mut *gpu;
-            let style_gpu = styles
-                .entry((entity, mask.handle))
-                .or_insert_with(|| StyleGpu::new(&device));
+            let key = (entity, mask.handle);
+            if let std::collections::hash_map::Entry::Vacant(entry) = styles.entry(key) {
+                let Some(style) = StyleGpu::new(
+                    &device,
+                    mod_render::GpuReservation::ledger_for(
+                        &scene.gpu_reservations,
+                        mask.handle.owner,
+                    ),
+                ) else {
+                    continue;
+                };
+                entry.insert(style);
+            }
+            let style_gpu = styles.get_mut(&key).unwrap();
             queue.profiled_write_buffer(
                 &style_gpu.uniform,
                 0,
@@ -461,7 +514,19 @@ fn prepare(
                 [target.main_texture_view(), target.main_texture_other_view()],
                 [coverage, halo],
             );
+            style_gpu.coverage = masks
+                .targets
+                .get(&(entity, mask.handle))
+                .map(|target| target.allocation());
+            style_gpu.halo = pyramids
+                .get(&coverage.id())
+                .map(|pyramid| pyramid._allocation.clone());
         }
+    }
+    if !retired_pyramids.is_empty() || !retired_styles.is_empty() {
+        crate::device_poll::on_frame_complete(&queue, move || {
+            drop((retired_pyramids, retired_styles))
+        });
     }
 }
 
