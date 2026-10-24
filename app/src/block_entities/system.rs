@@ -56,7 +56,9 @@ pub(super) mod columns;
 mod crystal_beams;
 mod culling;
 mod dragon_death;
+mod placement;
 mod portals;
+use placement::held_placement;
 
 #[cfg(test)]
 mod beacon_tint_tests;
@@ -720,31 +722,6 @@ fn yaw_toward(eye: Vec3, position: [i32; 3]) -> f32 {
         eye.z - (position[2] as f32 + 0.5),
     );
     (-dx).atan2(-dz).to_degrees()
-}
-
-/// Retains a frame's compiled block identity alongside its artwork and fixed pose.
-fn held_placement(
-    item: &HeldItem,
-    world_from_item: [[f32; 4]; 3],
-    light: Option<(u8, u8)>,
-    frame_stream: Option<&chunk_pipeline::WorldStream>,
-) -> StaticItemPlacement {
-    StaticItemPlacement {
-        identifier: Arc::clone(&item.identifier),
-        metadata: item.metadata,
-        potted_block: None,
-        carried_block: frame_stream.and_then(|stream| {
-            match stream
-                .authority()
-                .named_item_visual(&item.identifier, item.metadata)
-            {
-                assets::ItemVisualRoute::BlockItem(visual) => Some(visual),
-                _ => None,
-            }
-        }),
-        world_from_item,
-        light,
-    }
 }
 
 /// Item offsets over the grill, in block-center pixels; provisional.
