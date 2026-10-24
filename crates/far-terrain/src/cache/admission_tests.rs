@@ -250,6 +250,74 @@ fn pending_region_reservations_bound_dirty_and_in_flight_payloads() {
     );
 }
 
+/// Dropping a pending write must not let disk or an older retirement restore its terrain.
+#[test]
+fn refused_writes_do_not_restore_older_terrain_after_eviction() {
+    let root = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let (mut cache, namespace) = resolved_cache(root.path(), 42);
+    let pos = ColumnPos::new(0, 0);
+    let retirement = cache.retire_session().unwrap();
+    for region in 1..=MAX_PENDING_WRITE_REGIONS {
+        cache.admit(
+            0,
+            ColumnPos::new(region as i32 * REGION_SIDE, 0),
+            surface(64),
+            now,
+        );
+    }
+    cache.admit(0, pos, surface(90), now);
+    assert!(cache.queued(namespace, pos).is_none());
+    cache.set_memory_budget(0);
+    cache.set_memory_budget(FarTerrainConfig::default().memory_budget_bytes);
+    cache.pending_event = Some(PendingEvent::Loaded {
+        namespace,
+        region: RegionPos::of(pos),
+        columns: vec![(
+            pos,
+            Versioned {
+                version: 1,
+                summary: surface(64),
+            },
+        )]
+        .into_iter(),
+        after: None,
+    });
+    cache.poll(now);
+    assert!(
+        cache.store.version(pos).is_none(),
+        "an old disk read restored rejected terrain"
+    );
+    cache.writing.insert(
+        (namespace, RegionPos::of(pos)),
+        BTreeMap::from([(
+            pos,
+            Versioned {
+                version: 2,
+                summary: surface(64),
+            },
+        )]),
+    );
+    cache.pending_event = Some(PendingEvent::Loaded {
+        namespace,
+        region: RegionPos::of(pos),
+        columns: Vec::new().into_iter(),
+        after: None,
+    });
+    cache.poll(now);
+    assert!(
+        cache.store.version(pos).is_none(),
+        "an old pending write restored rejected terrain"
+    );
+    cache.persist(retirement, [(pos, surface(64))], now);
+    assert!(
+        cache.store.version(pos).is_none(),
+        "an old retirement restored rejected terrain"
+    );
+    cache.admit(0, pos, surface(100), now);
+    assert_eq!(cache.store.encoded(pos).unwrap().hash, surface(100).hash);
+}
+
 /// Caller corruption and exhausted persisted clocks cannot wrap live ordering.
 #[test]
 fn exhausted_clocks_recover_before_admission_and_new_visits() {

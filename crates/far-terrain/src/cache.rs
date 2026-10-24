@@ -140,6 +140,9 @@ pub struct FarTerrainCache {
     /// Bumped on every world change, so a resolution for an earlier visit is ignored.
     entry: u64,
     next_version: u64,
+    /// Older cached versions are unsafe once pressure discards a newer pending payload.
+    /// One conservative watermark avoids retaining an unbounded set of lost columns.
+    discarded_through: u64,
     /// First version stamped this visit; anything older in memory came from disk.
     visit_start: u64,
     /// Cached columns compared with live ones this visit, and how many differed.
@@ -182,6 +185,7 @@ impl FarTerrainCache {
             focus: None,
             entry: 0,
             next_version: version_base,
+            discarded_through: 0,
             visit_start: version_base,
             compared: 0,
             mismatched: 0,
@@ -343,12 +347,8 @@ impl FarTerrainCache {
                     let namespace = *namespace;
                     self.queue_write(namespace, pos, column, now);
                 }
-                Some(Retired::Unresolved { columns, .. })
-                    if self.disk.is_some()
-                        && columns.len() < MAX_UNRESOLVED_COLUMNS
-                        && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES =>
-                {
-                    columns.push((pos, column));
+                Some(Retired::Unresolved { columns, .. }) if self.disk.is_some() => {
+                    retain_unresolved(columns, &mut self.discarded_through, pos, column);
                 }
                 Some(Retired::Unresolved { .. }) | None => {}
             }
@@ -375,11 +375,13 @@ impl FarTerrainCache {
         {
             self.probes.push((pos, decoded));
         }
-        if self.disk.is_some()
-            && self.unresolved.len() < MAX_UNRESOLVED_COLUMNS
-            && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES
-        {
-            self.unresolved.push((pos, column.clone()));
+        if self.disk.is_some() {
+            retain_unresolved(
+                &mut self.unresolved,
+                &mut self.discarded_through,
+                pos,
+                column.clone(),
+            );
         }
         self.store.admit_versioned(pos, column);
         if !self.resolving && self.probes.len() == WORLD_PROBE_COLUMNS {
@@ -481,7 +483,9 @@ impl FarTerrainCache {
         let mut unresolved = Vec::new();
         for (pos, summary) in columns {
             let column = Versioned { version, summary };
-            if namespace.is_some_and(|namespace| self.newer_queued(namespace, pos, version)) {
+            if version <= self.discarded_through
+                || namespace.is_some_and(|namespace| self.newer_queued(namespace, pos, version))
+            {
                 continue;
             }
             if namespace.is_some() && namespace == self.namespace {
@@ -489,10 +493,8 @@ impl FarTerrainCache {
             }
             match namespace {
                 Some(namespace) => self.queue_write(namespace, pos, column, now),
-                None if unresolved.len() < MAX_UNRESOLVED_COLUMNS
-                    && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES =>
-                {
-                    unresolved.push((pos, column))
+                None if self.disk.is_some() => {
+                    retain_unresolved(&mut unresolved, &mut self.discarded_through, pos, column);
                 }
                 None => {}
             }
@@ -501,7 +503,9 @@ impl FarTerrainCache {
             && !unresolved.is_empty()
         {
             add_probes(&mut probes, &unresolved);
-            disk.resolve_and_write(world, entry, intent, probes, unresolved);
+            if !disk.resolve_and_write(world, entry, intent, probes, unresolved) {
+                self.discarded_through = self.discarded_through.max(version);
+            }
         }
     }
 
@@ -599,11 +603,14 @@ impl FarTerrainCache {
             if dirty.columns.is_empty() {
                 self.dirty.remove(&key);
             }
-            // Persistence is optional under pressure; the live store already owns these.
-            self.unresolved.extend(
-                live.into_iter()
-                    .take(MAX_UNRESOLVED_COLUMNS.saturating_sub(self.unresolved.len())),
-            );
+            for (pos, column) in live {
+                retain_unresolved(
+                    &mut self.unresolved,
+                    &mut self.discarded_through,
+                    pos,
+                    column,
+                );
+            }
         }
         self.entry += 1;
         self.resolving = false;
@@ -641,6 +648,7 @@ impl FarTerrainCache {
             self.requested.clear();
             self.reread.clear();
             self.next_version = 0;
+            self.discarded_through = 0;
             self.visit_start = 1;
         }
         self.next_version += 1;
@@ -694,11 +702,14 @@ impl FarTerrainCache {
         column: Versioned,
         now: Instant,
     ) {
-        if self.disk.is_none() || column.summary.bytes.len() > crate::summary::MAX_ENCODED_BYTES {
+        if self.disk.is_none() {
             return;
         }
         let key = (namespace, RegionPos::of(pos));
-        if !self.dirty.contains_key(&key) && self.dirty.len() >= MAX_PENDING_WRITE_REGIONS {
+        if column.summary.bytes.len() > crate::summary::MAX_ENCODED_BYTES
+            || (!self.dirty.contains_key(&key) && self.dirty.len() >= MAX_PENDING_WRITE_REGIONS)
+        {
+            self.discarded_through = self.discarded_through.max(column.version);
             return;
         }
         let waiting = &mut self
@@ -798,6 +809,22 @@ impl FarTerrainCache {
 impl Drop for FarTerrainCache {
     fn drop(&mut self) {
         self.end_entry();
+    }
+}
+
+/// Retains a bounded unresolved payload, remembering which older versions become unsafe.
+fn retain_unresolved(
+    columns: &mut Vec<(ColumnPos, Versioned)>,
+    discarded_through: &mut u64,
+    pos: ColumnPos,
+    column: Versioned,
+) {
+    if columns.len() < MAX_UNRESOLVED_COLUMNS
+        && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES
+    {
+        columns.push((pos, column));
+    } else {
+        *discarded_through = (*discarded_through).max(column.version);
     }
 }
 

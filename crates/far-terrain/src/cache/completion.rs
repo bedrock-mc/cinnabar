@@ -93,7 +93,8 @@ impl FarTerrainCache {
                     }
                     let newest = newest.clone();
                     let (pos, _) = columns.next().expect("checked above");
-                    if self.namespace == Some(*namespace) {
+                    if self.namespace == Some(*namespace) && newest.version > self.discarded_through
+                    {
                         self.store.admit_versioned(pos, newest);
                     }
                 }
@@ -124,7 +125,9 @@ impl FarTerrainCache {
                         return false;
                     }
                     let newest = newest.clone();
-                    self.store.admit_versioned(pos, newest);
+                    if newest.version > self.discarded_through {
+                        self.store.admit_versioned(pos, newest);
+                    }
                     *after = Some(pos);
                 }
             }
