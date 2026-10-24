@@ -23,6 +23,8 @@ impl LocalPhysicsController {
             self.sample_history.clear();
             self.live_posture = Default::default();
             self.controller_history.clear();
+            self.live_climber = None;
+            self.climber_corrections.clear();
             self.motion_ticks.clear();
             self.motion_anchor = None;
             self.server_motions.clear();

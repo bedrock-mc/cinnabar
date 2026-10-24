@@ -3,6 +3,7 @@ mod collision;
 mod controls;
 mod effects;
 mod environment;
+mod fall;
 mod flight;
 mod immobile;
 mod input;
@@ -10,9 +11,11 @@ mod inside;
 mod mode;
 #[cfg(test)]
 mod numeric_tests;
+mod powder_snow;
 mod riptide;
 pub use riptide::RiptideLaunch;
 mod scaffolding;
+pub use scaffolding::{descends_through_block, mover_collision_boxes_with_provenance};
 mod spectator;
 mod state;
 mod travel;
@@ -128,14 +131,13 @@ impl Simulator {
     ) -> Result<crate::CollisionQuery<MovementEnvironment>, crate::WorldQueryError> {
         let height = mode.hitbox_height(sneaking);
         let mut sampled = sample(world, position, height, liquid_contact_height)?;
-        // Only the feet layer feeds the published environment.
-        sampled.movement.in_scaffolding = scaffolding::sample_contact(
+        // Pose triggers read only feet-layer scaffolding; the remaining
+        // block-climber flags need the tick's snow-standing capability.
+        sampled.movement.in_scaffolding = scaffolding::sample_feet_scaffolding(
             world,
             Aabb::player_with_height_at(position, height),
-            false,
             &mut sampled,
-        )?
-        .inside;
+        )?;
         Ok(crate::CollisionQuery {
             value: sampled.movement,
             identity: sampled.identity,
@@ -161,9 +163,13 @@ impl Simulator {
         world: &impl CollisionWorld,
     ) -> Result<ControlledTickResult, SimulationError> {
         let rotation = [input.pitch_degrees as f32, input.yaw_degrees as f32];
-        let output = self.advance(state, input, world)?;
-        riptide::finish(state);
-        state.previous_rotation = Some(rotation);
+        let start = state.climber;
+        let mut next = state.clone();
+        let mut output = self.advance(&mut next, input, world)?;
+        scaffolding::finish_tick(world, &mut next, &input, start, &mut output.tick_result)?;
+        riptide::finish(&mut next);
+        next.previous_rotation = Some(rotation);
+        *state = next;
         Ok(output)
     }
 
@@ -177,6 +183,14 @@ impl Simulator {
         input::validate(input)?;
         let controls = controls::process(input);
         if input.immobile {
+            if state
+                .climber
+                .is_some_and(|contact| contact.descends(&input))
+            {
+                state.clear_fall_distance();
+            }
+            // The descent action and block climber still run in place; see
+            // `scaffolding::finish_tick`. Without a move request, there is no fall check.
             let output = immobile::tick(state, input.mode, controls, world.registry_identity())?;
             riptide::launch(state, input, false);
             return Ok(output);
@@ -210,6 +224,7 @@ impl Simulator {
             next.hitbox_height(input),
             input.liquid_contact_height,
         )?;
+        fall::sense_liquid(&mut next.fall_distance, &sampled.movement);
         let shallow_water = if input.riptide.is_some_and(RiptideLaunch::is_supported)
             && next.on_ground
             && sampled.movement.in_water
@@ -258,26 +273,39 @@ impl Simulator {
         } else {
             None
         };
-        let scaffold = scaffolding::sample_contact(
-            world,
-            Aabb::player_with_height_at(next.position, next.hitbox_height(input)),
-            input.sneaking,
-            &mut sampled,
-        )?;
-        sampled.movement.in_scaffolding = scaffold.inside;
-        // Sneaking over supported scaffolding descends through it at a fixed speed.
-        sampled.descend_through =
-            input.mode != MovementMode::Riding && input.sneaking && scaffold.over_descending;
-        if sampled.descend_through && !input.skip_travel {
+        // Powder snow climbs like a ladder for a wearer who can stand on it.
+        let snow_climb = input.can_stand_on_snow
+            && !sampled.movement.on_climbable
+            && scaffolding::primary(world, &mut sampled, environment::block_at(next.position)?)?
+                .flags
+                .contains(crate::BlockPhysicsFlags::POWDER_SNOW);
+        sampled.movement.on_climbable |= snow_climb;
+        // The descent action, climb jump and gravity read the contact the block
+        // climber measured after the previous move; without one, measure here.
+        let scaffold = match next.climber {
+            Some(contact) => contact,
+            None => scaffolding::sample_climber(
+                world,
+                next.collision_box(next.hitbox_height(input)),
+                input.can_stand_on_snow,
+                &mut sampled,
+            )?,
+        };
+        // Sneaking over a climbable block descends through it at a fixed speed,
+        // even on a tick whose travel is suppressed.
+        sampled.descend_through = scaffold.descends(&input);
+        sampled.movement.descending_through_block = sampled.descend_through;
+        if sampled.descend_through {
             next.velocity.y = -scaffolding::CLIMB_SPEED;
+            next.fall_distance = 0.0;
         }
         let jump_suppressed = water::jump_suppressed(input.mode, next.swim_amount, head_in_water);
-        // The scaffold ascent precedes every other jump response.
+        // The climbing-block ascent precedes every other jump response.
         let scaffold_jump = input.jumping
             && input.mode != MovementMode::Flying
             && !jump_suppressed
             && !sampled.descend_through
-            && scaffold.inside;
+            && (scaffold.inside || scaffold.ascending);
         if input.jumping && input.mode != MovementMode::Flying {
             if jump_suppressed {
                 if sampled.movement.in_water {
@@ -366,6 +394,7 @@ impl Simulator {
             jump_from_ground(&mut next, &input, &sampled, scaffold_jump, jump_suppressed);
 
         if sampled.movement.on_climbable {
+            next.fall_distance = 0.0;
             next.velocity.y = next.velocity.y.max(-CLIMB_SPEED);
             // `bedsim v0.1.3` `simulateMovement` ascends a climbable block on a
             // held jump *or* on the previous tick's horizontal collision, which
@@ -373,7 +402,8 @@ impl Simulator {
             let wall_climb = retained_collisions.x || retained_collisions.z;
             if climb_jump || wall_climb {
                 next.velocity.y = CLIMB_SPEED;
-            } else if input.sneaking && next.velocity.y < 0.0 {
+            } else if input.sneaking && next.velocity.y < 0.0 && !snow_climb {
+                // Only climbable blocks carry the hold property; powder snow does not.
                 next.velocity.y = 0.0;
             }
         }
@@ -389,6 +419,11 @@ impl Simulator {
             inside::slow_request(&mut next.velocity, multiplier);
         }
         let mut identity = sampled.identity.clone();
+        let height = next.hitbox_height(input);
+        let collision_box = next.collision_box(height);
+        // The move, its auto-step and the sneak edge share one mover context.
+        let view = scaffolding::ScaffoldingView::new(world, collision_box, sampled.descend_through)
+            .with_powder_snow(next.fall_distance, input.can_stand_on_snow);
         // Edge avoidance shortens only the move request; velocity keeps each
         // unclipped axis and loses an axis only once its clip reaches zero.
         let mut edge_velocity = None;
@@ -398,7 +433,7 @@ impl Simulator {
             && grounded_at_start
         {
             let (clipped, edge_identity) = clip_sneak_edge(
-                world,
+                &view,
                 next.position,
                 next.velocity,
                 next.hitbox_height(input),
@@ -418,10 +453,8 @@ impl Simulator {
 
         let pre_collision_velocity = next.velocity;
         next.requested_movement = pre_collision_velocity;
-        let height = next.hitbox_height(input);
-        let collision_box = next.collision_box(height);
         let motion = resolve_motion(
-            &scaffolding::ScaffoldingView::new(world, collision_box, sampled.descend_through),
+            &view,
             collision_box,
             next.velocity,
             grounded_at_start,
@@ -440,6 +473,14 @@ impl Simulator {
         } else {
             grounded_at_start && pre_collision_velocity.y == 0.0
         };
+        fall::check(
+            world,
+            &mut next,
+            input,
+            &mut sampled,
+            &mut identity,
+            motion.resolved.y,
+        )?;
 
         let landing_surface = if motion.collisions.y && pre_collision_velocity.y < 0.0 {
             let surface = if let Some(block) = motion.support {
@@ -487,9 +528,10 @@ impl Simulator {
         if motion.collisions.z {
             next.velocity.z = 0.0;
         }
-        // A slowed move leaves no residual velocity.
+        // A slowed move leaves no residual velocity or fall distance.
         if stuck.is_some() {
             next.velocity = Vec3::ZERO;
+            next.fall_distance = 0.0;
         }
         let bounced = motion.collisions.y && next.velocity.y > f64::from(f32::EPSILON);
         let bounce_corrected_gravity = |gravity| {
@@ -512,9 +554,10 @@ impl Simulator {
                 &mut sampled.block_samples,
             )?;
             identity = identity.merge(&feet.identity)?;
-            feet.value
-                .flags
-                .contains(crate::BlockPhysicsFlags::CLIMBABLE)
+            let flags = feet.value.flags;
+            flags.contains(crate::BlockPhysicsFlags::CLIMBABLE)
+                || (input.can_stand_on_snow
+                    && flags.contains(crate::BlockPhysicsFlags::POWDER_SNOW))
         } else {
             false
         };
@@ -546,7 +589,12 @@ impl Simulator {
                 1.0,
             );
         } else {
-            let gravity = if sampled.descend_through && (scaffold.inside || scaffold.over) {
+            let skips_gravity = sampled.descend_through && (scaffold.inside || scaffold.over);
+            if !skips_gravity && input.effects.slow_falling && next.velocity.y < 0.0 {
+                // Slow falling clears the fall distance while it slows a descent.
+                next.fall_distance = 0.0;
+            }
+            let gravity = if skips_gravity {
                 // Descending through scaffolding keeps only the vertical drag.
                 0.0
             } else if input.effects.slow_falling && next.velocity.y < 0.0 {
@@ -605,6 +653,7 @@ impl Simulator {
             world,
             motion.aabb,
             &mut next.velocity,
+            &mut next.fall_distance,
             &input,
             &mut sampled,
             &mut identity,

@@ -44,6 +44,10 @@ pub(super) struct ControllerFrame {
     pub input: MovementInput,
     pub modes: ModeTracker,
     pub environment: sim::MovementEnvironment,
+    /// Climber flags captured before this tick consumes local input.
+    pub entry_climber: Option<ClimberFlags>,
+    /// Block-climber flags reported by the prediction sync after this tick.
+    pub climber: Option<ClimberFlags>,
 }
 
 impl ControllerFrame {
@@ -123,7 +127,7 @@ impl ControllerFrame {
             jump_edge: self.jump_edge,
             jump_down: self.jump_down,
         };
-        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, *input);
+        anchor_state.prepare_tick(world, *modes, self.intent, &mut observed, state, *input);
         state.position = observed.feet;
         let choice = modes.select(self.intent, observed, world);
         let choice = match choice {
@@ -144,6 +148,9 @@ impl ControllerFrame {
         modes.restore_mode(input.mode);
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
+        if self.flight_request.is_some() {
+            state.clear_fall_distance();
+        }
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,

@@ -40,6 +40,16 @@ pub struct PlayerState {
     /// Resolved faces survive center rounding and deterministic replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) collision_shape: Option<CollisionShape>,
+    /// Fall distance after the previous tick, which this tick's powder snow
+    /// collision reads. Replay restores it in history without replacing the live value.
+    #[serde(default, skip_serializing_if = "is_zero_distance")]
+    pub(super) fall_distance: f32,
+    /// Block-climber contact measured after the previous tick's move, which
+    /// this tick's descent action, climb jump and gravity read. Like vanilla's
+    /// actor flags, it survives placements and corrections until the climber
+    /// measures again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) climber: Option<super::scaffolding::ClimberContact>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -84,10 +94,50 @@ impl PlayerState {
             },
             previous_rotation: None,
             collision_shape: None,
+            fall_distance: 0.0,
+            climber: None,
         }
     }
 
-    /// Applies an external placement, rebuilding contact faces even at the same position.
+    /// Fall distance after the latest tick, which powder snow's collision reads.
+    #[must_use]
+    pub const fn fall_distance(&self) -> f32 {
+        self.fall_distance
+    }
+
+    /// Clears accumulated falling when a movement action starts or stops flight.
+    pub fn clear_fall_distance(&mut self) {
+        self.fall_distance = 0.0;
+    }
+
+    /// Keeps the live fall distance when a spatial correction replaces movement state.
+    pub fn keep_fall_distance(&mut self, previous: &Self) {
+        self.fall_distance = previous.fall_distance;
+    }
+
+    /// Adopts changed actor contact flags before the next local action and scan.
+    pub fn update_climber_contact(
+        &mut self,
+        inside: Option<bool>,
+        over: Option<bool>,
+        ascending: Option<bool>,
+        over_descending: Option<bool>,
+    ) {
+        let contact = self.climber.get_or_insert_default();
+        contact.inside = inside.unwrap_or(contact.inside);
+        contact.over = over.unwrap_or(contact.over);
+        contact.ascending = ascending.unwrap_or(contact.ascending);
+        contact.over_descending = over_descending.unwrap_or(contact.over_descending);
+    }
+
+    /// Keeps `previous`'s block-climber contact through a spatial reset, as
+    /// vanilla's corrections and teleports leave the climber's flags untouched.
+    pub fn keep_climber_contact(&mut self, previous: &PlayerState) {
+        self.climber = previous.climber;
+    }
+
+    /// Applies an external placement, rebuilding contact faces even at the same
+    /// position. Retained climber contact is kept.
     pub fn set_position(&mut self, position: Vec3) {
         self.position = position;
         self.collision_shape = None;
@@ -134,7 +184,24 @@ pub struct MovementEnvironment {
     pub in_lava: bool,
     pub in_cobweb: bool,
     pub in_powder_snow: bool,
+    /// Scaffolding at the feet layer (`InScaffolding`).
     pub in_scaffolding: bool,
+    /// Scaffolding at the layer below the feet (`OverScaffolding`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub over_scaffolding: bool,
+    /// A climbable block at the feet layer (`InAscendingBlock`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub in_ascending_block: bool,
+    /// A climbable block at the layer below the feet (`OverDescendingBlock`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub over_descending_block: bool,
+    /// This tick's descent through a climbable block (`DescendThroughBlock`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub descending_through_block: bool,
+    /// No block-climber contact is known: a spectator tick, or unreadable
+    /// terrain with no contact retained from earlier ticks.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub climber_unsampled: bool,
     pub horizontal_speed_factor: f64,
     pub vertical_speed_factor: f64,
     pub surface_response: SurfaceResponse,
@@ -149,6 +216,11 @@ impl Default for MovementEnvironment {
             in_cobweb: false,
             in_powder_snow: false,
             in_scaffolding: false,
+            over_scaffolding: false,
+            in_ascending_block: false,
+            over_descending_block: false,
+            descending_through_block: false,
+            climber_unsampled: false,
             horizontal_speed_factor: 1.0,
             vertical_speed_factor: 1.0,
             surface_response: SurfaceResponse::None,
@@ -189,6 +261,11 @@ pub enum SimulationError {
     TickOverflow,
 }
 
+/// Omits a zero fall distance from serialized states.
+fn is_zero_distance(value: &f32) -> bool {
+    *value == 0.0
+}
+
 pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
     if let Some(shape) = state.collision_shape {
         if !shape.bounds.min.is_finite()
@@ -201,6 +278,11 @@ pub(super) fn validate(state: &PlayerState) -> Result<(), SimulationError> {
             });
         }
         crate::world::validate_collision_query(shape.bounds)?;
+    }
+    if !state.fall_distance.is_finite() {
+        return Err(SimulationError::NonFiniteState {
+            field: "fall_distance",
+        });
     }
     if !state.swim_amount.is_finite() || !(0.0..=1.0).contains(&state.swim_amount) {
         return Err(SimulationError::InvalidSwimAmount);

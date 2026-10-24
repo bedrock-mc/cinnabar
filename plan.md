@@ -303,6 +303,18 @@ Keep raw, analogue and processed input semantics distinct. Mounted controls need
 attributable vehicle mapping, constants, state and actual prediction before claiming
 client-predicted vehicle behavior. Riding alone does not establish that capability.
 
+The block climber rewrites its contact flags after each movement tick; the descent
+action reads the retained contact before movement. Prediction sync reports those values
+with newer accepted server flag edits, which retained corrections also apply before input
+on replay. Unconsumed per-bit climber edits survive unrelated replays until a local tick
+consumes them. Powder snow uses the mover's contextual query, including step and sneak-edge
+checks: snow-standing wearers get the full block, and falls over 2.5 blocks get the 0.9
+fall-into shape. Replay refreshes historical fall distance while preserving the live value
+through spatial copy-back and snaps. No-move ticks preserve it unless an action or contact
+clears it. Flight toggles, bubble columns, honey sliding and water entry clear it at their
+movement phases; lava halves the retained distance before the current drop, and slow glide
+uses its entry velocity. The missing touch descend control, first-tick terrain seeding,
+coordinate/query recovery and broader custom geometry remain inherited incomplete work.
 Correction sync retains individual accepted flag writes, cached passenger movement,
 explicit dimensions and unscaled local pose sizes. It reports accepted movement speed
 independently of simulation admission. Unsupported attribute models leave reporting
@@ -320,7 +332,7 @@ comparisons, dimensions, item use and movement attributes. Replay retains ordere
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
 Server-driven gameplay pose and item-use starts, riptide flag
-lifetimes, block-climber flags, custom collision definitions, legacy sneak height,
+lifetimes, custom collision definitions, legacy sneak height,
 transition-tick packet ordering and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
@@ -329,6 +341,12 @@ Server sneak updates preserve local hold/toggle intent, and the next completed i
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. Live-server pickup and remote-player stance acceptance remains outstanding.
 Near-contact collision fixes do not establish complete collision-engine parity.
+The anchor probe after teleports and replayed corrections reads the mover's contextual
+collision, so scaffolding and powder snow the player's own move passes through never push
+the anchor. Its instantaneous, bounded push-out from real solids remains a provisional
+recovery policy: vanilla runs no separate push-out after a teleport, and its closest-space
+push instead nudges horizontal velocity toward free space by at most 0.1 block per tick
+for actors with the push-towards-closest-space flag, which is not modelled.
 Remote player presentation interpolates received positions along straight segments,
 which can cross a block corner between clear endpoints. Teleports discard that
 segment immediately. Behavioral coverage of these cases does not establish

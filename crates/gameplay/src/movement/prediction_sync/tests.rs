@@ -1,6 +1,9 @@
 //! Prediction-sync packet construction, scheduling and flag ownership.
 
 use super::*;
+use crate::movement::physics::ClimberFlags;
+
+mod climber_writes;
 
 mod authority_writes;
 mod lifetimes;
@@ -575,6 +578,315 @@ fn correction_sync_reports_a_local_swim_before_server_metadata() {
         size,
         [1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_WIDTH as f32]
     );
+}
+
+struct ScaffoldColumn;
+
+impl sim::CollisionWorld for ScaffoldColumn {
+    /// Leaves the climber unconstrained so only the block climber's reads matter.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Fills every block with scaffolding, so each scaffold rests on another.
+    fn block_physics(
+        &self,
+        _block: [i32; 3],
+    ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+        Ok(sim::BlockPhysicsSample {
+            layers: Box::new([sim::BlockPhysicsFacts {
+                friction: 0.6,
+                horizontal_speed_factor: 1.0,
+                vertical_speed_factor: 1.0,
+                fluid_height_blocks: 0.0,
+                flags: sim::BlockPhysicsFlags::SCAFFOLDING,
+                surface_response: sim::SurfaceResponse::None,
+            }]),
+            identity: sim::CollisionQuery::synthetic(()).identity,
+        })
+    }
+}
+
+/// Terrain that cannot be read, so a stationary tick measures no climber contact.
+struct Unreadable;
+
+impl sim::CollisionWorld for Unreadable {
+    /// Leaves the frozen player unconstrained.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Fails every block read.
+    fn block_physics(
+        &self,
+        _block: [i32; 3],
+    ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+        Err(sim::WorldQueryError::CoordinateOutOfRange)
+    }
+}
+
+/// How the player spends the ticks between the scaffold contact and the sync.
+#[derive(Debug, Clone, Copy)]
+enum Freeze {
+    None,
+    /// One immobile tick in the scaffolding, sneaking or not.
+    InPlace {
+        sneaking: bool,
+    },
+    /// Immobile ticks over unreadable terrain, outlasting the retained history.
+    Unreadable {
+        sneaking: bool,
+    },
+}
+
+/// A sync reports the local block-climber flags even when server metadata lacks
+/// them. Immobile ticks keep measuring contact and the descent request in place,
+/// and unmeasured ones keep the last flags beyond the retained history.
+#[test]
+fn correction_sync_reports_local_block_climber_flags() {
+    let contact = [
+        ActorFlag::InScaffolding,
+        ActorFlag::OverScaffolding,
+        ActorFlag::InAscendingBlock,
+        ActorFlag::OverDescendingBlock,
+    ];
+    for (freeze, descending) in [
+        (Freeze::None, true),
+        (Freeze::InPlace { sneaking: true }, true),
+        (Freeze::InPlace { sneaking: false }, false),
+        (Freeze::Unreadable { sneaking: true }, true),
+        (Freeze::Unreadable { sneaking: false }, false),
+    ] {
+        let flags = climber_sync_flags(freeze);
+        for flag in contact {
+            assert!(flag_set(&flags, flag), "{flag:?} after {freeze:?}");
+        }
+        assert_eq!(
+            flag_set(&flags, ActorFlag::DescendThroughBlock),
+            descending,
+            "{freeze:?}"
+        );
+    }
+}
+
+/// One scaffolding layer resting on air, so it is no descending block.
+struct ScaffoldOverAir;
+
+impl sim::CollisionWorld for ScaffoldOverAir {
+    /// Leaves the player unconstrained so only the block climber's reads matter.
+    fn collision_boxes(
+        &self,
+        _query: sim::Aabb,
+    ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+        Ok(sim::CollisionQuery::synthetic(Vec::new()))
+    }
+
+    /// Scaffolding at y = 9, air everywhere else.
+    fn block_physics(
+        &self,
+        block: [i32; 3],
+    ) -> Result<sim::BlockPhysicsSample, sim::WorldQueryError> {
+        let mut sample = ScaffoldColumn.block_physics(block)?;
+        if block[1] != 9 {
+            sample.layers[0].flags = sim::BlockPhysicsFlags::PASSABLE;
+        }
+        Ok(sample)
+    }
+}
+
+/// A snapped correction keeps the climber contact, so the next tick's descent
+/// reads it before the block climber measures the new position.
+#[test]
+fn a_snapped_correction_keeps_the_climber_contact() {
+    let mut physics = due_physics();
+    let tick = std::time::Duration::from_millis(50);
+    physics.advance(tick, sim::MovementInput::default(), &ScaffoldColumn);
+    let anchor_tick = physics.state().unwrap().tick;
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: [0.5, 10.0 + protocol::PLAYER_NETWORK_OFFSET, 0.5],
+                tick: anchor_tick,
+                on_ground: true,
+                velocity: None,
+            },
+            crate::movement::PhysicsCorrectionMode::Snap,
+            None,
+            &ScaffoldOverAir,
+        )
+        .unwrap();
+    // The frame after a snap discards its elapsed time, so the sneaking tick
+    // completes on a later frame.
+    let sneaking = sim::MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    for _ in 0..3 {
+        if physics
+            .advance(tick, sneaking, &ScaffoldOverAir)
+            .completed_ticks
+            > 0
+        {
+            break;
+        }
+    }
+    let climber = physics.prediction_sync_climber().unwrap();
+    assert!(climber.descending_through_block);
+    assert!(!climber.over_descending_block);
+}
+
+/// After a snap clears the retained frames, an unreadable freeze still reports
+/// the contact the simulator kept, with the current descent request.
+#[test]
+fn a_snapped_freeze_over_unreadable_terrain_reports_the_kept_contact() {
+    let mut physics = due_physics();
+    let tick = std::time::Duration::from_millis(50);
+    physics.advance(tick, sim::MovementInput::default(), &ScaffoldColumn);
+    let anchor_tick = physics.state().unwrap().tick;
+    physics
+        .apply_correction(
+            crate::movement::PhysicsAnchor {
+                network_position: [0.5, 10.0 + protocol::PLAYER_NETWORK_OFFSET, 0.5],
+                tick: anchor_tick,
+                on_ground: true,
+                velocity: None,
+            },
+            crate::movement::PhysicsCorrectionMode::Snap,
+            None,
+            &Unreadable,
+        )
+        .unwrap();
+    let frozen = sim::MovementInput {
+        immobile: true,
+        sneaking: true,
+        ..Default::default()
+    };
+    for _ in 0..3 {
+        if physics.advance(tick, frozen, &Unreadable).completed_ticks > 0 {
+            break;
+        }
+    }
+    let climber = physics.prediction_sync_climber().unwrap();
+    assert!(climber.in_scaffolding && climber.over_descending_block);
+    assert!(climber.descending_through_block);
+}
+
+/// Each input mode feeds the descent action its own request: the sneak
+/// request with a keyboard, the held toggle-sneak control with a gamepad, and
+/// the touch descend control, which the touch layout lacks.
+#[test]
+fn the_descent_request_follows_the_input_mode() {
+    for (mode, toggle_held, descends) in [
+        (protocol::PlayerInputMode::Mouse, false, true),
+        (protocol::PlayerInputMode::GamePad, false, false),
+        (protocol::PlayerInputMode::GamePad, true, true),
+        (protocol::PlayerInputMode::Touch, true, false),
+    ] {
+        let mut physics = due_physics();
+        physics.advance_with_context(
+            std::time::Duration::from_millis(50),
+            sim::MovementInput {
+                sneaking: true,
+                ..Default::default()
+            },
+            crate::movement::PhysicsSampleContext {
+                input_mode: mode,
+                input: crate::movement::TickInput {
+                    sneak_down: true,
+                    sneak_toggle_down: toggle_held,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            &ScaffoldColumn,
+        );
+        let climber = physics.prediction_sync_climber().unwrap();
+        assert_eq!(
+            climber.descending_through_block, descends,
+            "{mode:?} {toggle_held}"
+        );
+    }
+}
+
+/// Measured ticks publish their own climber flags; unmeasured stationary ticks
+/// keep the previous ones and spectator ticks leave the server's.
+#[test]
+fn climber_flags_follow_measured_ticks_only() {
+    let previous = Some(ClimberFlags {
+        in_scaffolding: true,
+        ..ClimberFlags::default()
+    });
+    let measured = sim::MovementEnvironment {
+        over_scaffolding: true,
+        ..Default::default()
+    };
+    let unmeasured = sim::MovementEnvironment {
+        climber_unsampled: true,
+        ..Default::default()
+    };
+    let immobile = sim::MovementInput {
+        immobile: true,
+        ..Default::default()
+    };
+    let spectator = sim::MovementInput {
+        spectator: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        ClimberFlags::after_tick(&immobile, &measured, previous),
+        Some(ClimberFlags::from(&measured))
+    );
+    assert_eq!(
+        ClimberFlags::after_tick(&immobile, &unmeasured, previous),
+        previous
+    );
+    for environment in [&measured, &unmeasured] {
+        assert_eq!(
+            ClimberFlags::after_tick(&spectator, environment, previous),
+            None
+        );
+    }
+}
+
+/// Sends a due sync after a sneaking tick in scaffolding and the given freeze.
+fn climber_sync_flags(freeze: Freeze) -> [u64; 3] {
+    let actor = local_actor();
+    let mut physics = due_physics();
+    let sneaking = sim::MovementInput {
+        sneaking: true,
+        ..Default::default()
+    };
+    let tick = std::time::Duration::from_millis(50);
+    physics.advance(tick, sneaking, &ScaffoldColumn);
+    let frozen = |sneaking| sim::MovementInput {
+        immobile: true,
+        sneaking,
+        ..Default::default()
+    };
+    match freeze {
+        Freeze::None => {}
+        Freeze::InPlace { sneaking } => {
+            physics.advance(tick, frozen(sneaking), &ScaffoldColumn);
+        }
+        Freeze::Unreadable { sneaking } => {
+            for _ in 0..=crate::movement::physics::LOCAL_PHYSICS_HISTORY_CAPACITY {
+                physics.advance(tick, frozen(sneaking), &Unreadable);
+            }
+        }
+    }
+    let mut sent = None;
+    send_movement_prediction_sync(&mut physics, &actor, None, None, None, |packet| {
+        sent = Some(packet);
+        true
+    });
+    protocol::test_support::packets::prediction_sync_flags(&sent.expect("due correction sync"))
+        .expect("wrong packet")
 }
 
 #[test]

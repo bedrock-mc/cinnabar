@@ -34,6 +34,8 @@ impl LocalPhysicsController {
                 )
             });
         if matches!(mode, PhysicsCorrectionMode::Snap) {
+            let previous_state = self.state.clone();
+            let previous_climber = self.live_climber;
             let jump_delay = self.state.as_ref().map_or(0, |state| state.jump_delay);
             let swim_amount = self.state.as_ref().map_or(0.0, |state| state.swim_amount);
             let swim_pose_active = self
@@ -46,11 +48,16 @@ impl LocalPhysicsController {
             let modes = self.modes;
             self.reanchor_network_position_before_advance(network_position, tick, on_ground);
             // As in vanilla, MovePlayer changes spatial state without resetting
-            // jump input or movement abilities.
+            // jump input, movement abilities or the block climber's contact.
             self.previous_jump_held = previous_jump_held;
             self.jump_edge_pending = jump_edge_pending;
             self.input_edges = input_edges;
             self.modes = modes;
+            self.live_climber = previous_climber;
+            if let (Some(state), Some(previous)) = (self.state.as_mut(), previous_state.as_ref()) {
+                state.keep_climber_contact(previous);
+                state.keep_fall_distance(previous);
+            }
             if let Some(state) = self.state.as_mut() {
                 state.jump_delay = jump_delay;
                 state.swim_amount = swim_amount;
@@ -192,7 +199,9 @@ impl LocalPhysicsController {
         // Vanilla marks the actor corrected whenever it rewinds retained frames,
         // whatever caused the rewind; snaps never schedule a sync.
         self.prediction_sync.arm();
-        let prior_position = self.state.as_ref().map(|state| state.position);
+        let prior_state = self.state.clone();
+        let prior_climber = self.live_climber;
+        let prior_position = prior_state.as_ref().map(|state| state.position);
         let prior_previous_position = self.previous_position;
         let on_ground = corrected.on_ground;
         let feet = corrected.position;
@@ -225,6 +234,8 @@ impl LocalPhysicsController {
         let mut sync_state = anchor_controller.sync_state;
         let deferred_corrections = self.deferred_corrections.clone();
         let boosts = self.boosts.clone();
+        let climber_corrections = self.climber_corrections.clone();
+        let mut effective_climber = None;
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -236,11 +247,19 @@ impl LocalPhysicsController {
                 world,
                 &motion_overlays,
                 |state, input, world, previous| {
+                    let mut preceding_climber = None;
                     if let Some(previous) = previous {
                         let frame = controller_frames
                             .iter_mut()
                             .find(|frame| frame.tick == previous.tick_result.tick)
                             .expect("controller and prediction histories retain the same ticks");
+                        frame.environment = previous.tick_result.environment;
+                        frame.climber = ClimberFlags::after_tick(
+                            &frame.input,
+                            &frame.environment,
+                            effective_climber,
+                        );
+                        preceding_climber = Some(frame.climber);
                         frame.finish_eye(&mut eye, state);
                         sync_state.replay_server(&frame.sync_server);
                         sync_state.complete_tick(frame, state);
@@ -248,11 +267,32 @@ impl LocalPhysicsController {
                     }
                     input.liquid_attach_height = Some(f64::from(eye.height(1.0)));
                     deferred_corrections.apply_before(state);
-                    boosts.apply(state.tick + 1, &mut input.effects);
+                    let next_tick = state.tick + 1;
                     let frame = controller_frames
                         .iter_mut()
-                        .find(|frame| frame.tick == state.tick + 1)
+                        .find(|frame| frame.tick == next_tick)
                         .expect("controller and prediction histories retain the same ticks");
+                    if let Some(climber) = preceding_climber
+                        && !frame
+                            .sync_server
+                            .iter()
+                            .any(|write| matches!(write, posture::ServerWrite::Replacement(..)))
+                    {
+                        frame.entry_climber = climber;
+                    }
+                    if let Some(climber) = frame.entry_climber {
+                        climber.apply(state, ClimberFlags::mask());
+                    }
+                    // Keep the comparison capture unchanged while input consumes its corrections.
+                    effective_climber = frame.entry_climber;
+                    for correction in climber_corrections
+                        .iter()
+                        .filter(|correction| correction.tick == next_tick)
+                    {
+                        correction.write.apply(state);
+                        effective_climber = correction.write.apply_flags(effective_climber);
+                    }
+                    boosts.apply(state.tick + 1, &mut input.effects);
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
@@ -268,6 +308,13 @@ impl LocalPhysicsController {
             )
             .map_err(|_| PhysicsCorrectionError::ReplayFailed)?;
 
+        if let (Some(state), Some(previous)) = (self.state.as_mut(), prior_state.as_ref()) {
+            state.keep_fall_distance(previous);
+            if replay.replayed_ticks == 0 {
+                state.keep_climber_contact(previous);
+            }
+        }
+
         self.deferred_corrections.mark_replayed();
 
         if replayed_ticks.len() != replay.replayed_ticks {
@@ -282,6 +329,9 @@ impl LocalPhysicsController {
                 .state
                 .as_ref()
                 .expect("successful replay retains state");
+            frame.environment = last.tick_result.environment;
+            frame.climber =
+                ClimberFlags::after_tick(&frame.input, &frame.environment, effective_climber);
             frame.finish_eye(&mut eye, state);
             sync_state.replay_server(&frame.sync_server);
             sync_state.complete_tick(frame, state);
@@ -308,12 +358,6 @@ impl LocalPhysicsController {
                 .expect("retained correction sample was checked"),
         );
         for output in replayed_ticks {
-            if let Some(frame) = controller_frames
-                .iter_mut()
-                .find(|frame| frame.tick == output.tick_result.tick)
-            {
-                frame.environment = output.tick_result.environment;
-            }
             let result = output.tick_result;
             let Some(retained) = self
                 .sample_history
@@ -398,9 +442,18 @@ impl LocalPhysicsController {
         self.last_environment = controller_frames
             .back()
             .map_or(anchor_controller.environment, |frame| frame.environment);
+        self.live_climber = if replay.replayed_ticks == 0 {
+            prior_climber
+        } else {
+            controller_frames.back().and_then(|frame| frame.climber)
+        };
         self.controller_history = controller_frames;
         sync_state.replay_server(&self.sync_pending);
         self.sync_state = sync_state;
+        self.live_climber = self.pending_climber.apply_flags(self.live_climber);
+        if let Some(state) = self.state.as_mut() {
+            self.pending_climber.apply(state);
+        }
         let (corrected_world_identity, corrected_sample) = {
             let corrected_sample = self
                 .sample_history

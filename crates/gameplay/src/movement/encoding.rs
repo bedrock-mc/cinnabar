@@ -71,6 +71,10 @@ pub(super) fn input_flags(sample: &PhysicsMovementSample, previous: HeldInput) -
         .with_mask(PlayerInputFlags::SNEAKING, sample.input.sneak_down)
         .with_mask(PlayerInputFlags::SNEAK_DOWN, sample.input.sneak_down)
         .with_mask(PlayerInputFlags::WANT_DOWN, sample.input.sneak_down)
+        .with_mask(
+            PlayerInputFlags::SNEAK_TOGGLE_DOWN,
+            sample.input.sneak_toggle_down,
+        )
         .with_mask(PlayerInputFlags::SNEAK_CURRENT_RAW, sample.input.sneak.held)
         .with_mask(
             PlayerInputFlags::SNEAK_PRESSED_RAW,
