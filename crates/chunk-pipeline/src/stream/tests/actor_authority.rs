@@ -617,6 +617,7 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
                 sequence: 2,
                 dimension: 0,
                 movement: Some(value),
+                movement_received: true,
                 underwater: None,
                 lava: None,
                 air_drag_modifier: None,
