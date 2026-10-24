@@ -1,5 +1,32 @@
 use super::*;
 
+/// Validate compiler-visible storage and fragment inputs against the production device policy.
+#[test]
+fn model_shader_storage_and_fragment_inputs_fit_the_shared_pipeline_contract() {
+    let source = standalone_world_shader(include_str!("../../../src/model.wesl"));
+    let module = naga::front::wgsl::parse_str(&source).unwrap();
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .unwrap();
+    let storage = module
+        .global_variables
+        .iter()
+        .filter(|(_, variable)| matches!(variable.space, naga::AddressSpace::Storage { .. }))
+        .count();
+    assert!(storage <= render::required_vertex_storage_buffers() as usize);
+    let fragment = module
+        .entry_points
+        .iter()
+        .find(|entry| entry.stage == naga::ShaderStage::Fragment && entry.name == "fragment")
+        .unwrap();
+    assert!(fragment.function.arguments.iter().any(
+        |argument| argument.binding == Some(naga::Binding::BuiltIn(naga::BuiltIn::FrontFacing))
+    ));
+}
+
 #[test]
 fn sort_ref_ceiling_is_enforced() {
     assert_eq!(size_of::<PackedTransparentDrawRef>(), 8);
