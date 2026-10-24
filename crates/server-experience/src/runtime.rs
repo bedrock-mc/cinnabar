@@ -138,6 +138,28 @@ pub struct Capabilities {
 }
 
 impl Capabilities {
+    /// Whether callbacks can publish visual snapshots that need frame-driven delivery.
+    pub fn has_presentation(&self) -> bool {
+        self.scope
+            .permissions
+            .iter()
+            .any(|permission| match permission {
+                Permission::Scene
+                | Permission::WorldDraw
+                | Permission::RenderPost
+                | Permission::EntityHighlight => true,
+                Permission::Ui
+                | Permission::ModalUi
+                | Permission::Input
+                | Permission::Messaging
+                | Permission::Media
+                | Permission::Items
+                | Permission::EntityObserve
+                | Permission::RenderThroughWalls
+                | Permission::RenderMaterial => false,
+            })
+    }
+
     /// Whether a modal control may deliver `action` to this guest: declared in the manifest and
     /// granted `input`.
     pub fn may_deliver(&self, action: &str) -> bool {

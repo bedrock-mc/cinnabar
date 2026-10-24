@@ -1075,7 +1075,12 @@ fn guest_media_controls_reach_the_player_and_transitions_return_to_the_guest() {
     live.media_mut().service(0, 0, true);
     live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     let helper = live.instances["bundle0"].helper.as_ref().unwrap();
-    let [Event::Message { channel, record }] = helper.dispatched.as_slice() else {
+    let messages: Vec<_> = helper
+        .dispatched
+        .iter()
+        .filter(|event| matches!(event, Event::Message { .. }))
+        .collect();
+    let [Event::Message { channel, record }] = messages.as_slice() else {
         panic!("one media event, not {:?}", helper.dispatched);
     };
     assert_eq!(channel, super::super::media::EVENT_CHANNEL);

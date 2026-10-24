@@ -128,19 +128,7 @@ impl<H: Worker> Live<H> {
             if instance.stopped.is_none()
                 && instance.helper.is_some()
                 && !instance.busy
-                && instance
-                    .capabilities
-                    .scope
-                    .permissions
-                    .iter()
-                    .any(|permission| {
-                        matches!(
-                            permission,
-                            Permission::WorldDraw
-                                | Permission::RenderPost
-                                | Permission::EntityHighlight
-                        )
-                    })
+                && instance.capabilities.has_presentation()
                 && self.budget.can_dispatch(&instance.owner)
             {
                 instance.admit(

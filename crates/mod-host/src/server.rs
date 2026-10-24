@@ -797,15 +797,7 @@ impl BundleHost {
         byte_allowance: usize,
     ) -> Result<Option<Box<crate::presentation::Chunk>>> {
         let state = self.store.data();
-        if !(state.presentation.grants.world_draw
-            || state.presentation.grants.render_post
-            || state.presentation.grants.entity_highlight
-            || state
-                .capabilities
-                .scope
-                .permissions
-                .contains(&Permission::Scene))
-        {
+        if !state.capabilities.has_presentation() {
             return Ok(None);
         }
         let key = PresentationRevision {

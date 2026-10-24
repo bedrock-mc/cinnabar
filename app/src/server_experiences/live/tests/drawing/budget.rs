@@ -64,6 +64,29 @@ fn finish(live: &mut Live<FakeWorker>, pieces: usize, slice: &mut u64) {
 }
 
 #[test]
+fn legacy_only_scene_chunks_complete_without_world_drawing_permission() {
+    let mut live = initialized(1);
+    let output = mod_host::presentation::Output {
+        scene: BTreeMap::from([(1, legacy(None))]),
+        ..Default::default()
+    };
+    queue(&mut live, 1, &output);
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance
+        .capabilities
+        .scope
+        .permissions
+        .remove(&Permission::WorldDraw);
+    let helper = instance.helper.as_mut().unwrap();
+    helper.presentation = snapshot_chunks(1, &output);
+    let pieces = helper.presentation.len();
+    assert!(pieces > 1);
+    finish(&mut live, pieces, &mut 0);
+    assert!(live.instances["bundle0"].stopped.is_none());
+    assert_eq!(live.instances["bundle0"].presentation.scene().len(), 1);
+}
+
+#[test]
 fn legacy_and_retained_output_share_limits_in_every_completion_order() {
     for (draws, triangles) in [(MAX_DRAWS as usize, None), (1, Some(MAX_TRIANGLES))] {
         for order in 0..3 {
