@@ -23,7 +23,15 @@ pub(super) fn raster(
     let attachment = if dried {
         blocks.carried_model_tile(root, visual)?
     } else {
-        blocks.attachment_tile(root, visual, BlockFace::Down)?
+        blocks.attachment_tile(
+            root,
+            visual,
+            if shrieker {
+                BlockFace::Up
+            } else {
+                BlockFace::Down
+            },
+        )?
     };
     let Some(mut attachment) = attachment else {
         return Ok(None);

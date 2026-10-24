@@ -1,10 +1,10 @@
 use super::*;
 
 #[test]
-fn shrieker_inventory_keeps_open_walls_and_first_inner_frame() {
+fn shrieker_inventory_keeps_open_walls_and_first_carried_up_frame() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(root.path().join("textures/blocks")).unwrap();
-    std::fs::write(root.path().join("blocks.json"), r#"{"sculk_shrieker":{"textures":{"up":"cap","down":"bottom","side":"wall"},"carried_textures":"inner"}}"#).unwrap();
+    std::fs::write(root.path().join("blocks.json"), r#"{"sculk_shrieker":{"textures":{"up":"cap","down":"bottom","side":"wall"},"carried_textures":{"up":"inner","down":"bottom"}}}"#).unwrap();
     std::fs::write(root.path().join("textures/terrain_texture.json"), r#"{"texture_data":{"cap":{"textures":"textures/blocks/cap"},"bottom":{"textures":"textures/blocks/bottom"},"wall":{"textures":"textures/blocks/wall"},"inner":{"textures":"textures/blocks/inner"}}}"#).unwrap();
     std::fs::write(root.path().join("textures/flipbook_textures.json"), r#"[{"flipbook_texture":"textures/blocks/inner","atlas_tile":"inner","ticks_per_frame":1}]"#).unwrap();
     for name in ["bottom", "wall"] {
