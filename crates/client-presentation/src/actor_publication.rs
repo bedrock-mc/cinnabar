@@ -483,6 +483,10 @@ pub fn prepare_actor_render_frame(
         crate::dropped_items::DroppedItemFrame {
             partial_tick: step.partial_tick,
             fishing_line_anchors: &fishing_line_anchors,
+            prepared_blocks: params
+                .equipment
+                .as_deref()
+                .map(EquipmentRuntime::prepared_block_items),
         },
         (
             artwork.item_glint.clone(),

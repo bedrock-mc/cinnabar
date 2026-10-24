@@ -32,6 +32,19 @@ pub(crate) struct SelectionContext<'w> {
     origin: Res<'w, InteractionOriginSnapshot>,
     input: Res<'w, SemanticInputSnapshot>,
     settings: Res<'w, RuntimeSettings>,
+    controls: Res<'w, client_state::GameplayScreenControls>,
+}
+
+impl SelectionContext<'_> {
+    /// Whether the selected block's outline or highlight may be drawn; Hide HUD (F1) hides it.
+    fn selection_visible(&self) -> bool {
+        client_presentation::presentation::visibility::GameplayOverlayVisibility::new(
+            self.controls.hide_hud,
+            false,
+            false,
+        )
+        .selection
+    }
 }
 
 /// Updates after the completed pose and interaction authorities have been published.
@@ -48,9 +61,10 @@ pub(crate) fn publish(
     mut picked: ResMut<CrosshairActor>,
 ) {
     let (target, actor) = target(&context.player, &context).unwrap_or_default();
+    // Hiding the HUD hides only the drawn selection; the pick still drives interaction.
     picked.0 = actor;
     frame.update(
-        target.as_ref(),
+        target.as_ref().filter(|_| context.selection_visible()),
         context
             .settings
             .user_settings_update()

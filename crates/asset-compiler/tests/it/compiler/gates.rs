@@ -304,7 +304,7 @@ fn compiler_routes_all_gate_selectors_to_exact_uv_locked_vanilla_templates() {
 }
 
 #[test]
-fn compiler_bamboo_gate_uses_custom_missing_faces_and_reversed_rotated_uvs() {
+fn compiler_bamboo_gate_draws_every_piece_face_from_native_atlas_regions() {
     let directory = tempfile::tempdir().expect("create bamboo gate fixture");
     write_bamboo_gate_pack(directory.path());
     let mut records = generated_gate_records("minecraft:bamboo_fence_gate")
@@ -322,50 +322,36 @@ fn compiler_bamboo_gate_uses_custom_missing_faces_and_reversed_rotated_uvs() {
     }
 
     let compiled = compile_pack(directory.path(), &records).expect("compile custom bamboo gates");
-    let closed = compiled_compound_model_quads(&compiled, 0);
-    let open = compiled_compound_model_quads(&compiled, 1);
-    assert_eq!(
-        closed.len(),
-        38,
-        "closed bamboo omits two hidden inner faces"
-    );
-    assert_eq!(open.len(), 40);
     assert_eq!(compiled.model_templates.len(), 4);
-    assert_eq!(compiled.model_templates[0].quad_count, 22);
-    assert_eq!(compiled.model_templates[1].quad_count, 16);
-    assert_eq!(compiled.model_templates[2].quad_count, 24);
-    assert_eq!(compiled.model_templates[3].quad_count, 16);
-    assert_eq!(
-        compiled.model_templates[0].flags,
-        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
-    );
-    assert_eq!(compiled.model_templates[1].flags, 0);
-
-    assert_eq!(
-        gate_face_from_flags(closed[12].flags),
-        BlockFace::West as usize,
-        "closed inner-left keeps west but omits east"
-    );
-    assert_eq!(
-        gate_face_from_flags(closed[17].flags),
-        BlockFace::East as usize,
-        "closed inner-right keeps east but omits west"
-    );
-    assert_eq!(
-        closed[2].uvs,
-        [[4096, 3328], [3584, 3328], [3584, 3840], [4096, 3840]],
-        "left post down face preserves the reversed 16..14 U range"
-    );
-    assert_eq!(
-        open[27].uvs,
-        [[512, 768], [1536, 768], [1536, 256], [512, 256]],
-        "open left bar up face applies the vanilla 270-degree UV rotation"
-    );
-    assert_eq!(
-        open[36].uvs,
-        [[3584, 1536], [2560, 1536], [2560, 768], [3584, 768]],
-        "upper-right west face preserves the intentional reversed 14..10 U range"
-    );
+    for (index, template) in compiled.model_templates.iter().enumerate() {
+        assert_eq!(template.quad_count, 24, "six faces of four pieces");
+        let expected = if index % 2 == 0 {
+            assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | assets::MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+        } else {
+            0
+        };
+        assert_eq!(template.flags, expected);
+    }
+    for open in 0..2 {
+        let quads = compiled_compound_model_quads(&compiled, open);
+        // The low post's top reads the atlas's two-pixel post-top region, not a cropped tile.
+        let post_top = quads
+            .iter()
+            .find(|quad| {
+                gate_face_from_flags(quad.flags) == BlockFace::Up as usize
+                    && quad.positions.iter().all(|position| position[0] <= 32)
+            })
+            .expect("low post top");
+        let mut us = post_top.uvs.map(|uv| uv[0]);
+        let mut vs = post_top.uvs.map(|uv| uv[1]);
+        us.sort_unstable();
+        vs.sort_unstable();
+        assert_eq!(
+            [us[0], us[3], vs[0], vs[3]],
+            [8, 504, 8, 504],
+            "open {open}"
+        );
+    }
 }
 
 #[test]
@@ -487,10 +473,9 @@ fn compiler_real_pinned_pack_has_zero_diagnostic_gate_states_when_requested() {
         );
         assert_eq!(record.face_coverage, 0);
         let quads = compiled_compound_model_quads(&compiled, id);
-        let expected_count = if record.name.as_ref() == "minecraft:bamboo_fence_gate"
-            && record.model_state.get(ModelStateField::Open) == Some(0)
-        {
-            38
+        // Bamboo gates draw all six faces of their eight native pieces.
+        let expected_count = if record.name.as_ref() == "minecraft:bamboo_fence_gate" {
+            48
         } else {
             40
         };

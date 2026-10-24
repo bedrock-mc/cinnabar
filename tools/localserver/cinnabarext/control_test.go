@@ -47,7 +47,7 @@ func TestImpossibleControlDoesNotBlockData(t *testing.T) {
 
 // TestControlRetriesReplaceAndExpire covers both rate ceilings and stale reply retirement.
 func TestControlRetriesReplaceAndExpire(t *testing.T) {
-	for _, retirement := range []string{"sent", "epoch", "world notice", "closed", "expired"} {
+	for _, retirement := range []string{"sent", "epoch", "world notice", "prepared world", "closed", "expired"} {
 		for _, bytes := range []bool{false, true} {
 			t.Run(retirement+map[bool]string{true: "/bytes", false: "/messages"}[bytes], func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
@@ -88,6 +88,13 @@ func TestControlRetriesReplaceAndExpire(t *testing.T) {
 						if !f.s.WorldChanged(f.player, "sample:next") {
 							t.Fatal("world notice rejected")
 						}
+					case "prepared world":
+						change, err := c.PrepareWorldChange(CoordinatedChange)
+						if err != nil || !change.Commit("sample:next") {
+							t.Fatalf("world commit rejected: %v", err)
+						}
+						notice := f.lastWorldNotice()
+						f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
 					case "closed":
 						if err := f.conn.Close(); err != nil {
 							t.Fatal(err)
@@ -120,4 +127,96 @@ func TestControlRetriesReplaceAndExpire(t *testing.T) {
 			})
 		}
 	}
+}
+
+// TestRetainedControlSurvivesAbortedPreparation keeps accepted replies across a temporary fence.
+func TestRetainedControlSurvivesAbortedPreparation(t *testing.T) {
+	for _, retry := range []string{"tick", "data send"} {
+		for _, budget := range []string{"messages", "bytes"} {
+			t.Run(retry+"/"+budget, func(t *testing.T) {
+				f, _ := readyFixture(t)
+				c := f.conn.(*Conn)
+				// Drive retries directly so each attempt occurs at a known fence state.
+				c.retryingControls = true
+				if budget == "messages" {
+					c.egress.messages = 0
+				} else {
+					c.egress.bytes = 0
+				}
+				ch := f.channel(ToClient)
+				message := testMessage{Route{f.manifest.ID, ch.ID, ch.Schema}, 7}
+				if err := f.s.SendControl(f.player, message); err != nil {
+					t.Fatalf("control not retained: %v", err)
+				}
+				change, err := c.PrepareWorldChange(CoordinatedChange)
+				if err != nil {
+					t.Fatal(err)
+				}
+				before := len(f.carrier())
+				f.clock.Advance(time.Second)
+				if retry == "tick" {
+					c.mu.Lock()
+					done := c.retryControlTick()
+					c.mu.Unlock()
+					if done {
+						t.Fatal("temporary preparation discarded the retained reply")
+					}
+				} else if f.sendToClient(1) {
+					t.Fatal("data crossed the preparation fence")
+				}
+				if len(c.controls) != 1 || len(f.carrier()) != before {
+					t.Fatal("preparation sent or discarded the retained reply")
+				}
+				change.Abort()
+				c.mu.Lock()
+				done := c.retryControlTick()
+				c.mu.Unlock()
+				if !done || len(c.controls) != 0 || len(f.carrier()) != before+1 {
+					t.Fatal("aborting did not resume retained control delivery")
+				}
+				var envelope Envelope
+				if err := Decode(f.carrier()[before], &envelope); err != nil || *envelope.Payload[0].Integer != message.number {
+					t.Fatalf("reply: %+v, %v", envelope, err)
+				}
+			})
+		}
+	}
+}
+
+// TestControlReplyRejectsEpochChangedDuringEncoding rechecks authority after user encoding.
+func TestControlReplyRejectsEpochChangedDuringEncoding(t *testing.T) {
+	f, _ := readyFixture(t)
+	c := f.conn.(*Conn)
+	c.hostEpoch = 1
+	ch := f.channel(ToClient)
+	message := epochControl{testMessage{Route{f.manifest.ID, ch.ID, ch.Schema}, 7}, func() {
+		change, err := c.PrepareWorldChange(CoordinatedChange)
+		if err != nil || !change.CommitAt("sample:next", 2) {
+			t.Fatalf("commit: %v", err)
+		}
+		notice := f.lastWorldNotice()
+		f.deliver(f.encode(worldAcknowledgment(notice, notice.Epoch.WorldEpoch)))
+	}}
+	before := len(f.carrier())
+	if err := c.SendControlAt(1, message); err == nil {
+		t.Fatal("old-world control reply crossed the new admission epoch")
+	}
+	if len(c.controls) != 0 || len(f.carrier()) != before+1 {
+		t.Fatal("stale control was retained or sent after the world notice")
+	}
+	if err := c.SendControlAt(2, message.testMessage); err != nil {
+		t.Fatalf("current epoch rejected: %v", err)
+	}
+}
+
+// epochControl changes admission while encoding a reply to expose a stale send race.
+type epochControl struct {
+	testMessage
+	encode func()
+}
+
+// Encode advances the scripted lifecycle before returning the reply record.
+func (m epochControl) Encode() (Record, error) {
+	m.encode()
+	return m.testMessage.Encode()
 }

@@ -18,6 +18,10 @@ forbidden_artifacts = [
 
 # Original art, never Mojang content.
 [[owned_artifacts]]
+path = "examples/mods/cosmic/assets/moon.png"
+ownership_record = "docs/mod-projects.md"
+
+[[owned_artifacts]]
 path = "examples/experiences/terminal-client/assets/terminal.png"
 ownership_record = "docs/mod-projects.md"
 
@@ -461,6 +465,12 @@ allowed_dependencies = ["assets", "experience-sdk", "mod-api", "mod-render", "re
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "cosmic-mod"
+path = "examples/mods/cosmic"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "hello-mod"
 path = "examples/mods/hello"
 allowed_dependencies = ["mod-api"]
@@ -642,7 +652,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-cxb"
 path = "tools/cxb"
-allowed_dependencies = ["experience-sdk", "protocol", "server-experience", "mod-host"]
+allowed_dependencies = ["experience-sdk", "experience-runtime", "protocol", "server-experience", "mod-host"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
 [[markers]]

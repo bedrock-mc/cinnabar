@@ -1,5 +1,15 @@
 use super::*;
 
+impl LocalPhysicsController {
+    /// Fixed ticks a frame of `elapsed` would complete, without advancing the clock.
+    pub fn ticks_due(&self, elapsed: Duration) -> u64 {
+        if self.state.is_none() || self.discard_next_elapsed {
+            return 0;
+        }
+        whole_ticks(self.accumulated_seconds + elapsed.as_secs_f64())
+    }
+}
+
 /// Admits whole ticks while keeping fractional elapsed time free of subtraction roundoff debt.
 pub(super) fn frame(
     elapsed: Duration,

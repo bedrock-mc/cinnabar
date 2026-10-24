@@ -57,7 +57,7 @@ pub struct Checker {
 
 impl Checker {
     /// Starts one worker with a per-repository session cache and no account credentials.
-    pub fn start(max_component_bytes: usize) -> std::io::Result<Self> {
+    pub fn start(staging: std::path::PathBuf, max_component_bytes: usize) -> std::io::Result<Self> {
         let (requests, incoming) = unbounded();
         let (outgoing, responses) = unbounded();
         let generation = Arc::new(AtomicU64::new(0));
@@ -76,6 +76,7 @@ impl Checker {
                     authorization,
                     max_component_bytes,
                     transfers,
+                    &staging,
                 );
                 if let Err(error) = result {
                     tracing::debug!("Mod update checks unavailable: {error:#}");

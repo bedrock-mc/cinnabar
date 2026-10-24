@@ -2,6 +2,7 @@
 // then each callback as FAKE_MODE scripts:
 //
 //   - ok: writes "callback <seq>" to stderr and commits no ops;
+//   - leave_write: commits private player state for leave callbacks;
 //   - env: writes "env" and a JSON list of its environment's names to stderr and commits no ops;
 //   - hang: never reads or answers anything after load, not even shutdown;
 //   - garbage: answers with a frame that is not JSON;
@@ -27,7 +28,7 @@ import (
 	"time"
 )
 
-var modes = []string{"ok", "env", "hang", "garbage", "oversized", "exit", "wrong_seq", "load_failed"}
+var modes = []string{"ok", "env", "hang", "garbage", "oversized", "exit", "wrong_seq", "load_failed", "leave_write"}
 
 func main() {
 	mode := os.Getenv("FAKE_MODE")
@@ -65,7 +66,15 @@ func main() {
 		case "shutdown":
 			os.Exit(0)
 		case "callback":
-			answer(mode, request.Seq, maxFrame)
+			if mode == "leave_write" {
+				ops := []any{}
+				if request.Call.Event.Type == "leave" {
+					ops = append(ops, map[string]any{"type": "store_write", "key": map[string]any{"scope": "player", "schema": 1}, "data": "01"})
+				}
+				writeMessage(map[string]any{"type": "result", "seq": request.Seq, "outcome": map[string]any{"type": "committed", "ops": ops}})
+			} else {
+				answer(mode, request.Seq, maxFrame)
+			}
 		default:
 			fail("unexpected %q request", request.Type)
 		}
@@ -109,6 +118,11 @@ func commit(seq uint64) {
 func readRequest() (request struct {
 	Type string `json:"type"`
 	Seq  uint64 `json:"seq"`
+	Call struct {
+		Event struct {
+			Type string `json:"type"`
+		} `json:"event"`
+	} `json:"call"`
 }, err error) {
 	var prefix [4]byte
 	if _, err := io.ReadFull(os.Stdin, prefix[:]); err != nil {

@@ -51,13 +51,14 @@ const ITEM_NAME_MILLIS: u64 = 2_000;
 /// Display cap for stacked boss bars; the retained store holds more.
 const MAX_BOSS_BARS: usize = 8;
 
-/// Resolves the HUD screens of `catalog` under both chat placements on the calling thread, and
+/// Resolves the HUD screens of `catalog` under every HUD placement on the calling thread, and
 /// returns the textures their controls name.
 pub(in crate::ui_runtime::presentation) fn prepare(catalog: &Arc<Catalog>) -> BTreeSet<String> {
     let base = hud_context(&ui_screens::menu_screens::retail_context());
     ui_screens::hud::prepared::prepare(
         catalog,
-        [false, true].map(|top| ui_screens::chat_position::placed(base.clone(), top)),
+        ui_screens::hud_placement::HudPlacement::ALL
+            .map(|placement| placement.placed(base.clone())),
     )
 }
 
@@ -94,7 +95,9 @@ impl UiPresentationRuntime {
         }
         let context = self.screens.hud.context(
             renderer.context(),
-            self.screens.chat.settings.options().chat_at_top(),
+            ui_screens::hud_placement::HudPlacement::from_settings(
+                self.screens.chat.settings.options(),
+            ),
         );
         let reference = if crosshair {
             Reference::HudCrosshairHudCrosshairScreen.as_str()

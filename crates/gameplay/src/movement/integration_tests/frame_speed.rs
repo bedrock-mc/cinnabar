@@ -110,7 +110,8 @@ fn gameplay_frame_applies_local_sprint_modifier_once() {
     }
 }
 
-/// Gliding keeps one sprint speed between fixed ticks, including with a Speed effect.
+/// Once a tick selects the sprint, gliding keeps its speed between fixed ticks, including with
+/// a Speed effect.
 #[test]
 fn gliding_sprint_speed_stays_stable_between_physics_ticks_and_after_replay() {
     for base_speed in [sim::DEFAULT_MOVEMENT_SPEED as f32, 0.14_f32] {
@@ -144,8 +145,8 @@ fn gliding_sprint_speed_stays_stable_between_physics_ticks_and_after_replay() {
                 &mut speed,
                 &VersionedFloor(1),
             ));
-            assert_eq!(speed.current(), Some(expected), "render frame {index}");
             if index > 0 {
+                assert_eq!(speed.current(), Some(expected), "render frame {index}");
                 assert_eq!(physics.mode(), sim::MovementMode::Gliding);
                 assert_eq!(physics.latest_sneak_sprint(), Some((false, true)));
             }
@@ -461,4 +462,55 @@ fn item_use_slowdown_scales_the_wire_move_vector_by_its_square() {
     ));
     let snapshot = *ticker.pending_snapshots().last().unwrap();
     assert_eq!(snapshot.move_vector, [0.0, 0.35_f32 * 0.35_f32]);
+}
+
+/// Holding sprint into a wall ends the sprint on the blocked tick. Render frames between
+/// ticks must keep the speed that tick left, which the field of view reads, instead of
+/// re-applying the held request, or the view pulses between sprint and walk.
+#[test]
+fn a_held_sprint_into_a_wall_keeps_walk_speed_between_ticks() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    speed.begin_session(7, 0);
+    let walk = sim::DEFAULT_MOVEMENT_SPEED as f32;
+    assert!(speed.apply(7, 1, 0, attribute(f64::from(walk), walk, None)));
+    let mut locals = super::LocomotionState::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    let held = semantic_input::ActionPhase {
+        held: true,
+        ..Default::default()
+    };
+    let mut tick_speed = None;
+    let mut ended_at_wall = false;
+    for index in 0..40 {
+        let mut frame = speed_frame(semantic_input::ActionPhase {
+            pressed: index == 0,
+            ..held
+        });
+        // Alternate fixed-tick frames with render frames that run no tick.
+        let ticks = index % 2 == 0;
+        if !ticks {
+            frame.delta = Duration::ZERO;
+        }
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &VersionedWall(1),
+        ));
+        if ticks {
+            tick_speed = speed.current();
+            ended_at_wall |= physics.state().unwrap().collisions.z
+                && physics.latest_sneak_sprint() == Some((false, false));
+        } else {
+            assert_eq!(
+                speed.current(),
+                tick_speed,
+                "render frame {index} changed the speed its tick left"
+            );
+        }
+    }
+    assert!(ended_at_wall, "the wall never ended the held sprint");
 }

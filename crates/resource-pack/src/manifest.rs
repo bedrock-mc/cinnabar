@@ -13,7 +13,7 @@ mod format;
 use format::Layout;
 
 /// A `major.minor.patch` pack version, compared by number as the client compares pack identities.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct Version(pub(crate) [u32; 3]);
 
 impl Version {

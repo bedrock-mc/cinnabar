@@ -19,7 +19,7 @@ import (
 
 // protocolVersion is the adapter protocol this package speaks. It must equal the Rust runtime's
 // PROTOCOL_VERSION, which TestFrameLimitMatchesRust checks against the limits fixture.
-const protocolVersion = 7
+const protocolVersion = 9
 
 // BlockPos is a block position.
 type BlockPos struct {
@@ -48,10 +48,17 @@ func (f *Face) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, f, 
 
 // Info describes the world and the event that a callback runs for.
 type Info struct {
-	WorldID       string `json:"world_id"`
-	DimensionID   string `json:"dimension_id"`
-	Tick          uint64 `json:"tick"`
-	EventSequence uint64 `json:"event_sequence"`
+	Simulation    *SimulationContext `json:"simulation,omitempty"`
+	Context       *WorldContext      `json:"context,omitempty"`
+	WorldID       string             `json:"world_id"`
+	DimensionID   string             `json:"dimension_id"`
+	Tick          uint64             `json:"tick"`
+	EventSequence uint64             `json:"event_sequence"`
+}
+
+// newInfo builds callback metadata with an explicit world tick and event sequence.
+func newInfo(worldID, dimensionID string, tick, eventSequence uint64) Info {
+	return Info{WorldID: worldID, DimensionID: dimensionID, Tick: tick, EventSequence: eventSequence}
 }
 
 // Cell is one snapshot cell. ID is empty when the cell is not loaded; Data is lowercase hex.
@@ -92,6 +99,9 @@ type Change struct {
 
 // Call is the guest callback that a CallbackRequest runs. Exactly one field is set.
 type Call struct {
+	Tick            *TickCall
+	Timer           *TimerCall
+	Player          *PlayerCall
 	Place           *PlaceCall
 	Break           *BreakCall
 	Interact        *InteractCall
@@ -231,6 +241,10 @@ func (k *FailKind) UnmarshalJSON(data []byte) error { return unmarshalEnum(data,
 
 // Op is a staged operation. Exactly one field is set.
 type Op struct {
+	Schedule       *ScheduleOp
+	CancelSchedule *CancelScheduleOp
+	World          *WorldActionOp
+	StoreWrite     *StoreWriteOp
 	SetBlock       *SetBlockOp
 	SetBlockData   *SetBlockDataOp
 	Tell           *TellOp
@@ -304,12 +318,14 @@ type Response struct {
 // the Experience's world takes its player's focus in client messages and epochs; one that does
 // not is never given one.
 type Loaded struct {
-	Protocol uint32     `json:"protocol"`
-	ID       string     `json:"id"`
-	Version  string     `json:"version"`
-	Blocks   []BlockDef `json:"blocks"`
-	Items    []ItemDef  `json:"items"`
-	Focus    bool       `json:"focus"`
+	Simulation bool               `json:"simulation,omitempty"`
+	Worlds     *WorldRegistration `json:"worlds,omitempty"`
+	Protocol   uint32             `json:"protocol"`
+	ID         string             `json:"id"`
+	Version    string             `json:"version"`
+	Blocks     []BlockDef         `json:"blocks"`
+	Items      []ItemDef          `json:"items"`
+	Focus      bool               `json:"focus"`
 }
 
 // LoadFailed answers load when the artifact does not load; the runtime then exits.
@@ -353,7 +369,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	length := binary.LittleEndian.Uint32(prefix[:])
 	if length > maxFrameBytes {
-		return Response{}, fmt.Errorf("frame of %d bytes exceeds %d", length, maxFrameBytes)
+		return Response{}, fmt.Errorf("%w: frame of %d bytes exceeds %d", errGuestFault, length, maxFrameBytes)
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(r, body); err != nil {
@@ -361,7 +377,7 @@ func readFrame(r io.Reader) (Response, error) {
 	}
 	var resp Response
 	if err := decodeStrict(body, &resp); err != nil {
-		return Response{}, fmt.Errorf("decoding a frame: %w", err)
+		return Response{}, fmt.Errorf("%w: decoding a frame: %w", errGuestFault, err)
 	}
 	return resp, nil
 }
@@ -544,6 +560,12 @@ func fresh[T any](p **T) *T {
 
 func (c Call) MarshalJSON() ([]byte, error) {
 	switch {
+	case c.Tick != nil:
+		return json.Marshal(tickCallWire{variantTag{"tick"}, c.Tick})
+	case c.Timer != nil:
+		return json.Marshal(timerCallWire{variantTag{"timer"}, c.Timer})
+	case c.Player != nil:
+		return json.Marshal(playerCallWire{variantTag{"player"}, c.Player})
 	case c.Place != nil:
 		return json.Marshal(placeWire{variantTag{typePlace}, c.Place})
 	case c.Break != nil:
@@ -569,6 +591,12 @@ func (c *Call) UnmarshalJSON(data []byte) error {
 	}
 	*c = Call{}
 	switch tag {
+	case "tick":
+		return decodeStrict(data, &tickCallWire{TickCall: fresh(&c.Tick)})
+	case "timer":
+		return decodeStrict(data, &timerCallWire{TimerCall: fresh(&c.Timer)})
+	case "player":
+		return decodeStrict(data, &playerCallWire{PlayerCall: fresh(&c.Player)})
 	case typePlace:
 		return decodeStrict(data, &placeWire{PlaceCall: fresh(&c.Place)})
 	case typeBreak:
@@ -643,6 +671,14 @@ func (m *Mining) UnmarshalJSON(data []byte) error {
 
 func (o Op) MarshalJSON() ([]byte, error) {
 	switch {
+	case o.Schedule != nil:
+		return json.Marshal(scheduleWire{variantTag{"schedule"}, o.Schedule})
+	case o.CancelSchedule != nil:
+		return json.Marshal(cancelScheduleWire{variantTag{"cancel_schedule"}, o.CancelSchedule})
+	case o.World != nil:
+		return json.Marshal(worldActionWire{variantTag{"world"}, o.World})
+	case o.StoreWrite != nil:
+		return json.Marshal(storeWriteWire{variantTag{"store_write"}, o.StoreWrite})
 	case o.SetBlock != nil:
 		return json.Marshal(setBlockWire{variantTag{typeSetBlock}, o.SetBlock})
 	case o.SetBlockData != nil:
@@ -670,6 +706,14 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 	}
 	*o = Op{}
 	switch tag {
+	case "schedule":
+		return decodeStrict(data, &scheduleWire{ScheduleOp: fresh(&o.Schedule)})
+	case "cancel_schedule":
+		return decodeStrict(data, &cancelScheduleWire{CancelScheduleOp: fresh(&o.CancelSchedule)})
+	case "world":
+		return decodeStrict(data, &worldActionWire{WorldActionOp: fresh(&o.World)})
+	case "store_write":
+		return decodeStrict(data, &storeWriteWire{StoreWriteOp: fresh(&o.StoreWrite)})
 	case typeSetBlock:
 		return decodeStrict(data, &setBlockWire{SetBlockOp: fresh(&o.SetBlock)})
 	case typeSetBlockData:
