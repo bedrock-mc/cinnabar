@@ -22,7 +22,11 @@ mod player;
 mod recipes;
 mod visuals;
 mod worlds;
-pub use worlds::*;
+pub use worlds::{
+    DimensionType, Generator, PlayerEvent, PlayerLocation, Position, StateRecord, StoreKey,
+    StoreScope, WorldContext, WorldDefinition, WorldHandle, WorldInstance, WorldOp,
+    WorldRegistration, WorldSettings,
+};
 
 pub use recipes::{Crafted, ItemMatch, Recipe};
 

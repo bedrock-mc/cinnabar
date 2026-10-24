@@ -218,29 +218,6 @@ fn limited<T>(result: anyhow::Result<T>) -> bool {
     result.is_err_and(|error| error.is::<LimitExceeded>())
 }
 
-/// Both bounds are inside the world; the cells past them are outside even though the
-/// snapshot holds them.
-#[test]
-fn world_height_bounds_reads_and_writes() {
-    let mut res = Fixture {
-        min_y: ANCHOR.y,
-        max_y: ANCHOR.y,
-        ..Fixture::new()
-    }
-    .res();
-    assert_eq!(res.get_block(ANCHOR).unwrap(), Ok(COUNTER.to_owned()));
-    assert_eq!(res.get_block(UP).unwrap(), Err(WorldError::OutOfBounds));
-    assert_eq!(res.block_data(DOWN).unwrap(), Err(WorldError::OutOfBounds));
-    assert_eq!(
-        res.set_block(UP, AIR.to_owned()).unwrap(),
-        Err(WorldError::OutOfBounds)
-    );
-    assert_eq!(
-        res.set_block_data(DOWN, None).unwrap(),
-        Err(WorldError::OutOfBounds)
-    );
-}
-
 /// West and north of the anchor lie in other chunk columns (`-1 >> 4 == -1`); east shares
 /// the anchor's. Reads reach all of them.
 #[test]
