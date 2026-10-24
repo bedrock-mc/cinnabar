@@ -46,6 +46,7 @@ pub struct Geometry {
     radius: f32,
     bytes: usize,
     expanded_vertices: usize,
+    mesh_vertices: usize,
 }
 
 impl Geometry {
@@ -57,6 +58,11 @@ impl Geometry {
     /// Bounds expanded triangles, including immutable line joins and caps.
     pub fn triangles(&self) -> usize {
         self.expanded_vertices / 3
+    }
+
+    /// Returns the exact expanded GPU vertex count cached during topology admission.
+    pub fn mesh_vertices(&self) -> usize {
+        self.mesh_vertices
     }
 
     /// Reports whether line expansion and width handling apply to this geometry.

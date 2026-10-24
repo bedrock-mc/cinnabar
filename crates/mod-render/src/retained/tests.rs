@@ -643,7 +643,9 @@ fn expanded_line(positions: &[[f32; 3]], closed: bool) -> Vec<super::mesh::GpuVe
         closed,
     })
     .unwrap();
-    super::mesh::build(&geometry)
+    let expanded = super::mesh::build(&geometry);
+    assert_eq!(expanded.len(), geometry.mesh_vertices());
+    expanded
 }
 
 #[test]
@@ -926,4 +928,27 @@ fn celestial_camera_geometry_keeps_topology_budgets_without_local_extent_limits(
     store.commit();
     assert_eq!(store.snapshot().instances.len(), 1);
     assert_eq!(store.snapshot().geometry.len(), 1);
+}
+
+/// Cached GPU cost matches emitted vertices even when all or some line segments disappear.
+#[test]
+fn cached_mesh_vertex_counts_match_emitted_topology() {
+    let a = [0.; 3];
+    let b = [1., 0., 0.];
+    let c = [1., 1., 0.];
+    for points in [
+        vec![a, a],
+        vec![a, b],
+        vec![a, b, c],
+        vec![a, a, b, b, c, a],
+    ] {
+        for closed in [false, true] {
+            expanded_line(&points, closed);
+        }
+    }
+    let geometry = super::validation::geometry(mesh()).unwrap();
+    assert_eq!(
+        super::mesh::build(&geometry).len(),
+        geometry.mesh_vertices()
+    );
 }

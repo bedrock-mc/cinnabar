@@ -308,3 +308,35 @@ fn a_server_world_notice_rebinds_drawing_before_the_epoch_callback() {
         10
     );
 }
+
+/// Paused media loses its old-world quad without waiting for a new frame or helper reply.
+#[test]
+fn media_screens_clear_on_drawing_rebind_without_a_completion() {
+    for (epoch, dimension) in [(2, 0), (1, 1)] {
+        let mut live = fixture(1);
+        publish_media_quad(&mut live, "bundle0", 5.0);
+        live.media_mut().set_frame(
+            "bundle0",
+            INTRO,
+            Some(render_scene::MediaFrame {
+                serial: 3,
+                width: 2,
+                height: 2,
+                rgba: Arc::from(vec![255u8; 16]),
+            }),
+        );
+        assert_eq!(live.changed_screens().map(<[_]>::len), Some(1));
+        assert!(live.changed_screens().is_none());
+        let revision = live.media.frames_revision();
+        let mut next = context(epoch);
+        next.dimension = dimension;
+        live.bind_drawing(&next, |_| false).unwrap();
+        assert_eq!(live.media.frames_revision(), revision);
+        assert_eq!(
+            live.changed_screens().map(<[_]>::len),
+            Some(0),
+            "world rebind retained a media quad"
+        );
+        assert!(live.changed_screens().is_none());
+    }
+}

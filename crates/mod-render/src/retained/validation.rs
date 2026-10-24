@@ -28,6 +28,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
     let mut distances = Vec::with_capacity(if polyline { vertices.len() } else { 0 });
     let mut previous = vertices[0].position;
     let mut distance = 0.;
+    let mut segments = 0;
     for vertex in &vertices {
         #[cfg(test)]
         super::tests::work::VERTEX_VISITS.with(|visits| visits.set(visits.get() + 1));
@@ -52,6 +53,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         radius_squared =
             radius_squared.max(vertex.position.iter().map(|v| f64::from(*v).powi(2)).sum());
         if polyline {
+            segments += usize::from(vertex.position != previous);
             distance += vertex
                 .position
                 .iter()
@@ -63,6 +65,16 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
             previous = vertex.position;
         }
     }
+    let mesh_vertices = if polyline {
+        segments += usize::from(closed && previous != vertices[0].position);
+        if segments == 0 {
+            0
+        } else {
+            segments * 6 + (segments + usize::from(!closed)) * drawing::ROUND_SEGMENTS * 3
+        }
+    } else {
+        indices.len()
+    };
     let bytes = vertices.len() * std::mem::size_of::<Vertex>()
         + indices.len() * std::mem::size_of::<u32>()
         + distances.len() * std::mem::size_of::<f32>();
@@ -71,6 +83,7 @@ pub(super) fn geometry(spec: GeometrySpec) -> Result<Geometry, DrawError> {
         radius: radius_squared.sqrt() as f32,
         bytes,
         expanded_vertices,
+        mesh_vertices,
         vertices: vertices.into(),
         indices: indices.into(),
         distances: distances.into(),

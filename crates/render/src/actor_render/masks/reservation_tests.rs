@@ -44,7 +44,7 @@ fn owner_mask_reservation_combines_geometry_views_and_multisampling() {
             connection: identity.session_id,
             dimension: identity.dimension,
             runtime_id: identity.runtime_id,
-            spawn_revision: identity.spawn_revision,
+            spawn_revision: identity.spawn_revision.get(),
         }],
         style: None,
     };

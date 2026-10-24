@@ -207,3 +207,61 @@ fn every_view_stays_within_the_signed_reservation() {
         "all resident view allocations share the signed ceiling"
     );
 }
+
+/// A denied immutable mesh must not expand again until its resident byte reservation fits.
+#[test]
+fn denied_geometry_expansion_allocates_no_mesh_bytes() {
+    use mod_api::drawing::DrawingPermissions;
+    use mod_render::retained::{GeometrySpec, Vertex};
+    let index_count = mod_api::MAX_DRAW_INDICES - 3;
+    let mesh_bytes = index_count * std::mem::size_of::<mod_render::retained::mesh::GpuVertex>();
+    let (mut app, mut store, ledger) = fixture(mesh_bytes as u64 + 65536);
+    let (_, _, mut instance) = drawing();
+    store.begin();
+    for id in store
+        .snapshot()
+        .instances
+        .keys()
+        .copied()
+        .collect::<Vec<_>>()
+    {
+        store.remove(id).unwrap();
+    }
+    let geometry = store
+        .create_geometry(GeometrySpec::Triangles {
+            vertices: [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]]
+                .map(|position| Vertex {
+                    position,
+                    color: [1.; 4],
+                    uv: [0.; 2],
+                    data: [0.; 4],
+                })
+                .to_vec(),
+            indices: (0..index_count).map(|index| (index % 3) as u32).collect(),
+        })
+        .unwrap();
+    instance.geometry = geometry;
+    store.create(instance, DrawingPermissions::ALL).unwrap();
+    store.commit();
+    app.world_mut()
+        .resource_mut::<render_scene::ModRenderScene>()
+        .retained = vec![store.snapshot().clone()];
+    let held = ledger.allocate(ledger.limit(), || Some(())).unwrap();
+    app.world_mut().run_system_once(gpu::queue).unwrap();
+    for _ in 0..2 {
+        let (_, allocations) =
+            test_alloc::measure(|| app.world_mut().run_system_once(gpu::queue).unwrap());
+        assert!(
+            allocations.bytes < mesh_bytes,
+            "denied geometry expanded before GPU admission"
+        );
+        assert!(app.world().resource::<gpu::Gpu>().meshes.is_empty());
+    }
+    drop(held);
+    app.world_mut().run_system_once(gpu::queue).unwrap();
+    assert_eq!(
+        app.world().resource::<gpu::Gpu>().meshes[&geometry].count as usize,
+        index_count
+    );
+    assert!(ledger.used() <= ledger.limit());
+}

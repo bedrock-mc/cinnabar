@@ -477,6 +477,7 @@ impl<H: Worker> Live<H> {
                 instance.drawing_references.clear();
             }
             self.drawing_sources.clear();
+            self.scene_revision += 1;
             self.drawing_fence = Some(context.fence());
         }
         for instance in self.instances.values_mut() {
@@ -637,7 +638,7 @@ fn failed<H>(
     } else if failure.kind == FailureKind::Startup {
         STOPPED_AT_START
     } else if failure.kind == FailureKind::Unavailable {
-        "because its helper failed"
+        STOPPED_AT_HELPER_FAILURE
     } else if instance.strike(now_ms) {
         STOPPED_AFTER_ERRORS
     } else {

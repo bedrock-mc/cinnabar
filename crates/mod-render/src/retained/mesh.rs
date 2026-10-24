@@ -18,7 +18,7 @@ pub struct GpuVertex {
 }
 /// Builds a single immutable GPU mesh shared by all placements and line styles.
 pub fn build(geometry: &Geometry) -> Vec<GpuVertex> {
-    let mut output = Vec::with_capacity(geometry.expanded_vertices);
+    let mut output = Vec::with_capacity(geometry.mesh_vertices);
     if !geometry.polyline {
         for &index in geometry.indices.iter() {
             let vertex = geometry.vertices[index as usize];

@@ -177,12 +177,13 @@ pub(super) fn queue(
             let Some(geometry) = resources.geometry.get(&handle) else {
                 continue;
             };
-            let vertices = mesh::build(geometry);
-            let bytes = vertices.len().max(1) * std::mem::size_of::<GpuVertex>();
+            let count = geometry.mesh_vertices();
+            let bytes = count.max(1) * std::mem::size_of::<GpuVertex>();
             let storage = mod_render::GpuAllocation::new(
                 mod_render::GpuReservation::ledger_for(&scene.gpu_reservations, handle.owner),
                 bytes as u64,
                 || {
+                    let vertices = mesh::build(geometry);
                     if vertices.is_empty() {
                         buffer(&device, GEOMETRY_LABEL, std::mem::size_of::<GpuVertex>())
                     } else {
@@ -204,7 +205,7 @@ pub(super) fn queue(
                 Mesh {
                     _geometry: Arc::clone(geometry),
                     buffer: storage,
-                    count: vertices.len() as u32,
+                    count: count as u32,
                 },
             );
         }
