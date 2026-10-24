@@ -111,20 +111,20 @@ func EncodeEnvelope(e Envelope, w Wire) ([][]byte, error) {
 	return out, nil
 }
 
-// RateLimit is Rust's wire::RateLimit for one direction: MaxMessagesPerSecond messages and
-// MaxBytesPerSecond bytes, refilled per millisecond, with at most one second of burst.
+// RateLimit is Rust's rate_limit::RateLimit for one direction: MaxMessagesPerSecond messages and
+// MaxBytesPerSecond bytes, refilled per millisecond, with the shared maximum burst.
 type RateLimit struct {
 	lastMs   uint64
 	messages uint64
 	bytes    uint64
 }
 
-// NewRateLimit gives one second of initial burst credit.
+// NewRateLimit gives the shared initial burst credit.
 func NewRateLimit(nowMs uint64) RateLimit {
 	return RateLimit{
 		lastMs:   nowMs,
 		messages: MaxMessagesPerSecond * 1000,
-		bytes:    MaxBytesPerSecond * 1000,
+		bytes:    MaxBurstBytes * 1000,
 	}
 }
 
@@ -137,22 +137,27 @@ func (r *RateLimit) Charge(size int, nowMs uint64) error {
 // ChargeAll spends credit for messages of sizes, all or none: the fragments of one message are
 // sent together or not at all.
 func (r *RateLimit) ChargeAll(sizes []int, nowMs uint64) error {
-	elapsed := min(nowMs-min(nowMs, r.lastMs), 1000)
+	return r.ChargeClass(RateData, sizes, nowMs)
+}
+
+// ErrRateExceeded marks temporary credit exhaustion rather than an impossible batch.
+var ErrRateExceeded = errors.New("channel rate exceeded")
+
+// ChargeClass spends the shared encoded cost atomically after checking the maximum burst.
+func (r *RateLimit) ChargeClass(class RateClass, sizes []int, nowMs uint64) error {
+	cost, err := class.Cost(sizes)
+	if err != nil {
+		return err
+	}
+	elapsed := min(nowMs-min(nowMs, r.lastMs), (MaxBurstBytes/MaxBytesPerSecond+1)*1000)
 	r.lastMs = max(r.lastMs, nowMs)
 	r.messages = min(r.messages+elapsed*MaxMessagesPerSecond, MaxMessagesPerSecond*1000)
-	r.bytes = min(r.bytes+elapsed*MaxBytesPerSecond, MaxBytesPerSecond*1000)
-	var cost uint64
-	for _, size := range sizes {
-		if size > MaxEnvelopeBytes {
-			return errors.New("envelope too large")
-		}
-		cost += uint64(size) * 1000
+	r.bytes = min(r.bytes+elapsed*MaxBytesPerSecond, MaxBurstBytes*1000)
+	if r.messages < 1000*cost.Messages || r.bytes < 1000*cost.Bytes {
+		return ErrRateExceeded
 	}
-	if r.messages < 1000*uint64(len(sizes)) || r.bytes < cost {
-		return errors.New("channel rate exceeded")
-	}
-	r.messages -= 1000 * uint64(len(sizes))
-	r.bytes -= cost
+	r.messages -= 1000 * cost.Messages
+	r.bytes -= 1000 * cost.Bytes
 	return nil
 }
 
@@ -220,10 +225,15 @@ func (in *Ingress) Receive(data []byte, nowMs, worldEpoch uint64, grant *Grant) 
 
 // charge is the rate limit half of Receive.
 func (in *Ingress) charge(size int, nowMs uint64) error {
+	return in.chargeClass(RateData, size, nowMs)
+}
+
+// chargeClass applies the shared control exemption only after the connection validates it.
+func (in *Ingress) chargeClass(class RateClass, size int, nowMs uint64) error {
 	if in.failed {
 		return errors.New("channel quarantined")
 	}
-	if err := in.rate.Charge(size, nowMs); err != nil {
+	if err := in.rate.ChargeClass(class, []int{size}, nowMs); err != nil {
 		in.fail()
 		return err
 	}

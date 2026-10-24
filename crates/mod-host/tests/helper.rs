@@ -59,14 +59,9 @@ fn terminal_component() -> Vec<u8> {
         .unwrap()
 }
 
-fn spawn(component: Vec<u8>) -> Helper {
-    developer();
-    let owner = Principal {
-        session: "session".into(),
-        bundle: "terminal".into(),
-        generation: 1,
-    };
-    let capabilities = Capabilities {
+/// Grants only the terminal fixture's modal output by default.
+fn capabilities() -> Capabilities {
+    Capabilities {
         scope: Scope {
             permissions: BTreeSet::from([Permission::ModalUi]),
             origins: BTreeSet::new(),
@@ -79,6 +74,16 @@ fn spawn(component: Vec<u8>) -> Helper {
         channels: Vec::new(),
         actions: BTreeSet::new(),
         max_message_bytes: MAX_MESSAGE_BYTES as u32,
+    }
+}
+
+/// Starts the test component with the supplied signed capability declarations.
+fn spawn(component: Vec<u8>, capabilities: Capabilities) -> Helper {
+    developer();
+    let owner = Principal {
+        session: "session".into(),
+        bundle: "terminal".into(),
+        generation: 1,
     };
     Helper::spawn_developer(
         Path::new(env!("CARGO_BIN_EXE_mod-host")),
@@ -119,8 +124,10 @@ fn call(helper: &mut Helper, channel: &str) -> Reply {
 
 fn failure(reply: Reply) -> CallFailure {
     match reply {
-        Reply::Failed(failure) => failure,
-        Reply::Committed { transaction, .. } => panic!("committed {transaction:?}"),
+        Reply::Failed(failure) | Reply::Recovered { failure, .. } => failure,
+        Reply::NotReady { transaction, .. } | Reply::Committed { transaction, .. } => {
+            panic!("committed {transaction:?}")
+        }
     }
 }
 
@@ -134,7 +141,8 @@ fn count(reply: Reply) -> i64 {
             },
             other => panic!("{other:?}"),
         },
-        Reply::Failed(failure) => panic!("failed {failure:?}"),
+        Reply::Failed(failure) | Reply::Recovered { failure, .. } => panic!("failed {failure:?}"),
+        Reply::NotReady { .. } => panic!("unexpected negotiation"),
     }
 }
 
@@ -160,7 +168,7 @@ fn wait_log(helper: &mut Helper, needle: &str) -> Vec<String> {
 /// helper's restart notice reaches the client through its stderr.
 #[test]
 fn failed_callbacks_answer_with_their_reason_and_the_helper_runs_on() {
-    let mut helper = spawn(terminal_component());
+    let mut helper = spawn(terminal_component(), capabilities());
     assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
     assert_eq!(count(call(&mut helper, "terminal.count")), 1);
     assert_eq!(count(call(&mut helper, "terminal.count")), 2);
@@ -190,7 +198,7 @@ fn a_failed_start_answers_with_its_reason() {
         r#"(component (import "cinnabar:missing/world-access@1.0.0" (instance (export "f" (func)))))"#,
     )
     .unwrap();
-    let mut helper = spawn(component);
+    let mut helper = spawn(component, capabilities());
     let failure = failure(reply(&mut helper));
     assert_eq!(failure.kind, FailureKind::Startup);
     assert_eq!(failure.callback, "init");
@@ -213,4 +221,118 @@ fn worktree_dir(name: &str) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     env!("CARGO_MANIFEST_DIR").hash(&mut hasher);
     format!("{name}-{:016x}", hasher.finish())
+}
+
+/// A messaging guest's fresh initialization reaches the client in the failed call's own reply.
+#[test]
+fn recovery_messages_cross_helper_ipc_without_another_dispatch() {
+    use server_experience::wire::{Channel, Direction, Field, Scalar};
+
+    let mut capabilities = capabilities();
+    capabilities.scope.permissions = BTreeSet::from([Permission::Ui, Permission::Messaging]);
+    capabilities.channels.push(Channel {
+        id: "demo.request".into(),
+        schema: 1,
+        direction: Direction::ToServer,
+        fields: vec![Field::Bool {}],
+    });
+    let component = wat::parse_bytes(include_bytes!("../src/server/guest_recovery.wat"))
+        .unwrap()
+        .into_owned();
+    let mut helper = spawn(component, capabilities);
+    assert!(matches!(reply(&mut helper), Reply::Committed { .. }));
+    let Reply::Recovered {
+        failure,
+        transaction,
+        confirmation: None,
+    } = call(&mut helper, "demo.fail")
+    else {
+        panic!("the failed dispatch must include recovery messages");
+    };
+    assert_eq!(failure.kind, FailureKind::Panic);
+    assert_eq!(failure.callback, "dispatch");
+    assert_eq!(transaction.epoch, 1);
+    assert_eq!(transaction.owner.bundle, "terminal");
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, schema: 1, record }]
+        if channel == "demo.request" && record == &[Scalar::Bool(false)])
+    );
+}
+
+/// Readiness and the restarted guest's confirmation channel cross the actual process boundary.
+#[test]
+fn negotiation_readiness_and_recovery_cross_helper_ipc() {
+    use server_experience::wire::{Channel, Direction, Field};
+
+    let mut capabilities = capabilities();
+    capabilities.scope.permissions =
+        BTreeSet::from([Permission::Ui, Permission::ModalUi, Permission::Messaging]);
+    capabilities.templates.insert("ui/terminal.json".into());
+    capabilities.assets.insert("ui/terminal.json".into());
+    for (id, direction) in [
+        ("demo.registry", Direction::ToClient),
+        ("demo.registry_request", Direction::ToServer),
+    ] {
+        capabilities.channels.push(Channel {
+            id: id.into(),
+            schema: 1,
+            direction,
+            fields: vec![Field::Text { max_bytes: 64 }],
+        });
+    }
+    let component = wat::parse_bytes(include_bytes!("../src/server/guest_negotiation.wat"))
+        .unwrap()
+        .into_owned();
+    let mut helper = spawn(component, capabilities);
+    let Reply::NotReady {
+        confirmation,
+        transaction,
+    } = reply(&mut helper)
+    else {
+        panic!("startup must report pending registry negotiation");
+    };
+    assert_eq!(confirmation, "demo.registry");
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, .. }] if channel == "demo.registry_request")
+    );
+    let Reply::NotReady { transaction, .. } = call(&mut helper, "demo.waiting") else {
+        panic!("an unconfirmed event must remain with its caller");
+    };
+    assert!(transaction.commands.is_empty());
+    assert!(matches!(
+        call(&mut helper, "demo.registry"),
+        Reply::Committed { .. }
+    ));
+    helper
+        .dispatch(Dispatch {
+            event: Event::Message {
+                channel: "demo.fail".into(),
+                record: Vec::new(),
+            },
+            epoch: 1,
+            gui: None,
+            items: None,
+        })
+        .unwrap();
+    let Reply::Recovered {
+        confirmation,
+        failure,
+        transaction,
+    } = reply(&mut helper)
+    else {
+        panic!("a trap must report the fresh guest's negotiation");
+    };
+    assert_eq!(confirmation.as_deref(), Some("demo.registry"));
+    assert_eq!(failure.kind, FailureKind::Panic);
+    assert!(
+        matches!(transaction.commands.as_slice(), [Command::Send { channel, .. }] if channel == "demo.registry_request")
+    );
+    assert!(matches!(
+        call(&mut helper, "demo.waiting"),
+        Reply::NotReady { .. }
+    ));
+    assert!(matches!(
+        call(&mut helper, "demo.registry"),
+        Reply::Committed { .. }
+    ));
 }

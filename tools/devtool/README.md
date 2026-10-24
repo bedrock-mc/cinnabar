@@ -1,5 +1,9 @@
 # Verification and build caches
 
+`cargo run -p devtool -- mod new <name>` creates a standalone client project.
+`cargo run -p devtool -- mod build --project <name>` builds its signed `.cxb` and
+generated Go messages together. See [the author guide](../../docs/mod-projects.md).
+
 `cargo run -p devtool --locked -- verify-affected --base origin/dev` selects
 checks for the files changed since the base. It runs every selected check and
 reports all failures. A failure is accepted only when complete diagnostics show

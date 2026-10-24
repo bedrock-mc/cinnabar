@@ -13,7 +13,13 @@ pub(crate) fn instance_supported(instance: &ActorGpuInstance) -> bool {
         && kind != EntityRenderMaterial::DissolveDepth as u32
         && kind != EntityRenderMaterial::DissolveColor as u32
         && !crate::actor::material::state(instance.material).is_some_and(|state| {
-            state.emissive || state.depth_always || state.additive_alpha || !state.depth_write
+            state.emissive
+                || state.depth_always
+                || state.depth_equal
+                || state.disable_alpha_write
+                || state.disable_color_write
+                || state.additive_alpha
+                || !state.depth_write
         })
 }
 
@@ -109,6 +115,33 @@ mod tests {
         let mut frame = ActorRenderFrame::default();
         frame.rig.instances = std::sync::Arc::from([instance]);
         assert!(!frame_supported(Some(&frame), None, None));
+    }
+
+    #[test]
+    fn depth_and_channel_write_overrides_keep_native_rendering() {
+        for state in [
+            EntityRenderMaterialState {
+                depth_equal: true,
+                ..Default::default()
+            },
+            EntityRenderMaterialState {
+                disable_alpha_write: true,
+                ..Default::default()
+            },
+            EntityRenderMaterialState {
+                disable_color_write: true,
+                ..Default::default()
+            },
+        ] {
+            let instance = ActorGpuInstance {
+                material: EntityRenderMaterial::Default.word(Some(state)),
+                ..Default::default()
+            };
+            assert!(!instance_supported(&instance));
+            let mut frame = ActorRenderFrame::default();
+            frame.rig.instances = std::sync::Arc::from([instance]);
+            assert!(!frame_supported(Some(&frame), None, None));
+        }
     }
 
     #[test]
