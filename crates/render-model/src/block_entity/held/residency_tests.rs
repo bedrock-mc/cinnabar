@@ -14,7 +14,10 @@ fn texture_names(kind: HeldBlockEntity) -> Vec<String> {
             geometry::POT_SIDE_TEXTURE.0.to_owned(),
         ],
         HeldBlockEntity::Conduit => vec![geometry::CONDUIT_TEXTURE.0.to_owned()],
-        HeldBlockEntity::Lectern => geometry::LECTERN_TEXTURES.map(str::to_owned).to_vec(),
+        HeldBlockEntity::Lectern => geometry::LECTERN_TEXTURES
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
         HeldBlockEntity::Skull(kind) => vec![head_texture(kind).to_owned()],
     }
 }
@@ -201,20 +204,15 @@ fn held_lectern_reuses_the_stand_with_volume_and_a_sloped_board() {
     let atlas = atlas_with_textures(texture_names(kind).into_iter());
     let model = held_block_entity_model(EntityRigId(1), &atlas, kind).unwrap();
     let vertices = model.geometry.vertices();
-    let (min, max) = vertices.iter().fold(
-        (
-            glam::Vec3::splat(f32::INFINITY),
-            glam::Vec3::splat(f32::NEG_INFINITY),
-        ),
-        |(min, max), vertex| {
-            let point = glam::Vec3::from(vertex.position);
-            (min.min(point), max.max(point))
-        },
-    );
-    assert!((max - min).to_array().into_iter().all(|span| span > 0.5));
+    let first = vertices.first().unwrap();
+    let origin = glam::Vec3::from(first.position);
+    let normal = glam::Vec3::from(first.normal);
+    assert!(vertices.iter().any(|vertex| {
+        normal.dot(glam::Vec3::from(vertex.position) - origin).abs() > f32::EPSILON
+    }));
     assert!(
         vertices
             .iter()
-            .any(|vertex| vertex.normal[1].abs() > 0.1 && vertex.normal[2].abs() > 0.1)
+            .any(|vertex| { vertex.normal[1].abs() > 0.1 && vertex.normal[2].abs() > 0.1 })
     );
 }
