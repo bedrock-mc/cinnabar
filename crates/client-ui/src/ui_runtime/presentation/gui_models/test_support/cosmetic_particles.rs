@@ -27,6 +27,7 @@ pub fn cosmetic_particle_preview(
     runtime.player_preview_view = view;
     let texture = &model.texture;
     let icon = IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, texture.width as u16, texture.height as u16],
         glint: false,

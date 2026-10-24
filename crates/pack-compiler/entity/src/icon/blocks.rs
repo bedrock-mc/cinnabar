@@ -5,7 +5,7 @@
 //! its shape, and then shows the carried texture, down face, at the
 //! block's variant.
 
-use std::{path::Path, sync::Arc};
+use std::{borrow::Cow, path::Path, sync::Arc};
 
 use assets::registry::BlockTraits;
 use assets::{
@@ -15,12 +15,13 @@ use assets::{
 
 use pack_compile_input::image::decode_texture;
 use pack_compile_input::pack::{
-    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key, resolve_texture_key,
+    PackSources, read_pack, resolve_carried_down_key, resolve_carried_face_key,
+    resolve_carried_fallback_key, resolve_texture_key,
 };
 use pack_compile_input::static_texture_path;
 
 /// Registry families whose vanilla block shapes render as flat item icons.
-const FLAT_FAMILIES: [ModelFamily; 11] = [
+const FLAT_FAMILIES: [ModelFamily; 10] = [
     ModelFamily::Cross,
     ModelFamily::Rail,
     ModelFamily::Torch,
@@ -28,7 +29,6 @@ const FLAT_FAMILIES: [ModelFamily; 11] = [
     ModelFamily::Vine,
     ModelFamily::GlowLichen,
     ModelFamily::SculkVein,
-    ModelFamily::Pane,
     ModelFamily::Aquatic,
     ModelFamily::FlowerBed,
     ModelFamily::ResinClump,
@@ -42,6 +42,13 @@ pub(super) struct IconBlocks {
     records: Box<[RegistryRecord]>,
     /// `None` when the pack lacks the block and terrain catalogs.
     pack: Option<PackSources>,
+}
+
+/// A resolved terrain destination retains its identity alongside the shared image source.
+struct CarriedMaterial<'a> {
+    key: Cow<'a, str>,
+    path: &'a str,
+    overlay: Option<&'a str>,
 }
 
 impl IconBlocks {
@@ -70,7 +77,7 @@ impl IconBlocks {
         ) {
             return Ok(None);
         }
-        self.tiles(root, visual, true)
+        self.tiles(root, visual, true, true)
     }
 
     pub(super) fn read(root: &Path) -> Result<Self, AssetError> {
@@ -93,15 +100,56 @@ impl IconBlocks {
             || FLAT_FAMILIES.contains(&record.model_family)
             || record.traits.intersects(FLAT_TRAITS)
             || (kind == VisualKind::Cross && record.model_family != ModelFamily::Crop)
-            || (record.model_family == ModelFamily::Unknown
-                && assets::facts::block_render_fact(&record.name).flat_icon)
+            || (matches!(
+                record.model_family,
+                ModelFamily::Unknown | ModelFamily::Pane
+            ) && assets::facts::block_render_fact(&record.name).flat_icon)
     }
 
-    /// The state an item draws: a wall item shows a post with east and west arms.
+    /// Selects canonical inventory poses for walls and directional blocks.
     pub(super) fn icon_state(&self, visual: BlockVisualId) -> BlockVisualId {
         let Some(record) = self.records.get(visual.0 as usize) else {
             return visual;
         };
+        if pack_compile_input::lightning_rod::is_record(record) {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    candidate.name == record.name
+                        && pack_compile_input::lightning_rod::state(candidate) == Some((1, 0))
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        let crafter = record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier();
+        if crafter
+            || assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::Barrel
+        {
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    if candidate.name != record.name {
+                        return false;
+                    }
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    if crafter {
+                        state[BlockProperty::Orientation.name()]["value"] == "south_up"
+                            && state[BlockProperty::Crafting.name()]["value"] == 0
+                            && state[BlockProperty::TriggeredBit.name()]["value"] == 0
+                    } else {
+                        state[BlockProperty::FacingDirection.name()]["value"] == 3
+                            && state[BlockProperty::OpenBit.name()]["value"] == 0
+                    }
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         if record.model_family != ModelFamily::Wall {
             return visual;
         }
@@ -127,7 +175,20 @@ impl IconBlocks {
     /// Full cube item geometry is independent of terrain occlusion, material and animation.
     pub(super) fn is_carried_cube(&self, world: &RuntimeAssets, visual: BlockVisualId) -> bool {
         let block = world.resolve(NetworkIdMode::Sequential, visual.0);
-        if !block.is_known() || block.support() != VisualSupport::Exact {
+        if !block.is_known() {
+            return false;
+        }
+        if block.support() == VisualSupport::VanillaFallback
+            && self.records.get(visual.0 as usize).is_some_and(|record| {
+                record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier()
+                    || record
+                        .traits
+                        .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
+            })
+        {
+            return true;
+        }
+        if block.support() != VisualSupport::Exact {
             return false;
         }
         match block.kind() {
@@ -151,7 +212,7 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
-        self.tiles(root, visual, true)
+        self.tiles(root, self.icon_state(visual), true, true)
     }
 
     /// Resolves explicit carried faces for shapes whose world model cannot supply an icon.
@@ -160,7 +221,16 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
-        self.tiles(root, visual, false)
+        self.tiles(root, visual, false, true)
+    }
+
+    /// Resolves the placed face artwork without replacing it with carried-only attachments.
+    pub(super) fn terrain_tiles(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<[IconSprite; 6]>, AssetError> {
+        self.tiles(root, visual, true, false)
     }
 
     fn tiles(
@@ -168,6 +238,7 @@ impl IconBlocks {
         root: &Path,
         visual: BlockVisualId,
         world_fallback: bool,
+        carried: bool,
     ) -> Result<Option<[IconSprite; 6]>, AssetError> {
         let (Some(pack), Some(record)) = (self.pack.as_ref(), self.records.get(visual.0 as usize))
         else {
@@ -175,60 +246,180 @@ impl IconBlocks {
         };
         let mut tiles = Vec::with_capacity(BlockFace::ALL.len());
         for face in BlockFace::ALL {
-            let world = resolve_texture_key(&pack.blocks, record, face).key;
+            let (source_face, flip) = if carried
+                && assets::facts::block_render_fact(&record.name).kind
+                    == assets::facts::BlockRenderKind::Barrel
+            {
+                let Some(assets::facts::StateValue::Int(direction)) =
+                    record.property(assets::facts::BlockProperty::FacingDirection)
+                else {
+                    return Ok(None);
+                };
+                let Some(transform) = usize::try_from(*direction).ok().and_then(|direction| {
+                    pack_compile_input::barrel::face_transform(face, direction)
+                }) else {
+                    return Ok(None);
+                };
+                transform
+            } else if record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier() {
+                // The inventory pose faces south with its top upright.
+                match face {
+                    BlockFace::Down => (face, 3),
+                    BlockFace::Up => (face, 0),
+                    BlockFace::West => (BlockFace::East, 0),
+                    BlockFace::East => (BlockFace::West, 0),
+                    BlockFace::North => (BlockFace::South, 0),
+                    BlockFace::South => (BlockFace::North, 0),
+                }
+            } else {
+                (face, 0)
+            };
+            let world = resolve_texture_key(&pack.blocks, record, source_face).key;
             let variant = world
                 .as_ref()
                 .and_then(|key| pack.terrain.get_for_model_record(key, record))
                 .map_or(0, |(_, variant)| variant as usize);
-            let Some(key) = resolve_carried_face_key(&pack.blocks, record, face)
+            let Some(key) = carried
+                .then(|| resolve_carried_face_key(&pack.blocks, record, source_face))
+                .flatten()
                 .map(String::into_boxed_str)
-                .or_else(|| world_fallback.then_some(world).flatten())
+                .or_else(|| {
+                    if !world_fallback {
+                        return None;
+                    }
+                    if matches!(
+                        assets::facts::block_render_fact(&record.name).kind,
+                        assets::facts::BlockRenderKind::Furnace
+                            | assets::facts::BlockRenderKind::LitFurnace
+                    ) {
+                        resolve_carried_fallback_key(&pack.blocks, record, face)
+                    } else {
+                        world
+                    }
+                })
             else {
                 return Ok(None);
             };
             let Some((path, overlay)) = pack.terrain.get_clamped_carried(&key, variant) else {
                 return Ok(None);
             };
-            let Some(tile) = super::carried::tile(
-                root,
-                path,
-                overlay,
-                pack_compile_input::respawn_anchor::is_record(record),
-            )?
-            else {
+            let tile = if carried {
+                super::carried::tile(
+                    root,
+                    path,
+                    overlay,
+                    pack_compile_input::respawn_anchor::is_record(record),
+                )?
+            } else {
+                super::carried::model_tile(self, root, &key, path, overlay)?
+            };
+            let Some(tile) = tile else {
                 return Ok(None);
             };
-            tiles.push(tile);
+            tiles.push(super::carried::flip(tile, flip)?);
         }
         Ok(tiles.try_into().ok())
     }
 
+    /// Retains a pane's flat carried artwork independently of its GUI plate.
+    pub(super) fn held_texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
+        if self.records.get(visual.0 as usize)?.model_family != ModelFamily::Pane {
+            return None;
+        }
+        self.texture_path(visual)
+    }
+
     /// The pack path of `visual`'s flat icon; `None` when absent, tinted, or unresolvable.
     pub(super) fn texture_path(&self, visual: BlockVisualId) -> Option<Box<str>> {
+        let material = self.carried_material(visual, None)?;
+        material.overlay.is_none().then(|| material.path.into())
+    }
+
+    /// Loads carried model artwork with its declared animation frame and overlay tint.
+    pub(super) fn carried_model_tile(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+    ) -> Result<Option<IconSprite>, AssetError> {
+        let Some(material) = self.carried_material(visual, None) else {
+            return Ok(None);
+        };
+        super::carried::model_tile(self, root, &material.key, material.path, material.overlay)
+    }
+
+    /// Selects the carried down-face material at the block's world variant.
+    fn carried_material(
+        &self,
+        visual: BlockVisualId,
+        face: Option<BlockFace>,
+    ) -> Option<CarriedMaterial<'_>> {
         let pack = self.pack.as_ref()?;
         let record = self.records.get(visual.0 as usize)?;
-        let key = resolve_carried_down_key(&pack.blocks, record)?;
+        let key = match face {
+            Some(face) => resolve_carried_face_key(&pack.blocks, record, face)?.into(),
+            None => resolve_carried_down_key(&pack.blocks, record)?,
+        };
         // The world key's variant stands in for the block's variant.
-        let variant = resolve_texture_key(&pack.blocks, record, BlockFace::Down)
+        let variant = resolve_texture_key(&pack.blocks, record, face.unwrap_or(BlockFace::Down))
             .key
             .and_then(|world| pack.terrain.get_for_model_record(&world, record))
             .map_or(0, |(_, variant)| variant as usize);
-        pack.terrain
-            .get_clamped_untinted(&key, variant)
-            .map(Into::into)
+        let (path, overlay) = pack.terrain.get_clamped_carried(&key, variant)?;
+        Some(CarriedMaterial { key, path, overlay })
     }
 
-    /// A flat block icon; a flipbook texture shows its first frame, as the terrain atlas holds it.
+    /// Loads one explicitly carried attachment with its animation frame and overlay tint.
+    pub(super) fn attachment_tile(
+        &self,
+        root: &Path,
+        visual: BlockVisualId,
+        face: BlockFace,
+    ) -> Result<Option<IconSprite>, AssetError> {
+        let Some(material) = self.carried_material(visual, Some(face)) else {
+            return Ok(None);
+        };
+        super::carried::model_tile(self, root, &material.key, material.path, material.overlay)
+    }
+
+    /// A flat block icon; a declared flipbook shows its first frame.
     pub(super) fn flat_sprite(
         &self,
         root: &Path,
         path: &str,
     ) -> Result<Option<IconSprite>, AssetError> {
+        Ok(self
+            .texture_frame(root, path, None)?
+            .and_then(|decoded| super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite)))
+    }
+
+    /// Model artwork retains source resolution after selecting its declared animation frame.
+    pub(super) fn model_frame_sprite(
+        &self,
+        root: &Path,
+        destination: &str,
+        path: &str,
+    ) -> Result<Option<IconSprite>, AssetError> {
+        let Some(decoded) = self.texture_frame(root, path, Some(destination))? else {
+            return Ok(None);
+        };
+        Ok(Some(IconSprite {
+            width: decoded.width as u16,
+            height: decoded.height as u16,
+            rgba8: decoded.rgba8.into(),
+        }))
+    }
+
+    /// Loads a declared texture frame before applying consumer-specific dimensions.
+    fn texture_frame(
+        &self,
+        root: &Path,
+        path: &str,
+        destination: Option<&str>,
+    ) -> Result<Option<pack_compile_input::image::DecodedTexture>, AssetError> {
         let file = static_texture_path(root, path, path)?;
         if !file.is_file() {
             return Ok(None);
         }
-        let mut decoded = decode_texture(&file, path)?;
         let stem = |texture: &str| {
             texture
                 .strip_suffix(".png")
@@ -236,14 +427,70 @@ impl IconBlocks {
                 .unwrap_or(texture)
                 .to_owned()
         };
-        if self.pack.as_ref().is_some_and(|pack| {
-            pack.flipbooks
-                .iter()
-                .any(|flipbook| stem(&flipbook.texture_path) == stem(path))
-        }) {
-            pack_compile_input::image::retain_first_strip_frame(&mut decoded);
-        }
-        Ok(super::sprites::bounded_sprite(decoded).map(|(sprite, _)| sprite))
+        let flipbook = if let Some(pack) = self.pack.as_ref() {
+            let selected = if let Some(destination) = destination {
+                pack_compile_input::pack::select_flipbook_index(
+                    pack.flipbooks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, source)| {
+                            source.atlas_tile.as_ref() == destination
+                                && stem(&source.texture_path) == stem(path)
+                        })
+                        .map(|(index, source)| {
+                            (index, source.atlas_index, source.atlas_tile_variant)
+                        }),
+                    None,
+                    path,
+                )?
+            } else {
+                None
+            };
+            selected
+                .map(|index| (index, &pack.flipbooks[index], true))
+                .or_else(|| {
+                    pack.flipbooks
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, source)| stem(&source.texture_path) == stem(path))
+                        .min_by_key(|(_, source)| source.replicate)
+                        .map(|(index, source)| (index, source, false))
+                })
+        } else {
+            None
+        };
+        let decoded = if let Some((index, flipbook, uses_timeline)) = flipbook {
+            let first_frame = if uses_timeline {
+                flipbook.frames.first().copied().unwrap_or(0)
+            } else {
+                0
+            };
+            let mut decoded = pack_compile_input::image::decode_model_texture(
+                &file,
+                path,
+                Some((index, first_frame)),
+            )?;
+            if decoded.width == decoded.height {
+                let (rgba8, side) = pack_compile_input::image::replicated_tile(
+                    decoded.rgba8.into_vec(),
+                    decoded.width,
+                    if destination.is_some() {
+                        flipbook.replicate
+                    } else {
+                        1
+                    },
+                );
+                decoded.rgba8 = rgba8;
+                decoded.width = side;
+                decoded.height = side;
+            }
+            decoded
+        } else if destination.is_some() {
+            pack_compile_input::image::decode_model_texture(&file, path, None)?
+        } else {
+            decode_texture(&file, path)?
+        };
+        Ok(Some(decoded))
     }
 
     /// Loads a bounded sprite or an unresized square frame for carried-face baking.
@@ -304,174 +551,17 @@ impl IconBlocks {
 mod respawn_anchor_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "blocks/piston_tests.rs"]
+mod piston_tests;
 
-    #[test]
-    fn candles_keep_their_carried_icons_without_world_model_geometry() {
-        let blocks = IconBlocks {
-            records: assets::read_registry_for_protocol(
-                assets::pinned_block_registry_bytes(),
-                assets::active_content_registry_protocol(),
-            )
-            .unwrap(),
-            pack: None,
-        };
-        let world = RuntimeAssets::diagnostic();
-        for name in [
-            "minecraft:candle",
-            "minecraft:magenta_candle",
-            "minecraft:bell",
-        ] {
-            let record = blocks
-                .records
-                .iter()
-                .find(|record| record.name.as_ref() == name)
-                .unwrap();
-            assert!(blocks.is_flat(&world, BlockVisualId(record.sequential_id)));
-        }
-    }
+#[cfg(test)]
+#[path = "blocks/tests.rs"]
+mod tests;
 
-    /// Barrier declares world textures, while light blocks declare only carried ones; both items
-    /// draw that texture flat.
-    #[test]
-    fn barrier_and_light_block_items_draw_their_carried_texture_flat() {
-        let root = tempfile::tempdir().unwrap();
-        std::fs::create_dir(root.path().join("textures")).unwrap();
-        for (path, json) in [
-            (
-                "blocks.json",
-                r#"{"barrier":{"textures":"barrier"},
-                    "light_block_0":{"carried_textures":"light_block_0"},
-                    "light_block_15":{"carried_textures":"light_block_15"},
-                    "stone":{"textures":"stone"}}"#,
-            ),
-            (
-                "textures/terrain_texture.json",
-                r#"{"texture_data":{
-                    "barrier":{"textures":"textures/blocks/barrier"},
-                    "light_block_0":{"textures":"textures/items/light_block_0"},
-                    "light_block_15":{"textures":"textures/items/light_block_15"},
-                    "stone":{"textures":"textures/blocks/stone"}}}"#,
-            ),
-            ("textures/flipbook_textures.json", "[]"),
-        ] {
-            std::fs::write(root.path().join(path), json).unwrap();
-        }
-        let blocks = IconBlocks::read(root.path()).unwrap();
-        let world = RuntimeAssets::diagnostic();
-        let flat_textures = |name: &str| {
-            let states: Vec<_> = blocks
-                .records
-                .iter()
-                .filter(|record| record.name.as_ref() == name)
-                .map(|record| BlockVisualId(record.sequential_id))
-                .collect();
-            assert!(!states.is_empty(), "{name} is not registered");
-            states
-                .into_iter()
-                .map(|state| {
-                    blocks
-                        .is_flat(&world, state)
-                        .then(|| blocks.texture_path(state))
-                        .flatten()
-                })
-                .collect::<Vec<_>>()
-        };
-        for (name, texture) in [
-            ("minecraft:barrier", "textures/blocks/barrier"),
-            ("minecraft:light_block_0", "textures/items/light_block_0"),
-            ("minecraft:light_block_15", "textures/items/light_block_15"),
-        ] {
-            assert!(
-                flat_textures(name)
-                    .iter()
-                    .all(|path| path.as_deref() == Some(texture)),
-                "{name} must draw {texture} flat"
-            );
-        }
-        assert!(flat_textures("minecraft:stone").iter().all(Option::is_none));
-    }
+#[cfg(test)]
+#[path = "blocks/crafter_tests.rs"]
+mod crafter_tests;
 
-    #[test]
-    fn leaf_litter_uses_a_flat_carried_icon_for_every_state() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path();
-        std::fs::create_dir_all(root.join("textures")).unwrap();
-        std::fs::write(
-            root.join("blocks.json"),
-            r#"{"leaf_litter":{"textures":"ground","carried_textures":"carried"}}"#,
-        )
-        .unwrap();
-        std::fs::write(root.join("textures/terrain_texture.json"),
-            r#"{"texture_data":{"ground":{"textures":"textures/blocks/litter"},"carried":{"textures":"textures/items/litter"}}}"#).unwrap();
-        std::fs::write(root.join("textures/flipbook_textures.json"), "[]").unwrap();
-        let blocks = IconBlocks::read(root).unwrap();
-        let world = RuntimeAssets::diagnostic();
-        let records: Vec<_> = blocks
-            .records
-            .iter()
-            .filter(|record| record.name.as_ref() == "minecraft:leaf_litter")
-            .collect();
-        assert!(!records.is_empty());
-        for record in records {
-            assert!(
-                blocks.is_flat(&world, BlockVisualId(record.sequential_id)),
-                "{}",
-                record.canonical_state
-            );
-            assert_eq!(
-                blocks
-                    .texture_path(BlockVisualId(record.sequential_id))
-                    .as_deref(),
-                Some("textures/items/litter")
-            );
-        }
-    }
-
-    /// Writes the block and texture catalogs needed to load icon test fixtures.
-    fn write_pack(root: &Path, blocks: &str, terrain: &str, flipbooks: &str) {
-        std::fs::create_dir_all(root.join("textures/blocks")).unwrap();
-        std::fs::write(root.join("blocks.json"), blocks).unwrap();
-        std::fs::write(root.join("textures/terrain_texture.json"), terrain).unwrap();
-        std::fs::write(root.join("textures/flipbook_textures.json"), flipbooks).unwrap();
-    }
-
-    /// A flat icon shows one frame of a flipbook strip, while other textures keep their size.
-    #[test]
-    fn flat_flipbook_icons_show_their_first_frame() {
-        let root = tempfile::tempdir().unwrap();
-        write_pack(
-            root.path(),
-            r#"{"sculk_vein":{"textures":"sculk_vein"}}"#,
-            r#"{"texture_data":{"sculk_vein":{"textures":"textures/blocks/sculk_vein"}}}"#,
-            r#"[{"flipbook_texture":"textures/blocks/sculk_vein","atlas_tile":"sculk_vein","ticks_per_frame":2}]"#,
-        );
-        for name in ["sculk_vein", "tall"] {
-            image::RgbaImage::new(16, 64)
-                .save(root.path().join(format!("textures/blocks/{name}.png")))
-                .unwrap();
-        }
-        let blocks = IconBlocks::read(root.path()).unwrap();
-        let size = |path: &str| {
-            let sprite = blocks.flat_sprite(root.path(), path).unwrap().unwrap();
-            [sprite.width, sprite.height]
-        };
-        assert_eq!(size("textures/blocks/sculk_vein"), [16, 16]);
-        assert_eq!(size("textures/blocks/tall"), [16, 64]);
-    }
-
-    /// A model texture past the carrier's side is skipped rather than failing its decode.
-    #[test]
-    fn oversized_model_textures_are_skipped() {
-        let root = tempfile::tempdir().unwrap();
-        image::RgbaImage::new(512, 512)
-            .save(root.path().join("head.png"))
-            .unwrap();
-        assert!(
-            IconBlocks::model_texture(root.path(), "head")
-                .unwrap()
-                .is_none()
-        );
-    }
-}
+#[cfg(test)]
+#[path = "blocks/lightning_rod_tests.rs"]
+mod lightning_rod_tests;

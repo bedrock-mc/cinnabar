@@ -565,6 +565,7 @@ fn preprocess_limited(
     let mut pp = Preprocessor::new(text);
     pp.set_work_limit(work);
     pp.set_iris_conditions(true);
+    pp.set_iris_recovery(true);
     pp.set_preserve_glsl_text();
     pp.set_source_lines(expanded.map.lines.iter().map(|(_, line)| *line).collect());
     for (k, v) in defines {

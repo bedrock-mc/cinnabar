@@ -42,11 +42,12 @@ impl Pending {
     }
 }
 
-/// Whether a packaged install lacks current carriers, the only setup stage the game requires.
+/// Whether a packaged install lacks current carriers or kept vanilla textures.
 /// Local worlds are optional, so remote servers stay playable when their preparation fails.
 pub(super) fn assets_needed(layout: &InstallLayout) -> bool {
     layout.is_installed()
-        && !prepare::selection(layout).is_ok_and(|selection| selection.is_current())
+        && (!prepare::selection(layout).is_ok_and(|selection| selection.is_current())
+            || !prepare::vanilla_textures_kept(layout))
 }
 
 /// Desktop setup never downloads a server, even when the host can run local worlds.

@@ -190,6 +190,7 @@ fn render_edge(gpu: &Gpu, held: bool, samples: u32, back: bool) -> Vec<u8> {
                 light: &hand_light,
                 main_atlas: &view,
                 offhand_atlas: &view,
+                map_background: &view,
                 item_glint: &glint,
                 glint_sampler: &sampler,
             }

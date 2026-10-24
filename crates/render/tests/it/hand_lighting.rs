@@ -185,6 +185,7 @@ fn java_hand_lights_normals_and_composes_texture_in_gamma() {
                     light: &light,
                     main_atlas: &atlas,
                     offhand_atlas: &atlas,
+                    map_background: &atlas,
                     item_glint: &glint,
                     glint_sampler: &sampler,
                 }

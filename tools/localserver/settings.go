@@ -11,7 +11,7 @@ import (
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 )
 
 const defaultChunkWorkers = 4

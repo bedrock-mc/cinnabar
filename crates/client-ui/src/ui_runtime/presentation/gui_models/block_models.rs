@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, block_item_quads, material_tile};
+use assets::gui_item::{GUI_BLOCK_ALPHA_THRESHOLD, block_gui_quads, material_tile};
 use assets::{
     BlockFace, BlockVisualId, Material, ModelQuad, ModelTemplate, NetworkIdMode, RuntimeAssets,
     TexturePage, VisualKind,
@@ -52,7 +52,7 @@ pub(super) fn mesh(
 
 /// Builds GUI geometry from a block shape, keeping the thumbnail when any input is unsupported.
 fn shaped(shape: &Shape<'_>, atlas: &mut Atlas) -> Option<Arc<UiMesh>> {
-    let quads = block_item_quads(
+    let quads = block_gui_quads(
         shape.kind,
         shape.faces,
         shape.template,

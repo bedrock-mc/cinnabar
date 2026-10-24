@@ -247,6 +247,12 @@ impl PublicationAllowance {
         state.remaining_items.min(state.frame_remaining_operations)
     }
 
+    /// Returns shared frame operations available to either publication class.
+    #[must_use]
+    pub fn frame_remaining_operations(&self) -> usize {
+        self.lock().frame_remaining_operations
+    }
+
     #[must_use]
     pub fn frame_remaining_bytes(&self) -> u64 {
         self.lock().frame_remaining_bytes

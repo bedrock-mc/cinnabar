@@ -505,6 +505,12 @@ allowed_dependencies = ["experience-sdk"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "dragonfly-extension-client"
+path = "examples/dragonfly-extension/client"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "ui"
 path = "crates/ui"
 allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input", "test-alloc"]

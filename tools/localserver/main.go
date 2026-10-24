@@ -26,8 +26,8 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/extension"
+	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // experienceDataDir is the directory under -dir that holds the Experiences' private data.
@@ -177,6 +177,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			channels = ext
 		}
 		host = experience.NewHost(exps.reg, exps.store, exps.sups, filepath.Base(cfg.dir), channels, logger)
+		if err := host.BindDefaultWorlds(worlds...); err != nil {
+			return errors.Join(err, srv.Close(), host.Close())
+		}
 		// Building the server registered its crafting recipes, after the helpers first loaded
 		// without them: each loads again with them.
 		for id := range exps.sups {

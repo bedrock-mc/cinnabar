@@ -59,7 +59,7 @@ pub(super) struct HandRigGpu {
     /// Reused only by the compact layout to upload both pose endpoints together.
     compact_pose: Vec<u8>,
     pub(super) skin: Option<HandRigSkin>,
-    pub(super) atlases: [Option<HandRigAtlas>; 2],
+    pub(super) atlases: [Option<HandRigAtlas>; 3],
     /// The raw-view setting new artwork textures are created with; artwork created under
     /// another setting is replaced.
     pub(super) raw_views: ArtworkRawViews,
@@ -120,7 +120,7 @@ pub(super) fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         current_bones: None,
         compact_pose: Vec::new(),
         skin: None,
-        atlases: [None, None],
+        atlases: [None, None, None],
         raw_views: ArtworkRawViews::default(),
         glint_sampler: device.create_sampler(&SamplerDescriptor {
             label: Some("first-person repeat glint sampler"),
@@ -676,6 +676,9 @@ pub(super) fn build_bind_group(gpu: &mut HandRigGpu, device: &RenderDevice, cach
             offhand_atlas: gpu.atlases[1]
                 .as_ref()
                 .map_or(&skin.view, |atlas| &atlas.view),
+            map_background: gpu.atlases[2]
+                .as_ref()
+                .map_or(&skin.view, |atlas| &atlas.view),
             item_glint: &glint.view,
             glint_sampler: &gpu.glint_sampler,
         }
@@ -869,6 +872,16 @@ pub(super) fn hand_rig_layout() -> BindGroupLayoutDescriptor {
             },
             BindGroupLayoutEntry {
                 binding: 11,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Texture {
+                    sample_type: TextureSampleType::Float { filterable: true },
+                    view_dimension: TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            BindGroupLayoutEntry {
+                binding: 14,
                 visibility: ShaderStages::FRAGMENT,
                 ty: BindingType::Texture {
                     sample_type: TextureSampleType::Float { filterable: true },

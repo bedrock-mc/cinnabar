@@ -11,6 +11,7 @@ mod chat_send;
 mod crafting_data;
 mod creative_content;
 mod credits;
+mod ddui_packets;
 mod dimension_packets;
 mod disconnect_wire;
 mod fixtures;

@@ -133,8 +133,6 @@ pub(crate) struct BlockEntityRuntime {
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
-    /// When each map id was last requested from the server, in real seconds.
-    map_requests: HashMap<i64, f64>,
     /// Session and dimension the runtime-id keyed caches were filled from.
     session: Option<(u64, i32)>,
     beam_source: Option<(Arc<assets::RuntimeAssets>, Option<protocol::DimensionRange>)>,
@@ -157,7 +155,6 @@ impl BlockEntityRuntime {
             shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
             missing_maps: Vec::new(),
-            map_requests: HashMap::new(),
             session: None,
             beam_source: None,
             books: books::TableBooks::default(),
@@ -199,7 +196,6 @@ impl BlockEntityRuntime {
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
-        self.map_requests.clear();
         self.books = books::TableBooks::default();
     }
 }
@@ -744,39 +740,49 @@ const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-
 const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 
-/// Seconds before an unanswered map request is repeated.
-const MAP_REQUEST_RETRY_SECONDS: f64 = 5.0;
-
-/// Asks the server for the pixels of framed maps whose images have not arrived.
+/// Requests each missing held or framed map once per session after output admission.
 pub(crate) fn request_missing_maps(
     mut runtime: ResMut<BlockEntityRuntime>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
-    time: Res<Time<Real>>,
+    mut world: ResMut<ClientWorld>,
+    player: Res<client_state::PlayerRuntime>,
+    ui: Option<Res<UiRuntimeResource>>,
 ) {
     let Some(network) = network else {
+        runtime.missing_maps.clear();
         return;
     };
-    let now = time.elapsed_secs_f64();
+    let Some(stream) = world.stream.as_mut() else {
+        runtime.missing_maps.clear();
+        return;
+    };
     let runtime = &mut *runtime;
+    {
+        let held = client_presentation::presentation::equipment::local_input(
+            &player,
+            stream,
+            ui.as_deref().map(|ui| &ui.0),
+            stream.local_player_runtime_id(),
+        );
+        for item in [held.main, held.off].into_iter().flatten() {
+            if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
+                && let Some(id) = item.map_id
+                && stream.map_image(id).is_none()
+            {
+                runtime.missing_maps.push(id);
+            }
+        }
+    }
     runtime.missing_maps.sort_unstable();
     runtime.missing_maps.dedup();
     for id in std::mem::take(&mut runtime.missing_maps) {
-        let due = runtime
-            .map_requests
-            .get(&id)
-            .is_none_or(|last| now - last >= MAP_REQUEST_RETRY_SECONDS);
-        if due
+        if !stream.map_is_known(id)
             && network
                 .send_inventory_packet(protocol::map_info_request_packet(id))
                 .is_ok()
         {
-            runtime.map_requests.insert(id, now);
+            stream.admit_map_request(id);
         }
-    }
-    if runtime.map_requests.len() > 256 {
-        runtime
-            .map_requests
-            .retain(|_, last| now - *last < MAP_REQUEST_RETRY_SECONDS);
     }
 }
 

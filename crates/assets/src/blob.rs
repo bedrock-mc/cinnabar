@@ -512,11 +512,7 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
         if template.flags == crate::MODEL_TEMPLATE_FLAG_POTTED_PLANT
             && (template.quad_count == 0
                 || compiled.model_templates.get(index + 1).is_none_or(|next| {
-                    !matches!(
-                        next.flags,
-                        0 | crate::MODEL_TEMPLATE_FLAG_BAMBOO
-                            | crate::MODEL_TEMPLATE_FLAG_SHORT_GRASS
-                    )
+                    !crate::model::potted_world_template_flags_are_valid(next.flags)
                 }))
         {
             return Err(invalid(

@@ -63,7 +63,11 @@ pub(super) fn prepare(
                 .authority()
                 .actor_rig(local_runtime_id)
                 .is_some_and(|rig| rig.held_item_scale.is_some());
-            if key == *ready_hand_key && !samples_item_scale {
+            let holds_map = [equipment_input.main.as_ref(), equipment_input.off.as_ref()]
+                .into_iter()
+                .flatten()
+                .any(|item| item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER);
+            if key == *ready_hand_key && !samples_item_scale && !holds_map {
                 reused_hand = true;
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;

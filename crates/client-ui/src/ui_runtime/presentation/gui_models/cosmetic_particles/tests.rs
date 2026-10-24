@@ -12,6 +12,7 @@ fn runtime() -> UiPresentationRuntime {
     runtime.menu_artwork.refs.insert(
         item.texture_key(),
         ui::IconRef {
+            color_mask: None,
             page: 3,
             uv: [0, 0, 64, 64],
             glint: false,
@@ -284,6 +285,7 @@ fn a_ground_item_has_gallery_art_but_adds_no_equipped_menu_mesh_or_particles() {
     runtime.menu_artwork.refs.insert(
         item.texture_key(),
         ui::IconRef {
+            color_mask: None,
             page: 3,
             uv: [0, 0, 64, 32],
             glint: false,
