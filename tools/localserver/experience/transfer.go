@@ -55,10 +55,11 @@ func (h *Host) transfer(ctx context.Context, owner string, ev event, snap snapsh
 	if !ownedWorldName(string(destination.ID), owner) {
 		return errors.New("destination authority denied")
 	}
-	w, err := h.ResolveWorld(destination)
+	reservation, w, err := h.worlds.reserve(destination)
 	if err != nil {
 		return err
 	}
+	defer reservation.Release()
 	for _, coordinate := range []float64{pos.X, pos.Y, pos.Z} {
 		if math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
 			return errors.New("nonfinite destination")
@@ -141,6 +142,9 @@ func (h *Host) restorePlayer(ev event, before PlayerLocation, admit func(*player
 	state := h.players.items[ev.actor]
 	delete(h.players.items, ev.actor)
 	h.players.mu.Unlock()
+	if state != nil {
+		state.reservation.Release()
+	}
 	if state != nil && state.connection != nil {
 		state.connection.Retire()
 	}

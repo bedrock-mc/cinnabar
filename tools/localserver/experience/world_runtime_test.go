@@ -545,3 +545,27 @@ func TestTransportPreparationFailureKeepsSource(t *testing.T) {
 		t.Fatal("preparation failure changed location authority")
 	}
 }
+
+// TestPreparedTransferReservesBothWorlds protects the source recovery and empty destination.
+func TestPreparedTransferReservesBothWorlds(t *testing.T) {
+	f := newRuntimeFixture(t)
+	if err := f.travel(t.Context(), "probe:one"); err != nil {
+		t.Fatal(err)
+	}
+	source, _ := f.h.worlds.handle("probe:one")
+	destination, _ := f.h.worlds.handle("probe:two")
+	f.h.manager.admit = func() error {
+		for _, handle := range []WorldHandle{source, destination} {
+			if err := f.h.unloadWorld(t.Context(), "probe", handle); err == nil {
+				t.Fatal("unloaded a world held by a prepared transfer")
+			}
+		}
+		return nil
+	}
+	if err := f.travel(t.Context(), "probe:two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.h.unloadWorld(t.Context(), "probe", source); err != nil {
+		t.Fatalf("source reservation survived committed transfer: %v", err)
+	}
+}

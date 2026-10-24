@@ -48,15 +48,16 @@ func (c lifecycleSession) PrepareWorldChange(kind ext.WorldChangeKind) (*ext.Wor
 
 // lifecycleMatrix owns one player's synchronous worlds, persisted location and real client part.
 type lifecycleMatrix struct {
-	f        *runtimeFixture
-	part     *lifecyclePart
-	channels *lifecycleChannels
-	provider player.Provider
-	live     bool
-	shutdown bool
-	fenced   bool
-	leaves   uint64
-	tick     uint64
+	f         *runtimeFixture
+	part      *lifecyclePart
+	channels  *lifecycleChannels
+	provider  player.Provider
+	admission player.Admission
+	live      bool
+	shutdown  bool
+	fenced    bool
+	leaves    uint64
+	tick      uint64
 }
 
 // newLifecycleMatrix uses a scripted helper to make each leave visibly persist a private write.
@@ -97,6 +98,10 @@ func (m *lifecycleMatrix) depart(p *player.Player) {
 // disconnect saves and removes the live session under its actual world transaction.
 func (m *lifecycleMatrix) disconnect() {
 	if !m.live {
+		if m.admission != nil {
+			m.admission.Release()
+			m.admission = nil
+		}
 		return
 	}
 	f := m.f
@@ -141,16 +146,29 @@ func (m *lifecycleMatrix) step(name string) {
 	case "disconnect":
 		m.disconnect()
 	case "reconnect":
+		m.step("login_load")
+		m.step("login_spawn")
+	case "login_load":
 		m.disconnect()
-		id := f.actor.UUID()
-		data, w, err := m.provider.Load(id, func(world.Dimension) *world.World { return f.source })
+		var err error
+		m.admission, err = m.provider.(player.AdmissionProvider).LoadAdmission(f.actor.UUID(), func(world.Dimension) *world.World { return f.source })
 		if err != nil {
 			f.t.Fatal(err)
 		}
+	case "login_fail":
+		if m.admission != nil {
+			m.admission.Release()
+			m.admission = nil
+		}
+	case "login_spawn":
+		if m.admission == nil {
+			return
+		}
+		data, w := m.admission.Resolve()
+		id := f.actor.UUID()
 		f.actor = world.EntitySpawnOpts{ID: id}.New(player.Type, data)
 		m.part = newLifecyclePart(f.t, f, m.part.server)
 		m.live = true
-		// A reconnect establishes a new transport session; an old reservation is retired.
 		m.channels.prepared.Abort()
 		m.channels = &lifecycleChannels{Server: m.part.server}
 		f.h.channels = m.channels
@@ -159,6 +177,8 @@ func (m *lifecycleMatrix) step(name string) {
 			p.Handle(nativePositionHandler{host: f.h})
 			f.h.PlayerJoined(p)
 		})
+		m.admission.Release()
+		m.admission = nil
 		m.fenced = false
 	case "duplicate_login":
 		if !m.live || f.h.epoch(f.actor) == 0 {
@@ -295,6 +315,10 @@ func (m *lifecycleMatrix) drain() {
 		f.t.Fatal(err)
 	}
 	m.shutdown = true
+	if m.admission != nil {
+		m.admission.Release()
+		m.admission = nil
+	}
 	m.channels.prepared.Abort()
 	reopened := openTestStore(f.t, f.h.store.dir)
 	state := reopened.readStates("probe", []stateAddress{{Scope: StorePlayer, Owner: f.actor.UUID().String()}})[0]
@@ -327,7 +351,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "duplicate_login", "cancel_run", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "duplicate_login", "login_load", "login_spawn", "login_fail", "cancel_run", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {
@@ -348,5 +372,49 @@ func TestLifecycleEventPairs(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+// TestLifecycleAdmissionScenarios covers pending placements beyond individual event pairs.
+func TestLifecycleAdmissionScenarios(t *testing.T) {
+	t.Run("two_transfers_into_same_instance_before_acknowledgment", func(t *testing.T) {
+		m := newLifecycleMatrix(t)
+		m.step("handshake")
+		m.step("same_instance")
+		epoch := m.part.acknowledgeWorld()
+		m.part.inputAt(epoch)
+		if m.part.admitted != 0 {
+			t.Fatal("first placement acknowledgment authorized the second transfer")
+		}
+		latest := m.part.acknowledgeWorld()
+		if latest <= epoch {
+			t.Fatal("second transfer did not get a fresh acknowledgment")
+		}
+		m.part.inputAt(latest)
+		if m.part.admitted != 1 {
+			t.Fatal("latest acknowledgment did not admit destination input")
+		}
+		m.drain()
+	})
+	for _, completion := range []string{"login_spawn", "login_fail"} {
+		t.Run("unload_during_pending_login/"+completion, func(t *testing.T) {
+			m := newLifecycleMatrix(t)
+			m.step("same_instance")
+			m.step("login_load")
+			handle, _ := m.f.h.worlds.handle("probe:one")
+			m.step("unload")
+			if _, err := m.f.h.ResolveWorld(handle); err != nil {
+				t.Fatalf("pending login destination unloaded: %v", err)
+			}
+			m.step(completion)
+			m.check()
+			if completion == "login_spawn" {
+				m.step("disconnect")
+			}
+			if err := m.f.h.unloadWorld(t.Context(), "probe", handle); err != nil {
+				t.Fatalf("completed login retained its reservation: %v", err)
+			}
+			m.drain()
+		})
 	}
 }

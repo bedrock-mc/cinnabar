@@ -17,6 +17,7 @@ import (
 // playerState tracks one session; a departure fences work even when it returns to the same world.
 type playerState struct {
 	connection    cinnabarext.PlayerSession
+	reservation   *worldReservation
 	location      PlayerLocation
 	w             *world.World
 	transferring  bool
@@ -96,6 +97,7 @@ func (h *Host) PlayerDisconnected(p *player.Player) {
 		h.observeLocked(p, instance, PlayerEvent{Type: "leave", Location: &loc})
 	}
 	delete(h.players.items, p.H())
+	state.reservation.Release()
 }
 
 // PlayerSession identifies the transport admitted with this handle, without resolving a newer login by UUID.

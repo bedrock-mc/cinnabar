@@ -855,8 +855,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Acknowledged epochs advance before transport handoff, allowing the next notice
   during a pending flush. Only the outstanding notice's acknowledgment bypasses
   server data credits; replayed acknowledgments consume the normal budget. The
-  server coalesces rapid transfers to the latest desired world, sending its next
-  notice only after the outstanding acknowledgment arrives and keeping messages
+  server coalesces rapid transfers to the latest admission revision, including repeated
+  placements in the same instance, sending its next notice only after the outstanding
+  acknowledgment arrives and keeping messages
   fenced throughout. Write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting, generated application
   Go message bindings and live multi-client transfer qualification remain incomplete.
@@ -872,8 +873,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   synchronize position. Client-part activation shares that session's preparation and acknowledgment
   fence, which is retired on disconnect. Pending logins stay separate from admitted sessions,
   so rejected duplicates preserve the connected player’s transport. Player saves resolve stable
-  instance identities with a default-spawn fallback. Shutdown drains leave callbacks before
-  store flush and world closure, including after worker cancellation; leave writes need no live world.
+  instance identities with a default-spawn fallback. Pending logins reserve their destinations
+  through the handshake and revalidate before spawn; completion or failure releases only that
+  login’s reservation. Unload also respects connected players and prepared transfers.
+  Shutdown drains leave callbacks before store flush and world closure, including after worker cancellation; leave writes need no live world.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and

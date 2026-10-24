@@ -59,13 +59,20 @@ func (h *Host) changeWorld(handle *world.EntityHandle, mode cinnabarext.WorldCha
 			publication = ErrStaleWorld
 			return
 		}
+		reservation, _, reserveErr := h.worlds.reserve(instance.handle)
+		if reserveErr != nil {
+			publication = reserveErr
+			return
+		}
 		// Dragonfly synchronizes changed world pointers; same-world admission needs an explicit teleport.
 		if mode == cinnabarext.CoordinatedChange && before.World == instance.handle || mode == cinnabarext.InitialPlacement {
 			h.syncPlayerPosition(p, state, positionOf(p.Position()))
 		}
 		after := PlayerLocation{World: instance.handle, Epoch: before.Epoch + 1, Position: positionOf(p.Position())}
 		h.players.mu.Lock()
-		state.location, state.w, state.publishing = after, p.Tx().World(), true
+		previous := state.reservation
+		state.location, state.w, state.publishing, state.reservation = after, p.Tx().World(), true, reservation
+		previous.Release()
 		observation := PlayerEvent{Type: "world_change", Before: &before, After: &after}
 		if mode == cinnabarext.InitialPlacement {
 			observation = PlayerEvent{Type: "join", Location: &after}

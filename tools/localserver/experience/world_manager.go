@@ -169,7 +169,7 @@ func (h *Host) createWorld(ctx context.Context, owner string, instance WorldInst
 	return handle, nil
 }
 
-// unloadWorld refuses occupied instances and invalidates handles before closing the provider.
+// unloadWorld refuses occupied or reserved instances and invalidates handles before closing the provider.
 func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle) error {
 	if !ownedWorldName(string(handle.ID), owner) {
 		return errors.New("world authority denied")
@@ -184,6 +184,7 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 			result = errors.New("world has players")
 			return
 		}
+		result = h.worlds.unload(handle)
 	})); err != nil {
 		return err
 	}

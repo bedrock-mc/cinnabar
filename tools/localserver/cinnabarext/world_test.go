@@ -187,6 +187,7 @@ func TestWorldChangesCoalesceUntilTheOutstandingNoticeIsAcknowledged(t *testing.
 		name   string
 		worlds []WorldID
 	}{
+		{"one transfer", []WorldID{"sample:first"}},
 		{"two transfers", []WorldID{"sample:first", "sample:second"}},
 		{"three transfers", []WorldID{"sample:first", "sample:second", "sample:third"}},
 		{"return to first", []WorldID{"sample:first", "sample:second", "sample:first"}},
