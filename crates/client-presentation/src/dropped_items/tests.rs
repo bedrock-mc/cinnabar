@@ -450,7 +450,7 @@ fn dropped_bars_and_candles_use_sprites_and_keep_family_guards_current() {
             .iter()
             .filter(|record| {
                 let member = if candles {
-                    record.traits.contains(assets::BlockTraits::CANDLE)
+                    record.traits.contains(assets::registry::BlockTraits::CANDLE)
                 } else {
                     record.model_family == assets::ModelFamily::Pane
                         && assets::facts::block_render_fact(&record.name).flat_icon
