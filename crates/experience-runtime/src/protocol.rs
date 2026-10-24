@@ -44,7 +44,8 @@ pub use visuals::{
 /// 2 added the `client_message` call and the `send_client` op; 3 the `epoch` call and list and
 /// record values; 4 the `focus` of those calls and of `loaded`; 5 server WIT 0.5's block states
 /// and visuals, items, the actor's inventory, the network scope and their ops; 6 server WIT 0.6's
-/// recipes in `load`, the `scheduled_update` call and the `schedule_update` op.
+/// recipes in `load`, the `scheduled_update` call and the `schedule_update` op; 7 worlds,
+/// players and scoped state; 8 instance simulation and scheduled callbacks.
 pub const PROTOCOL_VERSION: u32 = 8;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);

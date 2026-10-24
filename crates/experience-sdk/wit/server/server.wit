@@ -131,11 +131,11 @@ interface types {
     /// Schema revisions are part of a key; changing a type requires an explicit migration.
     record store-key { scope: store-scope, schema: u32 }
 
-    /// An item by Bedrock id and metadata.
     /// A cancellable callback scoped to one instance opening and installing mod.
     record schedule-handle { %world: world-handle, sequence: u64, slot: u32 }
     record simulation-step { tick: u64, duration-nanos: u64 }
 
+    /// An item by Bedrock id and metadata.
     record item-key { id: string, metadata: u16 }
     /// What a crafting recipe makes.
     record crafted { id: string, metadata: u16, count: u8 }

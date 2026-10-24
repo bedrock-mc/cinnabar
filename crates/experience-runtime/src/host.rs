@@ -59,7 +59,7 @@ pub(crate) enum Api {
     V0_5,
     /// Crafting recipes and scheduled updates.
     V0_6,
-    /// The current world, with world and player operations.
+    /// World and player operations.
     V0_7,
     /// Simulation ticks and cancellable callbacks.
     V0_8,
