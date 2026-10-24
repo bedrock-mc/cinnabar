@@ -525,7 +525,15 @@ impl LocalPhysicsController {
         self.controller_history = controller_frames;
         // Without replayed ticks, no producer superseded the live size or its owner.
         if !keep_live_flags {
-            sync_state.replay_server(&self.sync_pending);
+            // Copy-back supersedes unstamped poses. Stamped corrections still belong
+            // to their queued frame, but neither may overwrite the replayed size now.
+            self.sync_pending
+                .retain(|write| !matches!(write, posture::ServerWrite::LivePose(_)));
+            sync_state.replay_server(
+                self.sync_pending
+                    .iter()
+                    .filter(|write| !matches!(write, posture::ServerWrite::PoseCorrection(_))),
+            );
             self.sync_state = sync_state;
         }
         let (corrected_world_identity, corrected_sample) = {

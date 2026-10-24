@@ -24,6 +24,8 @@ pub(super) enum ServerWrite {
         client_world::ExplicitDimensions,
     ),
     Flags(client_world::MovementFlagUpdate),
+    /// An unstamped pose write that replay copy-back can supersede before its tick.
+    LivePose(server_flags::FlagCorrection),
     PoseCorrection(server_flags::FlagCorrection),
     Controls(client_world::MovementFlagUpdate),
     Dimensions(client_world::ExplicitDimensions),
@@ -38,6 +40,7 @@ pub(super) fn replay_actor_modes(writes: &[ServerWrite], modes: &mut ModeTracker
             }
             ServerWrite::Replacement(..)
             | ServerWrite::Flags(_)
+            | ServerWrite::LivePose(_)
             | ServerWrite::PoseCorrection(_)
             | ServerWrite::Dimensions(_) => {}
         }
@@ -132,14 +135,14 @@ impl SyncState {
     }
 
     /// Replays accepted flag and dimension writes in their original order.
-    pub(super) fn replay_server(&mut self, writes: &[ServerWrite]) {
+    pub(super) fn replay_server<'a>(&mut self, writes: impl IntoIterator<Item = &'a ServerWrite>) {
         for write in writes {
             match *write {
                 ServerWrite::Replacement(flags, dimensions) => {
                     self.replace_actor(flags, dimensions)
                 }
                 ServerWrite::Flags(flags) => self.apply_flags(flags),
-                ServerWrite::PoseCorrection(correction) => {
+                ServerWrite::LivePose(correction) | ServerWrite::PoseCorrection(correction) => {
                     self.flags.merge(correction.flags());
                     self.resize();
                 }
@@ -394,6 +397,80 @@ mod tests {
             stopped_glide(true).sync_state,
             stopped_glide(false).sync_state
         );
+    }
+
+    #[test]
+    fn pending_pose_sizes_follow_replay_copy_back_and_newer_dimensions() {
+        for stamped in [false, true] {
+            for spinning in [false, true] {
+                let mut physics = stopped_glide(false);
+                let anchor = physics.sample_at(101).unwrap().clone();
+                physics.apply_server_movement_flags(
+                    if stamped {
+                        physics.state().unwrap().tick
+                    } else {
+                        0
+                    },
+                    client_world::MovementFlagUpdate {
+                        gliding: (!spinning).then_some(true),
+                        spinning: spinning.then_some(true),
+                        ..Default::default()
+                    },
+                );
+                let mut dimensions = client_world::ExplicitDimensions::for_spawn(1);
+                dimensions.record(
+                    &protocol::ActorMetadata {
+                        key: protocol_ids::ActorDataKey::Width.wire_value(),
+                        value: protocol::ActorMetadataValue::Float(0.8),
+                    },
+                    2,
+                );
+                physics.note_server_dimensions(dimensions);
+                physics
+                    .apply_correction(
+                        crate::movement::PhysicsAnchor {
+                            network_position: anchor.position,
+                            tick: anchor.tick,
+                            on_ground: false,
+                            velocity: Some(anchor.velocity),
+                        },
+                        crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                        None,
+                        &OpenWorld,
+                    )
+                    .unwrap();
+                assert_eq!(physics.prediction_sync_flags().gliding, Some(false));
+                assert_eq!(physics.prediction_sync_flags().spinning, Some(false));
+                assert_eq!(
+                    physics.prediction_sync_size(),
+                    Some([0.8, sim::PLAYER_HEIGHT as f32])
+                );
+                assert!(physics.prediction_sync_explicit_size());
+                if !stamped {
+                    let anchor = physics.sample_at(102).unwrap().clone();
+                    physics.advance(
+                        simulation_clock::TICK_DURATION,
+                        MovementInput::default(),
+                        &OpenWorld,
+                    );
+                    let live = physics.sync_state;
+                    physics
+                        .apply_correction(
+                            crate::movement::PhysicsAnchor {
+                                network_position: anchor.position,
+                                tick: anchor.tick,
+                                on_ground: false,
+                                velocity: Some(anchor.velocity),
+                            },
+                            crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                            None,
+                            &OpenWorld,
+                        )
+                        .unwrap();
+                    assert_eq!(physics.sync_state, live);
+                }
+            }
+        }
     }
 
     #[test]

@@ -198,6 +198,10 @@ fn sync_pose_writes_keep_their_order_through_replay() {
             for flag in [ActorFlag::Gliding, ActorFlag::Swimming, ActorFlag::Crawling] {
                 assert!(!flag_set(&words, flag));
             }
+            assert_eq!(
+                protocol::test_support::packets::prediction_sync_bounding_box(&packet),
+                Some([1.0, sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+            );
             false
         });
     }

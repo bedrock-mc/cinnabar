@@ -371,11 +371,12 @@ impl LocalPhysicsController {
             return;
         }
         self.correct_live(correction);
-        let sync_write = posture::ServerWrite::PoseCorrection(correction);
         if tick == 0 {
-            self.sync_pending.push(sync_write);
+            self.sync_pending
+                .push(posture::ServerWrite::LivePose(correction));
             return;
         }
+        let sync_write = posture::ServerWrite::PoseCorrection(correction);
         let Some(current) = self.state.as_ref().map(|state| state.tick) else {
             return;
         };
