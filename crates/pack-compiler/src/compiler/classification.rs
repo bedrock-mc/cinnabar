@@ -19,10 +19,7 @@ pub(in crate::compiler) fn is_chain(record: &RegistryRecord) -> bool {
 pub(in crate::compiler) fn is_translucent_cube(record: &RegistryRecord) -> bool {
     matches!(record.contributor_role, ContributorRole::Primary)
         && !record.flags.contains(BlockFlags::AIR)
-        && matches!(
-            block_render_fact(&record.name).kind,
-            R::Ice | R::FrostedIce | R::Slime | R::Honey | R::TintedGlass | R::PowderSnow
-        )
+        && block_render_fact(&record.name).kind.is_translucent_cube()
 }
 
 /// Powder snow's art is fully opaque, so it stays on the opaque model path.

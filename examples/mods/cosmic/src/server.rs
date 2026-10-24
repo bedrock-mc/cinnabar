@@ -1,8 +1,6 @@
 use experience_sdk::{
-    Value,
     entry::server,
-    message::Message,
-    server::{Callback, Experience, GuestError, PlayerId, nodes},
+    server::{Callback, Experience, GuestError, PlayerId},
 };
 
 use crate::shared::{Ping, Pong};
@@ -11,28 +9,14 @@ struct Server;
 
 #[server]
 impl Experience for Server {
-    fn client_message(
-        ctx: &Callback,
-        player: PlayerId,
-        channel: String,
-        schema: u16,
-        payload: Vec<Value>,
-    ) -> Result<(), GuestError> {
-        if channel != Ping::CHANNEL.id || schema != Ping::CHANNEL.schema {
-            return Err(GuestError::Rejected("unknown message".into()));
-        }
-        let ping = Ping::decode(payload).map_err(GuestError::Rejected)?;
-        let reply = Pong {
-            request: ping.request,
-        }
-        .encode()
-        .map_err(GuestError::Rejected)?;
-        ctx.send_control(
+    /// Replies through the delivery path declared by Pong.
+    #[on_message]
+    fn ping(ctx: &Callback, player: PlayerId, ping: Ping) -> Result<(), GuestError> {
+        ctx.send(
             &player,
-            Pong::CHANNEL.id,
-            Pong::CHANNEL.schema,
-            &nodes(reply),
+            &Pong {
+                request: ping.request,
+            },
         )
-        .map_err(|error| GuestError::Failed(format!("send moon pong: {error:?}")))
     }
 }

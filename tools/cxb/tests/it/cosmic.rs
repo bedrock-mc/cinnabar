@@ -2,7 +2,7 @@ use std::{fs, path::Path, process::Command};
 
 use experience_runtime::{
     callback, load,
-    protocol::{Call, Info, Op, Outcome, Request},
+    protocol::{Call, Info, Op, Outcome, Request, Scalar},
 };
 use mod_host::{helper::Event, server::BundleHost};
 use server_experience::{
@@ -13,7 +13,6 @@ use server_experience::{
         MAX_MESSAGE_BYTES,
     },
     runtime::{Capabilities, Command as ClientCommand, Principal},
-    wire::Scalar,
 };
 
 #[test]
@@ -101,6 +100,36 @@ fn cosmic_runtime_child() {
         fs::read(package.join("server/assets/moon.png")).unwrap()
     );
 
+    let player = "00000000-0000-0000-0000-000000000001";
+    for (channel, schema, payload) in [
+        ("cosmic.unknown", 1, vec![Scalar::Integer(1)]),
+        ("cosmic.ping", 2, vec![Scalar::Integer(1)]),
+        ("cosmic.ping", 1, vec![]),
+        ("cosmic.ping", 1, vec![Scalar::Bool(true)]),
+        ("cosmic.ping", 1, vec![Scalar::Integer(-1)]),
+        (
+            "cosmic.ping",
+            1,
+            vec![Scalar::Integer(1), Scalar::Integer(2)],
+        ),
+        (
+            "cosmic.registry_request",
+            2,
+            vec![Scalar::Text("stale".into())],
+        ),
+        ("cosmic.registry_request", 1, vec![]),
+    ] {
+        let outcome = callback::run(
+            &engine,
+            &server,
+            &message_request(player, channel, schema, payload),
+        );
+        assert!(
+            matches!(outcome, Outcome::Rejected { .. }),
+            "{channel}/{schema}: {outcome:?}"
+        );
+    }
+
     let mut transaction = client.take_transaction();
     // Feed the generated registry request, then the authored ping, through the real server guest.
     for expected in ["cosmic.registry_request", "cosmic.ping"] {
@@ -116,31 +145,13 @@ fn cosmic_runtime_child() {
         };
         assert_eq!(channel, expected);
         let player = "00000000-0000-0000-0000-000000000001".to_owned();
-        let request = Request::Callback {
-            seq: 1,
-            info: Info {
-                context: None,
-                simulation: None,
-                world_id: "cosmic-test".into(),
-                dimension_id: "overworld".into(),
-                tick: 1,
-                event_sequence: 1,
-            },
-            actor: Some(player.clone()),
-            world_min_y: -64,
-            world_max_y: 319,
-            data_budget: 0,
-            snapshot: Vec::new(),
-            network: None,
-            inventory: None,
-            call: Call::ClientMessage {
-                player: player.clone(),
-                channel: channel.clone(),
-                schema: *schema,
-                payload: serde_json::from_value(serde_json::to_value(record).unwrap()).unwrap(),
-                focus: None,
-            },
-        };
+        let request = message_request(
+            &player,
+            channel,
+            *schema,
+            serde_json::from_value(serde_json::to_value(record).unwrap()).unwrap(),
+        );
+
         let outcome = callback::run(&engine, &server, &request);
         let Outcome::Committed { ops } = outcome else {
             panic!("server callback: {outcome:?}");
@@ -151,12 +162,16 @@ fn cosmic_runtime_child() {
                 channel,
                 schema,
                 payload,
-                ..
+                control,
             },
         ] = ops.as_slice()
         else {
             panic!("expected one reply: {ops:?}");
         };
+        assert!(
+            *control,
+            "registry confirmation and Pong use retained delivery"
+        );
         assert_eq!(recipient, &player);
         assert_eq!(*schema, 1);
         if expected == "cosmic.ping" {
@@ -180,4 +195,33 @@ fn cosmic_runtime_child() {
     assert!(
         matches!(transaction.commands.as_slice(), [ClientCommand::Widget { id, text }] if id == "cosmic.moon" && text == "☾ Cosmic reply 1")
     );
+}
+
+/// Builds an actor-scoped message request for the real server guest.
+fn message_request(player: &str, channel: &str, schema: u16, payload: Vec<Scalar>) -> Request {
+    Request::Callback {
+        seq: 1,
+        info: Info {
+            context: None,
+            simulation: None,
+            world_id: "cosmic-test".into(),
+            dimension_id: "overworld".into(),
+            tick: 1,
+            event_sequence: 1,
+        },
+        actor: Some(player.to_owned()),
+        world_min_y: -64,
+        world_max_y: 319,
+        data_budget: 0,
+        snapshot: Vec::new(),
+        network: None,
+        inventory: None,
+        call: Call::ClientMessage {
+            player: player.to_owned(),
+            channel: channel.to_owned(),
+            schema,
+            payload,
+            focus: None,
+        },
+    }
 }

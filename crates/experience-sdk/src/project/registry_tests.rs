@@ -22,6 +22,13 @@ impl ClientPart for RetriedClient {
     }
 }
 
+impl client::__private::Dispatch for RetriedClient {
+    /// This fixture receives only registry confirmations.
+    fn dispatch(_: String, _: Vec<Value>) -> Result<(), String> {
+        Err("unknown message".into())
+    }
+}
+
 #[test]
 fn refused_go_confirmation_retries_and_resumes_client_callbacks() {
     let project = Project::parse("#![project(id = \"retry\", permissions(messaging))]").unwrap();
@@ -80,13 +87,19 @@ fn refused_go_confirmation_retries_and_resumes_client_callbacks() {
     client::initialize_with::<RetriedClient>(|_| Ok(()));
     assert!(!client::active::<RetriedClient>());
     assert_eq!(INITIALIZED.get(), 0);
-    client::dispatch::<RetriedClient>(REGISTRY.get().unwrap().channel.id.into(), record.clone());
+    client::__private::receive::<RetriedClient>(
+        REGISTRY.get().unwrap().channel.id.into(),
+        serde_json::to_vec(&record).unwrap(),
+    );
     assert!(
         client::active::<RetriedClient>(),
         "the retried confirmation must resume authored callbacks"
     );
     assert_eq!(INITIALIZED.get(), 1);
-    client::dispatch::<RetriedClient>(REGISTRY.get().unwrap().channel.id.into(), record);
+    client::__private::receive::<RetriedClient>(
+        REGISTRY.get().unwrap().channel.id.into(),
+        serde_json::to_vec(&record).unwrap(),
+    );
     assert_eq!(
         INITIALIZED.get(),
         1,

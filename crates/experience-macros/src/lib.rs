@@ -3,6 +3,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
 
+mod handlers;
+
 /// Exports an implementation of `experience_sdk::server::Experience`.
 #[proc_macro_attribute]
 pub fn server(options: TokenStream, input: TokenStream) -> TokenStream {
@@ -77,11 +79,18 @@ fn entry(options: TokenStream, input: TokenStream, server: bool) -> TokenStream 
             .to_compile_error()
             .into();
     }
+    let dispatch = match handlers::generate(&mut item, server) {
+        Ok(dispatch) => dispatch,
+        Err(error) => return error.to_compile_error().into(),
+    };
+    let syn::Type::Path(ty) = item.self_ty.as_ref() else {
+        unreachable!()
+    };
     let name = &ty.path.segments[0].ident;
     let export = if server {
         quote!(::experience_sdk::export_experience!(#name);)
     } else {
         quote!(::experience_sdk::export_client_part!(#name);)
     };
-    quote!(#item #export).into()
+    quote!(#item #dispatch #export).into()
 }

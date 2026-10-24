@@ -1,8 +1,7 @@
 use experience_sdk::{
-    Value,
     client::{self, ClientPart, ui},
     entry::client,
-    message::{Message, Registry},
+    message::Registry,
 };
 
 use crate::shared::{Ping, Pong};
@@ -16,14 +15,13 @@ impl ClientPart for Client {
     }
 
     fn init() {
-        client::send_message(&Ping { request: 1 }).expect("send moon ping");
+        client::send(&Ping { request: 1 }).expect("send moon ping");
     }
 
-    fn dispatch(channel: String, record: Vec<Value>) {
-        if channel == Pong::CHANNEL.id {
-            let pong = Pong::decode(record).expect("decode moon pong");
-            ui::set_widget("cosmic.moon", &format!("☾ Cosmic reply {}", pong.request))
-                .expect("draw moon label");
-        }
+    /// Draws the server's typed reply.
+    #[on_message]
+    fn pong(pong: Pong) {
+        ui::set_widget("cosmic.moon", &format!("☾ Cosmic reply {}", pong.request))
+            .expect("draw moon label");
     }
 }

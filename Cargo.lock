@@ -3964,6 +3964,7 @@ dependencies = [
 name = "experience-macros"
 version = "0.1.28"
 dependencies = [
+ "proc-macro2",
  "quote",
  "syn 2.0.118",
 ]
@@ -3998,6 +3999,7 @@ version = "0.1.28"
 dependencies = [
  "anyhow",
  "experience-macros",
+ "proc-macro2",
  "quote",
  "serde",
  "serde_json",
@@ -4006,6 +4008,8 @@ dependencies = [
  "tempfile",
  "toml 0.9.12+spec-1.1.0",
  "wit-bindgen",
+ "wit-bindgen-core",
+ "wit-bindgen-rust",
 ]
 
 [[package]]
