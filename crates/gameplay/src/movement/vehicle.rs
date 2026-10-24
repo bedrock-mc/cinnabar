@@ -243,7 +243,7 @@ impl VehiclePrediction {
             ]
         };
         let alpha = alpha.clamp(0.0, 1.0);
-        let render = std::array::from_fn(|axis| {
+        let shown = std::array::from_fn(|axis| {
             let from = session.previous_position[axis];
             from + (session.state.position[axis] - from) * alpha
         });
@@ -256,7 +256,7 @@ impl VehiclePrediction {
             position: feet(session.state.position),
             yaw: session.state.yaw,
             velocity: session.state.velocity,
-            render_position: feet(render),
+            render_position: feet(shown),
             render_yaw: self.render_yaw(alpha)?,
         })
     }
