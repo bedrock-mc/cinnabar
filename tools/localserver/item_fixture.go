@@ -30,7 +30,7 @@ func (f itemFixture) Run(src cmd.Source, out *cmd.Output, _ *world.Tx) {
 	}
 	items := fixtureItems(world.Items(), f.Filter)
 	if len(items) == 0 {
-		out.Errorf("no registered items match %q", f.Filter)
+		out.Errorf("no items match %q", f.Filter)
 		return
 	}
 	index %= len(items)
@@ -56,8 +56,32 @@ func fixtureOffhandAllowed(stack item.Stack, _ int) bool {
 	return ok && allowed.OffHand()
 }
 
-// fixtureItems filters registered identities and sorts by name and metadata for repeatable captures.
+// fixtureItem supplies a renderable identity without adding a gameplay implementation.
+type fixtureItem struct {
+	name     string
+	maxCount int
+}
+
+// EncodeItem returns the advertised vanilla identity with its default metadata.
+func (i fixtureItem) EncodeItem() (string, int16) { return i.name, 0 }
+
+// MaxCount keeps fixture stacks within the runtime dictionary's stack limit.
+func (i fixtureItem) MaxCount() int { return i.maxCount }
+
+// fixtureItems combines registered variants with advertised identities in stable name and metadata order.
 func fixtureItems(registered []world.Item, filter string) []world.Item {
+	implemented := make(map[string]bool, len(registered))
+	for _, entry := range registered {
+		name, metadata := entry.EncodeItem()
+		if metadata == 0 {
+			implemented[name] = true
+		}
+	}
+	for name, entry := range world.VanillaItemEntries() {
+		if !implemented[name] {
+			registered = append(registered, fixtureItem{name: name, maxCount: entry.MaxStackSize})
+		}
+	}
 	filter = strings.ToLower(filter)
 	var selected []world.Item
 	for _, entry := range registered {
