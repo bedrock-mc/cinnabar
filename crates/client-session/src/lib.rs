@@ -9,6 +9,8 @@ pub mod markers;
 mod session;
 
 #[cfg(any(test, feature = "test-support"))]
+pub use session::experience::ExperienceIngress;
+#[cfg(any(test, feature = "test-support"))]
 pub use session::handle_state::CapturedPackets;
 pub use session::{
     BatchSendError, CONTROL_EVENT_CAPACITY, NetworkControlEvent, NetworkExecutor,

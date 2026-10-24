@@ -557,7 +557,9 @@ fn an_ended_glide_restarts_the_cancel_window() {
     for _ in 0..12 {
         pick(&mut tracker, intent, airborne());
     }
-    tracker.end(MovementMode::Gliding);
+    let mut poses = tracker.pose_flags();
+    poses.gliding = false;
+    tracker.adopt_pose_flags(poses);
     assert_eq!(
         pick(&mut tracker, intent, pressed(airborne())),
         MovementMode::Gliding

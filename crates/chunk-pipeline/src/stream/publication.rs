@@ -253,7 +253,7 @@ impl WorldStream {
             .update_local_player_skin(profile.skin.clone())
     }
     /// Arm swings the server sent for the local player since the last call.
-    pub fn take_local_server_swings(&mut self) -> u8 {
+    pub fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         self.authority.take_local_server_swings()
     }
     /// Starts the local arm swing lasting `ticks`, the duration its packet guard used.

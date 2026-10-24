@@ -201,7 +201,7 @@ fn generic_frame() -> render_scene::ActorRenderFrame {
             session_id: 1,
             dimension: 0,
             runtime_id: 2,
-            spawn_revision: 3,
+            spawn_revision: std::num::NonZeroU64::new(3).unwrap(),
             ingress_sequence: 4,
             source_tick: None,
             movement_revision: 0,
@@ -594,6 +594,56 @@ fn pipeline_descriptor_specializes_and_noop_backend_accepts_the_binding_layout()
 }
 
 #[test]
+fn compact_actor_layout_preserves_both_endpoints_with_four_storage_buffers() {
+    use bevy::prelude::{FromWorld, World};
+    let Some(gpu) = crate::gpu_snapshot::Gpu::for_fixture_with_limits(
+        "compact actor endpoints",
+        wgpu::Features::empty(),
+        wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        },
+    ) else {
+        return;
+    };
+    let device = RenderDevice::from(gpu.device);
+    let mut world = World::new();
+    world.insert_resource(device.clone());
+    let pipeline = super::pipeline::ActorPipeline::from_world(&mut world);
+    assert!(pipeline.compact);
+    assert!(!pipeline.motion_supported);
+    assert_eq!(
+        crate::device_settings::vertex_storage_buffers(&pipeline.bind_group_layout),
+        4
+    );
+    let (previous, current, offset) = super::bones::gpu_buffers(&device).unwrap();
+    assert_eq!(previous.id(), current.id());
+    assert_eq!(
+        offset as usize,
+        render_model::actor::MAX_ACTOR_POSE_BONES * render_model::actor::ACTOR_BONE_MATRIX_BYTES
+    );
+    assert!(offset * 2 <= previous.size());
+    let shader = crate::shader_safety::from_actor_wesl(
+        ACTOR_SHADER_SOURCE,
+        "actor.wesl",
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
+    );
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        panic!("actor source is WESL");
+    };
+    crate::shader_test_support::assert_binding_visibility(
+        &shader_source::standalone(&source, &["COMPACT_BONES"]),
+        0,
+        &pipeline.bind_group_layout,
+    );
+    device.create_bind_group_layout(
+        "compact actor layout validation",
+        &pipeline.bind_group_layout.entries,
+    );
+}
+
+#[test]
 fn rig_vertex_shader_stride_includes_both_uvs_without_changing_player_alpha() {
     assert_eq!(
         std::mem::size_of::<render_model::ActorRigVertex>(),
@@ -661,7 +711,7 @@ fn diagnostic_body(runtime_id: u64, texture_layer: u32) -> render_model::ActorRi
                 session_id: 1,
                 dimension: 0,
                 runtime_id,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: Some(1),
                 movement_revision: 1,

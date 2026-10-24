@@ -12,9 +12,13 @@ impl PhysicsSampleContext {
 }
 
 /// Input edges and controller state retained alongside one completed simulation tick.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
+    pub sync_state: posture::SyncState,
+    pub sync_server: Vec<posture::ServerWrite>,
+    /// Feet position before travel, retained independently of live position updates.
+    pub position_before_tick: Vec3,
     /// Recovery state after this tick, including freezes that defer the first probe.
     pub anchor_state: AnchorProbeState,
     /// Velocity before this tick applies liquid travel and drag.
@@ -59,7 +63,7 @@ impl ControllerFrame {
         eye.tick(
             self.input.mode,
             self.input.sneaking,
-            state.spin_attack_ticks.is_some(),
+            state.spin_attack_ticks.is_some() || self.input.horizontal_pose,
         );
         self.eye_offset = *eye;
     }
@@ -74,6 +78,7 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
             anchor_state.note_hard_anchor();
@@ -149,6 +154,8 @@ impl ControllerFrame {
         input.mode = self.mode_override.unwrap_or(choice.mode);
         input.sprinting = self.sprint_override.unwrap_or(choice.sprinting);
         modes.restore_mode(input.mode);
+        input.horizontal_pose = modes.pose_flags().horizontal();
+        input.swim_pose_active = Some(modes.pose_flags().swim_pose());
         self.forced_sneak = choice.forced_sneak;
         self.flight_request = choice.flight_request;
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
@@ -186,6 +193,7 @@ impl ControllerFrame {
             state.velocity.y as f32,
             state.velocity.z as f32,
         ];
+        self.position_before_tick = state.position;
         self.modes = *modes;
         self.anchor_state = *anchor_state;
         self.input = *input;

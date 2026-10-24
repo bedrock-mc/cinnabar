@@ -100,14 +100,14 @@ fn dismount_requests_do_not_cross_mount_session_or_focus_boundaries() {
     }
 }
 
-/// Boat input uses jump to exit; other vehicle contexts keep jump available to the mount.
+/// Boat input exits on jump or sneak; other vehicle contexts keep jump available to the mount.
 #[test]
 fn dismount_input_follows_the_vehicle_context_without_repeating_held_buttons() {
-    for (kind, jump_exits) in [
-        (super::RideKind::Boat, true),
-        (super::RideKind::Horse, false),
-        (super::RideKind::Minecart, false),
-        (super::RideKind::Other, false),
+    for (kind, jump_exits, sneak_exits) in [
+        (super::RideKind::Boat, true, true),
+        (super::RideKind::Horse, false, true),
+        (super::RideKind::Minecart, false, true),
+        (super::RideKind::Other, false, true),
     ] {
         for jump_pressed in [false, true] {
             let (mut physics, mut ticker) = walked_physics(0);
@@ -136,7 +136,8 @@ fn dismount_input_follows_the_vehicle_context_without_repeating_held_buttons() {
                     Ok(())
                 });
             }
-            assert_eq!(sent, usize::from(jump_exits == jump_pressed), "{kind:?}");
+            let exits = if jump_pressed { jump_exits } else { sneak_exits };
+            assert_eq!(sent, usize::from(exits), "{kind:?} jump {jump_pressed}");
         }
     }
 }

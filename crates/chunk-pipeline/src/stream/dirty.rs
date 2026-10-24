@@ -338,17 +338,42 @@ impl WorldStream {
         let revision = self.revisions.mark_dirty(key, now);
         let since = self.revisions.dirty(key).map_or(now, |dirty| dirty.since);
         let startup = self.is_startup_dependency(key);
-        self.mesh_jobs.enqueue_prioritized(
-            key,
-            PendingMesh {
-                revision,
-                since,
-                queued_at: now,
-                urgent,
-            },
-            startup,
-        );
+        let pending = PendingMesh {
+            revision,
+            since,
+            queued_at: now,
+            urgent,
+        };
+        self.enqueue_mesh_revision(key, pending, startup);
         revision
+    }
+    /// Routes geometry to the worker scheduler and air directly to bounded removal service.
+    pub(super) fn enqueue_mesh_revision(
+        &mut self,
+        key: SubChunkKey,
+        pending: PendingMesh,
+        startup: bool,
+    ) {
+        if self.mesh_requires_geometry(key) {
+            self.air_removals.remove(&key);
+            self.mesh_jobs.enqueue_prioritized(key, pending, startup);
+        } else {
+            // Air retires a queued geometry return, even when its revision is coalesced.
+            self.air_requeued.remove(&key);
+            self.mesh_jobs.enqueue_unrouted(key, pending);
+            self.air_removals.insert(key, pending.revision);
+            if pending.urgent || startup {
+                let candidate = PendingSchedulerCandidate::new(
+                    key,
+                    pending.revision,
+                    self.scheduler_view(self.last_camera_position),
+                    pending.urgent,
+                );
+                self.mesh_jobs.lanes[MESH_REMOVAL_LANE]
+                    .ready
+                    .push(candidate);
+            }
+        }
     }
     #[cfg(test)]
     pub(super) fn mark_light_mesh_dependents(&mut self, source: SubChunkKey, now: Instant) {
@@ -387,15 +412,15 @@ impl WorldStream {
         if let Some(pending) = self.mesh_jobs.pending.get_mut(&key) {
             // No new scan record follows, so a deferred nearby record is offered directly.
             self.mesh_jobs.refresh.wake_near(key);
-            if urgent && !pending.urgent {
-                pending.urgent = true;
-                self.mesh_jobs.scan.push_front((key, pending.revision));
-            }
-            let revision = pending.revision;
+            let promoted = urgent && !pending.urgent;
+            pending.urgent |= urgent;
+            let pending = *pending;
             // A coalesced change that leaves only air queues its removal now, so no state of the
             // geometry lane can hold the old mesh on screen.
             if !self.mesh_requires_geometry(key) {
-                self.air_removals.insert(key, revision);
+                self.enqueue_mesh_revision(key, pending, self.is_startup_dependency(key));
+            } else if promoted {
+                self.mesh_jobs.scan.push_front((key, pending.revision));
             }
             return;
         }
@@ -425,7 +450,7 @@ impl WorldStream {
             });
         self.cancel_mesh_job(key);
         let revision = self.revisions.force_dirty_since(key, now);
-        self.mesh_jobs.enqueue(
+        self.enqueue_mesh_revision(
             key,
             PendingMesh {
                 revision,
@@ -433,6 +458,7 @@ impl WorldStream {
                 queued_at: now,
                 urgent,
             },
+            false,
         );
         revision
     }

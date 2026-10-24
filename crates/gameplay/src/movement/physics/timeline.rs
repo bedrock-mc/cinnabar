@@ -291,6 +291,15 @@ impl LocalPhysicsController {
         tick: u64,
         flags: client_world::MovementFlagUpdate,
     ) -> Option<u64> {
+        self.note_server_flags(client_world::MovementFlagUpdate {
+            sneaking: None,
+            sprinting: None,
+            gliding: None,
+            swimming: None,
+            crawling: None,
+            spinning: None,
+            ..flags
+        });
         self.state.as_ref()?;
         let rewind = match self.timeline_slot(tick) {
             TimelineSlot::Live => None,
@@ -304,9 +313,7 @@ impl LocalPhysicsController {
         };
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
-        // Flag corrections are retained without scheduling a replay of their own.
-        self.retain_server_flags(tick, FlagWrite::from_flags(&flags));
-        let mut changed = false;
+        let mut changed = self.retain_server_flags(tick, FlagWrite::from_flags(&flags));
         if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
             let (edited, _) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),
@@ -362,17 +369,19 @@ impl LocalPhysicsController {
         self.server_control_flags.take()
     }
 
-    fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
-        if !pose_flag_controls_sneak(self.modes.mode()) {
-            flags.sneaking = None;
-        }
+    /// Adopts present control flags after retained local transitions have been reconciled.
+    pub(super) fn adopt_live_flags(&mut self, mut flags: client_world::MovementFlagUpdate) {
+        flags = self.modes.adopt_actor_flags(flags);
+        self.sync_pending
+            .push(posture::ServerWrite::Controls(flags));
         if flags.sprinting.is_none() && flags.sneaking.is_none() {
             return;
         }
-        self.modes.restore_controls(
-            flags.sprinting.unwrap_or(self.modes.sprinting()),
-            flags.sneaking.unwrap_or(self.modes.sneaking()),
-        );
+        self.note_server_flags(client_world::MovementFlagUpdate {
+            sneaking: flags.sneaking,
+            sprinting: flags.sprinting,
+            ..Default::default()
+        });
         self.live_posture.sprinting = flags.sprinting.or(self.live_posture.sprinting);
         self.live_posture.sneaking = flags.sneaking.or(self.live_posture.sneaking);
         let pending = self.server_control_flags.get_or_insert_default();

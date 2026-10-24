@@ -147,6 +147,8 @@ pub(super) fn build(
             icons: packs.item_icons.clone(),
         },
     ));
+    let old = std::mem::replace(&mut client_world.digger_filters, registries.digger_filters);
+    client_runtime::session::release_off_frame((old, client_world.pending_digger_registry.take()));
     if let Some(registry) = item_registry
         && !stream.seed_item_registry(registry)
     {

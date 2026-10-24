@@ -1,8 +1,53 @@
 //! Touchscreen entry and layout editing states with anonymous controls.
 use super::*;
 
+/// Utility states rendered with anonymous players and representative diagnostics.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy)]
+pub(crate) enum TouchUtilityView {
+    Closed,
+    Menu,
+    PlayerList,
+    DebugOverlay,
+}
+
 /// Touchscreen settings and actual editor interactions at the standard capture viewport.
 pub(super) const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-player-list",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::PlayerList),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-debug-overlay",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::DebugOverlay),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-closed",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::Closed),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-open",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::Menu),
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-utilities-tall",
+        size: [1080, 1920],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::TouchUtilities(TouchUtilityView::Menu),
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "touch-editor-default-tall",

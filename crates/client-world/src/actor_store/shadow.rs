@@ -37,7 +37,7 @@ impl ActorSnapshot {
         projectile
             || dead
             || self.is_on_fire()
-            || self.is_invisible()
+            || self.flag(ActorFlag::Invisible.wire_value())
             || self.status.breathing_submerged == Some(true)
     }
 
@@ -84,7 +84,9 @@ impl ActorStore {
         let vehicle = self
             .ridden_unique_id(actor.unique_id)
             .and_then(|vehicle| self.snapshot_by_unique(vehicle));
-        if actor.shadow_hidden() || vehicle.is_some_and(|vehicle| !vehicle.is_invisible()) {
+        if actor.shadow_hidden()
+            || vehicle.is_some_and(|vehicle| !vehicle.flag(ActorFlag::Invisible.wire_value()))
+        {
             return None;
         }
         let radius = actor.shadow_radius(vehicle.is_some());

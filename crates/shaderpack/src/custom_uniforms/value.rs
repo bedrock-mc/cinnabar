@@ -4,7 +4,7 @@ use super::UniformValue;
 
 /// A value during evaluation. Float operations and vector lanes retain float precision;
 /// integer inputs and random results keep their full signed range.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq)]
 pub(super) enum Value {
     Bool(bool),
     Int(i32),
@@ -18,7 +18,7 @@ pub(super) enum Value {
 
 /// A run-time type error, such as a built-in of unexpected type. The definition being
 /// evaluated falls back to its type's zero value.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct Mismatch;
 
 impl Value {

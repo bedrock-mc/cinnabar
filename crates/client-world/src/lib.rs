@@ -19,11 +19,11 @@ pub use actor_store::{
     ActorCollisionBounds, ActorDamageState, ActorFluidProbe, ActorHitBoxes, ActorPickup, ActorPose,
     ActorShadowCaster, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityCandidate,
     BlockEntityKind, BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS, DEFAULT_PLAYER_HEALTH,
-    DragonDeathView, DroppedItemView, FIRE_FADE_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA,
-    LightningBoltView, LocalItemUse, LocalPlayerFeed, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES,
-    MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin, PropertyDefault,
-    ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView, SLEEPING_PLAYER_NETWORK_OFFSET,
-    dropped_item_copy_count, tnt_presentation,
+    DimensionWrite, DragonDeathView, DroppedItemView, ExplicitDimensions, FIRE_FADE_TICKS,
+    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed,
+    MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS,
+    PlayerProfile, PoseYOrigin, PropertyDefault, ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView,
+    SLEEPING_PLAYER_NETWORK_OFFSET, dropped_item_copy_count, tnt_presentation,
 };
 pub use block_entity_visuals::{
     BackingBlockIdentity, BlockEntityVisualDiagnostics, BlockEntityVisualRoute,

@@ -20,6 +20,7 @@ impl LocalPhysicsController {
     pub(in crate::movement) fn end_cancelled_launch_spin(&mut self) {
         if let Some(state) = self.state.as_mut() {
             state.spin_attack_ticks = None;
+            self.sync_state.accept_poses(self.modes.pose_flags(), false);
         }
     }
 

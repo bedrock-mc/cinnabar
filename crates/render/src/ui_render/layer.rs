@@ -25,6 +25,8 @@ pub(super) struct UiLayerDraw<'a> {
     pub(super) layer: &'a super::composite::UiLayerTexture,
     pub(super) model_depth: Option<&'a super::model_depth::UiModelDepth>,
     pub(super) viewport: Option<&'a Viewport>,
+    /// Publication extent before an opt-in reduction of the render target.
+    pub(super) output_extent: Option<[u32; 2]>,
     pub(super) skip: Option<&'a Range<u32>>,
     pub(super) clear: Option<&'a RenderPipeline>,
     /// Keeps the layer's earlier pixels instead of clearing it before a full redraw.
@@ -169,6 +171,7 @@ pub(super) fn draw_ui_layer(
             draw.indices,
             draw.viewport,
             extent,
+            draw.output_extent,
             group,
             draw.skip,
             damage,
@@ -214,6 +217,7 @@ pub(super) fn draw_batches<'w>(
     indices: &'w Buffer,
     viewport: Option<&Viewport>,
     extent: [u32; 2],
+    output_extent: Option<[u32; 2]>,
     batches: &[(usize, &UiRenderBatch, render_model::UiTextureLocation)],
     skip: Option<&Range<u32>>,
     damage: Option<UiScissor>,
@@ -232,7 +236,14 @@ pub(super) fn draw_batches<'w>(
     pass.set_vertex_buffer(0, vertices.slice(..));
     pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
     for (_, batch, location) in batches {
-        let Some((scissor, ranges)) = content_commands(batch, extent, skip, damage, viewport)
+        let mut clipped = **batch;
+        if let Some(output) = output_extent {
+            let Some(scissor) = scaled_scissor(batch.scissor, output, extent) else {
+                continue;
+            };
+            clipped.scissor = scissor;
+        }
+        let Some((scissor, ranges)) = content_commands(&clipped, extent, skip, damage, viewport)
         else {
             continue;
         };
@@ -285,6 +296,29 @@ fn content_commands(
         .flatten()
         .any(|range| !range.is_empty())
         .then_some((scissor, ranges))
+}
+
+/// Maps authored clipping to a reduced target, rounding outward to retain edge coverage.
+pub(super) fn scaled_scissor(
+    rect: UiScissor,
+    output: [u32; 2],
+    extent: [u32; 2],
+) -> Option<UiScissor> {
+    let rect = crate::render_bounds::scissor(rect, output)?;
+    if extent.contains(&0) {
+        return None;
+    }
+    let floor = |pixel, axis: usize| {
+        (u64::from(pixel) * u64::from(extent[axis]) / u64::from(output[axis])) as u32
+    };
+    let ceil = |pixel, axis: usize| {
+        (u64::from(pixel) * u64::from(extent[axis])).div_ceil(u64::from(output[axis])) as u32
+    };
+    let left = floor(rect.x, 0);
+    let top = floor(rect.y, 1);
+    let right = ceil(rect.x + rect.width, 0);
+    let bottom = ceil(rect.y + rect.height, 1);
+    Some(UiScissor::new(left, top, right - left, bottom - top))
 }
 
 /// Partial replay needs an ordinary first pass and every pipeline ready before preserving pixels.

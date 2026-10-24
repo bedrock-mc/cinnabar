@@ -216,3 +216,80 @@ fn failed_artwork_replacement_recovers_without_changing_publication() {
     );
     assert_ne!(gpu.page(0).unwrap()._texture.id(), previous);
 }
+
+#[test]
+fn partial_actor_uploads_keep_successful_pages_and_back_off_after_retirement() {
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let queue = RenderQueue::new(queue);
+    let mut gpu = GpuArtwork::default();
+    assert!(gpu.prepare(
+        &publication(1, vec![page(&[[255, 0, 0, 255]]); 3]),
+        &device,
+        &queue,
+    ));
+    let next = publication(
+        2,
+        vec![
+            page(&[[0, 255, 0, 255]]),
+            page(&[[0, 0, 255, 255]; 3]),
+            page(&[[255, 255, 0, 255]]),
+        ],
+    );
+    let attempts = Rc::new(Cell::new(0));
+    let counted = Rc::clone(&attempts);
+    let fault = gpu_allocation::inject(move |label, bytes| {
+        if label != "immutable actor page" {
+            return false;
+        }
+        counted.set(counted.get() + 1);
+        // Only the three-layer page fails, including every reduced size.
+        bytes % 3 == 0
+    });
+    assert!(!gpu.prepare_demanded(&next, &[1, 2], &device, &queue));
+    let first = gpu.page(0).expect("the successful page stays resident");
+    assert!(first.source.shares_pixels_with(&next.pages[0]));
+    let retained = first._texture.id();
+    let initial_attempts = attempts.get();
+    queue.submit([]);
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    assert!(!gpu.prepare_demanded(&next, &[3, 2], &device, &queue));
+    assert!(
+        attempts.get() > initial_attempts,
+        "retirement permits one retry"
+    );
+    assert!(
+        gpu.page(2)
+            .unwrap()
+            .source
+            .shares_pixels_with(&next.pages[2])
+    );
+    for interval in [2, 4] {
+        let previous_attempts = attempts.get();
+        queue.submit([]);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        for _ in 1..gpu_allocation::MIN_RETRY_FRAMES * interval {
+            assert!(!gpu.prepare(&next, &device, &queue));
+            assert_eq!(
+                attempts.get(),
+                previous_attempts,
+                "partial failures back off"
+            );
+            assert_eq!(gpu.page(0).unwrap()._texture.id(), retained);
+        }
+        assert!(!gpu.prepare(&next, &device, &queue));
+        assert!(attempts.get() > previous_attempts);
+    }
+    drop(fault);
+    for _ in 1..gpu_allocation::MIN_RETRY_FRAMES * 8 {
+        assert!(!gpu.prepare(&next, &device, &queue));
+    }
+    assert!(gpu.prepare(&next, &device, &queue));
+    assert_eq!(gpu.page(0).unwrap()._texture.id(), retained);
+    assert!(
+        gpu.page(1)
+            .unwrap()
+            .source
+            .shares_pixels_with(&next.pages[1])
+    );
+}

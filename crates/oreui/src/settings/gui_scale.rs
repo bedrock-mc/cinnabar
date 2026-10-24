@@ -3,7 +3,7 @@
 use super::super::paint::Canvas;
 use super::super::theme::{self, BODY};
 use super::super::widgets;
-use super::{Content, picker, sections};
+use super::{Content, localization, picker};
 use launcher::menu::{MenuAction, MenuView};
 use ui_engine::engine::screen::PaintError;
 use ui_engine::engine::screen::Translate;
@@ -142,7 +142,7 @@ pub(super) fn draw_picker(
 ) -> Result<(), PaintError> {
     let key = "options.guiScale.optionName.name";
     let title = translate(key).map_or_else(
-        || sections::fallback(key).to_owned(),
+        || localization::fallback(key).to_owned(),
         |text| text.to_string(),
     );
     picker::draw_choices(

@@ -343,6 +343,11 @@ fn shelf_models_cover_all_woods_and_reject_invalid_selectors() {
             record.canonical_state
         );
     }
+    for record in &shelves {
+        let visual = &compiled.visuals[record.sequential_id as usize];
+        let template = &compiled.model_templates[visual.model_template as usize];
+        assert_ne!(template.flags & assets::MODEL_TEMPLATE_FLAG_SHELF, 0);
+    }
     let valid = shelves[0];
     for (key, replacement) in [
         ("powered_bit", serde_json::json!({"type":"int","value":0})),

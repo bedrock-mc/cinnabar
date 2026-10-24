@@ -73,7 +73,7 @@ fn batch(world: &client_world::WorldAuthority) -> ActorPresentationBatch {
                     session_id: world.actor_session_id(),
                     dimension: 0,
                     runtime_id: 7,
-                    spawn_revision: actor.spawn_revision,
+                    spawn_revision: actor.render_spawn_revision,
                     ingress_sequence: actor.spawn_revision,
                     source_tick: None,
                     movement_revision: actor.movement_revision,
@@ -170,7 +170,7 @@ fn authoritative_burning_zombie_reaches_the_world_draw_builder_with_original_fra
     assert_eq!(fire.input.identity.runtime_id, 7);
     assert_eq!(
         fire.input.identity.spawn_revision,
-        world.actor(7).unwrap().spawn_revision
+        world.actor(7).unwrap().render_spawn_revision
     );
     let location = output.artwork[&fire.input.identity];
     assert!(pages.valid(fire.input.rig, location));
@@ -267,7 +267,7 @@ fn local_physical_feet_override_only_the_matching_body_publication() {
             ..placement.identity
         },
         render_model::ActorRenderIdentity {
-            spawn_revision: placement.identity.spawn_revision + 1,
+            spawn_revision: placement.identity.spawn_revision.checked_add(1).unwrap(),
             ..placement.identity
         },
         render_model::ActorRenderIdentity {

@@ -110,6 +110,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gallery_painting_sizes_match_the_runtime_catalog() {
+        let gallery: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tools/localserver/painting_motives.json"
+        ))
+        .unwrap();
+        let expected: Vec<_> = PAINTING_MOTIVES
+            .iter()
+            .map(|motive| serde_json::json!({"title": motive.title, "size": motive.size}))
+            .collect();
+        assert_eq!(
+            gallery,
+            serde_json::Value::Array(expected),
+            "regenerate with cargo run -p assets --example export_painting_motives"
+        );
+    }
+
+    #[test]
     fn resource_pack_revision_requires_a_painting_catalog_audit() {
         use sha2::{Digest, Sha256};
         let audited_manifest = [

@@ -1,5 +1,6 @@
 use crate::queue_writes::ProfiledQueue as _;
 use bevy::prelude::IntoScheduleConfigs;
+use bevy::render::GpuResourceAppExt;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
 use render_scene::actor::{
@@ -38,8 +39,8 @@ use bevy::{
         },
     },
     prelude::{
-        App, BevyError, Commands, Entity, FromWorld, Handle, Local, Msaa, Plugin, Query, Res,
-        ResMut, Resource, Result, Shader, Vec3, World, default,
+        App, Assets, BevyError, Commands, Entity, FromWorld, Handle, Local, Msaa, Plugin, Query,
+        Res, ResMut, Resource, Result, Shader, Vec3, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -79,12 +80,20 @@ const ACTOR_RIG_SHADER_HANDLE: Handle<Shader> =
 
 /// Registers `render::actor_rig`, the rig skinning the actor and hand passes share.
 pub(crate) fn load_rig_shader(app: &mut App) {
-    load_internal_asset!(
-        app,
+    let (id, shader) = rig_shader_asset();
+    app.world_mut()
+        .resource_mut::<Assets<Shader>>()
+        .insert(id, shader)
+        .expect("the rig uses a stable shader ID");
+}
+
+/// Builds the shared rig module for a renderer-owned shader cache.
+pub(crate) fn rig_shader_asset() -> (AssetId<Shader>, Shader) {
+    crate::shader_asset::internal_shader_asset!(
         ACTOR_RIG_SHADER_HANDLE,
         "actor_rig.wesl",
         crate::shader_safety::from_wesl
-    );
+    )
 }
 
 #[cfg(test)]
@@ -142,12 +151,13 @@ fn install_actor_render(app: &mut App) {
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
     crate::device_poll::install(app.sub_app_mut(RenderApp));
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(ActorRenderInstalled)
         .insert_resource(presentation_gate)
         .insert_resource(runtime_witness)
         .insert_resource(pipeline_readiness)
-        .init_resource::<ActorPipeline>()
+        .init_gpu_resource::<ActorPipeline>()
         .init_resource::<ActorDrawTracker>()
         .add_render_command::<Opaque3d, DrawActorCommands>()
         .add_render_command::<Transparent3d, DrawTransparentActorCommands>()
@@ -160,7 +170,7 @@ fn install_actor_render(app: &mut App) {
                     .before(queue_actors),
                 prepare_actor_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_actors
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
                 submit_actor_presented_frame.in_set(crate::device_poll::FrameSubmissions),
             )
@@ -170,6 +180,7 @@ fn install_actor_render(app: &mut App) {
         .add_systems(
             Render,
             prepare_actor_pipelines
+                .run_if(render_scene::startup_work::world_work_allowed)
                 .in_set(RenderSystems::Queue)
                 .before(queue_actors),
         );
@@ -196,6 +207,7 @@ pub(crate) struct ActorGpu {
     instance_buffer: Buffer,
     previous_bone_buffer: Buffer,
     current_bone_buffer: Buffer,
+    current_bone_offset: u64,
     bones: bones::BoneResidency,
     geometry_vertices: crate::actor::gpu::SegmentedVertexBuffer,
     geometry_span_buffer: Option<Buffer>,
@@ -240,6 +252,8 @@ fn init_actor_gpu(
 
 /// Builds checked actor resources without publishing partially initialized state.
 fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) -> Option<ActorGpu> {
+    let (previous_bone_buffer, current_bone_buffer, current_bone_offset) =
+        bones::gpu_buffers(render_device)?;
     let sampler = gpu_allocation::checked(render_device, "actor sampler", 0, || {
         render_device.create_sampler(&SamplerDescriptor {
             label: Some("nearest shared actor artwork sampler"),
@@ -301,24 +315,9 @@ fn create_actor_gpu(render_device: &RenderDevice, render_queue: &RenderQueue) ->
                 mapped_at_creation: false,
             },
         )?,
-        previous_bone_buffer: gpu_allocation::buffer(
-            render_device,
-            &BufferDescriptor {
-                label: Some("bounded shared actor previous-bone arena"),
-                size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
-        )?,
-        current_bone_buffer: gpu_allocation::buffer(
-            render_device,
-            &BufferDescriptor {
-                label: Some("bounded shared actor current-bone arena"),
-                size: (render_model::MAX_ACTOR_BONE_ARENA_BYTES / 2) as u64,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            },
-        )?,
+        previous_bone_buffer,
+        current_bone_buffer,
+        current_bone_offset,
         bones: bones::BoneResidency::default(),
         geometry_vertices: default(),
         geometry_span_buffer: None,
@@ -487,7 +486,11 @@ fn prepare_actor_resources(
                         } else {
                             &gpu.previous_bone_buffer
                         };
-                        writes.push((&**buffer, offset, bytes));
+                        writes.push((
+                            &**buffer,
+                            offset + if current { gpu.current_bone_offset } else { 0 },
+                            bytes,
+                        ));
                     });
                     uploads.write_batch(&writes);
                 },
@@ -655,7 +658,7 @@ pub(crate) fn prepare_actor_bind_group(
                     render_device.create_bind_group(
                         "neutral actor page bind group",
                         &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-                        &[
+                        &pipeline.entries(&[
                             BindGroupEntry {
                                 binding: 0,
                                 resource: view_binding.clone(),
@@ -722,14 +725,14 @@ pub(crate) fn prepare_actor_bind_group(
                                 binding: 11,
                                 resource: BindingResource::TextureView(&gpu.skins.placeholder),
                             },
-                        ],
+                        ]),
                     )
                 })
                 .collect();
             let player_group = render_device.create_bind_group(
                 "instanced standard actor bind group",
                 &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-                &[
+                &pipeline.entries(&[
                     BindGroupEntry {
                         binding: 0,
                         resource: view_binding,
@@ -790,7 +793,7 @@ pub(crate) fn prepare_actor_bind_group(
                         binding: 11,
                         resource: BindingResource::TextureView(gpu.skins.view(3)),
                     },
-                ],
+                ]),
             );
             (generic_groups, player_group)
         })

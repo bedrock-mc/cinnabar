@@ -166,6 +166,7 @@ impl Harness {
             Some((
                 crosshair,
                 PressContext {
+                    refused_destroy: None,
                     tick: sample.tick,
                     player_position: sample.position,
                     input_mode: protocol::PlayerInputMode::Mouse,

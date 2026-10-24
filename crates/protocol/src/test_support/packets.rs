@@ -122,6 +122,15 @@ pub fn prediction_sync_flags(packet: &Packet) -> Option<[u64; 3]> {
     Some(sync.actor_data_flag.actor_flag_bitset_data.0)
 }
 
+/// Reads the effective flight ability carried by a prediction sync.
+#[must_use]
+pub fn prediction_sync_flying(packet: &Packet) -> Option<bool> {
+    let packets::Packet::ClientMovementPredictionSync(sync) = &*packet.data else {
+        return None;
+    };
+    Some(sync.actor_flying_state)
+}
+
 /// The held-item update a MobEquipment `packet` sends, or `None` for any other packet.
 #[must_use]
 pub fn equipment(packet: &Packet) -> Option<EquipmentObservation> {
@@ -367,6 +376,35 @@ pub fn entity_hover(packet: &Packet) -> Option<(u64, Option<[f32; 3]>)> {
             )
         },
     )
+}
+
+/// Decodes an original map row with red in the low byte of each ABGR wire word.
+pub fn map_pixel_row(map_id: i64, rgba: &[[u8; 4]]) -> WorldEvent {
+    let packet = round_trip(packets::ClientboundMapItemData {
+        map_id: ActorUniqueID(map_id),
+        width: Some(wire::ZigZag32(rgba.len().try_into().unwrap())),
+        height: Some(wire::ZigZag32(1)),
+        start_x: Some(wire::ZigZag32(0)),
+        start_y: Some(wire::ZigZag32(0)),
+        pixels: Some(
+            rgba.iter()
+                .map(|&pixel| wire::U32LE(u32::from_le_bytes(pixel)))
+                .collect(),
+        ),
+        ..Default::default()
+    });
+    into_world_event(Packet::new(packet), 0).unwrap().unwrap()
+}
+
+/// Decodes a nonempty chain of primary and parent map identities without pixels.
+pub fn map_creation(map_ids: &[i64], scale: i8) -> WorldEvent {
+    let packet = round_trip(packets::ClientboundMapItemData {
+        map_id: ActorUniqueID(map_ids[0]),
+        creation_map_ids: Some(map_ids.iter().copied().map(ActorUniqueID).collect()),
+        scale: Some(wire::I8(scale)),
+        ..Default::default()
+    });
+    into_world_event(Packet::new(packet), 0).unwrap().unwrap()
 }
 
 /// Reads the actor runtime ID and swing source of an arm-swing animation.

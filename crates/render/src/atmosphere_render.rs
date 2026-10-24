@@ -109,6 +109,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
     crate::media_screen::install_media_screen_render(app);
 
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(AtmosphereRenderInstalled)
         .init_resource::<AtmospherePipeline>()
@@ -120,7 +121,7 @@ pub(crate) fn install_atmosphere(app: &mut App) {
                 prepare_atmosphere_textures.in_set(RenderSystems::PrepareResources),
                 prepare_atmosphere_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_atmosphere
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );

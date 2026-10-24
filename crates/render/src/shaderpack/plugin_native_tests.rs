@@ -4,7 +4,7 @@ use super::*;
 use bevy::ecs::system::RunSystemOnce;
 
 /// Builds an empty, ready pack with compiled actor kernels and no game carriers.
-pub(super) fn ready_world() -> World {
+pub(in crate::shaderpack) fn ready_world() -> World {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::NOOP,
         backend_options: wgpu::BackendOptions {
@@ -75,20 +75,16 @@ pub(super) fn ready_world() -> World {
 /// Compiles the real skinning kernels so each transient test starts from native world readiness.
 fn prepare_actor_kernels(world: &mut World, device: &RenderDevice) {
     bevy::tasks::AsyncComputeTaskPool::get_or_init(bevy::tasks::TaskPool::default);
-    let mut app = App::new();
-    app.init_resource::<Assets<Shader>>();
-    actors::load_shaders(&mut app);
-    let mut cache = PipelineCache::new(device.clone(), true);
-    for (id, shader) in app.world().resource::<Assets<Shader>>().iter() {
-        cache.set_shader(id, shader.clone());
-    }
-    world.insert_resource(cache);
+    world.insert_resource(super::super::kernels::Kernels::new(device.clone(), true));
     world.init_resource::<ActorSkinPipelines>();
     test_time::eventually("shader-pack actor fixture kernels", || {
-        world.resource_mut::<PipelineCache>().process_queue();
+        world
+            .resource_mut::<super::super::kernels::Kernels>()
+            .cache
+            .process_queue();
         world
             .resource::<ActorSkinPipelines>()
-            .kernels(world.resource::<PipelineCache>())
+            .kernels(&world.resource::<super::super::kernels::Kernels>().cache)
             .is_some()
     });
 }
@@ -205,6 +201,7 @@ fn particle_activation_uses_one_render_path_per_blend_mode() {
             atmosphere_textures: None,
             clouds_visible: false,
             particles: Some(world.resource::<render_scene::ParticleGpuFrame>()),
+            particle_atlas_side: textures.particle_atlas_size()[0] as u32,
             precipitation: None,
             lightning: None,
             selection: None,

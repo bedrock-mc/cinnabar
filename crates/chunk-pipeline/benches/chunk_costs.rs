@@ -85,17 +85,21 @@ fn inline_packed_payload(sections: usize, changed_top: bool) -> Bytes {
     Bytes::from(payload)
 }
 
+/// Gives the two opaque fixture blocks distinct materials with identical light properties.
 fn terrain_assets() -> RuntimeAssets {
     let base = RuntimeAssets::diagnostic();
     let mut texture = base.texture_array().clone();
     texture.layers = 1;
+    let material_flags = [0, assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING];
     base.with_block_overlay(
         SOLID,
         &BlockOverlay {
-            visuals: vec![
-                BlockVisual {
+            visuals: material_flags
+                .iter()
+                .enumerate()
+                .map(|(material, _)| BlockVisual {
                     native_material: assets::native_material::NativeMaterialFacts::Unresolved,
-                    faces: [0; 6],
+                    faces: [material as u32; 6],
                     flags: BlockFlags::CUBE_GEOMETRY | BlockFlags::OCCLUDES_FULL_FACE,
                     kind: VisualKind::Cube,
                     support: VisualSupport::VanillaFallback,
@@ -104,15 +108,17 @@ fn terrain_assets() -> RuntimeAssets {
                     animation: NO_ANIMATION,
                     variant: 0,
                     destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
-                };
-                2
-            ],
-            light_properties: vec![LightProperties::OPAQUE_DARK; 2],
-            materials: vec![Material {
-                texture: TextureRef::new(1, 0).unwrap(),
-                flags: 0,
-                ..Material::unvaried()
-            }],
+                })
+                .collect(),
+            light_properties: vec![LightProperties::OPAQUE_DARK; material_flags.len()],
+            materials: material_flags
+                .into_iter()
+                .map(|flags| Material {
+                    texture: TextureRef::new(1, 0).unwrap(),
+                    flags,
+                    ..Material::unvaried()
+                })
+                .collect(),
             textures: vec![texture],
             ..Default::default()
         },

@@ -39,7 +39,7 @@ impl UiPresentationRuntime {
         texture: Option<&ParticleTexture>,
     ) -> Result<(), UiPresentationError> {
         if let Some(start) = self.gui_models.fire.pages_start {
-            self.gui_models.pages.truncate(start);
+            self.gui_models.sources.pages.truncate(start);
         }
         self.gui_models.fire.source = texture.filter(|texture| valid(texture)).cloned();
         self.install_gui_fire()?;
@@ -59,13 +59,13 @@ impl UiPresentationRuntime {
             }
         }
         let (pages, _) = atlas.finish()?;
-        let mut start = self.gui_models.pages.len();
+        let mut start = self.gui_models.sources.pages.len();
         if start + pages.len() > MODEL_PAGES
             && self
                 .gui_models
                 .discard_optional_models(self.textures.dynamic_start() + MODEL_PAGE)
         {
-            start = self.gui_models.pages.len();
+            start = self.gui_models.sources.pages.len();
         }
         if start + pages.len() > MODEL_PAGES {
             return Err(UiPresentationError::InvalidFontTexture);
@@ -76,12 +76,16 @@ impl UiPresentationRuntime {
         }
         self.gui_models.fire.frames = frames;
         self.gui_models.fire.pages_start = Some(start);
-        self.gui_models.pages.extend(pages);
+        self.gui_models.sources.pages.extend(pages);
         Ok(())
     }
 
-    pub(super) fn gui_fire_frame(&self) -> Option<player_preview::geometry::PreviewFire> {
-        if self.player_preview_view != player_preview::PreviewView::Hud {
+    /// The HUD doll's flame frame; other views draw no flames.
+    pub(super) fn gui_fire_frame(
+        &self,
+        view: player_preview::PreviewView,
+    ) -> Option<player_preview::geometry::PreviewFire> {
+        if view != player_preview::PreviewView::Hud {
             return None;
         }
         let size = self.gui_models.live_player.fire_size?;

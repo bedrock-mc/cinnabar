@@ -452,6 +452,20 @@ impl Store {
         self.write(&world, &pending, false)
     }
 
+    /// Drops pending edits that a running server applied and has since saved into its own data.
+    pub(crate) fn acknowledge(
+        &self,
+        id: &str,
+        applied: &launcher::local_worlds::options::OptionChanges,
+    ) -> Result<(), WorldError> {
+        let _state = self.lock();
+        let world = self.read(id)?;
+        let saved = self.saved(id)?;
+        let mut pending = saved.pending_options;
+        pending.acknowledge(applied);
+        self.write(&world, &pending, saved.options_unapplied)
+    }
+
     /// Removes a world and all of its saved data.
     pub(crate) fn delete(&self, id: &str) -> Result<(), WorldError> {
         let _state = self.lock();

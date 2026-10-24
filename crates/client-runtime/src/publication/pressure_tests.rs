@@ -12,6 +12,54 @@ use crate::publication::{
     configure_publication_frame,
 };
 
+/// Streaming air and retirements leave the full elapsed-time geometry service available.
+#[test]
+fn sustained_zero_byte_work_does_not_starve_geometry_service() {
+    let config = PublicationServiceConfig::DEFAULT;
+    let mut controller = PublicationController::default();
+    let mut payloads = 0;
+    let mut removals = 0;
+    let mut elapsed = Duration::ZERO;
+    for frame in 0..120 {
+        // Alternating frame lengths cover exactly one second without sleeping.
+        let duration = Duration::from_nanos(if frame % 3 == 0 { 8_333_334 } else { 8_333_333 });
+        elapsed += duration;
+        controller.begin_frame(duration);
+        let allowance = controller.allowance();
+        let mut frame_removals = 0;
+        let mut frame_payloads = 0;
+        for _ in 0..config.maximum_zero_byte_operations_per_frame / 2 {
+            let Some(permit) = allowance.try_admit_zero_byte() else {
+                break;
+            };
+            frame_removals += 1;
+            assert!(permit.retire());
+        }
+        while let Some(permit) = allowance.try_admit_payload(1) {
+            frame_payloads += 1;
+            assert!(permit.retire());
+        }
+        assert!(frame_payloads + frame_removals <= config.maximum_frame_items);
+        assert!(frame_removals <= config.maximum_zero_byte_operations_per_frame);
+        payloads += frame_payloads;
+        removals += frame_removals;
+        controller.finish_frame(PublicationFrameWork {
+            mesh_changes_published: frame_payloads + frame_removals,
+            mesh_payloads_published: frame_payloads,
+            mesh_bytes_published: frame_payloads as u64,
+            ..PublicationFrameWork::healthy()
+        });
+    }
+    assert_eq!(elapsed, Duration::from_secs(1));
+    assert_eq!(payloads, config.target_items_per_second as usize);
+    assert_eq!(
+        removals,
+        120 * config.maximum_zero_byte_operations_per_frame / 2
+    );
+    assert_eq!(controller.diagnostics().multiplicative_decreases, 0);
+    assert_eq!(controller.allowance().live_permits(), 0);
+}
+
 /// A full handoff the renderer applies in the same frame must not read as a stuck backlog.
 #[test]
 fn a_batch_applied_in_its_own_frame_does_not_collapse_the_caps() {

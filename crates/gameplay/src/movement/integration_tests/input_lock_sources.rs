@@ -349,17 +349,20 @@ fn assert_device_locks(snapshot: semantic_input::ActionSnapshot) {
             !locks.blocks(ClientInputLock::Sneak)
         );
     }
-    for (ride, trigger) in [
-        (super::super::RideKind::Boat, ClientInputLock::Jump),
-        (super::super::RideKind::Other, ClientInputLock::Sneak),
+    // A boat exits through Jump or Sneak, so both must be locked to keep the rider aboard.
+    let both = ClientInputLock::Jump as u32 | ClientInputLock::Sneak as u32;
+    for (ride, triggers) in [
+        (super::super::RideKind::Boat, both),
+        (super::super::RideKind::Other, ClientInputLock::Sneak as u32),
     ] {
-        for lock in [
-            trigger,
-            ClientInputLock::Dismount,
-            ClientInputLock::Movement,
+        for locks in [
+            triggers,
+            ClientInputLock::Dismount as u32,
+            ClientInputLock::Movement as u32,
         ] {
             let mut harness = Harness::new();
-            let mut frame = frame(Some(lock), 50);
+            let mut frame = frame(None, 50);
+            frame.facts.input_locks = ClientInputLocks::from_bits(locks);
             frame.facts.ride = Some(ride);
             frame.facts.mount_runtime_id = Some(7);
             frame.jump = snapshot.phases[Action::Jump as usize];

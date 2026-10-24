@@ -5,12 +5,8 @@ use std::{
     ffi::OsString,
     io::{Read, Write},
     path::PathBuf,
-    sync::{
-        Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex, PoisonError, atomic::AtomicBool, mpsc},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crash_report::{folder::Logs, report::Report};
@@ -32,8 +28,6 @@ use crate::{
 
 /// `0` writes reports without showing the crash window, for tests and headless runs.
 pub const CRASH_UI_ENV: &str = "CINNABAR_CRASH_UI";
-/// How long the server may take to read what the client sent before it went away.
-const DRAIN: Duration = Duration::from_secs(2);
 /// The monitor's session files: `logs/crash-monitor.log`, earlier sessions archived beside it.
 const LOG_STEM: &str = "crash-monitor";
 /// The first line of each monitor session file.
@@ -151,9 +145,7 @@ pub fn run(args: &Args, layout: Option<&InstallLayout>) -> Result<Option<PathBuf
     {
         tracing::warn!("heartbeat file not removed: {error}");
     }
-    if liveness.client_gone() || server_finished.recv_timeout(DRAIN).is_err() {
-        shutdown.store(true, Ordering::Relaxed);
-    }
+    liveness.drain(&server_finished, &shutdown);
     let _ = serving.join();
     write_panics(args, &observed, &mut panicked);
     let observed = observed

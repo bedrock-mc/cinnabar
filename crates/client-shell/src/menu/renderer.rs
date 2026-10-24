@@ -4,6 +4,17 @@
 use super::{MenuRuntime, RenderMode};
 use launcher::menu::{MenuScreen, RendererChoice};
 
+/// Where the Shaders tab's picked import stands; one runs at a time.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) enum PackImport {
+    #[default]
+    Idle,
+    /// Pressed, waiting for the host to open its file picker.
+    Requested,
+    /// The host's picker or copy is running.
+    Running,
+}
+
 impl MenuRuntime {
     /// Opens the pack controls through the normal settings navigation path.
     pub(super) fn activate_shaders_tab(&mut self) {
@@ -111,6 +122,29 @@ impl MenuRuntime {
     /// Consume a [`Self::request_shader_pack_reload`].
     pub fn take_shader_pack_reload(&mut self) -> bool {
         std::mem::take(&mut self.shader_pack_reload)
+    }
+
+    /// Queues the Shaders tab's file-picker import in shader-pack builds. Presses while an
+    /// import is queued or running are ignored.
+    pub(super) fn request_shader_pack_import(&mut self) {
+        if render_model::SHADER_PACKS_ENABLED && self.shader_pack_import == PackImport::Idle {
+            self.shader_pack_import = PackImport::Requested;
+        }
+    }
+
+    /// Consumes a queued import for the host, which then reports its end through
+    /// [`Self::finish_shader_pack_import`].
+    pub fn take_shader_pack_import(&mut self) -> bool {
+        let requested = self.shader_pack_import == PackImport::Requested;
+        if requested {
+            self.shader_pack_import = PackImport::Running;
+        }
+        requested
+    }
+
+    /// Accepts imports again once the host's picker and copy have finished.
+    pub fn finish_shader_pack_import(&mut self) {
+        self.shader_pack_import = PackImport::Idle;
     }
 
     /// Whether files dropped on the window go to the shader-pack folder: in shader-pack
@@ -311,6 +345,31 @@ mod tests {
         menu.request_shader_pack_reload();
         assert!(menu.take_shader_pack_reload());
         assert!(!menu.take_shader_pack_reload());
+    }
+
+    #[test]
+    fn one_picked_import_runs_at_a_time() {
+        let mut menu = menu();
+        assert!(!menu.take_shader_pack_import());
+        menu.activate(MenuAction::ImportShaderPacks);
+        menu.activate(MenuAction::ImportShaderPacks);
+        assert_eq!(
+            menu.view().shader_pack_importing,
+            render_model::SHADER_PACKS_ENABLED
+        );
+        assert_eq!(
+            menu.take_shader_pack_import(),
+            render_model::SHADER_PACKS_ENABLED
+        );
+        menu.activate(MenuAction::ImportShaderPacks);
+        assert!(!menu.take_shader_pack_import());
+        menu.finish_shader_pack_import();
+        assert!(!menu.view().shader_pack_importing);
+        menu.activate(MenuAction::ImportShaderPacks);
+        assert_eq!(
+            menu.take_shader_pack_import(),
+            render_model::SHADER_PACKS_ENABLED
+        );
     }
 
     #[test]

@@ -64,7 +64,12 @@ const HAND_MATERIAL: HandMaterialUniform = HandMaterialUniform {
         HAND_BLEND_LAYER_FLAG,
         HAND_CUTOUT_LAYER_FLAG,
     ],
-    layer_mask: [HAND_TEXTURE_LAYER_MASK, 0, 0, 0],
+    layer_mask: [
+        HAND_TEXTURE_LAYER_MASK,
+        render_model::hand::HAND_MAP_BACKGROUND_FLAG,
+        0,
+        0,
+    ],
 };
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, SystemSet)]

@@ -142,6 +142,8 @@ pub struct ItemUseRuntime {
     last_air_use_tick: Option<u64>,
     last_frame_tick: Option<u64>,
     active: Option<ActiveUse>,
+    /// Latest accepted local or server write to the reported UsingItem flag.
+    reported_using_item: Option<bool>,
     session: Option<u64>,
     rearm_millis: Option<u64>,
     /// Cooldown category and the tick it ends.
@@ -175,6 +177,26 @@ pub struct ItemUseRuntime {
 }
 
 impl ItemUseRuntime {
+    /// Returns the last accepted flag write without deriving it from local-use activity.
+    pub fn reported_using_item(&self) -> Option<bool> {
+        self.reported_using_item
+    }
+
+    /// Reports a supplied server flag and retains it for the next movement tick.
+    pub fn adopt_server_using_item(&mut self, value: Option<bool>) {
+        if value.is_some() {
+            self.reported_using_item = value;
+            self.server_using = value;
+        }
+    }
+
+    /// A local use end clears its flag only when a use was active.
+    fn stop_active_use(&mut self) {
+        if self.active.take().is_some() {
+            self.reported_using_item = Some(false);
+        }
+    }
+
     /// Takes one admitted launch for the next successful movement tick.
     pub fn take_riptide_launch(&mut self) -> Option<RiptideLaunch> {
         self.riptide_launch.take()
@@ -217,7 +239,7 @@ impl ItemUseRuntime {
     /// Ends the use without a release transaction. Like vanilla's stop, this
     /// clears the item-use flag after any pending server write.
     fn stop_without_release(&mut self) {
-        self.active = None;
+        self.stop_active_use();
         self.riptide_release = None;
         self.release_pending = false;
         self.server_using = None;
@@ -342,7 +364,7 @@ impl ItemUseRuntime {
     /// Drops old-life charges and unsent use actions, preserving inventory and cooldown policy.
     pub fn cancel_for_respawn(&mut self) {
         self.cancel_pending_input();
-        self.active = None;
+        self.stop_active_use();
         self.last_frame_tick = None;
         self.release_pending = false;
         self.riptide_launch = None;
@@ -360,6 +382,7 @@ impl ItemUseRuntime {
         self.slot_change_pending = false;
         self.last_air_use_tick = None;
         self.cancel_for_respawn();
+        self.reported_using_item = None;
         self.rearm_millis = None;
         self.cooldowns.clear();
         self.predicted = None;
@@ -459,7 +482,7 @@ impl ItemUseRuntime {
                 ) =>
             {
                 // Switching away stops the use without a release, as vanilla does.
-                self.active = None;
+                self.stop_active_use();
                 self.riptide_release = None;
                 return;
             }
@@ -490,7 +513,7 @@ impl ItemUseRuntime {
                     frame.charge_projectile,
                 );
             }
-            self.active = None;
+            self.stop_active_use();
             return;
         }
         if (frame.held || !active.button_owned) && !release_pending {
@@ -503,7 +526,7 @@ impl ItemUseRuntime {
                 rotation: release.facing.rotation,
             })
         });
-        self.active = None;
+        self.stop_active_use();
         if let Ok(packet) = protocol::release_item_packet(held_request(&selection, frame)) {
             outcome.packets.push(packet);
             outcome.released = true;
@@ -618,6 +641,9 @@ impl ItemUseRuntime {
             outcome.packets.push(packet);
             outcome.used = true;
             outcome.started = active_use.is_some();
+            if active_use.is_some() {
+                self.reported_using_item = Some(true);
+            }
             self.active = active_use;
             outcome.swung = swung;
             if (outcome.started || swung.is_some())

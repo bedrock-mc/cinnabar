@@ -156,6 +156,14 @@ impl DrawNode {
                 let written = animator.sample(control, now, clocks);
                 opacity * written.alpha.unwrap_or(control.rest_alpha)
             });
+        // A draw its settled alphas leave at zero paints nothing whatever its other animations
+        // write; they still tick, but a recorded paint is not changing with them.
+        let unseen = out.opacity <= 0.0
+            && anim
+                .alpha
+                .iter()
+                .all(|control| !animator.playing(&control.key));
+        let quiet = animator.set_quiet(unseen);
         if let Some(own) = &anim.own {
             let written = animator.sample(own, now, clocks);
             if let Draw::Sprite { texture, uv, .. } = &self.draw {
@@ -194,6 +202,7 @@ impl DrawNode {
             let written = animator.sample(mover, now, clocks);
             out.clip = moved(mover, &written, out.clip);
         }
+        animator.set_quiet(quiet);
         out
     }
 }

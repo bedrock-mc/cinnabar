@@ -96,7 +96,6 @@ pub use audio_pcm::{
     MAX_AUDIO_PCM_CARRIER_BYTES, MAX_AUDIO_PCM_SOURCE_BYTES, RuntimeAudioPcm, encode_audio_pcm,
     reviewed_audio_pcm_identity, validate_audio_pcm_catalog,
 };
-pub use beacon_tints::BeaconTintCatalog;
 pub use biome::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BIOME_TINT_FLAG_SEASONAL_FOLIAGE,
     BIOME_TINT_FLAG_SWAMP_GRASS, BiomeRegistryRecord, BiomeRule, CompiledBiomeAssets,
@@ -184,7 +183,6 @@ pub use equipment::{
     encode_equipment_catalog_full, encode_equipment_catalog_with_attack_timings,
     encode_equipment_catalog_with_textures, encode_equipment_catalog_with_use_profiles,
 };
-pub use error::AssetError;
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
     FONT_FACE_BUNDLE_SCHEMA, FONT_FALLBACK_ATLAS_SIDE, FONT_RASTER_EM_PIXELS,
@@ -232,18 +230,20 @@ pub use model::{
     END_PORTAL_FRAME_IDENTIFIER, END_PORTAL_IDENTIFIER, MAX_ANIMATION_FRAMES, MAX_ANIMATIONS,
     MAX_MODEL_QUADS, MAX_MODEL_TEMPLATE_QUADS, MAX_MODEL_TEMPLATES, MAX_TEXTURE_PAGES,
     MODEL_POSITION_SCALE, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_BAMBOO, MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_AZALEA, MODEL_TEMPLATE_FLAG_BAMBOO,
+    MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN, MODEL_TEMPLATE_FLAG_CHORUS,
     MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_DOOR, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
     MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
-    MODEL_TEMPLATE_FLAG_NETHER_PORTAL, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_POTTED_PLANT,
-    MODEL_TEMPLATE_FLAG_SHORT_GRASS, MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR,
-    MODEL_TEMPLATE_FLAG_TORCH, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
-    MODEL_UV_SCALE, ModelQuad, ModelTemplate, NETHER_PORTAL_IDENTIFIER, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET,
-    SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT,
-    TOP_SNOW_LAYER_COUNT, TexturePage, TextureRef, VisualKind, VisualSupport,
-    bubble_column_quad_count, model_template_parts,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_HEAVY_CORE, MODEL_TEMPLATE_FLAG_KELP,
+    MODEL_TEMPLATE_FLAG_LILY_PAD, MODEL_TEMPLATE_FLAG_NETHER_PORTAL, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_POTTED_PLANT, MODEL_TEMPLATE_FLAG_SHELF, MODEL_TEMPLATE_FLAG_SHORT_GRASS,
+    MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TORCH,
+    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL, MODEL_UV_SCALE, ModelQuad,
+    ModelTemplate, NETHER_PORTAL_IDENTIFIER, NO_ANIMATION, NO_MODEL_TEMPLATE,
+    SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET, SEASONAL_LEAF_MATERIAL_COUNT,
+    SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT, TOP_SNOW_LAYER_COUNT,
+    TexturePage, TextureRef, VisualKind, VisualSupport, bubble_column_quad_count,
+    model_template_parts,
 };
 pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
@@ -265,7 +265,6 @@ pub use provenance::{
     BlobProvenance, VANILLA_SOURCE_MANIFEST, VanillaSource, canonical_source_manifest_sha256,
     vanilla_source, vanilla_source_manifest_sha256,
 };
-pub use publication::rename_no_replace;
 pub use registry::{
     BeaconTint, BlockFlags, CollisionBox, CollisionConfidence, CollisionSeed, ContributorRole,
     ModelFamily, ModelState, ModelStateField, RegistryProvenance, RegistryRecord,
@@ -296,5 +295,6 @@ pub use ui::{
     UiNineSlice, UiSidecar, UiSidecarEntry, UiTexturePlacement, UiTextureUv, encode_ui_catalog,
 };
 pub use vanilla_refs::{MAX_VANILLA_REFS_BYTES, VanillaEntityRefs, VanillaGeometryFile};
+pub use {beacon_tints::BeaconTintCatalog, error::AssetError, publication::rename_no_replace};
 pub use {fog_layers::resolve_fog_layers, fog_transition::FogTransition};
 pub use {server_lang::ServerLangOverlay, session_entities::SessionEntityPack};

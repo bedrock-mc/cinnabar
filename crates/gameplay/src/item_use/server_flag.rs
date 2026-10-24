@@ -10,11 +10,6 @@
 use super::*;
 
 impl ItemUseRuntime {
-    /// Records the latest server `UsingItem` value for the next movement tick.
-    pub fn adopt_server_using_item(&mut self, using: bool) {
-        self.server_using = Some(using);
-    }
-
     /// Notes the use button outside tick-gated maintenance: holding it lets
     /// button-up release a use the server started.
     pub fn observe_use_button(&mut self, held: bool) {

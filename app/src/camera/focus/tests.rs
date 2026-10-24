@@ -1,4 +1,4 @@
-use bevy::window::CursorGrabMode;
+use bevy::window::{CursorGrabMode, WindowEvent};
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::UiRuntime;
 use {super::*, client_presentation::camera::AutoFly};
@@ -848,4 +848,352 @@ fn grab_free_capture_follows_the_desktop_capture_rules() {
     ] {
         assert!(!super::grab_free_capture(&blocked, true));
     }
+}
+
+/// Builds a focus app driving a shown data-driven custom form (instance 7, form 4) through a
+/// painted presentation.
+fn data_driven_app() -> (App, Entity) {
+    use crate::ui_runtime::data_driven::drive_data_driven_input;
+    use bevy::input::{keyboard::KeyboardInput, mouse::MouseWheel};
+    use client_ui::{
+        test_support::fixture_hud,
+        ui_runtime::{SequencedUiEvent, presentation::UiPresentationRuntime},
+    };
+    use protocol::{ddui::ScriptedScreen, test_support::ddui};
+    use ui_engine::test_support::fixture_font;
+    let (mut app, window) = focus_app();
+    let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
+    let mut player = player_state::PlayerState::new(1);
+    let events = ddui::show_events(
+        ScriptedScreen::CustomForm,
+        4,
+        7,
+        ddui::custom_form_property(),
+    );
+    {
+        let mut runtime = app.world_mut().resource_mut::<UiRuntimeResource>();
+        for (sequence, event) in (1..).zip(events) {
+            runtime
+                .apply(
+                    &mut player,
+                    SequencedUiEvent {
+                        session_id: 1,
+                        fifo_sequence: sequence,
+                        local_millis: sequence * 10,
+                        server_tick: None,
+                        event,
+                    },
+                )
+                .unwrap();
+        }
+        presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+    }
+    app.add_message::<KeyboardInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<WindowEvent>()
+        .insert_resource(UiPresentationResource(presentation))
+        .add_systems(
+            Update,
+            (
+                crate::ui_runtime::data_driven::publish_host_screens,
+                drive_data_driven_input,
+            )
+                .chain()
+                .before(client_shell::menu::screen_focus::publish_screen_focus),
+        );
+    (app, window)
+}
+
+/// A key press as the ordered window stream carries it.
+fn window_key(window: Entity, key_code: KeyCode, text: Option<&str>) -> WindowEvent {
+    use bevy::input::{
+        ButtonState,
+        keyboard::{Key, KeyboardInput, NativeKey},
+    };
+    WindowEvent::KeyboardInput(KeyboardInput {
+        key_code,
+        logical_key: Key::Unidentified(NativeKey::Unidentified),
+        state: ButtonState::Pressed,
+        text: text.map(Into::into),
+        repeat: false,
+        window,
+    })
+}
+
+#[test]
+fn escaping_a_data_driven_form_returns_capture_after_focus_loss() {
+    let (mut app, window) = data_driven_app();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.update();
+    assert_released(&app, window);
+    // The input plugin mirrors the ordered key into the pressed keys, which activate focus.
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::Escape);
+    app.world_mut()
+        .write_message(window_key(window, KeyCode::Escape, None));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .data_driven_ui()
+            .active()
+            .is_none()
+    );
+    app.update();
+    assert_eq!(
+        app.world().get::<CursorOptions>(window).unwrap().grab_mode,
+        CursorGrabMode::Locked
+    );
+}
+
+#[test]
+fn text_typed_after_a_click_in_one_frame_reaches_the_clicked_field() {
+    use bevy::input::{ButtonState, mouse::MouseButtonInput};
+    use oreui::data_driven_screen::FormHit;
+    use protocol::ddui::{
+        DataPrimitive, DataStoreUpdate, ScriptedScreen, data_store_update_packet,
+    };
+    let (mut app, window) = data_driven_app();
+    // Layout entry 6 is the fixture's text field.
+    let field = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .data_driven_target(FormHit::Item(6))
+        .unwrap();
+    let centre = Vec2::new(
+        (field.min().x() + field.max().x()) * 0.5,
+        (field.min().y() + field.max().y()) * 0.5,
+    );
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(centre));
+    for state in [ButtonState::Pressed, ButtonState::Released] {
+        app.world_mut()
+            .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                button: MouseButton::Left,
+                state,
+                window,
+            }));
+    }
+    app.world_mut()
+        .write_message(window_key(window, KeyCode::KeyX, Some("x")));
+    app.update();
+    let sent = app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .take_client_packet()
+        .map(|packet| protocol::encode(&packet).unwrap());
+    let expected = data_store_update_packet(&DataStoreUpdate {
+        store: protocol::ddui::SCRIPT_STORE.into(),
+        property: ScriptedScreen::CustomForm.property(Some(7)).into(),
+        path: "layout[6].text".into(),
+        value: DataPrimitive::String("hellox".into()),
+        property_update_count: 1,
+        path_update_count: 1,
+    });
+    assert_eq!(sent, Some(protocol::encode(&expected).unwrap()));
+}
+
+#[test]
+fn ordered_events_from_a_consent_frame_are_not_replayed_to_the_form() {
+    let (mut app, window) = data_driven_app();
+    app.update();
+    app.insert_resource(client_state::ConsentInput(true));
+    app.world_mut()
+        .write_message(window_key(window, KeyCode::Escape, None));
+    app.update();
+    app.insert_resource(client_state::ConsentInput(false));
+    app.update();
+    assert!(
+        app.world()
+            .resource::<UiRuntimeResource>()
+            .data_driven_ui()
+            .active()
+            .is_some()
+    );
+}
+
+#[test]
+fn a_press_and_release_resolve_where_the_cursor_was_for_each() {
+    use bevy::{
+        input::{ButtonState, mouse::MouseButtonInput},
+        window::CursorMoved,
+    };
+    use oreui::data_driven_screen::FormHit;
+    let (mut app, window) = data_driven_app();
+    // Layout entry 9 is the fixture's "Click me" button.
+    let button = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .data_driven_target(FormHit::Item(9))
+        .unwrap();
+    let on_button = Vec2::new(
+        (button.min().x() + button.max().x()) * 0.5,
+        (button.min().y() + button.max().y()) * 0.5,
+    );
+    let outside = Vec2::new(20.0, 20.0);
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(outside));
+    app.update();
+    let edge = |state| {
+        WindowEvent::MouseButtonInput(MouseButtonInput {
+            button: MouseButton::Left,
+            state,
+            window,
+        })
+    };
+    app.world_mut().write_message(edge(ButtonState::Pressed));
+    app.world_mut()
+        .write_message(WindowEvent::CursorMoved(CursorMoved {
+            window,
+            position: on_button,
+            delta: None,
+        }));
+    app.world_mut().write_message(edge(ButtonState::Released));
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(on_button));
+    app.update();
+    // The press began off the form, so releasing over the button does not press it.
+    assert!(
+        app.world_mut()
+            .resource_mut::<UiRuntimeResource>()
+            .take_client_packet()
+            .is_none()
+    );
+}
+
+/// The window-logical centre of the form target `hit` from the app's last paint.
+fn target_centre(app: &App, hit: oreui::data_driven_screen::FormHit) -> Vec2 {
+    let bounds = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .data_driven_target(hit)
+        .unwrap();
+    Vec2::new(
+        (bounds.min().x() + bounds.max().x()) * 0.5,
+        (bounds.min().y() + bounds.max().y()) * 0.5,
+    )
+}
+
+/// A left-button edge as the ordered window stream carries it.
+fn window_edge(window: Entity, state: bevy::input::ButtonState) -> WindowEvent {
+    WindowEvent::MouseButtonInput(bevy::input::mouse::MouseButtonInput {
+        button: MouseButton::Left,
+        state,
+        window,
+    })
+}
+
+#[test]
+fn a_click_after_unfocused_cursor_moves_lands_where_the_cursor_is() {
+    use bevy::{input::ButtonState, window::CursorMoved};
+    use oreui::data_driven_screen::FormHit;
+    let (mut app, window) = data_driven_app();
+    // Layout entry 9 is the fixture's "Click me" button.
+    let on_button = target_centre(&app, FormHit::Item(9));
+    let set_cursor = |app: &mut App, at: Vec2| {
+        app.world_mut()
+            .get_mut::<Window>(window)
+            .unwrap()
+            .set_cursor_position(Some(at));
+    };
+    set_cursor(&mut app, Vec2::new(20.0, 20.0));
+    app.update();
+    // The cursor moves onto the button while the window is unfocused.
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = false;
+    app.world_mut()
+        .write_message(WindowEvent::CursorMoved(CursorMoved {
+            window,
+            position: on_button,
+            delta: None,
+        }));
+    set_cursor(&mut app, on_button);
+    app.update();
+    app.world_mut().get_mut::<Window>(window).unwrap().focused = true;
+    app.world_mut()
+        .write_message(window_edge(window, ButtonState::Pressed));
+    app.world_mut()
+        .write_message(window_edge(window, ButtonState::Released));
+    app.update();
+    assert!(
+        app.world_mut()
+            .resource_mut::<UiRuntimeResource>()
+            .take_client_packet()
+            .is_some(),
+        "the click pressed the button under the cursor"
+    );
+}
+
+#[test]
+fn a_slider_drag_within_one_frame_writes_its_release_position() {
+    use bevy::{input::ButtonState, window::CursorMoved};
+    use oreui::data_driven_screen::FormHit;
+    use protocol::ddui::{
+        DataPrimitive, DataStoreUpdate, ScriptedScreen, data_store_update_packet,
+    };
+    let (mut app, window) = data_driven_app();
+    // Layout entry 4 is the fixture's 0..10 slider, stepping by 2.
+    let track = app
+        .world()
+        .resource::<UiPresentationResource>()
+        .data_driven_target(FormHit::Item(4))
+        .unwrap();
+    let y = (track.min().y() + track.max().y()) * 0.5;
+    let start = Vec2::new(track.min().x() + 1.0, y);
+    let end = Vec2::new(track.max().x() - 1.0, y);
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(start));
+    app.update();
+    app.world_mut()
+        .write_message(window_edge(window, ButtonState::Pressed));
+    app.world_mut()
+        .write_message(WindowEvent::CursorMoved(CursorMoved {
+            window,
+            position: end,
+            delta: None,
+        }));
+    app.world_mut()
+        .write_message(window_edge(window, ButtonState::Released));
+    app.world_mut()
+        .get_mut::<Window>(window)
+        .unwrap()
+        .set_cursor_position(Some(end));
+    app.update();
+    let sent: Vec<_> = std::iter::from_fn(|| {
+        app.world_mut()
+            .resource_mut::<UiRuntimeResource>()
+            .take_client_packet()
+    })
+    .map(|packet| protocol::encode(&packet).unwrap())
+    .collect();
+    let value = |value, count| {
+        protocol::encode(&data_store_update_packet(&DataStoreUpdate {
+            store: protocol::ddui::SCRIPT_STORE.into(),
+            property: ScriptedScreen::CustomForm.property(Some(7)).into(),
+            path: "layout[4].value".into(),
+            value: DataPrimitive::Number(value),
+            property_update_count: 1,
+            path_update_count: count,
+        }))
+        .unwrap()
+    };
+    assert_eq!(sent, [value(0.0, 1), value(10.0, 2)]);
 }

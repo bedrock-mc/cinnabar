@@ -10,7 +10,7 @@ fn bread(tick: u64, held: bool) -> UseFrame {
 #[test]
 fn a_server_flag_starts_the_selected_use_without_a_transaction() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&frame(10, false)));
     assert!(runtime.is_using());
     assert_eq!(runtime.movement_modifier(), Some(0.35));
@@ -24,7 +24,7 @@ fn a_server_flag_starts_the_selected_use_without_a_transaction() {
 #[test]
 fn a_server_started_use_completes_without_a_release() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     assert!(runtime.step(&bread(41, false)).packets.is_empty());
     assert!(runtime.is_using());
@@ -53,7 +53,7 @@ fn a_server_start_preserves_loaded_crossbow_use_facts() {
             let Some(AirUse::Instant { unloaded }) = runtime.crossbows.air_use(&start) else {
                 panic!("the crossbow is loaded");
             };
-            runtime.adopt_server_using_item(true);
+            runtime.adopt_server_using_item(Some(true));
             assert!(runtime.resolve_server_using_item(&start));
             assert_eq!(runtime.active_timing(), Some((10, unloaded.max_ticks)));
             assert_eq!(runtime.movement_modifier(), Some(unloaded.slowdown));
@@ -76,7 +76,7 @@ fn a_server_start_preserves_custom_loaded_crossbow_slowdown() {
         panic!("the crossbow is loaded");
     };
     unloaded.slowdown = 0.6;
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&UseFrame {
         air_use: Some(AirUse::Instant { unloaded }),
         ..frame(10, false)
@@ -88,7 +88,7 @@ fn a_server_start_preserves_custom_loaded_crossbow_slowdown() {
 #[test]
 fn the_button_releases_a_server_started_use_it_held() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     runtime.resolve_server_using_item(&frame(10, false));
     assert!(runtime.step(&frame(11, true)).packets.is_empty());
     assert!(runtime.is_releasing(false));
@@ -101,7 +101,7 @@ fn the_button_releases_a_server_started_use_it_held() {
 #[test]
 fn the_use_button_owns_a_server_start_outside_maintenance() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&frame(10, false)));
     runtime.observe_use_button(true);
     assert!(runtime.is_releasing(false));
@@ -114,7 +114,7 @@ fn a_server_clear_stops_the_use_without_a_release() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
-    runtime.adopt_server_using_item(false);
+    runtime.adopt_server_using_item(Some(false));
     assert!(!runtime.resolve_server_using_item(&frame(11, false)));
     assert!(!runtime.is_using());
     assert!(!runtime.has_server_using_item());
@@ -127,7 +127,7 @@ fn a_server_clear_stops_the_use_without_a_release() {
 #[test]
 fn a_server_start_waits_for_a_selection_and_retries_an_empty_hand() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     let unverified = UseFrame {
         selection: None,
         ..frame(10, false)
@@ -160,7 +160,7 @@ fn a_server_start_waits_for_a_selection_and_retries_an_empty_hand() {
 #[test]
 fn a_server_start_for_an_item_without_a_held_use_completes_next_tick() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     let stick = |tick| UseFrame {
         air_use: None,
         ..frame(tick, false)
@@ -190,7 +190,7 @@ fn a_pre_physics_server_start_keeps_its_maintenance() {
     let mut movement = ticker_with_ticks(1);
     flush(&mut movement);
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     let tick = movement.next_tick();
     assert!(runtime.resolve_server_using_item(&frame(tick, false)));
     assert!(runtime.frame_sample(&movement, false, true).is_none());
@@ -208,7 +208,7 @@ fn a_pre_physics_server_start_keeps_its_maintenance() {
 fn losing_focus_releases_a_server_started_use() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_gameplay_focus(true);
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&frame(10, false)));
     assert!(!runtime.is_releasing(false));
     runtime.observe_gameplay_focus(false);
@@ -221,11 +221,11 @@ fn losing_focus_releases_a_server_started_use() {
 #[test]
 fn a_clear_and_set_before_a_tick_keep_the_use() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     runtime.step(&bread(11, false));
-    runtime.adopt_server_using_item(false);
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(false));
+    runtime.adopt_server_using_item(Some(true));
     assert!(!runtime.resolve_server_using_item(&bread(12, false)));
     assert_eq!(runtime.active_timing(), Some((10, 32)));
 }
@@ -237,7 +237,7 @@ fn a_release_before_a_pending_clear_runs_sends_its_transaction() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
-    runtime.adopt_server_using_item(false);
+    runtime.adopt_server_using_item(Some(false));
     assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
 }
 
@@ -247,7 +247,7 @@ fn a_release_before_a_pending_clear_runs_sends_its_transaction() {
 #[test]
 fn a_pending_server_start_follows_a_reselection() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     runtime.retire_reselected_use(5);
     let snowball = |tick| UseFrame {
         selection: Some(selection(5, SNOWBALL)),
@@ -270,8 +270,8 @@ fn a_local_release_supersedes_pending_server_writes() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
-    runtime.adopt_server_using_item(false);
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(false));
+    runtime.adopt_server_using_item(Some(true));
     assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
     assert!(!runtime.resolve_server_using_item(&frame(12, false)));
     assert!(!runtime.is_using());
@@ -284,7 +284,7 @@ fn a_replacement_use_supersedes_a_pending_server_clear() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_press(true);
     assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
-    runtime.adopt_server_using_item(false);
+    runtime.adopt_server_using_item(Some(false));
     runtime.observe_press(true);
     assert!(runtime.step(&bread(20, true)).started);
     assert!(!runtime.resolve_server_using_item(&bread(21, true)));
@@ -323,7 +323,7 @@ fn a_cancelled_riptide_release_supersedes_a_pending_server_start() {
     runtime.observe_press(true);
     runtime.step(&trident(100, true));
     assert_eq!(runtime.take_local_using_item(), Some(true));
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     let mut edge = trident(110, false);
     edge.selection.as_mut().unwrap().slot += 1;
     runtime.observe_riptide_release(
@@ -356,7 +356,7 @@ fn a_progress_reselection_stop_supersedes_a_pending_server_start() {
             .started
     );
     assert_eq!(runtime.take_local_using_item(), Some(true));
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     let mut reselected = selection;
     reselected.slot = 1;
     runtime
@@ -378,7 +378,7 @@ fn a_progress_reselection_stop_supersedes_a_pending_server_start() {
 #[test]
 fn a_count_change_keeps_an_unowned_server_started_use() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     let two = stack(2, MENU_ITEM, 2);
     assert!(runtime.resolve_server_using_item(&item_frame(10, false, two, "minecraft:bread")));
     let three = stack(2, MENU_ITEM, 3);
@@ -393,7 +393,7 @@ fn a_count_change_keeps_an_unowned_server_started_use() {
 fn a_world_change_drops_a_pending_server_value() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_world(SessionGeneration::new(7), 0);
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     runtime.observe_world(SessionGeneration::new(7), 0);
     assert!(runtime.has_server_using_item());
     runtime.observe_world(SessionGeneration::new(7), 1);
@@ -406,16 +406,16 @@ fn a_world_change_drops_a_pending_server_value() {
 #[test]
 fn a_game_mode_stop_stops_the_use_and_later_starts_reconcile() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     runtime.take_local_using_item();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     runtime.stop_for_game_mode();
     assert!(!runtime.is_using());
     assert!(!runtime.has_server_using_item());
     // Movement cleared the flag itself, so no local write follows.
     assert_eq!(runtime.take_local_using_item(), None);
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(11, false)));
     assert!(runtime.is_using());
 }
@@ -426,7 +426,7 @@ fn a_game_mode_stop_stops_the_use_and_later_starts_reconcile() {
 fn a_server_start_under_a_held_button_releases_on_button_up() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_use_button(true);
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     assert!(runtime.is_releasing(false));
 }
@@ -436,7 +436,7 @@ fn a_server_start_under_a_held_button_releases_on_button_up() {
 #[test]
 fn a_game_mode_stop_clears_a_pending_start_flag() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     runtime.stop_for_game_mode();
     assert!(!runtime.has_server_using_item());
     assert_eq!(runtime.take_local_using_item(), None);
@@ -450,7 +450,7 @@ fn respawn_forgets_the_held_use_button() {
     let mut runtime = ItemUseRuntime::default();
     runtime.observe_use_button(true);
     runtime.cancel_for_respawn();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     assert!(!runtime.is_releasing(false));
 }
@@ -464,7 +464,7 @@ fn a_release_in_the_frame_of_a_server_clear_sends_its_transaction() {
     runtime.observe_press(true);
     assert_eq!(kinds(&runtime.step(&frame(10, true))), ["use"]);
     runtime.observe_use_button(false);
-    runtime.adopt_server_using_item(false);
+    runtime.adopt_server_using_item(Some(false));
     assert!(!runtime.resolve_server_using_item(&frame(11, false)));
     assert!(runtime.is_using());
     assert_eq!(kinds(&runtime.step(&frame(11, false))), ["release"]);
@@ -476,7 +476,7 @@ fn a_release_in_the_frame_of_a_server_clear_sends_its_transaction() {
 #[test]
 fn a_count_change_refreshes_the_saved_stack_for_a_later_release() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     let two = stack(2, MENU_ITEM, 2);
     assert!(runtime.resolve_server_using_item(&item_frame(10, false, two, "minecraft:bread")));
     let three = || stack(2, MENU_ITEM, 3);
@@ -497,7 +497,7 @@ fn a_count_change_refreshes_the_saved_stack_for_a_later_release() {
 #[test]
 fn a_game_mode_stop_publishes_no_local_flag_write() {
     let mut runtime = ItemUseRuntime::default();
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     runtime.stop_for_game_mode();
     assert_eq!(runtime.take_local_using_item(), None);
@@ -592,7 +592,7 @@ fn a_server_start_waits_on_a_predicted_empty_slot() {
     assert!(runtime.step(&snowballs(10, true, 1)).used);
     runtime.step(&snowballs(11, false, 1));
     assert!(runtime.predicted.as_ref().unwrap().stack.is_empty());
-    runtime.adopt_server_using_item(true);
+    runtime.adopt_server_using_item(Some(true));
     assert!(!runtime.resolve_server_using_item(&snowballs(12, false, 1)));
     assert!(!runtime.is_using());
     assert!(runtime.has_server_using_item());

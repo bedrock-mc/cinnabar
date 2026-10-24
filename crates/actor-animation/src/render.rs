@@ -277,7 +277,7 @@ pub(super) fn evaluate_render_cached(
     let actor_color = symbol
         .filter(|symbol| symbol.kind == EntityAssetKind::Entity)
         .map_or([1.0; 4], |_| {
-            super::query::wolf::default_render_color(evaluator.actor)
+            super::query::tint::default_render_color(evaluator.actor, evaluator.life_tick)
         });
     for (index, layer) in assets.render_layers(rig.binding).iter().enumerate() {
         if let Some(cache) = cache.as_deref_mut() {

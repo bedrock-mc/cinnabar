@@ -12,8 +12,8 @@ use std::{
 use bridge::contract::HOSTED_WORLD_MAX_PLAYERS;
 use crossbeam_channel::Receiver;
 use launcher::local_worlds::{
-    options::{Storage, WorldOption as O},
-    world::Generator,
+    options::{Control, Storage, WorldOption as O},
+    world::{Generator, World, WorldUpdate},
 };
 
 use super::{
@@ -38,6 +38,8 @@ pub(crate) const WORLDS_DIR: &str = "worlds";
 const MIN_BDS_VIEW: u32 = 5;
 /// BDS's `transport` setting for its NetherNet HTTP listener.
 pub(crate) const BDS_TRANSPORT: &str = "nethernet";
+/// Players Sleeping Percentage above 100, where no number of sleepers skips the night.
+pub(crate) const SLEEP_DISABLED_PERCENTAGE: i32 = 101;
 /// Makes existing BDS worlds use the launcher's selected game mode at login.
 pub(crate) const FORCE_GAME_MODE: bool = true;
 
@@ -275,6 +277,14 @@ impl Instance for BdsInstance {
         self.lan_address.as_deref()
     }
 
+    fn exited_cleanly(&self) -> bool {
+        self.process.exited_cleanly()
+    }
+
+    fn console(&self, command: &str) -> io::Result<()> {
+        self.process.send(command)
+    }
+
     /// Rewrites the operator list and waits for BDS to confirm reloading it before the host joins.
     fn grant_host(&self, xuid: Option<&str>, cancel: &Cancel) -> Result<(), WorldError> {
         write_host_permissions(&self.install, xuid)?;
@@ -433,6 +443,74 @@ pub(crate) fn option_properties(spec: &StartSpec) -> Vec<(&'static str, String)>
             Some((key, value))
         })
         .collect()
+}
+
+/// BDS console commands that make the running server match `world` after `update` changed it.
+/// Settings BDS reads only at startup, the default game mode among them, yield none.
+pub(crate) fn live_commands(world: &World, update: &WorldUpdate) -> Vec<String> {
+    let options = &world.options;
+    let mut commands = Vec::new();
+    if update.difficulty.is_some() {
+        commands.push(format!("difficulty {}", wire_name(world.difficulty)));
+    }
+    let changed = |id: O| {
+        update
+            .options
+            .as_ref()
+            .is_some_and(|changes| changes.get(id).is_some())
+    };
+    // Cheats first, so the rules they gate apply after them.
+    for &id in O::ALL.iter().filter(|&&id| changed(id)) {
+        let rule = |key: &str, value: String| format!("gamerule {key} {value}");
+        match (id, id.definition().storage) {
+            (O::ActivateCheats, _) => commands.push(format!(
+                "changesetting allow-cheats {}",
+                options.enabled(id)
+            )),
+            (O::AlwaysDay, _) => {
+                commands.push(format!("alwaysday {}", options.enabled(id)));
+                if !options.enabled(id) {
+                    commands.push(rule(
+                        rule_key(O::DaylightCycle),
+                        options.enabled(O::DaylightCycle).to_string(),
+                    ));
+                }
+            }
+            (O::SleepSkipNight | O::SleepPercentage, _) => {
+                let percentage = if options.enabled(O::SleepSkipNight) {
+                    options.get(O::SleepPercentage)
+                } else {
+                    SLEEP_DISABLED_PERCENTAGE
+                };
+                commands.push(rule(rule_key(O::SleepPercentage), percentage.to_string()));
+            }
+            (_, Storage::Rule(key)) => commands.push(rule(
+                key,
+                match id.definition().control {
+                    Control::Toggle => options.enabled(id).to_string(),
+                    Control::Choice(choices) => choices
+                        .iter()
+                        .find(|choice| choice.value == options.get(id))
+                        .map_or_else(
+                            || options.get(id).to_string(),
+                            |choice| choice.wire.to_owned(),
+                        ),
+                    Control::Number { .. } => options.get(id).to_string(),
+                },
+            )),
+            (_, Storage::Level(_) | Storage::Property(..) | Storage::Combined) => {}
+        }
+    }
+    commands.dedup();
+    commands
+}
+
+/// The game rule behind a rule-stored option.
+fn rule_key(id: O) -> &'static str {
+    match id.definition().storage {
+        Storage::Rule(key) => key,
+        storage => unreachable!("{id:?} is stored as {storage:?}, not a game rule"),
+    }
 }
 
 /// Drops control characters and `#`, which would end or comment out a property line.

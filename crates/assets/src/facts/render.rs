@@ -36,6 +36,8 @@ pub enum BlockRenderKind {
     EndRod,
     Fire,
     Grindstone,
+    /// Stonecutter body and saw plane that turns with its cardinal direction.
+    Stonecutter,
     Lever,
     LilyPad,
     PitcherCrop,
@@ -201,6 +203,7 @@ impl BlockRenderKind {
             | R::BrewingStand
             | R::Campfire
             | R::Grindstone
+            | R::Stonecutter
             | R::TripwireHook
             | R::Lever
             | R::EndRod

@@ -37,6 +37,7 @@ mod hd_textures;
 mod legacy;
 mod lighting;
 mod mining;
+mod multi_page;
 mod partial_faces;
 mod random_offset;
 mod session;
@@ -174,6 +175,7 @@ fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBloc
         player_interact: false,
         name: name.into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count,
         collides: true,
         collision_boxes: None,

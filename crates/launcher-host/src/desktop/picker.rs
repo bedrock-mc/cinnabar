@@ -61,7 +61,7 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     }
     // Android has no picker tools; the Storage Access Framework copies picks into app storage.
     #[cfg(target_os = "android")]
-    return super::android::pick_documents(multiple, filter.max_bytes)
+    return super::android::pick_documents(multiple, filter.max_bytes, android_mime_type(filter))
         .map_err(|error| format!("{error}."))?
         .ok_or_else(|| unavailable("no document picker is available", filter))
         .and_then(|paths| selected(filter, paths));
@@ -73,6 +73,22 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
             filter,
         )?,
     )
+}
+
+/// Restricts ZIP-only requests in Android's picker. Custom extensions keep every document
+/// visible because providers may not register their MIME types; `selected` checks names.
+#[cfg(any(target_os = "android", test))]
+fn android_mime_type(filter: &Filter) -> &'static str {
+    if !filter.extensions.is_empty()
+        && filter
+            .extensions
+            .iter()
+            .all(|extension| extension.eq_ignore_ascii_case("zip"))
+    {
+        "application/zip"
+    } else {
+        "*/*"
+    }
 }
 
 /// Keeps picked files with an accepted extension; picking only other files is a visible error.
@@ -140,10 +156,12 @@ fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Vec<PathBuf>, St
 /// The visible error when no picker could open, followed by the caller's alternative.
 #[cfg(not(windows))]
 fn unavailable(reason: &str, filter: &Filter) -> String {
-    format!(
-        "File picker unavailable: {reason}. {}",
+    let hint = if cfg!(target_os = "android") {
+        "Enable a document picker and try importing again."
+    } else {
         filter.unavailable_hint
-    )
+    };
+    format!("File picker unavailable: {reason}. {}", hint)
 }
 
 /// Reads one selected path per line, preserving spaces and ignoring empty output lines.
@@ -251,6 +269,25 @@ mod tests {
         );
         let error = selected(&PACKS, vec![PathBuf::from("/mods/mod.wasm")]).unwrap_err();
         assert!(error.contains(".mcpack"), "{error}");
+    }
+
+    #[test]
+    fn android_filters_zip_requests_without_hiding_custom_pack_types() {
+        let zip = Filter {
+            extensions: &["ZIP"],
+            ..PACKS
+        };
+        assert_eq!(android_mime_type(&zip), "application/zip");
+        assert_eq!(android_mime_type(&PACKS), "*/*");
+        assert_eq!(
+            selected(
+                &zip,
+                vec![PathBuf::from("Dusk.ZIP"), PathBuf::from("notes.txt")]
+            )
+            .unwrap(),
+            [PathBuf::from("Dusk.ZIP")]
+        );
+        assert!(selected(&zip, vec![PathBuf::from("notes.txt")]).is_err());
     }
 
     #[test]

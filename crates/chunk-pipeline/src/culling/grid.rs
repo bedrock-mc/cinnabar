@@ -12,8 +12,43 @@ const INITIAL_Y_BITS: u32 = 5;
 /// Growth stops at 2^20 cells; anything beyond stays in the overflow map.
 const MAX_CELL_BITS: u32 = 20;
 const PRESENT: u64 = 1 << 63;
-const MAX_ADDITIONS: usize = 4096;
+const MAX_CHANGES: usize = 4096;
 static NEXT_GRID_ID: AtomicU64 = AtomicU64::new(1);
+
+/// A graph change retained for incremental traversals within one slot layout.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum GraphChange {
+    /// The key joined the graph, or its matrix gained connections.
+    Opened(SubChunkKey),
+    /// A matrix lost connections, so reachability can only have shrunk.
+    Narrowed,
+    /// The key left the graph, from this cell when it occupied one.
+    Removed(SubChunkKey, Option<u32>),
+    /// An overflow key moved into its emptied home cell.
+    Promoted(SubChunkKey, u32),
+}
+
+/// The latest graph changes, dropping the oldest past [`MAX_CHANGES`].
+#[derive(Default)]
+struct ChangeJournal {
+    changes: VecDeque<GraphChange>,
+    /// Changes dropped from the front since the layout last changed.
+    start: usize,
+}
+
+impl ChangeJournal {
+    fn record(&mut self, change: GraphChange) {
+        if self.changes.len() == MAX_CHANGES {
+            self.changes.pop_front();
+            self.start += 1;
+        }
+        self.changes.push_back(change);
+    }
+
+    fn end(&self) -> usize {
+        self.start + self.changes.len()
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Cell {
@@ -40,6 +75,8 @@ pub(super) enum Slot {
 pub(crate) struct ConnectivityGrid {
     xz_bits: u32,
     y_bits: u32,
+    /// The layout the first insertion allocates, at least the initial one.
+    reserved: (u32, u32),
     cells: Vec<Cell>,
     overflow: HashMap<SubChunkKey, FaceConnectivity>,
     /// Derived alongside overflow insertion/removal; orders candidates by home cell.
@@ -47,8 +84,7 @@ pub(crate) struct ConnectivityGrid {
     len: usize,
     identity: u64,
     epoch: u64,
-    additions: VecDeque<SubChunkKey>,
-    additions_start: usize,
+    journal: ChangeJournal,
     #[cfg(test)]
     promotion_visits: usize,
 }
@@ -59,14 +95,14 @@ impl Default for ConnectivityGrid {
         Self {
             xz_bits: 0,
             y_bits: 0,
+            reserved: (INITIAL_XZ_BITS, INITIAL_Y_BITS),
             cells: Vec::new(),
             overflow: HashMap::new(),
             overflow_homes: BTreeSet::new(),
             len: 0,
             identity: NEXT_GRID_ID.fetch_add(1, Ordering::Relaxed),
             epoch: 0,
-            additions: VecDeque::new(),
-            additions_start: 0,
+            journal: ChangeJournal::default(),
             #[cfg(test)]
             promotion_visits: 0,
         }
@@ -74,34 +110,57 @@ impl Default for ConnectivityGrid {
 }
 
 impl ConnectivityGrid {
-    /// Identifies this graph, its slot layout and the retained addition history.
+    /// Identifies this graph, its slot layout and the retained change history.
     pub(super) fn checkpoint(&self) -> (u64, u64, usize) {
-        (
-            self.identity,
-            self.epoch,
-            self.additions_start + self.additions.len(),
-        )
+        (self.identity, self.epoch, self.journal.end())
     }
 
-    /// Additions since a checkpoint remain valid only within the same graph epoch.
-    pub(super) fn additions_since(
+    /// Changes since a checkpoint, valid only within the same graph epoch.
+    pub(super) fn changes_since(
         &self,
         offset: usize,
-    ) -> impl ExactSizeIterator<Item = &SubChunkKey> {
-        self.additions.iter().skip(offset - self.additions_start)
+    ) -> impl ExactSizeIterator<Item = &GraphChange> {
+        self.journal
+            .changes
+            .iter()
+            .skip(offset - self.journal.start)
     }
 
-    /// Slow readers rebuild only when their additions have actually left the bounded journal.
-    pub(super) fn retains_additions(&self, offset: usize) -> bool {
-        (self.additions_start..=self.additions_start + self.additions.len()).contains(&offset)
+    /// Slow readers rebuild only when their changes have actually left the bounded journal.
+    pub(super) fn retains_changes(&self, offset: usize) -> bool {
+        (self.journal.start..=self.journal.end()).contains(&offset)
     }
 
-    /// Retires incremental readers after a destructive change or slot-layout change.
+    /// Retires incremental readers after a slot-layout change renumbers every cell.
     fn invalidate_traversals(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
-        self.additions.clear();
-        self.additions_start = 0;
+        self.journal = ChangeJournal::default();
     }
+
+    /// Lays the grid out once for a view `radius` chunks around its centre and `height`
+    /// sections tall, within the cell budget, so filling that view never re-lays it out (which
+    /// rebuilds every traversal). Axes span `2 * radius` columns, the layout growth settles on:
+    /// only the outermost columns of a round view then share cells through the overflow map.
+    /// A grid never shrinks; an empty one allocates the layout at its first insertion.
+    pub(crate) fn reserve_view(&mut self, radius: u32, height: u32) {
+        let bits = |extent: u32| extent.max(1).next_power_of_two().trailing_zeros();
+        let y_bits = bits(height).max(self.reserved.1);
+        let xz_bits = bits(radius.saturating_mul(2))
+            .max(self.reserved.0)
+            .min(MAX_CELL_BITS.saturating_sub(y_bits) / 2);
+        if xz_bits < self.reserved.0 {
+            return;
+        }
+        self.reserved = (xz_bits, y_bits);
+        let layout = (xz_bits.max(self.xz_bits), y_bits.max(self.y_bits));
+        if !self.cells.is_empty()
+            && layout != (self.xz_bits, self.y_bits)
+            && 2 * layout.0 + layout.1 <= MAX_CELL_BITS
+        {
+            self.relayout(layout.0, layout.1);
+        }
+    }
+
     #[must_use]
     pub(crate) const fn len(&self) -> usize {
         self.len
@@ -162,21 +221,26 @@ impl ConnectivityGrid {
         value: FaceConnectivity,
     ) -> Option<FaceConnectivity> {
         if self.cells.is_empty() {
-            self.reset(INITIAL_XZ_BITS, INITIAL_Y_BITS);
+            self.reset(self.reserved.0, self.reserved.1);
         }
         let previous = self.place(key, value);
-        if previous.is_none() {
-            self.len += 1;
-            if self.overflow.len() > 64.max(self.len / 16) {
-                self.grow();
+        match previous {
+            None => {
+                self.len += 1;
+                if self.overflow.len() > 64.max(self.len / 16) {
+                    self.grow();
+                }
+                self.journal.record(GraphChange::Opened(key));
             }
-            if self.additions.len() == MAX_ADDITIONS {
-                self.additions.pop_front();
-                self.additions_start += 1;
+            Some(previous) => {
+                let (old, new) = (previous.bits(), value.bits());
+                if old & !new != 0 {
+                    self.journal.record(GraphChange::Narrowed);
+                }
+                if new & !old != 0 {
+                    self.journal.record(GraphChange::Opened(key));
+                }
             }
-            self.additions.push_back(key);
-        } else if previous != Some(value) {
-            self.invalidate_traversals();
         }
         previous
     }
@@ -191,29 +255,39 @@ impl ConnectivityGrid {
             None
         } else if cell.key == *key {
             self.cells[index] = EMPTY;
+            self.journal
+                .record(GraphChange::Removed(*key, Some(index as u32)));
             self.promote_into(index);
             Some(FaceConnectivity::from_bits(cell.bits))
         } else {
-            self.remove_overflow(key)
+            let removed = self.remove_overflow(key);
+            if removed.is_some() {
+                self.journal.record(GraphChange::Removed(*key, None));
+            }
+            removed
         };
         self.len -= usize::from(removed.is_some());
-        if removed.is_some() {
-            self.invalidate_traversals();
-        }
         removed
     }
 
     pub(crate) fn retain(&mut self, mut keep: impl FnMut(&SubChunkKey) -> bool) {
-        let previous_len = self.len;
-        self.overflow.retain(|key, _| keep(key));
+        self.overflow.retain(|key, _| {
+            let kept = keep(key);
+            if !kept {
+                self.journal.record(GraphChange::Removed(*key, None));
+            }
+            kept
+        });
         self.overflow_homes
             .retain(|(_, key)| self.overflow.contains_key(key));
         let mut len = self.overflow.len();
-        for cell in &mut self.cells {
+        for (index, cell) in self.cells.iter_mut().enumerate() {
             if cell.bits & PRESENT != 0 {
                 if keep(&cell.key) {
                     len += 1;
                 } else {
+                    self.journal
+                        .record(GraphChange::Removed(cell.key, Some(index as u32)));
                     *cell = EMPTY;
                 }
             }
@@ -236,9 +310,8 @@ impl ConnectivityGrid {
                 key,
                 bits: value.bits() | PRESENT,
             };
-        }
-        if self.len != previous_len {
-            self.invalidate_traversals();
+            self.journal
+                .record(GraphChange::Promoted(key, index as u32));
         }
     }
 
@@ -300,6 +373,8 @@ impl ConnectivityGrid {
             key,
             bits: value.bits() | PRESENT,
         };
+        self.journal
+            .record(GraphChange::Promoted(key, index as u32));
     }
 
     /// Counts candidate keys inspected by promotions since the last test observation.
@@ -332,6 +407,11 @@ impl ConnectivityGrid {
         if 2 * xz_bits + y_bits > MAX_CELL_BITS {
             return;
         }
+        self.relayout(xz_bits, y_bits);
+    }
+
+    /// Re-places every key under a new slot layout, which retires incremental readers.
+    fn relayout(&mut self, xz_bits: u32, y_bits: u32) {
         let entries = self
             .cells
             .iter()

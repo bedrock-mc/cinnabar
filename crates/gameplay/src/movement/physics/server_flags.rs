@@ -4,7 +4,8 @@
 //! Every completed tick captures the flag word it started with. A server write
 //! stamped at a retained tick becomes a correction of the following frame: the
 //! bits that differ from that frame's capture, applied to the live state at
-//! once and again whenever replay passes the frame. Replay keeps the capture of
+//! once. Those changed bits request replay from the stamp, and apply again
+//! whenever replay passes the frame. Replay keeps the capture of
 //! the frame it starts from and refreshes every later capture from the replayed
 //! state before re-applying that frame's corrections; the replayed word then
 //! replaces the live one, as vanilla copies every client-owned flag back. A
@@ -20,15 +21,15 @@
 
 use super::*;
 
-/// Pose modes in the order a start prefers when one word sets several.
+/// Packed positions of the independent pose flags.
 const POSES: [sim::MovementMode; 3] = [
     sim::MovementMode::Gliding,
     sim::MovementMode::Swimming,
     sim::MovementMode::Crawling,
 ];
 /// Flag word bits after the three pose bits, which follow [`POSES`].
-const SPINNING: u8 = 1 << 3;
-const USING_ITEM: u8 = 1 << 4;
+const SPINNING: u8 = 1 << POSES.len();
+const USING_ITEM: u8 = SPINNING << 1;
 
 /// The client-owned bits of the actor flag word: glide, swim and crawl poses,
 /// the Riptide spin (`DamageNearbyMobs`) and item use.
@@ -37,14 +38,18 @@ pub(super) struct FlagWord(u8);
 
 impl FlagWord {
     /// The word the local state forms.
-    pub(super) fn capture(mode: sim::MovementMode, spinning: bool, using_item: bool) -> Self {
-        let pose = POSES
-            .iter()
-            .position(|pose| *pose == mode)
-            .map_or(0, |index| 1 << index);
+    pub(super) fn capture(
+        poses: super::super::PoseFlags,
+        spinning: bool,
+        using_item: bool,
+    ) -> Self {
+        let pose = POSES.iter().enumerate().fold(0, |bits, (index, mode)| {
+            bits | if poses.has(*mode) { 1 << index } else { 0 }
+        });
         Self(pose | if spinning { SPINNING } else { 0 } | if using_item { USING_ITEM } else { 0 })
     }
 
+    /// Whether the selected bit is set in this word.
     fn has(self, bit: u8) -> bool {
         self.0 & bit != 0
     }
@@ -54,6 +59,7 @@ impl FlagWord {
         self.has(SPINNING)
     }
 
+    /// Whether the captured word carries item use.
     pub(super) fn using_item(self) -> bool {
         self.has(USING_ITEM)
     }
@@ -67,6 +73,7 @@ pub(super) struct FlagWrite {
 }
 
 impl FlagWrite {
+    /// Packs only the pose and spin fields supplied by this server update.
     pub(super) fn from_flags(flags: &client_world::MovementFlagUpdate) -> Self {
         let mut write = Self::default();
         for (bit, flag) in [
@@ -103,6 +110,7 @@ impl FlagCorrection {
         }
     }
 
+    /// Whether no adopted bit differs from the selected comparison word.
     fn is_empty(self) -> bool {
         self.mask == 0
     }
@@ -121,46 +129,21 @@ impl FlagCorrection {
     }
 }
 
-/// Ends or starts `modes`' pose so it follows the pose bits of `word` that
-/// `mask` covers: a cleared pose ends, and a set pose starts unless a pose the
-/// word keeps continues. Cinnabar keeps one pose, so a word setting several
-/// starts the first, and flight, which vanilla keeps beside pose flags, stays.
-/// A changed pose also becomes the swimming-or-crawling flag the next tick's
-/// swim blend reads in `state`.
+/// Applies selected pose bits independently and updates the next swim-blend input.
 fn apply_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker, state: &mut PlayerState) {
-    let current = modes.mode();
     write_pose(word, mask, modes);
-    if modes.mode() != current {
-        state.swim_pose_active = matches!(
-            modes.mode(),
-            sim::MovementMode::Swimming | sim::MovementMode::Crawling
-        );
-    }
+    state.swim_pose_active = modes.pose_flags().swim_pose();
 }
 
 /// The pose half of [`apply_pose`].
 fn write_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker) {
-    let current = modes.mode();
-    if current == sim::MovementMode::Flying {
-        return;
+    let mut poses = modes.pose_flags();
+    for (index, pose) in POSES.iter().enumerate() {
+        if mask & (1 << index) != 0 {
+            poses.set(*pose, word.has(1 << index));
+        }
     }
-    let bit = |index: usize| (mask & (1 << index) != 0).then(|| word.has(1 << index));
-    let ended = POSES
-        .iter()
-        .enumerate()
-        .any(|(index, pose)| *pose == current && bit(index) == Some(false));
-    if ended {
-        modes.end(current);
-    }
-    if POSES.contains(&modes.mode()) {
-        return;
-    }
-    if let Some(pose) = (0..POSES.len())
-        .find(|index| bit(*index) == Some(true))
-        .map(|index| POSES[index])
-    {
-        modes.start(pose);
-    }
+    modes.adopt_pose_flags(poses);
 }
 
 /// The word's spin on replayed state; a new spin counts its lifetime from
@@ -179,7 +162,7 @@ pub(super) fn impose(
     state: &mut PlayerState,
     dormant: u8,
 ) {
-    apply_pose(word, 0b111, modes, state);
+    apply_pose(word, SPINNING - 1, modes, state);
     set_spin(state, word.has(SPINNING), dormant);
 }
 
@@ -347,7 +330,7 @@ pub(super) fn capture_tick(
     input: &mut super::super::TickInput,
 ) -> (FlagWord, FlagCorrection, EntryCounters) {
     let entry = FlagWord::capture(
-        modes.mode(),
+        modes.pose_flags(),
         state.spin_attack_ticks.is_some(),
         authority.live_using_item,
     );
@@ -360,6 +343,7 @@ pub(super) fn capture_tick(
         .filter(|(tick, _)| Some(*tick) == next)
         .map_or_else(FlagCorrection::default, |(_, correction)| correction);
     input.server_mode = Some(modes.mode());
+    input.server_pose_flags = Some(modes.pose_flags());
     input.server_spinning = Some(state.spin_attack_ticks.is_some());
     (entry, correction, counters)
 }
@@ -368,7 +352,7 @@ impl LocalPhysicsController {
     /// The live flag word, including server writes not yet reconciled.
     pub(super) fn live_flag_word(&self) -> FlagWord {
         FlagWord::capture(
-            self.modes.mode(),
+            self.modes.pose_flags(),
             self.state
                 .as_ref()
                 .is_some_and(|state| state.spin_attack_ticks.is_some()),
@@ -387,7 +371,7 @@ impl LocalPhysicsController {
 
     /// Writes the item-use bit to the live word and hands it to the item-use
     /// owner.
-    fn write_server_using_item(&mut self, using: bool) {
+    pub(super) fn write_server_using_item(&mut self, using: bool) {
         self.server_flags.live_using_item = using;
         self.server_flags.pending_using_item = Some(using);
     }
@@ -407,6 +391,8 @@ impl LocalPhysicsController {
                 state,
                 &mut self.server_flags,
             );
+            self.sync_state
+                .accept_poses(self.modes.pose_flags(), state.spin_attack_ticks.is_some());
         }
     }
 
@@ -453,9 +439,8 @@ impl LocalPhysicsController {
     }
 
     /// Attaches a write stamped at retained `tick` to the following frame as
-    /// the difference from that frame's capture, and applies it live. Like
-    /// vanilla's flag correction, whose pending type is zero, it schedules no
-    /// replay; a later replay through the frame applies it. Without a
+    /// the difference from that frame's capture, and applies it live. Changed
+    /// adopted bits request replay from the stamp. Without a
     /// following frame, as when a stale stamp clamps to the only retained
     /// tick, the write applies live and waits for the next capture. Returns
     /// whether a retained frame changed.

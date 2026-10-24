@@ -156,13 +156,23 @@ impl GpuCullFeedback {
             .as_ref()
             .is_none_or(|sample| sample.buffer.size() < bytes)
         {
+            let size = bytes
+                .next_power_of_two()
+                .min(device.limits().max_buffer_size);
+            let Some(buffer) =
+                crate::gpu_allocation::checked(device, "terrain rejection feedback", size, || {
+                    device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("terrain rejection feedback"),
+                        size,
+                        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    })
+                })
+            else {
+                return;
+            };
             self.sample = Some(Sample {
-                buffer: device.wgpu_device().create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("terrain rejection feedback"),
-                    size: bytes.next_power_of_two(),
-                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }),
+                buffer,
                 state: Arc::new(AtomicU8::new(IDLE)),
                 view,
                 frame: 0,

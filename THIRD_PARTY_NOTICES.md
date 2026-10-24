@@ -129,6 +129,20 @@ Ten, Seven, Five and Five Bold are derived from Cinnangles Sans; their source
 manifests pin the exact Sans input. Sans provenance and licensing review is pending.
 No license is asserted here for these faces.
 
+## DirectX Shader Compiler
+
+- Source: https://github.com/microsoft/DirectXShaderCompiler
+- File: `dxcompiler.dll` (x64), installed beside `cinnabar.exe` by the Windows packages and
+  `make play`; used unmodified. The release archive, its directory and the SHA-256 of both the
+  archive and the library are pinned in `packaging/windows/dxc.json`.
+- License: University of Illinois/NCSA Open Source License (LLVM Release License). The release
+  notes apply it to every packaged file except `d3d12shader.h`, which Cinnabar does not ship.
+- Copyright: Copyright (c) 2003-2015 University of Illinois at Urbana-Champaign; LLVM Team.
+- Full license, with the notices for third-party code the compiler includes:
+  `assets/licenses/DirectXShaderCompiler-LICENSE.txt`, included in packaged resources. It is the
+  repository's `LICENSE.TXT` at the pinned release's tag, without the notices it marks as build
+  and test dependencies only; refresh it whenever the pin changes.
+
 ## FreeType
 
 `assetc` statically links FreeType 2.13.2, bundled by `freetype-sys` 0.22.0, to rasterize
@@ -607,3 +621,28 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+## AMD FidelityFX Super Resolution 1
+
+- Source: https://github.com/GPUOpen-Effects/FidelityFX-FSR
+- License: MIT.
+- Use: FP32 EASU, RCAS and reversible HDR colour transforms from `ffx-fsr/ffx_fsr1.h`,
+  ported to `crates/render/src/world_upscale.wgsl`; CPU setup in
+  `crates/render/src/ui_render/upscale.rs`.
+
+Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files(the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and / or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions :
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

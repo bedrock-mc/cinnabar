@@ -8,7 +8,7 @@ use protocol_ids::{ActorDataKey, ActorFlag};
 use std::sync::Arc;
 
 /// Creates a local presentation feed with no accepted gameplay use or locomotion.
-fn feed() -> LocalPlayerFeed {
+pub(super) fn feed() -> LocalPlayerFeed {
     LocalPlayerFeed {
         game_mode: None,
         uuid: [0; 16],
@@ -52,7 +52,7 @@ fn sync(
 ) -> protocol::Packet {
     let actor = LocalActor(authority.actor(1).unwrap().clone());
     let mut sent = None;
-    send_movement_prediction_sync(physics, &actor, None, false, |packet| {
+    send_movement_prediction_sync(physics, &actor, None, None, None, |packet| {
         sent = Some(packet);
         accepted
     });

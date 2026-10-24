@@ -33,7 +33,11 @@ pub(super) fn stack_icon(
                 animation_frame,
             )
         });
-    let icon = presentation.item_icon(icon_identifier, variant)?;
+    let icon = runtime
+        .stack_facts(stack)
+        .custom_color
+        .and_then(|rgb| presentation.color_mask_icon(icon_identifier, variant, rgb))
+        .or_else(|| presentation.item_icon(icon_identifier, variant))?;
     Some(icon.with_glint(runtime.item_glint(stack, item.glint)))
 }
 

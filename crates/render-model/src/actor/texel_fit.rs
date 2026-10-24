@@ -15,7 +15,8 @@ pub fn fit_rgba_within(
         return None;
     }
     let factor = longest.div_ceil(limit).next_power_of_two() as usize;
-    let (out_width, out_height) = (width.div_ceil(factor), height.div_ceil(factor));
+    let [out_width, out_height] =
+        fitted_dimensions(width as u16, height as u16, limit).map(usize::from);
     let mut out = Vec::with_capacity(out_width * out_height * 4 * (rgba8.len() / layer));
     for layer in rgba8.chunks_exact(layer) {
         for y in 0..out_height {
@@ -36,6 +37,16 @@ pub fn fit_rgba_within(
         }
     }
     Some(([out_width as u16, out_height as u16], out))
+}
+
+/// The dimensions `fit_rgba_within` produces for `limit`; unchanged when they already fit.
+pub(crate) fn fitted_dimensions(width: u16, height: u16, limit: u32) -> [u16; 2] {
+    let longest = u32::from(width.max(height));
+    if longest <= limit || limit == 0 {
+        return [width, height];
+    }
+    let factor = longest.div_ceil(limit).next_power_of_two();
+    [width, height].map(|side| u32::from(side).div_ceil(factor) as u16)
 }
 
 #[cfg(test)]

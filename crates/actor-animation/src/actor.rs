@@ -8,6 +8,8 @@ pub const MAX_ANIMATED_ACTORS: usize = 8_192;
 
 /// One live actor's authoritative state, as animation queries and clocks read it.
 pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
+    /// The server's persistent actor unique id.
+    fn unique_id(&self) -> i64;
     fn runtime_id(&self) -> u64;
     /// Distinguishes a respawned actor from the one that held its runtime id before.
     fn spawn_revision(&self) -> u64;

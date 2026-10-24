@@ -72,14 +72,14 @@ fn animation_sample(material: MaterialGpu) -> FrameSample {
     if (material.animation == 0xffffffffu) {
         return FrameSample(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = animations(material.animation);
     let current_index = (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current = animation_frames[animation.frame_start + current_index];
+    let current = animation_frames(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return FrameSample(current, current, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
-    let next = animation_frames[animation.frame_start + next_index];
+    let next = animation_frames(animation.frame_start + next_index);
     let blend = (
         f32(clock.tick % animation.ticks_per_frame) +
         clamp(clock.partial_tick, 0.0, 0.99999994)
@@ -175,7 +175,7 @@ fn liquid_record(instance_index: u32) -> u32 {
     if ((instance_index & TRANSPARENT_WATER_RECORD_FLAG) != 0u) {
         return instance_index & ~TRANSPARENT_WATER_RECORD_FLAG;
     }
-    return transparent_refs[instance_index].liquid_record_index;
+    return transparent_refs(instance_index).liquid_record_index;
 }
 
 // Consecutive units share an instance; reject padding before fetching a descriptor or geometry.
@@ -247,7 +247,7 @@ fn liquid_record_corner(record_index: u32, corner: u32) -> LiquidCorner {
     let geometry = geometry_streams[liquid_word];
     let height_word = geometry_streams[liquid_word + 1u];
     let packed_material = geometry_streams[liquid_word + 2u];
-    let chunk_origin = chunk_origins[geometry_streams[liquid_word + 3u]];
+    let chunk_origin = chunk_origins(geometry_streams[liquid_word + 3u]);
     let lighting_record_index = chunk_origin.stream_bases.w + record_index - chunk_origin.stream_bases.z;
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     let light_sample = select(
@@ -283,7 +283,7 @@ fn vertex_for_record(record_index: u32, vertex_index: u32) -> VertexOutput {
     let block_coordinate = decoded.block_coordinate;
     let world_position = vec3<f32>(decoded.chunk_origin.xyz) + local_position;
     let camera_offset = section_camera_offset(decoded.chunk_origin.xyz, local_position, view.world_position);
-    let material = materials[decoded.selected_material_id];
+    let material = materials(decoded.selected_material_id);
     let frame = animation_sample(material);
 
     var out: VertexOutput;
