@@ -500,6 +500,11 @@ camera-direction generation and runtime witnesses remain incomplete.
 Remote actor snapping respects target-column terrain order. Block-use and painting
 occlusion share rounded intercept distances. CI verification remains pending.
 
+Held placement still drops intermediate frame rays and suppresses another attempt in
+that tick after a failed placement. Ordered stored-pick evaluation, due retries within
+the batch, original-hit refresh and buffer consumption, and the extra support-centre
+range check after line targeting remain open. Existing repeat delays stay unchanged.
+
 | Field | Evidence |
 |---|---|
 | Owning plan/task | Partial local placement coverage and compiled movement/selection ownership; see Local placement prediction and Block selection outlines and visual bounds in plan.md. |

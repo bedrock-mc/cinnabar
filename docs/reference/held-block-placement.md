@@ -8,11 +8,11 @@ remain subject to each item's placement rules.
 | Vanilla rules | Behaviour |
 | --- | --- |
 | First press | Attempt the fresh clicked block and face immediately. Start a new hold with no previous success or line. |
-| Evaluation order | A press resolves when its input arrives, before the frame's ticks; held repeats run once per simulation tick, before that tick's movement. Velocity, resolved motion, sneaking, the reported player position and the player's box come from the previous tick's end state, and a placed block is in the world that tick's movement collides with. The pick is the eye ray of the frame before the tick, recast against the current world; a hit farther than reach from the pre-tick eye (measured to a block's centre) counts as a miss. |
-| Repeats | Refresh the world pick each simulation tick. An attempt is due only when elapsed time is strictly greater than the repeat delay; this is not a fixed tick count. |
+| Evaluation order | A press resolves when its input arrives, before the frame's ticks; held repeats evaluate the stored frame picks in order before that tick's movement. Velocity, resolved motion, sneaking, the reported player position and the player's box come from the previous tick's end state, and a placed block is in the world that tick's movement collides with. Each stored pick is refreshed against the current world; a hit farther than reach from the pre-tick eye (measured to a block's centre) counts as a miss. |
+| Repeats | Refresh the stored frame picks before simulation. An attempt is due only when elapsed time is strictly greater than the repeat delay; this is not a fixed tick count. |
 | Slow delay | 300 ms while sneaking, interacting with a block, or placing before a line has been established. At 20 Hz and an exactly aligned timestamp, the first due opportunity is tick 7. |
 | Ordinary delay | 200 ms while still. While moving, truncate `min(900 / speed, 180)` milliseconds, where speed is the length of the actual post-tick movement delta multiplied by 20. Every noncreative mode has a 100 ms minimum. |
-| Timing after attempts | Failed attempts retain the previous success time and may retry next tick. Successful moving repeats advance the scheduled time, limited to 180 ms of catch-up; stationary success records the current time. |
+| Timing after attempts | Failed attempts retain the previous success time; another stored frame pick may retry in the same tick if the deadline remains due. Successful moving repeats advance the scheduled time, limited to 180 ms of catch-up; stationary success records the current time. |
 | Direction before a line | After a successful placement, actor velocity with squared length greater than 0.01 chooses the largest absolute movement axis; ties choose Z. Without sneaking, use the last successful destination as the support and this axis as the face. |
 | Qualifying blocks | The held block must allow the placement intention. Ordinary cubes, stairs, slabs, fences, thin fences/panes, walls and carpet qualify, as do soul sand, mud, barriers and chiseled bookshelves through inherited cube properties; a nonzero block runtime ID alone is insufficient. Custom block placers also control whether this intention is enabled. |
 | Acquiring a line | An adjacent attempted destination after a previous success fixes the direction and face while use remains held. An attempt can establish the line even if it fails. A successful attempt at the next destination advances that destination by the fixed direction. |
@@ -27,6 +27,13 @@ remain subject to each item's placement rules.
 | Movement corrections | A same-session correction pauses attempts until fresh movement evidence is available, preserving the successful destination, line and repeat schedule. |
 | Selected stack during continuation | Each repeat reads the current selected stack and applies its placement rules. The continuation itself does not reset retained history by comparing stack identity. A refused repeat does not advance the success clock. |
 | Hold reset | Release, attack and blocked gameplay input such as a menu stop the hold. Stop reports the last successful destination; a new press starts fresh. Blocked gameplay also cancels deferred presses. |
+
+Cinnabar currently keeps only the latest frame ray and admits at most one held attempt
+per tick, including failed attempts. Evaluating every stored frame pick in order and
+retrying failed placements within that batch remain incomplete. The selected support
+also receives an extra centre-distance check after line targeting. Original hit refresh
+and buffer-consumption behavior still need full qualification. These gaps can discard
+placement opportunities without changing the repeat delay.
 
 Cinnabar provisionally preserves the successful destination, locked direction/face,
 first intercept and repeat schedule across slot or item changes. Unconfirmed selection
