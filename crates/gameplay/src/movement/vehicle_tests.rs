@@ -370,3 +370,36 @@ fn server_motion_after_a_correction_keeps_the_corrected_pose() {
     let next = drive(&mut predicted, pushed, 11, 1);
     assert!(next.position[0] > 2.0 && next.position[0] < 2.5, "{next:?}");
 }
+
+/// A new session, on boarding or after a server teleport, renders the boat at its first
+/// stepped pose, where the rider is seated, instead of easing from the pose before it.
+#[test]
+fn a_new_session_renders_where_its_rider_is_seated() {
+    let pushed = SteeredVehicle {
+        velocity: [0.6, 0.0, 0.0],
+        ..boat()
+    };
+    let mut prediction = VehiclePrediction::default();
+    drive(&mut prediction, pushed, 1, 1);
+    let boarded = prediction.feed(0.0).unwrap();
+    assert!(
+        boarded.position[0] > pushed.position[0] + 0.1,
+        "{boarded:?}"
+    );
+    assert_eq!(boarded.render_position, boarded.position);
+    assert_eq!(boarded.render_yaw, boarded.yaw);
+
+    drive(&mut prediction, pushed, 2, 5);
+    let teleported = SteeredVehicle {
+        position: [40.5, 62.6, 40.5],
+        revision: client_world::VehicleRevision { pose: 1, motion: 0 },
+        ..pushed
+    };
+    drive(&mut prediction, teleported, 7, 1);
+    let restarted = prediction.feed(0.0).unwrap();
+    assert_eq!(restarted.render_position, restarted.position);
+    // A continued session still eases from its last tick.
+    drive(&mut prediction, teleported, 8, 1);
+    let continued = prediction.feed(0.0).unwrap();
+    assert_ne!(continued.render_position, continued.position);
+}

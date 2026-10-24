@@ -242,7 +242,11 @@ impl ActorStore {
         self.synthetic_local_revision = self.synthetic_local_revision.saturating_add(1);
         let revision = self.synthetic_local_revision.max(1);
         let (uuid, username) = self.resolve_local_identity(unique_id, feed);
+        // A seat that locks rotation draws the body at the facing the caller sampled for this
+        // frame rather than easing between ticked headings.
+        let locked_facing = self.rider_view_lock(unique_id, 1.0).map(|_| feed.yaw);
         if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.status.predicted_render_yaw = locked_facing;
             if let Some(mode) = feed.game_mode {
                 let mode = Some(protocol::GameModeUpdate::Explicit(mode));
                 self.local_view_dirty |= actor.player_game_mode != mode;

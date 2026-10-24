@@ -942,3 +942,46 @@ fn a_locked_passenger_faces_along_the_predicted_boat() {
     store.sync_local_vehicle(None);
     assert_eq!(passenger(&store), None);
 }
+
+/// On a locked seat the local rider's body is drawn at the facing sampled for the frame,
+/// not eased between ticked headings, and eases again once it leaves the seat.
+#[test]
+fn a_locked_local_rider_is_drawn_at_its_frame_facing() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(BOAT, entity("minecraft:boat"), Vec::new()));
+    store.apply(
+        1,
+        2,
+        spawn(
+            PLAYER,
+            player("Rider"),
+            vec![
+                ActorMetadata {
+                    key: ActorDataKey::SeatLockPassengerRotation.wire_value(),
+                    value: ActorMetadataValue::Byte(1),
+                },
+                ActorMetadata {
+                    key: ActorDataKey::SeatLockPassengerRotationDegrees.wire_value(),
+                    value: ActorMetadataValue::Float(90.0),
+                },
+            ],
+        ),
+    );
+    store.exclude_remote_state_for(PLAYER as u64);
+    let mut sequence = 2;
+    board(&mut store, &mut sequence, &[(PLAYER, ActorLinkType::Rider)]);
+    let facing = |store: &ActorStore| {
+        store
+            .snapshot_by_unique(PLAYER)
+            .unwrap()
+            .status
+            .predicted_render_yaw
+    };
+    let feed = super::local_tests::local_feed(0.0, 33.0);
+    store.sync_local_player(PLAYER as u64, PLAYER, &feed);
+    assert_eq!(facing(&store), Some(33.0));
+    sequence += 1;
+    store.apply_link(1, sequence, link(PLAYER, ActorLinkType::Remove));
+    store.sync_local_player(PLAYER as u64, PLAYER, &feed);
+    assert_eq!(facing(&store), None);
+}

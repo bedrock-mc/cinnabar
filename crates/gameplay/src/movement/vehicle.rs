@@ -125,6 +125,10 @@ impl VehiclePrediction {
             unique_id: vehicle.unique_id,
             pose_revision: vehicle.revision.pose,
         };
+        let continued = self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.owner == owner);
         let mut session = match &self.session {
             Some(session) if session.owner == owner => {
                 let mut session = session.clone();
@@ -157,8 +161,15 @@ impl VehiclePrediction {
             sim::boat_paddle_power(move_vector),
             BoatBuoyancy::Live { wave_draw },
         )?;
-        session.previous_yaw = session.state.yaw;
-        session.previous_position = session.state.position;
+        // A continued session renders from its last tick. A new one renders at its first
+        // stepped pose, where its rider is seated, rather than easing across the restart.
+        let from = if continued {
+            &session.state
+        } else {
+            &tick.state
+        };
+        session.previous_yaw = from.yaw;
+        session.previous_position = from.position;
         session.state = tick.state;
         let seat = seat_feet(&session.state, session.seat);
         self.pending = Some(session);
