@@ -90,8 +90,8 @@ pub(crate) fn allocate_actor_session_id() -> u64 {
         })
         .expect("actor session identity space exhausted")
 }
-/// An attribute update can publish both movement changes and a local death.
-pub const COMMITTED_CONTROL_CAPACITY: usize = 2 * MAX_ADMITTED_WORLD_EVENTS;
+/// A local spawn can publish item use, movement attributes and a local death.
+pub const COMMITTED_CONTROL_CAPACITY: usize = 3 * MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_UI_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_AUDIO_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;
 pub const COMMITTED_CAMERA_CAPACITY: usize = MAX_ADMITTED_WORLD_EVENTS;

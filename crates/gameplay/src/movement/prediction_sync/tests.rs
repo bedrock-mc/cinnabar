@@ -3,6 +3,7 @@
 use super::*;
 
 mod authority_writes;
+mod lifetimes;
 mod pose_sizes;
 mod progress;
 mod server_writes;

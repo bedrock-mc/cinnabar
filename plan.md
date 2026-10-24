@@ -292,9 +292,10 @@ independently of simulation admission. Unsupported attribute models leave report
 with the actor's current value. Retained corrections arm its idle countdown;
 bare snaps do not. Pose triggers refresh their independent bits after each local tick.
 Sparse dimension writes preserve the untouched accepted component, including local
-pose sizes. Accepted local spawns retire old dimension ownership and refresh movement
-speed or use the new actor's current. Unknown passenger identities defer controller
-selection until their arrival order can be resolved.
+pose sizes. Network and synthetic local actors share arrival-ordered lifetimes.
+Accepted local spawns retire old dimension ownership, replace accepted item-use flags,
+and refresh movement speed or use the new actor's current. Unknown passenger identities
+defer controller selection until their arrival order can be resolved.
 Server-driven item-use gameplay starts, block-climber flags, custom collision
 definitions, legacy sneak height, transition-tick packet ordering and broader
 live-server qualification remain incomplete.
