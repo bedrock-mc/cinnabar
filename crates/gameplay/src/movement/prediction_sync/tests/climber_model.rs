@@ -238,7 +238,8 @@ fn seeded_climber_streams_match_live_execution_after_arbitrary_replay() {
                     check_replay(&mut physics, anchor, &ticks, &pending, &world, seed);
                 }
             }
-            if current > 101 && random.next() & 3 == 0 {
+            // A mobile tail guarantees missing terrain rejects this rewind.
+            if current > 101 && !ticks.last().unwrap().input.immobile && random.next() & 3 == 0 {
                 let stamp = 101 + random.next() % (current - 101);
                 let word = random.next() & ClimberFlags::mask();
                 let mask = (ticks[(stamp - 100) as usize].entry ^ word) & ClimberFlags::mask();
