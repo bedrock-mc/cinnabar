@@ -78,7 +78,7 @@ pub(crate) struct MeleeContext<'w, 's> {
 }
 
 /// Publishes frame inputs and resolves presses through the single published-frame pick.
-/// Open screens and spectator mode cancel the press.
+/// Open screens, spectator mode and an item in use cancel the press.
 pub(crate) fn prepare_melee(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     context: MeleeContext,
@@ -86,6 +86,7 @@ pub(crate) fn prepare_melee(
     mut swings: ResMut<SwingTracker>,
     movement: Res<MovementTicker>,
     mut target: ResMut<MeleeTarget>,
+    item_use: bevy::prelude::Res<client_interaction::item_use::ItemUseRuntime>,
 ) {
     let ordered = context
         .input
@@ -151,6 +152,7 @@ pub(crate) fn prepare_melee(
     if let Err(reason) = press_admission(
         focused && !context.focus.ui_focused,
         player_runtime.facts.player_game_mode(),
+        item_use.is_using(),
     ) {
         drop(reason);
         runtime.cancel();

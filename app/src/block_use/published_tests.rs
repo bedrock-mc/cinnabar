@@ -44,6 +44,9 @@ mod attack_fields_tests;
 #[path = "published_tests/attack_admission.rs"]
 mod attack_admission_tests;
 
+#[path = "published_tests/attack_while_using.rs"]
+mod attack_while_using_tests;
+
 #[path = "published_tests/attack_validation.rs"]
 mod attack_validation_tests;
 
