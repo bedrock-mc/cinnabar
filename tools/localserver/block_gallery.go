@@ -61,7 +61,8 @@ func newBlockGallery(blocks world.BlockRegistry, filter string) (*blockGallery, 
 		if pattern == "" {
 			pattern = "*"
 		}
-		if !strings.Contains(pattern, ":") {
+		// Bare names mean vanilla blocks; a leading wildcard already spans every namespace.
+		if !strings.Contains(pattern, ":") && !strings.HasPrefix(pattern, "*") {
 			pattern = "minecraft:" + pattern
 		}
 		if _, err := path.Match(pattern, ""); err != nil {

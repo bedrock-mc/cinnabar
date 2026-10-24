@@ -6,9 +6,11 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/df-mc/dragonfly/server"
+	"github.com/df-mc/dragonfly/server/block"
 	"github.com/df-mc/dragonfly/server/block/cube"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/df-mc/dragonfly/server/world/chunk"
@@ -88,6 +90,24 @@ func TestBlockGalleryRawStateRoundtrip(t *testing.T) {
 	isolated := raw.Samples[0].Position
 	if decoded.Block(uint8((isolated[0]+1)&15), int16(isolated[1]), uint8(isolated[2]&15), 0) != g.blocks.AirRuntimeID() {
 		t.Fatal("isolated sample has a neighbour")
+	}
+}
+
+// The default selection is the whole palette, so server-registered custom blocks must not be dropped.
+func TestBlockGalleryDefaultIncludesCustomNamespaces(t *testing.T) {
+	if luckyBlockHash == 0 {
+		luckyBlockHash = block.NextHash()
+	}
+	blocks := world.NewBlockRegistry()
+	blocks.RegisterBlock(luckyBlock{})
+	for _, filter := range []string{"", "*"} {
+		g, err := newBlockGallery(blocks, filter)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(g.states, func(s galleryState) bool { return s.Name == luckyBlockID }) {
+			t.Fatalf("filter %q dropped %s", filter, luckyBlockID)
+		}
 	}
 }
 

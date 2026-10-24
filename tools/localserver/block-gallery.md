@@ -28,6 +28,7 @@ With the client MCP, connect using:
 {"local_server":{"args":["-block-gallery","-block-gallery-filter","*stairs","-game-mode","creative","-difficulty","peaceful"]}}
 ```
 
-Use the MCP camera path to visit the manifest's views, wait for the local chunks
-to load, and capture each view. Hide the HUD for captures. This fixture covers
+The server streams chunks around the player, not the camera, so for each view first
+`/tp` the player to its eye position, then set the MCP camera path to the view, wait
+for the local chunks to load, and capture. Hide the HUD for captures. This fixture covers
 placed states; inventory and held-item presentation have separate fixtures.
