@@ -85,7 +85,7 @@ fn server_item_use_survives_an_ordered_edge_after_a_dimension_change() {
     server_start_after_scope_change(7, 1);
 }
 
-/// Starts a server-owned bow use with two verified slots and the requested button ownership.
+/// Starts a server-owned bow use over two verified slots, aiming into air with known button ownership.
 fn server_using_bow(held: bool) -> (World, client_session::CapturedPackets) {
     let (mut world, mut captured) = fixture();
     hold_air_item(&mut world, "minecraft:bow", 1, [].into());
@@ -109,6 +109,17 @@ fn server_using_bow(held: bool) -> (World, client_session::CapturedPackets) {
             stack,
             storage_item: None,
         }));
+    });
+    world
+        .resource_mut::<InteractionOriginSnapshot>()
+        .assist_direction(Vec3::Y);
+    world.resource_scope(|world, mut block_use: Mut<BlockUseRuntime>| {
+        block_use.retain_pick(
+            world.resource::<InteractionOriginSnapshot>(),
+            world
+                .resource::<MovementTicker>()
+                .position_authority_identity(),
+        );
     });
     super::super::riptide_tests::flush_and_acknowledge(&mut world);
     world
