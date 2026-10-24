@@ -286,6 +286,8 @@ pub struct LocalPhysicsController {
     /// Retained server flag writes and the pending item-use value.
     server_flags: server_flags::ServerFlagAuthority,
     sync_state: posture::SyncState,
+    /// Ordered writes belong to the timeline and survive actor-state replacement.
+    sync_pending: Vec<posture::ServerWrite>,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
     boosts: super::boosts::BoostTimeline,
@@ -335,6 +337,7 @@ impl Default for LocalPhysicsController {
             live_posture: Default::default(),
             server_flags: Default::default(),
             sync_state: Default::default(),
+            sync_pending: Vec::new(),
             riptide_pending: None,
             boosts: Default::default(),
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
@@ -637,8 +640,8 @@ impl LocalPhysicsController {
                     }
                     let mut controller = ControllerFrame {
                         tick: state.tick,
-                        sync_state: self.sync_state,
-                        sync_server: self.sync_state.take_pending(),
+                        sync_state: Default::default(),
+                        sync_server: std::mem::take(&mut self.sync_pending),
                         position_before_tick: before,
                         anchor_state: self.anchor_state,
                         entry_velocity,

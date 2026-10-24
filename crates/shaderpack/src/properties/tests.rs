@@ -158,7 +158,7 @@ fn duplicate_else_and_elif_after_else_are_diagnosed() {
 }
 
 #[test]
-fn program_rules_prefer_dimension_and_last_occurrence() {
+fn program_rules_match_their_own_folder_and_last_occurrence() {
     let properties = parse(
         "program.composite1.enabled = BLOOM\nprogram.world0/composite1.enabled = BLOOM && !FAST\n\
          program.world0/composite1.enabled = TAA\nprogram.shadow.enabled=SHADOW\n\
@@ -171,15 +171,14 @@ fn program_rules_prefer_dimension_and_last_occurrence() {
     assert_eq!(rule.dimension.as_deref(), Some("world0"));
     assert_eq!(rule.expr, Expr::Ident("TAA".to_owned()));
     assert_eq!(rule.line, 3);
-    let rule = properties
-        .program_rule("world-1", "composite1")
-        .expect("rule");
+    let rule = properties.program_rule("", "composite1").expect("rule");
     assert_eq!(rule.dimension, None);
     assert_eq!(rule.line, 1);
+    // As in Iris, a root rule does not reach the same program in a dimension folder.
+    assert!(properties.program_rule("world-1", "composite1").is_none());
+    assert!(properties.program_rule("world0", "shadow").is_none());
     assert_eq!(
-        properties
-            .program_rule("world0", "shadow")
-            .map(|rule| rule.line),
+        properties.program_rule("", "shadow").map(|rule| rule.line),
         Some(4)
     );
     assert!(properties.program_rule("world0", "deferred").is_none());

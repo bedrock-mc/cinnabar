@@ -68,12 +68,12 @@ func (h *Host) network(tx *world.Tx, d *dispatcher, ev event, snap *snapshot) {
 		if pos.OutOfBounds(r) {
 			return member{}, false
 		}
-		st := h.cellState(tx, d.id, ev.dim, pos)
+		st := h.cellState(tx, d.id, ev.instance, pos)
 		if !st.owned || !st.block.t.network {
 			snap.networkBoundary = append(snap.networkBoundary, pos)
 			return member{}, false
 		}
-		data, ok := h.store.Data(d.id, ev.dim.storeKey(pos))
+		data, ok := h.store.Data(d.id, ev.instance.storeKey(pos))
 		st.dataLen = uint64(len(data))
 		return member{st: st, data: data, hasData: ok}, true
 	})

@@ -25,6 +25,9 @@ pub const MAX_BYTES: usize = 1024 * 1024;
 /// Interaction-box inflation when an actor has no constructor override.
 pub const DEFAULT_ACTOR_PICK_RADIUS: f32 = 0.1;
 
+/// Behavior component key for NPC interactions, independent of the actor's identity.
+pub const NPC_COMPONENT_IDENTIFIER: &str = "minecraft:npc";
+
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum NativeEntityClass {
@@ -47,6 +50,7 @@ pub enum NativeEntityClass {
     Item,
     XpOrb,
     Wolf,
+    Sheep,
     SplashPotion,
     LingeringPotion,
     Tropicalfish,
@@ -126,6 +130,7 @@ impl ShadowRadius {
 #[serde(deny_unknown_fields)]
 pub struct EntityFact {
     pub native_class: NativeEntityClass,
+    pub actor_use_resolver: crate::entity::offered_use::ActorUseResolver,
     /// Stable within this carrier's sorted constructor inventory; zero is unresolved.
     pub class_key: u16,
     pub shadow: ShadowRadius,
@@ -153,6 +158,7 @@ impl Default for EntityFact {
     fn default() -> Self {
         Self {
             native_class: NativeEntityClass::Unresolved,
+            actor_use_resolver: Default::default(),
             class_key: 0,
             shadow: ShadowRadius::Width(1.0),
             shadow_drop: 0.0,

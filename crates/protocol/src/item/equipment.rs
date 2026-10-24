@@ -4,7 +4,7 @@ use bedrock_protocol_1_26_51::{
     packets::MobEquipment as MobEquipmentPacket, types::ActorRuntimeID, wire,
 };
 
-const AUXILIARY_WILDCARD: u32 = i16::MAX as u32;
+const AUXILIARY_WILDCARD: u32 = protocol_ids::ITEM_AUXILIARY_WILDCARD as u32;
 
 /// Compares held item descriptors independently of count and stack network IDs.
 /// Either auxiliary may be a wildcard. Compound entry order is ignored; trailer bytes

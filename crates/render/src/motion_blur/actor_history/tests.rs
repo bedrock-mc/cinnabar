@@ -30,7 +30,7 @@ pub(crate) fn frame(position: Vec3, pose: [f32; 3]) -> ActorRigRenderFrame {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 7,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: Some(1),
                 movement_revision: 1,
@@ -135,7 +135,10 @@ fn cuts_resets_and_actor_lifetimes_do_not_inherit_previous_motion() {
         let mut next = original.clone();
         let entry = &mut Arc::make_mut(&mut next.manifest)[0];
         match change {
-            0 => entry.identity.spawn_revision += 1,
+            0 => {
+                entry.identity.spawn_revision =
+                    entry.identity.spawn_revision.checked_add(1).unwrap()
+            }
             1 => entry.identity.session_id += 1,
             2 => entry.identity.dimension += 1,
             3 => entry.reset_generation += 1,

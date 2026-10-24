@@ -113,7 +113,9 @@ exit 0
     $runtimeNames = @(Get-Content -LiteralPath (Join-Path $repo "packaging/common/runtime-binaries.txt") | ForEach-Object {
         ($_ -split '\s+')[0] + ".exe"
     })
-    $paths = $runtimeNames + @($resources | ForEach-Object { "resources/$_" })
+    $libraries = @(& bash -c 'source "$1"; windows_runtime_libraries' -- $manifest)
+    if ($LASTEXITCODE -ne 0 -or $libraries.Count -eq 0) { throw "Could not load the Windows runtime libraries" }
+    $paths = $runtimeNames + $libraries + @($resources | ForEach-Object { "resources/$_" })
     $payload = @()
     for ($i = 0; $i -lt $paths.Count; $i++) {
         $payload += @{ Id = "file$i"; Path = $paths[$i]; Content = "payload $i" }

@@ -12,11 +12,11 @@ impl PhysicsSampleContext {
 }
 
 /// Input edges and controller state retained alongside one completed simulation tick.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct ControllerFrame {
     pub tick: u64,
     pub sync_state: posture::SyncState,
-    pub sync_server: client_world::MovementFlagUpdate,
+    pub sync_server: Vec<posture::ServerWrite>,
     /// Feet position before travel, retained independently of live position updates.
     pub position_before_tick: Vec3,
     /// Recovery state after this tick, including freezes that defer the first probe.
@@ -78,6 +78,7 @@ impl ControllerFrame {
         input: &mut MovementInput,
         world: &dyn CollisionWorld,
     ) -> Result<(), SimulationError> {
+        posture::replay_actor_modes(&self.sync_server, modes);
         if let Some(position) = self.actor_position {
             position.apply(state);
             anchor_state.note_hard_anchor();

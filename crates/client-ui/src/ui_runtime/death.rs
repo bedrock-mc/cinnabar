@@ -89,6 +89,10 @@ impl UiRuntime {
             if self.last_known_local_player_alive == Some(true) {
                 self.local_player_respawn_ready = false;
             }
+            // Vanilla dismisses a data-driven screen when its player dies.
+            self.close_data_driven_screen(
+                protocol::ddui::DataDrivenScreenCloseReason::ClientCanceled,
+            );
         }
         if self.last_known_local_player_alive == Some(false) && next {
             self.death_reason = Arc::from("");

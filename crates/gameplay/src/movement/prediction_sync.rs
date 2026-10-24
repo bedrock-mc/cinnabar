@@ -49,7 +49,6 @@ pub fn send_movement_prediction_sync(
     let Some(actor) = stream.actor(stream.local_player_runtime_id()) else {
         return;
     };
-    physics.note_server_dimensions(actor.explicit_dimensions);
     let mut attributes = attributes(
         |name| {
             actor

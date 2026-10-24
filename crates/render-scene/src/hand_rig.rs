@@ -10,7 +10,7 @@ pub struct HandRigFrame {
     pub light: HandRigLight,
     pub fov_radians: f32,
     pub revision: u64,
-    pub item_atlases: [Option<HandItemAtlas>; 2],
+    pub item_atlases: [Option<HandItemAtlas>; 3],
     /// The held-item glint raster for item instances drawn with the glint material.
     pub item_glint: Option<EquipmentRaster>,
 }
@@ -60,7 +60,7 @@ impl HandRigScene {
             light,
             fov_radians,
             revision,
-            item_atlases: [None, None],
+            item_atlases: [None, None, None],
             item_glint: None,
         });
         true
@@ -80,7 +80,24 @@ impl HandRigScene {
                     == Some(atlas.rgba8.len())
         };
         if let Some(frame) = &mut self.frame {
-            frame.item_atlases = atlases.map(|atlas| atlas.filter(valid));
+            let [main, off] = atlases.map(|atlas| atlas.filter(valid));
+            frame.item_atlases[0] = main;
+            frame.item_atlases[1] = off;
+        }
+    }
+
+    /// Shares the paper raster without copying or resizing it with changing map images.
+    pub fn set_map_background(&mut self, atlas: Option<HandItemAtlas>) {
+        if let Some(frame) = &mut self.frame {
+            frame.item_atlases[2] = atlas.filter(|atlas| {
+                atlas.width != 0
+                    && atlas.height != 0
+                    && atlas.layers == 1
+                    && usize::from(atlas.width)
+                        .checked_mul(usize::from(atlas.height))
+                        .and_then(|pixels| pixels.checked_mul(4))
+                        == Some(atlas.rgba8.len())
+            });
         }
     }
 

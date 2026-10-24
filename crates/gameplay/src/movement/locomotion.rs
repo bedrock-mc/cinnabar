@@ -52,8 +52,6 @@ pub struct ModeIntent {
     pub ride_seat: Option<[f32; 3]>,
     /// The mounted vehicle selects this local player as its controller.
     pub vehicle_controlled_locally: bool,
-    /// Latest supplied server dimensions and their separate arrivals.
-    pub explicit_dimensions: client_world::ExplicitDimensions,
     /// Abilities permit flight.
     pub can_fly: bool,
     /// Effective flight value and authority retained from the winning ability layer.
@@ -157,6 +155,32 @@ pub(super) struct ModeTracker {
 }
 
 impl ModeTracker {
+    /// Adopts actor-owned modes and controls, preserving flight-descent input ownership.
+    pub(super) fn adopt_actor_flags(
+        &mut self,
+        mut flags: client_world::MovementFlagUpdate,
+    ) -> client_world::MovementFlagUpdate {
+        let mut poses = self.pose_flags();
+        for (flag, mode) in [
+            (flags.gliding, MovementMode::Gliding),
+            (flags.swimming, MovementMode::Swimming),
+            (flags.crawling, MovementMode::Crawling),
+        ] {
+            if let Some(value) = flag {
+                poses.set(mode, value);
+            }
+        }
+        self.adopt_pose_flags(poses);
+        if self.mode() == MovementMode::Flying {
+            flags.sneaking = None;
+        }
+        self.restore_controls(
+            flags.sprinting.unwrap_or(self.sprinting()),
+            flags.sneaking.unwrap_or(self.sneaking()),
+        );
+        flags
+    }
+
     pub(super) fn reset(&mut self) {
         *self = Self::default();
     }

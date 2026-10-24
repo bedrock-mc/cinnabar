@@ -8,6 +8,10 @@ use super::{ActorSnapshot, HURT_OVERLAY_ALPHA, creeper::SWELL_FULL_TICKS, dragon
 use actor_animation::AnimatedActor;
 
 impl AnimatedActor for ActorSnapshot {
+    fn unique_id(&self) -> i64 {
+        self.unique_id
+    }
+
     fn runtime_id(&self) -> u64 {
         self.runtime_id
     }

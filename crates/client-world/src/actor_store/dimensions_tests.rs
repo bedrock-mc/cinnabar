@@ -5,18 +5,24 @@ use std::sync::Arc;
 #[test]
 fn synthetic_and_network_dimensions_share_lifetime_order() {
     let mut store = ActorStore::new(1, 0);
+    store.exclude_remote_state_for(7);
     let feed = super::local_tests::local_feed(0.0, 0.0);
     store.sync_local_player(7, 70, &feed);
     let first = store.get(7).unwrap().explicit_dimensions;
+    let mut render_revision = store.get(7).unwrap().render_spawn_revision;
+    assert_eq!(store.local_actor_revision(), 0);
     for _ in 0..10 {
         store.sync_local_player(7, 70, &feed);
     }
     assert_eq!(store.get(7).unwrap().explicit_dimensions, first);
+    assert_eq!(store.get(7).unwrap().render_spawn_revision, render_revision);
     assert_eq!(
         store.apply(1, 1, super::tests::spawn(7, 70)),
         ActorApplyResult::Replaced
     );
     let network = store.get(7).unwrap().explicit_dimensions;
+    assert_ne!(store.get(7).unwrap().render_spawn_revision, render_revision);
+    render_revision = store.get(7).unwrap().render_spawn_revision;
     assert!(network.spawn_revision > first.spawn_revision);
     store.apply(
         1,
@@ -28,12 +34,16 @@ fn synthetic_and_network_dimensions_share_lifetime_order() {
     );
     store.sync_local_player(7, 70, &feed);
     let synthetic = store.get(7).unwrap().explicit_dimensions;
+    assert_ne!(store.get(7).unwrap().render_spawn_revision, render_revision);
+    render_revision = store.get(7).unwrap().render_spawn_revision;
     assert!(synthetic.spawn_revision > network.spawn_revision);
     assert_eq!(
         store.apply(1, 3, super::tests::spawn(7, 70)),
         ActorApplyResult::Replaced
     );
     let current = store.get(7).unwrap().explicit_dimensions;
+    assert_ne!(store.get(7).unwrap().render_spawn_revision, render_revision);
+    render_revision = store.get(7).unwrap().render_spawn_revision;
     assert!(current.spawn_revision > synthetic.spawn_revision);
     assert_eq!(
         store.apply(2, 99, super::tests::spawn(7, 70)),
@@ -44,8 +54,10 @@ fn synthetic_and_network_dimensions_share_lifetime_order() {
         ActorApplyResult::StaleSequence
     );
     assert_eq!(store.get(7).unwrap().explicit_dimensions, current);
+    assert_eq!(store.get(7).unwrap().render_spawn_revision, render_revision);
     assert_eq!(store.reset_dimension(1, 4, 1), ActorApplyResult::Reset);
     store.sync_local_player(7, 70, &feed);
+    assert_ne!(store.get(7).unwrap().render_spawn_revision, render_revision);
     assert!(store.get(7).unwrap().explicit_dimensions.spawn_revision > current.spawn_revision);
     let previous_session = store.lifetime(7).unwrap();
     store.begin_session(2, 0);

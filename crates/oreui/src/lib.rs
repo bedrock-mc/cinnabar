@@ -12,6 +12,7 @@ pub mod bed_screen;
 mod bedtime;
 #[cfg(test)]
 mod dark_mode_tests;
+pub mod data_driven_screen;
 mod death;
 #[cfg(test)]
 mod destructive_tests;

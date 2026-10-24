@@ -143,11 +143,28 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
-        if let CommittedControlEvent::LocalMovementFlags { tick, flags, .. } = control {
-            if self.movement.physics_is_authorized()
-                && let Some(rewind) = self.physics.apply_server_movement_flags(tick, flags)
-            {
-                replay_timeline_edit(self.movement, self.physics, rewind, world);
+        if let CommittedControlEvent::LocalMovementFlags {
+            tick,
+            flags,
+            dimensions,
+            replacement,
+            ..
+        } = control
+        {
+            if replacement {
+                self.speed
+                    .begin_session(self.session_generation, self.dimension);
+                self.physics
+                    .replace_actor_authority(flags, dimensions.expect("replacement dimensions"));
+                return ControlDisposition::Handled;
+            }
+            if self.movement.physics_is_authorized() {
+                if let Some(rewind) = self.physics.apply_server_movement_flags(tick, flags) {
+                    replay_timeline_edit(self.movement, self.physics, rewind, world);
+                }
+                if let Some(dimensions) = dimensions {
+                    self.physics.note_server_dimensions(dimensions);
+                }
             }
             return ControlDisposition::Handled;
         }

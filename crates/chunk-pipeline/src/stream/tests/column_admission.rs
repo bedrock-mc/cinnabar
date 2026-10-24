@@ -63,7 +63,9 @@ fn change_dimension_non_finite_horizontal_position_keeps_camera_and_scope_togeth
     )));
     assert!(matches!(
         stream.take_committed_controls().as_slice(),
-        [super::CommittedControlEvent::ChangeDimension { resolved, .. }]
+        [super::CommittedControlEvent::LocalMovementFlags { replacement: true, .. },
+         super::CommittedControlEvent::LocalMovementSpeed { .. },
+         super::CommittedControlEvent::ChangeDimension { resolved, .. }]
             if *resolved == expected
     ));
 }

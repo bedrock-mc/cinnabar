@@ -1,5 +1,53 @@
 use super::*;
 
+/// A late reply for retired terrain must not discard other columns in the same response.
+#[test]
+fn late_blob_in_a_mixed_response_preserves_needed_columns() {
+    let retired = b"retired-column";
+    let wanted = b"current-column";
+    let retired_hash = client_blob_hash(retired);
+    let wanted_hash = client_blob_hash(wanted);
+    for late_first in [false, true] {
+        let cache = ClientBlobCache::default();
+        let mut resolver = BlobCacheResolver::new(cache.clone());
+        resolver
+            .accept_cached_packet(cached_request_level(1, retired_hash))
+            .unwrap();
+        resolver.arm_fast_transfer_reset();
+        assert!(
+            resolver
+                .reset_pending_for_fast_transfer_candidate()
+                .unwrap()
+        );
+        assert!(matches!(
+            resolver.pop_ready(),
+            Some(BlobCacheReady::WorldEvent(WorldEvent::ChunkResync(event))) if event.x == 1
+        ));
+        resolver
+            .accept_cached_packet(cached_request_level(2, wanted_hash))
+            .unwrap();
+        let mut blobs = vec![
+            (wanted_hash, wanted.to_vec()),
+            (retired_hash, retired.to_vec()),
+        ];
+        if late_first {
+            blobs.reverse();
+        }
+        resolver.accept_miss_response(miss_response(blobs)).unwrap();
+
+        let packet = pop_packet(&mut resolver, "the still-needed column resolves");
+        assert!(matches!(*packet.data, packets::Packet::LevelChunk(packet)
+            if packet.chunk_position.x.0 == 2));
+        assert!(cache.contains(wanted_hash));
+        assert!(!cache.contains(retired_hash));
+        assert!(resolver.pop_ready().is_none());
+        assert_eq!(resolver.stats().abandoned_cached_transactions, 0);
+        assert_eq!(resolver.stats().recovery_requests, 1);
+        assert_eq!(resolver.stats().miss_response_unsolicited, 1);
+        assert_eq!(resolver.stats().skipped_miss_responses, 0);
+    }
+}
+
 #[test]
 fn empty_miss_response_is_a_noop_that_leaves_cached_work_untouched() {
     let payload = b"empty-response-wanted";

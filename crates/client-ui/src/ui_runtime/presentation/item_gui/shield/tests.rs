@@ -58,6 +58,7 @@ fn texture() -> EquipmentTexture {
 
 fn texture_ref() -> IconRef {
     IconRef {
+        color_mask: None,
         page: 3,
         uv: [16, 48, 48, 80],
         glint: false,

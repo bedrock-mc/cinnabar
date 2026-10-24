@@ -11,7 +11,7 @@ def render(schema):
         elif kind=='range': a=f'(Field::{r} {{ min,max }}, Scalar::{r}(value)) => min<=value && value<=max,'; b=f'case {g}: return value.Integer!=nil && f.Min<=*value.Integer && *value.Integer<=f.Max'
         elif kind=='utf8_bytes': a=f'(Field::{r} {{ max_bytes }}, Scalar::{r}(value)) => value.len()<=usize::from(*max_bytes),'; b=f'case {g}: return value.Text!=nil && len(*value.Text)<=int(f.MaxBytes)'
         elif kind=='choice': a=f'(Field::{r} {{ variants }}, Scalar::{r}(value)) => value<variants,'; b=f'case {g}: return value.Choice!=nil && *value.Choice<f.Variants'
-        elif kind=='list': a=f'(Field::{r} {{ item,max_items }}, Scalar::{r}(items)) => items.len()<=usize::from(*max_items) && items.iter().all(|value|item.admits(value)),'; b=f'case {g}: return value.List!=nil && len(*value.List)<=int(f.MaxItems) && !slices.ContainsFunc(*value.List,func(value experience.Scalar)bool{{return !admits(f.Item,value)}})'
+        elif kind=='list': a=f'(Field::{r} {{ item,max_items }}, Scalar::{r}(items)) => items.len()<=usize::from(*max_items) && items.iter().all(|value|item.admits(value)),'; b=f'case {g}: return value.List!=nil && len(*value.List)<=int(f.MaxItems) && !slices.ContainsFunc(*value.List,func(value Scalar)bool{{return !admits(f.Item,value)}})'
         elif kind=='record': a=f'(Field::{r} {{ fields }}, Scalar::{r}(values)) => fields.len()==values.len() && fields.iter().zip(values).all(|(field,value)|field.admits(value)),'; b=f'case {g}: if value.Record==nil || len(*value.Record)!=len(f.Fields){{return false}};for i,field:=range f.Fields{{if !admits(field,(*value.Record)[i]){{return false}}}};return true'
         else: raise ValueError(f'unknown admission {kind}')
         rust.append(a);go.append(b)
@@ -29,7 +29,7 @@ def render(schema):
     go_field=f'''// declared checks container nesting and record field counts.
     func declared(f Field,depth int)bool{{switch f:=f.(type){{case ListField:return depth>0 && declared(f.Item,depth-1);case RecordField:return depth>0 && len(f.Fields)<=MaxChannelFields && !slices.ContainsFunc(f.Fields,func(field Field)bool{{return !declared(field,depth-1)}});case BoolField,IntegerField,TextField,ChoiceField:return true}};return false}}
     // admits checks the value's type and every schema-defined bound recursively.
-    func admits(f Field,value experience.Scalar)bool{{switch f:=f.(type){{{chr(10).join(go)}}};return false}}
+    func admits(f Field,value Scalar)bool{{switch f:=f.(type){{{chr(10).join(go)}}};return false}}
     '''
     chars=identifier['extra_ascii']; max_bytes=identifier['max_bytes']
     rust_id=f'''/// Restricts identifiers to the shared portable namespace.
@@ -72,7 +72,7 @@ def render(schema):
     go_field += """// Declared checks identifiers, field counts and nesting against the shared ceilings.
     func(c Channel)Declared()bool{return Identifier(c.ID) && len(c.Fields)<=MaxChannelFields && !slices.ContainsFunc(c.Fields,func(f Field)bool{return !declared(f,MaxFieldDepth)})}
     // Validate checks direction, positional fields and the encoded byte ceiling.
-    func(c Channel)Validate(payload []experience.Scalar,direction Direction,maxBytes int)error{
+    func(c Channel)Validate(payload []Scalar,direction Direction,maxBytes int)error{
     if !c.Declared() || c.Direction!=direction{return errors.New("channel denied")};if len(payload)!=len(c.Fields){return errors.New("record field count mismatch")};
     for i,field:=range c.Fields{if !admits(field,payload[i]){return fmt.Errorf("record field %d rejected",i)}}
     encoded,err:=Encode(Record(payload));if err!=nil{return err};if len(encoded)>maxBytes{return errors.New("payload too large")};return nil}

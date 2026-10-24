@@ -123,32 +123,18 @@ pub(crate) struct LiquidMovementSpeeds {
 impl LocalMovementSpeedAuthority {
     /// Starts speed authority for a new session and dimension.
     pub fn begin_session(&mut self, session_id: u64, dimension: i32) {
-        self.session_id = session_id;
-        self.dimension = dimension;
-        self.last_sequence = None;
-        self.speed = EffectiveMovementSpeed::default();
-        self.reported_speed = EffectiveMovementSpeed::default();
-        self.report_from_actor = false;
-        self.active_speed_effect = None;
-        self.reported_active_speed_effect = None;
-        self.last_liquid_sequence = None;
-        self.liquid = LiquidMovementSpeeds::default();
+        *self = Self {
+            session_id,
+            dimension,
+            ..Self::default()
+        };
     }
 
     /// Clears speed authority when the active session changes dimension.
     pub fn replace_dimension(&mut self, session_id: u64, dimension: i32) {
-        if session_id != self.session_id {
-            return;
+        if session_id == self.session_id {
+            self.begin_session(session_id, dimension);
         }
-        self.dimension = dimension;
-        self.last_sequence = None;
-        self.speed = EffectiveMovementSpeed::default();
-        self.reported_speed = EffectiveMovementSpeed::default();
-        self.report_from_actor = false;
-        self.active_speed_effect = None;
-        self.reported_active_speed_effect = None;
-        self.last_liquid_sequence = None;
-        self.liquid = LiquidMovementSpeeds::default();
     }
 
     /// Accepts the next valid liquid attribute update; returns the values it adopted.

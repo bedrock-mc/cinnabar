@@ -2,6 +2,18 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Reads the target's component proof without predicting unknown native interactions.
+    pub fn offered_throwable_use(
+        &self,
+        runtime_id: u64,
+        item: &protocol::VerifiedNetworkItemStack,
+    ) -> assets::entity::offered_use::OfferedUse {
+        self.actor(runtime_id).map_or(
+            assets::entity::offered_use::OfferedUse::Unresolved,
+            |actor| self.actors.offered_throwable_use(actor, item),
+        )
+    }
+
     /// Publishes local placement, reanchoring animation only when presentation changes.
     pub fn set_local_actor_presentation_position(&mut self, position: [f32; 3], reanchor: bool) {
         self.actors.set_local_presentation_position(
@@ -218,11 +230,15 @@ impl WorldAuthority {
     /// before [`Self::advance_actor_interpolation_ticks`] and [`Self::actor_rigs`] so the
     /// third-person body and first-person hand read a driven rig instead of a static fallback.
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
+        let missing = self.actors.get(self.local_player_runtime_id).is_none();
         self.actors.sync_local_player(
             self.local_player_runtime_id,
             self.local_player_unique_id,
             feed,
         );
+        if missing && let Some(actor) = self.actors.get(self.local_player_runtime_id) {
+            self.publish_local_actor_replacement(actor.spawn_revision);
+        }
     }
 
     /// Replaces the local appearance while preserving the server's roster identity.

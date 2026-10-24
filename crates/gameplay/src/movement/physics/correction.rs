@@ -231,7 +231,7 @@ impl LocalPhysicsController {
         let anchor_controller = controller_frames
             .iter()
             .find(|frame| frame.tick == tick)
-            .copied()
+            .cloned()
             .ok_or(PhysicsCorrectionError::NotRetained { tick })?;
         let mut modes = anchor_controller.modes;
         let mut anchor_state = anchor_controller.anchor_state;
@@ -278,8 +278,7 @@ impl LocalPhysicsController {
                             .find(|frame| frame.tick == previous.tick_result.tick)
                             .expect("controller and prediction histories retain the same ticks");
                         frame.finish_eye(&mut eye, state);
-                        sync_state.server_flags(frame.sync_server);
-                        sync_state.take_pending();
+                        sync_state.replay_server(&frame.sync_server);
                         sync_state.complete_tick(frame, state);
                         frame.sync_state = sync_state;
                     }
@@ -356,8 +355,7 @@ impl LocalPhysicsController {
                 .as_ref()
                 .expect("successful replay retains state");
             frame.finish_eye(&mut eye, state);
-            sync_state.server_flags(frame.sync_server);
-            sync_state.take_pending();
+            sync_state.replay_server(&frame.sync_server);
             sync_state.complete_tick(frame, state);
             frame.sync_state = sync_state;
         }
@@ -504,6 +502,7 @@ impl LocalPhysicsController {
             }
         }
         modes.set_glide_counter(self.modes.fall_fly_ticks());
+        posture::replay_actor_modes(&self.sync_pending, &mut modes);
         self.modes = modes;
         // Vanilla's replay ticks the eye offset only on its temporary replay
         // entity and copy-back leaves the live one, so the live eye blend
@@ -514,7 +513,7 @@ impl LocalPhysicsController {
         self.controller_history = controller_frames;
         // Without replayed ticks, no producer superseded the live size or its owner.
         if replay.replayed_ticks != 0 {
-            sync_state.restore_pending(self.sync_state);
+            sync_state.replay_server(&self.sync_pending);
             self.sync_state = sync_state;
         }
         let (corrected_world_identity, corrected_sample) = {

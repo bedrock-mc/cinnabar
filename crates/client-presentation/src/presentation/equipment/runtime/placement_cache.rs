@@ -68,7 +68,7 @@ impl PlacementCache {
         let lifetime = (
             identity.session_id,
             identity.dimension,
-            identity.spawn_revision,
+            identity.spawn_revision.get(),
         );
         let owner = [&body.input.previous_bones, &body.input.current_bones];
         let key = (identity.runtime_id, layer.0, layer.1);

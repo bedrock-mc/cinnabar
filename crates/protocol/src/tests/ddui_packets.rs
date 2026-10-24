@@ -310,3 +310,85 @@ fn store_changes_preserve_nested_values_and_null_replacements() {
         Some(&DataValue::None)
     );
 }
+
+#[test]
+fn script_forms_read_their_controls_in_layout_order() {
+    use protocol::ddui::{ControlKind, CustomFormView, MessageBoxView, ScreenText};
+    use protocol::test_support::ddui::{custom_form_property, message_box_property};
+
+    let mut property = custom_form_property();
+    property
+        .set_path("layout[7].visible", DataPrimitive::Bool(false))
+        .unwrap();
+    let form = CustomFormView::read(&property).unwrap();
+    assert_eq!(form.title, Some(ScreenText::Plain("Data-Driven Test")));
+    assert!(form.close_button.is_some());
+    let indices: Vec<_> = form.controls.iter().map(|control| control.index).collect();
+    assert_eq!(
+        indices,
+        [0, 1, 2, 3, 4, 5, 6, 8, 9, 10],
+        "the hidden spacer is skipped"
+    );
+    let ControlKind::Dropdown { items, value, .. } = &form.controls[5].kind else {
+        panic!("expected the dropdown");
+    };
+    assert_eq!(*value, 1.0);
+    let labels: Vec<_> = items.iter().map(|item| item.label).collect();
+    assert_eq!(
+        labels,
+        [
+            Some(ScreenText::Plain("First")),
+            Some(ScreenText::Plain("Second")),
+            Some(ScreenText::Plain("Third")),
+        ]
+    );
+    assert_eq!(form.controls[5].path("value"), "layout[5].value");
+    let ControlKind::Label(Some(raw @ ScreenText::RawMessage(_))) = form.controls[7].kind else {
+        panic!("expected the raw message label");
+    };
+    assert_eq!(raw.source(), r#"{"rawtext":[{"text":"Raw message text"}]}"#);
+    let ControlKind::Button(button) = form.controls[9].kind else {
+        panic!("expected the disabled button");
+    };
+    assert!(button.disabled);
+
+    assert!(CustomFormView::read(&DataValue::None).is_none());
+    let message_property = message_box_property();
+    let message = MessageBoxView::read(&message_property).unwrap();
+    assert_eq!(message.body, Some(ScreenText::Plain("Message body text")));
+    assert!(message.button2.is_some());
+}
+
+#[test]
+fn sparse_layouts_read_only_their_stored_entries() {
+    use protocol::ddui::{ControlKind, CustomFormView};
+    use std::collections::BTreeMap;
+
+    let entry = |kind: &str, text: &str| {
+        DataValue::Map(BTreeMap::from([
+            (Arc::from(format!("{kind}_visible")), DataValue::Bool(true)),
+            (Arc::from("visible"), DataValue::Bool(true)),
+            (Arc::from("text"), DataValue::String(text.into())),
+        ]))
+    };
+    // A length far beyond the stored entries must not be walked index by index.
+    let layout = DataValue::Map(BTreeMap::from([
+        (Arc::from("length"), DataValue::Int(1 << 40)),
+        (Arc::from("3"), entry("label", "third")),
+        (Arc::from("1000000000"), entry("header", "far")),
+        (Arc::from("03"), entry("label", "not an index")),
+    ]));
+    let property = DataValue::Map(BTreeMap::from([(Arc::from("layout"), layout)]));
+    let form = CustomFormView::read(&property).unwrap();
+    let read: Vec<_> = form
+        .controls
+        .iter()
+        .map(|control| {
+            (
+                control.index,
+                matches!(control.kind, ControlKind::Header(_)),
+            )
+        })
+        .collect();
+    assert_eq!(read, [(3, false), (1_000_000_000, true)]);
+}

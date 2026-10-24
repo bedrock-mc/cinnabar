@@ -141,6 +141,7 @@ fn copy_image(page: &mut [u8], side: u32, [x, y]: [u32; 2], art: &Artwork, clamp
 
 fn icon(page: usize, [x, y]: [u32; 2], art: &Artwork) -> IconRef {
     IconRef {
+        color_mask: None,
         page: page as u16,
         uv: [
             x as u16,

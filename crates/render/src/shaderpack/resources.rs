@@ -510,19 +510,17 @@ impl<'a> ConstantBuilder<'a> {
     /// The stage's custom texture for sampler `name` declared with `dimension`: OptiFine binds
     /// each shape on its own target of the unit, so `texture.composite.colortex0 = x.dat
     /// TEXTURE_3D` replaces only a `sampler3D colortex0` and a `sampler2D colortex0` still
-    /// reads the buffer.
+    /// reads the buffer. None when a flip has released it
+    /// ([`shaderpack::CustomTexture::released_by`] with the program's `released`).
     fn custom(
         &mut self,
         stage: &str,
         name: &str,
         dimension: TextureDimension,
+        released: u32,
     ) -> Option<(usize, TextureFormat)> {
         let name = shaderpack::canonical_sampler_name(name);
-        let key = Key::Custom(stage.to_string(), name.clone(), dimension);
-        if let Some(found) = self.keys.get(&key) {
-            return Some(*found);
-        }
-        let source = self
+        let found = self
             .translation
             .properties
             .custom_textures
@@ -532,10 +530,13 @@ impl<'a> ConstantBuilder<'a> {
                 t.stage == stage
                     && shaderpack::canonical_sampler_name(t.uniform()) == name
                     && t.source.dimension() == dimension
-            })?
-            .source
-            .clone();
-        let texture = self.decode(&source)?;
+            })
+            .filter(|t| !t.released_by(released))?;
+        let key = Key::Custom(stage.to_string(), name, dimension);
+        if let Some(found) = self.keys.get(&key) {
+            return Some(*found);
+        }
+        let texture = self.decode(&found.source)?;
         Some(self.push(key, texture))
     }
 

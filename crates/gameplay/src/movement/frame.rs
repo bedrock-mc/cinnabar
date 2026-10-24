@@ -251,7 +251,6 @@ impl LocomotionState {
                         ride: facts.ride,
                         ride_seat: facts.ride_seat,
                         vehicle_controlled_locally: facts.vehicle_controlled_locally,
-                        explicit_dimensions: facts.explicit_dimensions,
                         can_fly: facts.can_fly,
                         flight: facts.flight,
                         ability_sequence: facts.ability_sequence,

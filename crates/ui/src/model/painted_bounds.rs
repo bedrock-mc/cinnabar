@@ -31,7 +31,9 @@ impl UiDrawList {
                         low[axis] = low[axis].min(value);
                         high[axis] = high[axis].max(value);
                     }
-                    ink |= if vertex.style_flags & render_api::UI_STYLE_COVERAGE_PAINT != 0 {
+                    ink |= if vertex.style_flags & u32::from(render_api::UI_STYLE_COVERAGE_PAINT)
+                        != 0
+                    {
                         let paint = render_api::UiCoveragePaint::from_vertex_colors(
                             vertex.color,
                             vertex.overlay_color,

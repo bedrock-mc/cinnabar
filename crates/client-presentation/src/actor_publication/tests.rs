@@ -995,7 +995,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 42,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,
@@ -1023,6 +1023,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
     let input = crate::presentation::equipment::ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:apple"),

@@ -1,5 +1,8 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "map_mesh_tests.rs"]
+mod map_mesh_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 
@@ -29,6 +32,9 @@ mod texture_artwork_tests;
 
 #[path = "held_scale_tests.rs"]
 mod held_scale_tests;
+
+#[path = "third_person_hand_tests.rs"]
+mod third_person_hand_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
@@ -267,7 +273,7 @@ fn block_fixture_with_visuals(
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 2,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 1,
@@ -293,6 +299,7 @@ fn block_fixture_with_visuals(
         overlay_rgba8: 0,
     };
     let item = WornItem {
+        map_id: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),
@@ -927,7 +934,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
     let changed = sample(&body, &local);
     assert_eq!(work.replace(0), 2);
     assert_ne!(changed[1], moved[1]);
-    body.input.identity.spawn_revision += 1;
+    body.input.identity.spawn_revision = body.input.identity.spawn_revision.checked_add(1).unwrap();
     sample(&body, &local);
     assert_eq!(work.get(), 2);
 }

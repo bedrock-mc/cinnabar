@@ -58,7 +58,7 @@ fn actor_culling_precedes_the_remote_cap_and_preserves_visible_high_id_and_local
     let source = |runtime_id: u64, position: [f32; 3]| ActorRenderSource {
         runtime_id,
         unique_id: i64::try_from(runtime_id).unwrap(),
-        spawn_revision: 1,
+        spawn_revision: std::num::NonZeroU64::MIN,
         movement_revision: 1,
         previous_position: position,
         previous_pitch_degrees: 0.0,

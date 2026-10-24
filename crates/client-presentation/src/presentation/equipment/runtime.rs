@@ -31,6 +31,7 @@ mod elytra;
 mod external_armor;
 mod held_block_entities;
 mod java;
+mod maps;
 mod modern;
 pub(crate) use modern::HeldSelection;
 mod native;
@@ -131,6 +132,7 @@ pub struct EquipmentRuntime {
     session: session::SessionLayer,
     /// Next startup item mesh index; session icons use their own range.
     next_mesh: u32,
+    map_meshes: Option<[EntityRigId; 2]>,
     /// Retired pack slots, reused only after replacement geometry is queued.
     free_meshes: Vec<EntityRigId>,
     /// The session's server-pack attachables, consulted before `catalog`.
@@ -322,6 +324,7 @@ impl EquipmentRuntime {
             item_attack,
             session: session::SessionLayer::default(),
             next_mesh: 0,
+            map_meshes: None,
             free_meshes: Vec::new(),
             catalog,
             pending,

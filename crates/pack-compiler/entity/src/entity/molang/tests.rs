@@ -386,3 +386,22 @@ fn overdeep_scripts_drop_and_count_all_entries_without_retaining_a_program() {
     assert_eq!(MolangCompiler::evaluate_default("20 - 5 - 2"), Some(13.0));
     assert_eq!(MolangCompiler::evaluate_default("24 / 3 / 2"), Some(4.0));
 }
+#[test]
+fn incomplete_tag_membership_remains_unknown_through_negation() {
+    let expression = super::ItemTagMolang::parse("!q.any_tag('wood')").unwrap();
+    assert_eq!(expression.evaluate_partial(&|_| None), None);
+    assert_eq!(expression.evaluate_partial(&|_| Some(true)), Some(false));
+    assert_eq!(expression.evaluate_partial(&|_| Some(false)), Some(true));
+    for tags in ["'unknown', 'known'", "'known', 'unknown'"] {
+        let expression = super::ItemTagMolang::parse(&format!("q.any_tag({tags})")).unwrap();
+        assert_eq!(
+            expression.evaluate_partial(&|tag| (tag == "known").then_some(true)),
+            Some(true)
+        );
+        let expression = super::ItemTagMolang::parse(&format!("q.all_tags({tags})")).unwrap();
+        assert_eq!(
+            expression.evaluate_partial(&|tag| (tag == "known").then_some(false)),
+            Some(false)
+        );
+    }
+}
