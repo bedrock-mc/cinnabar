@@ -71,18 +71,20 @@ fn one_project_builds_a_runtime_accepted_bundle_and_asset_renames_fail() {
         String::from_utf8_lossy(&output.stderr)
     );
     fs::write(package.join("messages/messages_test.go"), GO_CONFORMANCE).unwrap();
-    let output = Command::new("go")
-        .args(["test", "-mod=mod", "./..."])
-        .env("GOWORK", "off")
-        .current_dir(package.join("messages"))
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    for command in ["vet", "test"] {
+        let output = Command::new("go")
+            .args([command, "-mod=mod", "./..."])
+            .env("GOWORK", "off")
+            .current_dir(package.join("messages"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     fs::rename(
         root.join("assets/welcome.txt"),

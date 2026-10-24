@@ -875,16 +875,17 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   server coalesces rapid transfers to the latest desired world, sending its next
   notice only after the outstanding acknowledgment arrives and keeping messages
   fenced throughout. Write failures end the optional session without retry timers. A two-world
-  example uses upstream Dragonfly. Cold-client bundle hosting, generated application
-  Go message bindings and live multi-client transfer qualification remain incomplete.
+  example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
+  incomplete.
 - Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
   Source-driven mod projects generate typed Rust/Go messages, registry confirmation,
   compile-checked asset constants and signed bundles through `devtool mod new/build`.
   Each recipient retains messages, media, input and state in one callback queue during
-  registry negotiation. Confirmation replays the latest queued state once, then all
-  callback kinds follow FIFO order through a fair recipient scheduler;
+  registry negotiation. Generated confirmations retry after send-budget refusal and
+  expire with their connection or world epoch. Confirmation replays the latest queued
+  state once, then all callback kinds follow FIFO order through a fair recipient scheduler;
   traps preserve later queued work, stale world callbacks are discarded,
   and queue overflow visibly stops the affected part.
   Complete server-helper delivery and personal-renderer port acceptance remain incomplete;

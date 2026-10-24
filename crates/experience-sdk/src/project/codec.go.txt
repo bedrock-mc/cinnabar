@@ -59,6 +59,7 @@ func RegisterRegistry(server *cinnabarext.Server) error {
         Decode: decodeRegistryRequest,
     }
     return cinnabarext.OnMessage(server, kind, func(player uuid.UUID, _ registryRequest) {
-        server.Send(player, RegistryConfirmation{})
+        // Unavailable recipients need no reply; transient refusals remain queued by the helper.
+        server.SendControl(player, RegistryConfirmation{})
     })
 }

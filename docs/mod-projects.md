@@ -84,7 +84,13 @@ generated `messages.PackageID` when a transport needs the owning bundle ID.
 
 The scaffold's `ClientPart::registry` returns `shared::REGISTRY`. Initialization
 sends a generated registry request, which the existing client sends after Ready.
-`RegisterRegistry` answers it with the server's generated fingerprint. Authored
+`RegisterRegistry` answers it with the server's generated fingerprint. If other traffic
+has exhausted the send budget, the helper retains the confirmation and retries as
+credit refills. A newer reply on the same route replaces the pending one; world
+epoch changes and disconnects discard obsolete replies. Other negotiation or
+acknowledgment messages can use `ext.SendControl` for the same behavior. Ordinary
+application messages sent with `ext.Send` or `ext.Broadcast` remain best effort;
+check their returned admission result. Authored
 initialization and callbacks wait for that exact fingerprint.
 Callbacks stay in the client's existing queues while confirmation is pending,
 including after a guest restart. After authored initialization, the client dispatches

@@ -267,7 +267,6 @@ impl<H: Worker> Live<H> {
         if let Some(control) = self.pending_control.take() {
             packets.push(serde_json::to_vec(&control)?);
         }
-        let epoch = self.epoch;
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
             self.budget.begin_slice();
@@ -458,7 +457,7 @@ impl<H: Worker> Live<H> {
         self.epoch = epoch;
         if self.ready {
             let session = self.grant.session.clone();
-            let acknowledgment = requested.or_else(|| match &self.pending_control {
+            let acknowledgment = requested.or(match &self.pending_control {
                 Some(Control::WorldAck {
                     requested_epoch, ..
                 }) => Some(*requested_epoch),

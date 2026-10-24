@@ -48,5 +48,7 @@ pub fn generate_at(root: &Path, out: &Path) -> Result<Project> {
     Ok(project)
 }
 
+#[cfg(all(test, feature = "client"))]
+mod registry_tests;
 #[cfg(test)]
 mod tests;

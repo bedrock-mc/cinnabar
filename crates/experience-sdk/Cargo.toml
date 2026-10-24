@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["tools/localserver"]
+
 # Every feature is on by default, so the SDK's own build, tests and docs cover all of it. A crate
 # that uses the SDK sets `default-features = false` and names what it uses: each half is its own
 # component, a guest takes `server` or `client`, and its build script `declarations`.
