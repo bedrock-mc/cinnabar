@@ -117,8 +117,8 @@ fn compatibility_array_sizes_follow_nested_declarations_and_initializers() {
 fn compatibility_array_sizes_do_not_fold_shadowing_runtime_bindings() {
     for declarations in [
         "void f(int n) { const int m = n; float values[m]; }",
-        "void f() { int n = 4; float values[n]; }",
-        "void f() { const int n = int(gl_FragCoord.x); float values[n]; }",
+        "void f() { int n = 4; const int m = n; float values[m]; }",
+        "void f() { const int n = int(gl_FragCoord.x); const int m = n; float values[m]; }",
         "struct Data { int n; }; void f() { Data data; float values[data.n]; }",
     ] {
         let translation = translate(

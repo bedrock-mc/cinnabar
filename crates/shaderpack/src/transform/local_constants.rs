@@ -3,10 +3,11 @@
 use super::constant_expr::{Scalar, Value, evaluate};
 use super::items::{binding_uses, declarations, matching};
 use crate::token::{Tok, int};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ops::Range;
 
-/// Replaces resolved array bounds with typed integer literals. Declarations, initializers,
+/// Replaces array bounds that use local constants with typed integer literals. Global
+/// dependencies remain visible to the linker. Declarations, initializers,
 /// case labels and runtime expressions retain their original tokens. Values are memoized
 /// per declarator, including failed evaluations, instead of expanding dependency expressions.
 pub(super) fn fold_array_sizes(src: &[Tok]) -> Option<Vec<Tok>> {
@@ -60,6 +61,22 @@ pub(super) fn fold_array_sizes(src: &[Tok]) -> Option<Vec<Tok>> {
     if bounds.is_empty() || constants.is_empty() {
         return None;
     }
+    let mut depth = 0;
+    let in_block: Vec<_> = src
+        .iter()
+        .map(|token| {
+            if token.is("{") {
+                depth += 1;
+            } else if token.is("}") {
+                depth -= 1;
+            }
+            depth > 0
+        })
+        .collect();
+    let locals: HashSet<_> = constants
+        .iter()
+        .filter_map(|(index, _, _)| in_block[*index].then_some(*index))
+        .collect();
     let uses = binding_uses(
         src,
         constants
@@ -84,6 +101,9 @@ pub(super) fn fold_array_sizes(src: &[Tok]) -> Option<Vec<Tok>> {
             })
             .and_then(|value| value.assign(ty));
             values.insert(index, value);
+        }
+        if !(start..end).any(|at| uses.get(&at).is_some_and(|index| locals.contains(index))) {
+            continue;
         }
         if let Some(literal) = evaluate(&src[start..end], |at| {
             values.get(uses.get(&(start + at))?).copied().flatten()
