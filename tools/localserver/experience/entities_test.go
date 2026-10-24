@@ -391,7 +391,7 @@ func TestUnrepresentableMountRejectsWholeEntityBatch(t *testing.T) {
 	f.d.sup.registered.Entities = []EntityDefinition{def}
 	f.d.seq++
 	ev, snap := f.request()
-	handle := EntityHandle{snap.req.Info.EventSequence*maxStagedOps + 2, ev.instance.handle.Generation}
+	handle := EntityHandle{snap.req.Info.EventSequence*maxStagedOps + 1, ev.instance.handle.Generation}
 	state := EntityState{Handle: handle, Kind: def.ID, Position: Position{X: 8, Y: 70, Z: 8}, Rotation: EntityRotation{Yaw: 45}, Scale: 1, Properties: []EntityProperty{{ID: def.Properties[0].ID}}}
 	data := "01"
 	f.do(ev.w, func(tx *world.Tx) {

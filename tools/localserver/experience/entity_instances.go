@@ -159,12 +159,12 @@ func (e *modEntity) update(state EntityState, teleport bool) {
 	e.stateData().state.Properties = slices.Clone(state.Properties)
 	e.stateData().revision++
 	for _, v := range viewers {
-		v.ViewEntityVelocity(e, e.Velocity())
 		if teleport {
 			v.ViewEntityTeleport(e, e.Position())
 		} else {
 			v.ViewEntityMovement(e, e.Position(), e.Rotation(), false)
 		}
+		v.ViewEntityVelocity(e, e.Velocity())
 		v.ViewEntityState(e)
 	}
 	e.tx.UpdateRiders(e)

@@ -124,3 +124,31 @@ fn actorless_callbacks_cannot_board_and_entity_calls_share_fuel_independent_limi
     res.host_calls = MAX_HOST_CALLS;
     assert!(res.entities().unwrap_err().is::<LimitExceeded>());
 }
+
+#[test]
+fn spawn_handles_use_ordinals_when_block_writes_are_coalesced() {
+    let mut res = callback();
+    assert_eq!(res.set_block_data(ANCHOR, Some(vec![1])).unwrap(), Ok(()));
+    let first = spawn(&mut res);
+    assert_eq!(res.set_block(ANCHOR, COUNTER.to_owned()).unwrap(), Ok(()));
+    let second = spawn(&mut res);
+    res.despawn_entity(first).unwrap().unwrap();
+    let third = spawn(&mut res);
+    let base = res.info.event_sequence * MAX_STAGED_OPS as u64;
+    assert_eq!(
+        [first.id, second.id, third.id],
+        [base + 1, base + 2, base + 3]
+    );
+    let staged: Vec<_> = res
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            Op::Entity {
+                action: p::EntityOp::Spawn { state },
+            } => Some(state.handle.id),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(staged, [first.id, second.id, third.id]);
+    assert_eq!(res.entities().unwrap().len(), 2);
+}

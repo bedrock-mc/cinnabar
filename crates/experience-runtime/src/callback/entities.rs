@@ -174,7 +174,7 @@ impl CallbackRes {
             .info
             .event_sequence
             .checked_mul(MAX_STAGED_OPS as u64)
-            .and_then(|base| base.checked_add(self.ops.len() as u64 + 1))
+            .and_then(|base| base.checked_add(self.spawned_entities + 1))
         else {
             return Ok(Err(WorldError::QuotaExceeded));
         };
@@ -215,6 +215,7 @@ impl CallbackRes {
                 },
             },
         )?;
+        self.spawned_entities += 1;
         self.context
             .as_mut()
             .expect("checked context")

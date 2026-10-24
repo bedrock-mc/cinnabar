@@ -871,7 +871,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Server WIT 0.8 adds instance simulation ticks and cancellable timers through the existing
   callback queue, with unload pause, opening fences and counted overflow. Server WIT 0.9 adds
   registered entity resources and actor identities, world-owned generation-bearing handles,
-  staged server movement and metadata, seats, steering and ordered entity events. Actor and
+  staged server movement and metadata, seats, steering and ordered entity events. Spawn handles
+  retain their ordinal across coalesced block writes; teleports publish the requested velocity
+  after repositioning. Actor and
   seat state are process-local; unload releases their chunk leases. The shared-ID ship sample,
   live seat positions/link acceptance and mixed-client rendering remain incomplete.
   Coordinator moves, native teleports, sampled world swaps and reconnect placement use one admission path.

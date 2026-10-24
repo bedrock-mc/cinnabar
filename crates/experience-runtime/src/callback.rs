@@ -111,6 +111,8 @@ pub struct CallbackRes {
     /// In the order they commit. A position has at most one `SetBlockData`, and it comes after
     /// any `SetBlock` there.
     ops: Vec<Op>,
+    /// Successful spawn reservations, unaffected by coalesced block writes or despawns.
+    spawned_entities: u64,
     /// Bytes this Experience may still add to its block data.
     budget: u64,
     /// Bytes the staged writes add to this Experience's block data; negative when they free
@@ -393,6 +395,7 @@ fn prepare<'a>(
         network: network.clone(),
         inventory: inventory.clone(),
         ops: Vec::new(),
+        spawned_entities: 0,
         budget: *data_budget,
         added: 0,
         staged_data: 0,

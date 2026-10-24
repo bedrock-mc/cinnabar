@@ -72,19 +72,21 @@ func (h *Host) validateEntities(tx *world.Tx, owner string, ev event, snap snaps
 		return state, nil
 	}
 	liveCount := len(current)
-	for index, op := range ops {
+	var spawnOrdinal uint64
+	for _, op := range ops {
 		if op.Entity == nil {
 			continue
 		}
 		action := op.Entity.Action
 		switch action.Type {
 		case "spawn":
-			if action.State == nil || snap.req.Info.EventSequence > (math.MaxUint64-uint64(index)-1)/maxStagedOps {
+			spawnOrdinal++
+			if action.State == nil || snap.req.Info.EventSequence > (math.MaxUint64-spawnOrdinal)/maxStagedOps {
 				return errInvalid
 			}
 			state := *action.State
 			typ := h.reg.entityTypes[state.Kind]
-			want := snap.req.Info.EventSequence*maxStagedOps + uint64(index) + 1
+			want := snap.req.Info.EventSequence*maxStagedOps + spawnOrdinal
 			if typ == nil || typ.owner != owner || !validEntityState(state, typ.def) || state.Handle != (EntityHandle{want, ev.instance.handle.Generation}) || current[state.Handle].State.Handle.ID != 0 || created[state.Handle] {
 				return errInvalid
 			}
