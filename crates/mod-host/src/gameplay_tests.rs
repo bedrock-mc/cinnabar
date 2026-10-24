@@ -330,10 +330,10 @@ fn movement() -> GameplayMovementSnapshot {
 #[test]
 fn movement_input_requires_explicit_grant_and_eligible_frame() {
     let mut denied = state(ModGrants::default());
-    denied.movement = Some(movement());
+    denied.motion.snapshot = Some(movement());
     assert!(denied.read_movement().unwrap().is_err());
     assert!(denied.pulse_jump().unwrap().is_err());
-    assert!(!denied.pending_jump);
+    assert!(!denied.motion.pending_jump);
     let mut granted = state(ModGrants {
         movement: true,
         ..Default::default()
@@ -341,19 +341,22 @@ fn movement_input_requires_explicit_grant_and_eligible_frame() {
     assert_eq!(granted.read_movement().unwrap().unwrap(), None);
     assert!(granted.pulse_jump().unwrap().is_err());
     for (eligible, held) in [(false, false), (true, true)] {
-        granted.movement = Some(GameplayMovementSnapshot {
+        granted.motion.snapshot = Some(GameplayMovementSnapshot {
             eligible,
             jump_held: held,
             ..movement()
         });
         assert!(granted.pulse_jump().unwrap().is_err());
     }
-    granted.movement = Some(movement());
+    granted.motion.snapshot = Some(movement());
     assert_eq!(granted.read_movement().unwrap().unwrap(), Some(movement()));
     granted.pulse_jump().unwrap().unwrap();
-    assert!(granted.pending_jump);
-    assert!(!granted.jump_pulse, "not committed during guest callback");
-    for _ in granted.movement_writes..MAX_IMPORT_WRITES {
+    assert!(granted.motion.pending_jump);
+    assert!(
+        !granted.motion.jump_pulse,
+        "not committed during guest callback"
+    );
+    for _ in granted.motion.writes..MAX_IMPORT_WRITES {
         granted.pulse_jump().unwrap().unwrap();
     }
     assert!(granted.pulse_jump().is_err(), "bounded import budget traps");

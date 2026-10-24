@@ -787,8 +787,8 @@ fn local_click_and_weather_policies_commit_and_revoke_together() {
             let state = store.data_mut();
             state.set_click_limits(Some(12), None)?.unwrap();
             state.set_weather_override(Some(Weather::Rain))?.unwrap();
-            assert_eq!(state.click_limits, [None; 2]);
-            assert!(state.weather_override.is_none());
+            assert_eq!(state.environment.click_limits, [None; 2]);
+            assert!(state.environment.weather_override.is_none());
             Ok(())
         })
         .unwrap();
@@ -849,8 +849,8 @@ fn click_and_weather_policy_admission_rejects_denied_or_invalid_writes() {
             .unwrap()
             .is_err()
     );
-    assert!(denied.pending_click_limits.is_none());
-    assert!(denied.pending_weather.is_none());
+    assert!(denied.environment.pending_click_limits.is_none());
+    assert!(denied.environment.pending_weather.is_none());
     let mut allowed = state(ModGrants {
         controls: true,
         environment: true,
@@ -862,7 +862,10 @@ fn click_and_weather_policy_admission_rejects_denied_or_invalid_writes() {
         .unwrap();
     for bad in [0, mod_api::MAX_CLICK_RATE + 1, u32::MAX] {
         assert!(allowed.set_click_limits(Some(bad), None).unwrap().is_err());
-        assert_eq!(allowed.pending_click_limits, Some([Some(10), Some(20)]));
+        assert_eq!(
+            allowed.environment.pending_click_limits,
+            Some([Some(10), Some(20)])
+        );
     }
     allowed.exclusive.environment = true;
     assert!(
@@ -871,5 +874,5 @@ fn click_and_weather_policy_admission_rejects_denied_or_invalid_writes() {
             .unwrap()
             .is_err()
     );
-    assert!(allowed.pending_weather.is_none());
+    assert!(allowed.environment.pending_weather.is_none());
 }

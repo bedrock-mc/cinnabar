@@ -212,10 +212,7 @@ impl cinnabar::extension::gameplay::Host for State {
         &mut self,
         policy: Option<cinnabar::extension::gameplay::MovementToggles>,
     ) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
@@ -233,31 +230,26 @@ impl cinnabar::extension::gameplay::Host for State {
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        Ok(Ok(self.movement))
+        Ok(Ok(self.motion.snapshot))
     }
 
     fn cancel_jump(&mut self) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
-        self.pending_jump_cancel = true;
+        self.motion.pending_jump_cancel = true;
         Ok(Ok(()))
     }
 
     fn pulse_jump(&mut self) -> Result<Result<(), String>> {
-        self.movement_writes += 1;
-        if self.movement_writes > MAX_IMPORT_WRITES {
-            bail!("movement import budget exhausted");
-        }
+        self.motion.write()?;
         if !self.grants.movement {
             return Ok(Err("movement capability denied".into()));
         }
         if !self
-            .movement
+            .motion
+            .snapshot
             .as_ref()
             .is_some_and(|movement| movement.eligible && !movement.jump_held)
         {
@@ -265,7 +257,7 @@ impl cinnabar::extension::gameplay::Host for State {
                 "jump requires eligible captured gameplay without held jump".into(),
             ));
         }
-        self.pending_jump = true;
+        self.motion.pending_jump = true;
         Ok(Ok(()))
     }
 

@@ -10,8 +10,8 @@ impl cinnabar::extension::input::Host for State {
         attack: Option<u32>,
         item_use: Option<u32>,
     ) -> Result<Result<(), String>> {
-        self.environment_writes += 1;
-        if self.environment_writes > super::MAX_IMPORT_WRITES {
+        self.environment.writes += 1;
+        if self.environment.writes > super::MAX_IMPORT_WRITES {
             anyhow::bail!("input policy budget exhausted");
         }
         if !self.grants.controls {
@@ -28,7 +28,7 @@ impl cinnabar::extension::input::Host for State {
                 mod_api::MAX_CLICK_RATE
             )));
         }
-        self.pending_click_limits = Some(limits);
+        self.environment.pending_click_limits = Some(limits);
         Ok(Ok(()))
     }
 
