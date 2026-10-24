@@ -114,7 +114,13 @@ impl ControllerFrame {
             modes.restore_controls(sprinting, modes.sneaking());
         }
         let previous_modes = *modes;
-        let [move_sideways, move_forward] = ModeObservation::input_vector(*input);
+        // Live intent reads the sneak request before this tick's pose can force a crouch, while
+        // the retained input already carries that forced pose.
+        let intent_input = MovementInput {
+            sneaking: self.sneak_override.unwrap_or(self.requested_sneak),
+            ..*input
+        };
+        let [move_sideways, move_forward] = modes.intent_vector(intent_input, environment.in_water);
         let mut observed = ModeObservation {
             feet: state.position,
             on_ground: state.on_ground,

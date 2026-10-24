@@ -267,10 +267,11 @@ fn double_tap_sprint_uses_fixed_ticks_and_retains_its_latch_during_replay() {
     assert_eq!(sprinting, [false, true, true, true]);
 }
 
-/// Item use narrows sprint intent before pose slowdown, which remains a later travel multiplier.
+/// Item use and the crouch's sneak scaling both narrow the vector sprint intent reads, so
+/// either ends a running sprint, and replay and correction reproduce that tick.
 #[test]
-fn item_slowdown_ends_a_sprint_but_crouch_slowdown_does_not() {
-    for (item, sneak, expected) in [(Some(0.35), false, false), (None, true, true)] {
+fn item_and_crouch_slowdown_end_a_sprint() {
+    for (item, sneak) in [(Some(0.35), false), (None, true)] {
         let mut physics = LocalPhysicsController::default();
         physics.reanchor_network_position([0.0, 2.620_01, 0.0], 40, true);
         let floor = integration_tests::VersionedFloor(1);
@@ -304,7 +305,7 @@ fn item_slowdown_ends_a_sprint_but_crouch_slowdown_does_not() {
             .advance_with_context(Duration::from_millis(50), input, context, &floor)
             .samples
             .remove(0);
-        assert_eq!(next.processed.sprinting, expected);
+        assert!(!next.processed.sprinting);
         // Replay the same retained anchor. A wire position correction rebuilds the
         // collision box and can round differently from uninterrupted movement.
         let replay = physics.replay_retained_from(first.tick, &floor).unwrap();

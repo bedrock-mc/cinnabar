@@ -85,3 +85,6 @@ pub fn server_api() -> &'static str {
 mod registry_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, feature = "client", feature = "server"))]
+mod handler_tests;
