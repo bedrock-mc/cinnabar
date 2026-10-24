@@ -304,10 +304,12 @@ impl LocalPhysicsController {
                         .find(|frame| frame.tick == state.tick + 1)
                         .expect("controller and prediction histories retain the same ticks");
                     // Vanilla restores the snapshot of the frame replay starts from
-                    // and refreshes later ones, item-use bit included, before
-                    // re-applying their corrections. Its item-use system does not run
-                    // on replayed ticks.
-                    let dormant = if frame.tick == tick + 1 {
+                    // and refreshes later ones before re-applying their corrections.
+                    let replacement = frame
+                        .sync_server
+                        .iter()
+                        .any(|write| matches!(write, posture::ServerWrite::Replacement(..)));
+                    let dormant = if frame.tick == tick + 1 || replacement {
                         frame.entry_counters.restore(&mut modes, state)
                     } else {
                         frame.entry_flags = server_flags::FlagWord::capture(
@@ -483,7 +485,12 @@ impl LocalPhysicsController {
         // With no tick replayed, no flag word is rebuilt: the live pose and spin
         // stand, as vanilla's current-tick correction moves the actor without
         // touching its flags.
-        if replay.replayed_ticks == 0 {
+        if replay.replayed_ticks == 0
+            || self
+                .sync_pending
+                .iter()
+                .any(|write| matches!(write, posture::ServerWrite::Replacement(..)))
+        {
             modes = live_modes;
             if let (Some(state), Some((spin, swim_pose))) = (self.state.as_mut(), live_flag_state) {
                 state.spin_attack_ticks = spin;
