@@ -1,0 +1,24 @@
+[package]
+name = "cosmic-mod"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["messages"] }
+
+[features]
+default = ["client"]
+client = ["experience-sdk/client"]
+server = ["experience-sdk/server"]
+
+[build-dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["project"] }
+
+[lints]
+workspace = true

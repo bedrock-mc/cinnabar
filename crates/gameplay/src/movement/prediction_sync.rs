@@ -96,6 +96,7 @@ fn predicted_flag_words(
         (ActorFlag::Swimming, flags.swimming),
         (ActorFlag::Crawling, flags.crawling),
         (ActorFlag::Gliding, flags.gliding),
+        (ActorFlag::DamageNearbyMobs, flags.spinning),
     ] {
         if let Some(value) = value {
             set_flag(&mut words, flag, value);

@@ -136,8 +136,8 @@ pub struct HudScreens {
     crosshair_data: Arc<DataSource>,
     model_clocks: BTreeMap<String, f64>,
     hunger_animation: HungerAnimation,
-    /// The HUD context, kept while the engine context and chat placement stay.
-    context: crate::chat_position::PlacedContext,
+    /// The HUD context, kept while the engine context and placement stay.
+    context: crate::hud_placement::PlacedContext,
     /// The HUD screen's last paint, reused while nothing it drew from changes.
     hud_paint: RetainedHud,
     /// The crosshair overlay's last paint.
@@ -201,11 +201,15 @@ impl HudScreens {
         self.loading.invalidate_textures();
     }
 
-    /// The HUD screens' context: `base` with the HUD flags and the chat at the top or bottom.
+    /// The HUD screens' context: `base` with the HUD flags and `placement`'s chat and hotbar.
     /// It is rebuilt only when `base` or the placement changes.
-    pub fn context(&mut self, base: &Context, chat_top: bool) -> Context {
-        self.context.get(base, chat_top, |base, top| {
-            crate::chat_position::placed(json_ui::hud_context(&base), top)
+    pub fn context(
+        &mut self,
+        base: &Context,
+        placement: crate::hud_placement::HudPlacement,
+    ) -> Context {
+        self.context.get(base, placement, |base, placement| {
+            placement.placed(json_ui::hud_context(&base))
         })
     }
 

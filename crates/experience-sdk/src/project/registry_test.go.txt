@@ -10,10 +10,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	cinnabarext "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/google/uuid"
-	cinnabarext "github.com/hashimthearab/rust-mcbe/tools/localserver/cinnabarext"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
@@ -91,6 +91,9 @@ func TestRegistryRetry(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer conn.Close()
+		if err := conn.WritePacket(&packet.ItemRegistry{}); err != nil {
+			t.Fatal(err)
+		}
 		deliver := func(value cinnabarext.CanonicalValue) {
 			raw, err := cinnabarext.Encode(value)
 			if err != nil {

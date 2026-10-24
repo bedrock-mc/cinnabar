@@ -47,6 +47,9 @@ type entityAppearance struct {
 	Properties protocol.EntityProperties  `json:"properties"`
 	Armour     *packet.MobArmourEquipment `json:"armour"`
 	Cloud      *entityCloudAppearance     `json:"cloud"`
+	Yaw        *float32                   `json:"yaw"`
+	AttachFace *uint8                     `json:"attach_face"`
+	Peek       *int32                     `json:"peek"`
 }
 
 // entityCloudAppearance supplies the typed state needed to display a lingering cloud.
@@ -190,6 +193,15 @@ func (c *entityGalleryPacketConn) ReadPacket() (packet.Packet, error) {
 		if !ok {
 			return pk, nil
 		}
+		if peek, recognized := entityGalleryPeek(request.CommandLine); recognized {
+			for i := 0; i < c.count; i++ {
+				update := &packet.SetActorData{EntityRuntimeID: uint64(entityGalleryFirstID + i*2), EntityMetadata: protocol.EntityMetadata{protocol.EntityDataKeyPeekID: peek}}
+				if err := c.Conn.WritePacket(update); err != nil {
+					return nil, err
+				}
+			}
+			continue
+		}
 		page, recognized := entityGalleryPage(request.CommandLine, c.gallery)
 		if !recognized {
 			return pk, nil
@@ -217,6 +229,16 @@ func (c *entityGalleryPacketConn) ReadPacket() (packet.Packet, error) {
 		}
 		c.count = len(page)
 	}
+}
+
+// entityGalleryPeek parses `/entitygallery peek N`, which sends the shulker peek data item to the shown actors.
+func entityGalleryPeek(command string) (int32, bool) {
+	fields := strings.Fields(strings.TrimPrefix(command, "/"))
+	if len(fields) != 3 || fields[0] != "entitygallery" || fields[1] != "peek" {
+		return 0, false
+	}
+	peek, err := strconv.ParseInt(fields[2], 10, 32)
+	return int32(peek), err == nil
 }
 
 // entityGalleryPage filters the sorted catalog before selecting a zero-based page.
@@ -260,7 +282,11 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 		columns := min(4, len(page))
 		position := origin.Add(mgl32.Vec3{(float32(i%4) - float32(columns-1)/2) * 5, -1.62, 7 + float32(i/4)*7})
 		metadata := appearance.metadata()
-		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position.Add(mgl32.Vec3{0, appearance.spawnOffset(), 0}), Yaw: 180, HeadYaw: 180, BodyYaw: 180, EntityMetadata: metadata, Attributes: appearance.Attributes, EntityProperties: appearance.Properties}
+		yaw := float32(180)
+		if appearance.Yaw != nil {
+			yaw = *appearance.Yaw
+		}
+		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position.Add(mgl32.Vec3{0, appearance.spawnOffset(), 0}), Yaw: yaw, HeadYaw: yaw, BodyYaw: yaw, EntityMetadata: metadata, Attributes: appearance.Attributes, EntityProperties: appearance.Properties}
 		if appearance.Identifier == "minecraft:painting" {
 			title := appearance.Painting
 			if title == "" {
@@ -351,6 +377,12 @@ func (a entityAppearance) metadata() protocol.EntityMetadata {
 	}
 	if a.Height > 0 {
 		metadata[protocol.EntityDataKeyHeight] = a.Height
+	}
+	if a.AttachFace != nil {
+		metadata[protocol.EntityDataKeyAttachFace] = *a.AttachFace
+	}
+	if a.Peek != nil {
+		metadata[protocol.EntityDataKeyPeekID] = *a.Peek
 	}
 	if a.Cloud != nil {
 		metadata[protocol.EntityDataKeyDataRadius] = a.Cloud.Radius

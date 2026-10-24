@@ -699,3 +699,35 @@ fn retained_unfiltered_captions_do_not_inherit_sibling_filters() {
         }
     }
 }
+
+#[test]
+fn chat_offsets_read_in_expressions_keep_their_built_in_globals() {
+    let mut builtin = Catalog::from_files([
+        ("ui/_global_variables.json", b"{}".as_slice()),
+        (
+            "ui/_ui_defs.json",
+            br#"{"ui_defs":["ui/hud_screen.json","ui/chat_screen.json"]}"#.as_slice(),
+        ),
+        ("ui/hud_screen.json", br#"{"namespace":"hud"}"#.as_slice()),
+        ("ui/chat_screen.json", br#"{"namespace":"chat"}"#.as_slice()),
+    ])
+    .unwrap();
+    super::super::install_java_hud(&mut builtin);
+    let names = [
+        "cinnabar_chat_history_bottom",
+        "cinnabar_bedrock_hotbar_lift",
+    ];
+    let mut pack = builtin.clone();
+    pack.overlay_globals_text(
+        &json!({"$cinnabar_chat_history_bottom": -200, "$cinnabar_bedrock_hotbar_lift": -50})
+            .to_string(),
+    );
+    prefer_builtin(&mut pack, &builtin);
+    for name in names {
+        assert!(
+            builtin.global(name).is_some(),
+            "{name} is a built-in global"
+        );
+        assert_eq!(pack.global(name), builtin.global(name), "{name}");
+    }
+}

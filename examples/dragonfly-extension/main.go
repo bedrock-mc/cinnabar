@@ -126,7 +126,7 @@ func run() error {
 	}); err != nil {
 		return err
 	}
-	ext.OnEpoch(func(id uuid.UUID, _ string) {
+	ext.OnEpoch(func(id uuid.UUID, _ cinnabarext.PlayerSession, _ string) {
 		if value, ok := app.current.Load(id); ok {
 			ext.Send(id, view{route: app.route, World: value.(uint16)})
 		}

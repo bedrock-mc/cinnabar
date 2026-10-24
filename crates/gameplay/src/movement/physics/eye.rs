@@ -30,13 +30,6 @@ impl LocalEyeOffset {
         self.interpolation_held = true;
     }
 
-    /// Keeps a collision pause applied to the current camera after rebuilding its pose.
-    pub(super) fn preserve_interpolation_hold(&mut self, prior: Self) {
-        if prior.interpolation_held {
-            self.finish_interpolation();
-        }
-    }
-
     /// Eases the eye toward the selected pose, with a spin using the horizontal
     /// target and a crouch drop selected by the level's sneak profile.
     pub(super) fn tick(

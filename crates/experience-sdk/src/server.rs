@@ -36,10 +36,13 @@ pub use bindings::cinnabar::experience_server::{
     diagnostics::log,
     types::{
         BlockChange, BlockDef, BlockPos, BlockState, BlockType, BoneVisibility, CallbackInfo,
-        ChangeCause, Condition, Crafted, Face, Flipbook, GuestError, Inventory, ItemDef, ItemKey,
-        ItemStack, LogLevel, Material, Mining, Network, NewStack, Permutation, Pixel, PixelBox,
-        PlacementStates, PlayerId, QuarterTurns, Registration, RenderMethod, Scalar, StateDef,
-        StateTest, StateValue, StateValues, TextureBinding, ValueNode, Visual, WorldError,
+        ChangeCause, Condition, Crafted, DimensionType, Face, Flipbook, Generator, GuestError,
+        Inventory, ItemDef, ItemKey, ItemStack, LogLevel, Material, Mining, Network, NewStack,
+        Permutation, Pixel, PixelBox, PlacementStates, PlayerEvent, PlayerId, PlayerLocation,
+        PlayerTransition, Position, QuarterTurns, Registration, RenderMethod, Scalar,
+        ScheduleHandle, SimulationStep, StateDef, StateTest, StateValue, StateValues, StoreKey,
+        StoreScope, TextureBinding, ValueNode, Visual, WorldDefinition, WorldDefinitionId,
+        WorldError, WorldHandle, WorldInstance, WorldInstanceId, WorldRegistration, WorldSettings,
     },
     world_access::Callback,
 };
@@ -66,6 +69,35 @@ pub fn cube(def: BlockDef) -> BlockType {
 /// Implement [`Experience::registration`], or [`Experience::register`] for plain cube blocks
 /// alone; the callbacks default to `Ok(())`, which accepts the event without staging anything.
 pub trait Experience {
+    /// Receives one admitted fixed-step callback for each live world instance.
+    fn on_tick(_ctx: &Callback, _step: SimulationStep) -> Result<(), GuestError> {
+        Ok(())
+    }
+    /// Receives a scheduled callback; repeating handles remain cancellable.
+    fn on_timer(
+        _ctx: &Callback,
+        _handle: ScheduleHandle,
+        _step: SimulationStep,
+    ) -> Result<(), GuestError> {
+        Ok(())
+    }
+
+    /// Declares world definitions and instances to open before admitting players.
+    fn world_definitions() -> Result<WorldRegistration, GuestError> {
+        Ok(WorldRegistration {
+            definitions: Vec::new(),
+            startup: Vec::new(),
+        })
+    }
+    /// Observes an admitted join, departure, transfer, or coalesced movement.
+    fn on_player(
+        _ctx: &Callback,
+        _player: PlayerId,
+        _event: PlayerEvent,
+    ) -> Result<(), GuestError> {
+        Ok(())
+    }
+
     /// Returns the generated shared contract when this server belongs to a mod project.
     fn registry() -> Option<&'static crate::message::Registry> {
         None
@@ -151,6 +183,20 @@ pub trait Experience {
 macro_rules! export_experience {
     ($ty:ident) => {
         impl $crate::server::bindings::Guest for $ty {
+            fn on_tick(ctx: &$crate::server::Callback, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_tick(ctx, step)
+            }
+            fn on_timer(ctx: &$crate::server::Callback, handle: $crate::server::ScheduleHandle, step: $crate::server::SimulationStep) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_timer(ctx, handle, step)
+            }
+
+            fn world_definitions() -> ::core::result::Result<$crate::server::WorldRegistration, $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::world_definitions()
+            }
+            fn on_player(ctx: &$crate::server::Callback, player: $crate::server::PlayerId, event: $crate::server::PlayerEvent) -> ::core::result::Result<(), $crate::server::GuestError> {
+                <$ty as $crate::server::Experience>::on_player(ctx, player, event)
+            }
+
             fn register() -> ::core::result::Result<
                 $crate::server::Registration,
                 $crate::server::GuestError,
@@ -232,3 +278,6 @@ macro_rules! export_experience {
         $crate::server::bindings::export!($ty with_types_in $crate::server::bindings);
     };
 }
+
+mod stores;
+pub use stores::{Persistent, StateError};
