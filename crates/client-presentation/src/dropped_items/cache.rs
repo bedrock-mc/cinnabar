@@ -68,8 +68,10 @@ pub(crate) struct ModelCache {
     budget_refusals: u64,
     /// Successful artwork resolutions that recovered from a budget refusal this frame.
     pub(super) budget_fallbacks: u64,
-    /// Whole preparations downgraded to sprites in this frame.
+    /// Preparations where the sprite-only plan draws more items than the cube plan.
     pub(super) cube_plan_downgrades: u64,
+    prepared_items: u64,
+    omitted_items: u64,
     sprite_only: bool,
     planning: bool,
     costs: HashMap<ModelKey, planning::ModelCost>,
@@ -137,14 +139,18 @@ fn pixel_cost(model: &DroppedItemModel) -> usize {
 }
 
 impl ModelCache {
-    /// Plans without changing residency, then prepares the complete chosen artwork mode.
+    /// Measures both complete plans without changing residency, then prepares the fuller one.
     /// The callback replaces its frame-local output and skips draws during cost planning.
     pub(super) fn prepare<T>(&mut self, mut prepare: impl FnMut(&mut Self) -> T) -> T {
         self.sprite_only = false;
         self.planning = true;
         self.begin_frame();
         prepare(self);
-        let downgrade = self.budget_refusals > 0;
+        let cube_items = self.prepared_items;
+        self.sprite_only = true;
+        self.begin_frame();
+        prepare(self);
+        let downgrade = self.prepared_items > cube_items;
         self.planning = false;
         self.sprite_only = downgrade;
         self.begin_frame();
@@ -153,6 +159,16 @@ impl ModelCache {
         self.prune_rejections();
         self.cube_plan_downgrades = u64::from(downgrade);
         plan
+    }
+
+    /// Counts one complete consumer resolution, including shared models and missing artwork.
+    pub(super) fn count_item<T>(&mut self, result: Option<T>) -> Option<T> {
+        if result.is_some() {
+            self.prepared_items = self.prepared_items.saturating_add(1);
+        } else {
+            self.omitted_items = self.omitted_items.saturating_add(1);
+        }
+        result
     }
 
     /// Whether this pass only measures artwork costs, without preparing draws.
@@ -229,6 +245,8 @@ impl ModelCache {
         self.planned_pixels = 0;
         self.budget_refusals = 0;
         self.budget_fallbacks = 0;
+        self.prepared_items = 0;
+        self.omitted_items = 0;
         self.reclaimable.clear();
         self.available = MAX_ITEM_LAYERS - 1 - self.layers;
         self.available_pixels = assets::texture::policy::MAX_SUBSCRIBER_BYTES - self.pixel_bytes;
@@ -337,7 +355,7 @@ impl ModelCache {
         if result.is_some() && self.budget_refusals != refusals {
             self.budget_fallbacks = self.budget_fallbacks.saturating_add(1);
         }
-        result
+        self.count_item(result)
     }
 
     /// Builds missing models that fit, skipping remembered permanent block failures.
@@ -520,7 +538,13 @@ impl ModelCache {
         if self.cube_plan_downgrades > 0 {
             tracing::debug!(
                 cube_plan_downgrades = self.cube_plan_downgrades,
-                "item cube plan exceeded capacity; preparing all items as sprites"
+                "item sprite plan draws more items than the cube plan"
+            );
+        }
+        if self.omitted_items > 0 {
+            tracing::debug!(
+                omitted_items = self.omitted_items,
+                "item preparation omitted items without admitted artwork"
             );
         }
         if self.budget_fallbacks > 0 {
@@ -558,3 +582,6 @@ impl ModelCache {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod plan_tests;

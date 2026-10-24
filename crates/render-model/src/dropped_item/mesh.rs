@@ -123,6 +123,28 @@ pub fn native_dropped_sprite_mesh(
 }
 
 impl DroppedItemModel {
+    /// Validates admission geometry without constructing unused sprite fallback vertices.
+    pub fn mesh_vertex_count(&self, side: u32) -> Option<usize> {
+        match self {
+            Self::Sprite(sprite) | Self::NativeSprite(sprite) => {
+                if sprite.width > side || sprite.height > side {
+                    return None;
+                }
+                crate::item_geometry::sprite_vertex_count(
+                    sprite.width as usize,
+                    sprite.height as usize,
+                    &sprite.rgba8,
+                    if matches!(self, Self::NativeSprite(_)) {
+                        2
+                    } else {
+                        1
+                    },
+                )
+            }
+            _ => self.mesh(side, 1).map(|vertices| vertices.len()),
+        }
+    }
+
     /// Builds vertices without retaining texture layers; rejects malformed or excessive geometry.
     pub fn mesh(&self, side: u32, layers_used: usize) -> Option<Vec<ItemMeshVertex>> {
         match self {
@@ -181,6 +203,32 @@ impl DroppedItemModel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sprite_admission_counts_match_geometry_without_allocating_vertices() {
+        let mut seed = 0x2133_u64;
+        for side in [1, 4, 16, 128, 512] {
+            let rgba8: std::sync::Arc<[u8]> = (0..side * side * 4)
+                .map(|_| {
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    [0, 1, 2, 255][(seed >> 32) as usize % 4]
+                })
+                .collect();
+            for model in [DroppedItemModel::Sprite, DroppedItemModel::NativeSprite] {
+                let model = model(crate::DroppedItemSprite {
+                    width: side,
+                    height: side,
+                    rgba8: rgba8.clone(),
+                });
+                let expected = model.mesh(side, 1).map(|vertices| vertices.len());
+                let before = test_alloc::thread_allocations();
+                let count = model.mesh_vertex_count(side);
+                assert_eq!(test_alloc::thread_allocations(), before);
+                assert_eq!(count, expected);
+                assert!(model.mesh_vertex_count(side - 1).is_none());
+            }
+        }
+    }
 
     fn pixels(width: u32, height: u32, solid_texels: &[(u32, u32)]) -> Vec<u8> {
         let mut rgba8 = vec![0_u8; (width * height * 4) as usize];

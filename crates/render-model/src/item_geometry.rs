@@ -11,6 +11,40 @@ use crate::ActorRigVertex;
 /// Ordinary held-sprite depth after normalizing the longer side to one model unit.
 const HELD_SPRITE_DEPTH: f32 = 1.0 / 16.0;
 
+/// Counts slab faces and exposed texel edges without allocating geometry.
+pub(crate) fn sprite_vertex_count(
+    width: usize,
+    height: usize,
+    rgba8: &[u8],
+    minimum_alpha: u8,
+) -> Option<usize> {
+    if width == 0 || height == 0 || rgba8.len() != width.checked_mul(height)?.checked_mul(4)? {
+        return None;
+    }
+    let max_vertices = crate::MAX_ACTOR_RIG_VERTICES
+        .min(assets::texture::policy::MAX_SUBSCRIBER_BYTES / std::mem::size_of::<ActorRigVertex>());
+    let mut vertices = 12;
+    for row in 0..height {
+        for column in 0..width {
+            let opaque = |column, row| rgba8[(row * width + column) * 4 + 3] >= minimum_alpha;
+            if !opaque(column, row) {
+                continue;
+            }
+            let edges = [
+                column == 0 || !opaque(column - 1, row),
+                column + 1 == width || !opaque(column + 1, row),
+                row == 0 || !opaque(column, row - 1),
+                row + 1 == height || !opaque(column, row + 1),
+            ];
+            vertices += edges.into_iter().filter(|&exposed| exposed).count() * 6;
+            if vertices > max_vertices {
+                return None;
+            }
+        }
+    }
+    Some(vertices)
+}
+
 /// Extrudes an RGBA8 sprite into a slab centred on the origin: the longer side spans one unit,
 /// the slab is one texel thick, and each edge quad samples its own texel. `uv_rect` is the
 /// sprite's `[u0, v0, u1, v1]` region of its texture layer. `None` for malformed pixels or
@@ -34,11 +68,7 @@ fn sprite_vertices(
     uv_rect: [f32; 4],
     minimum_alpha: u8,
 ) -> Option<Vec<ActorRigVertex>> {
-    if width == 0 || height == 0 || rgba8.len() != width.checked_mul(height)?.checked_mul(4)? {
-        return None;
-    }
-    let max_vertices = crate::MAX_ACTOR_RIG_VERTICES
-        .min(assets::texture::policy::MAX_SUBSCRIBER_BYTES / std::mem::size_of::<ActorRigVertex>());
+    let vertex_count = sprite_vertex_count(width, height, rgba8, minimum_alpha)?;
     let opaque = |column: isize, row: isize| {
         column >= 0
             && row >= 0
@@ -56,7 +86,7 @@ fn sprite_vertices(
             uv_rect[1] + (uv_rect[3] - uv_rect[1]) * v,
         ]
     };
-    let mut vertices = Vec::new();
+    let mut vertices = Vec::with_capacity(vertex_count);
     let (x0, x1) = (x_at(0), x_at(width));
     let (y0, y1) = (y_at(height), y_at(0));
     let upright = [[0.0, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]].map(to_region);
@@ -115,9 +145,6 @@ fn sprite_vertices(
             for (neighbour_opaque, normal, xs, ys) in edges {
                 if neighbour_opaque {
                     continue;
-                }
-                if vertices.len() + 6 > max_vertices {
-                    return None;
                 }
                 let corners = [
                     [xs[0], ys[0], half_depth],

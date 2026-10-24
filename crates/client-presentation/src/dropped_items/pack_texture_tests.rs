@@ -712,7 +712,7 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
     }
 }
 
-/// Checks complete downgrade and recovery using the same cache across scene changes.
+/// Checks plan selection and recovery using the same cache across scene changes.
 fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
     let icons = framed_icons(counts[0]);
     let mut cache = ModelCache::default();
@@ -723,7 +723,9 @@ fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
     );
     let mut previous = None;
     for count in counts {
-        let downgraded = count as usize * BlockFace::ALL.len() + 1 > layers;
+        let cube_count = (layers - 1) / BlockFace::ALL.len();
+        let mixed_count = cube_count + (layers - 1) % BlockFace::ALL.len();
+        let downgraded = count as usize > mixed_count;
         let models: Vec<_> = cache.prepare(|cache| {
             (0..count)
                 .map(|metadata| {
@@ -751,10 +753,10 @@ fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
             .collect();
         assert_eq!(models.len(), count as usize);
         assert_eq!(cache.cube_plan_downgrades, u64::from(downgraded));
-        for &slot in &models {
-            if downgraded {
+        for (index, &slot) in models.iter().enumerate() {
+            if downgraded || index >= cube_count {
                 let DroppedItemModel::Sprite(sprite) = &cache.models[slot as usize] else {
-                    panic!("the entire over-budget plan must use sprites");
+                    panic!("the selected sprite route must retain session artwork");
                 };
                 assert_eq!(sprite.rgba8[2], 80, "session artwork keeps precedence");
             } else {
@@ -800,5 +802,10 @@ fn regression_all_46_framed_cubes_render_as_sprites() {
 
 #[test]
 fn fitting_cube_plan_reclaims_unused_fallback_sprites() {
+    assert_framed_plan_recovers(render_model::MAX_ITEM_LAYERS, [87, 87, 80]);
+}
+
+#[test]
+fn equally_complete_plans_keep_cubes_with_the_last_item_using_a_sprite() {
     assert_framed_plan_recovers(render_model::MAX_ITEM_LAYERS, [86, 86, 80]);
 }

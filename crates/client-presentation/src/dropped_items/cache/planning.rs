@@ -25,7 +25,7 @@ impl ModelCache {
             *self.mesh_validations.entry(key.clone()).or_default() += 1;
         }
         let cost = model.atlas_side(self.budget.policy()).and_then(|side| {
-            let vertices = model.mesh(side, 1)?.len();
+            let vertices = model.mesh_vertex_count(side)?;
             (vertices > 0).then(|| ModelCost {
                 side,
                 layers: model.texture_layers(),

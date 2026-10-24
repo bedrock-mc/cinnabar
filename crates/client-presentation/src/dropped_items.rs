@@ -423,7 +423,8 @@ impl DroppedItemPublisher<'_, '_> {
         startup_icon: Option<ui::IconRef>,
     ) -> Option<u32> {
         if let Some(id) = placement.potted_block {
-            return assets.and_then(|assets| Self::potted_model(cache, assets, id));
+            let model = assets.and_then(|assets| Self::potted_model(cache, assets, id));
+            return cache.count_item(model);
         }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -683,7 +684,8 @@ impl DroppedItemPublisher<'_, '_> {
                     else {
                         continue;
                     };
-                    let Some(model) = Self::block_model(cache, assets, id_mode, id) else {
+                    let model = Self::block_model(cache, assets, id_mode, id);
+                    let Some(model) = cache.count_item(model) else {
                         continue;
                     };
                     if cache.is_planning() {
