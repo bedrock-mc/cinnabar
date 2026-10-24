@@ -379,6 +379,58 @@ fn dropped_lantern_and_chain_variants_use_sprites_without_changing_other_block_r
     );
 }
 
+#[test]
+fn dropped_crystal_variants_use_their_flat_carried_artwork() {
+    let stream = stream(false, 1);
+    let registry = protocol::vanilla_item_registry();
+    let crystals: Vec<_> = registry
+        .iter()
+        .filter(|entry| {
+            assets::facts::block_render_fact(&entry.identifier).kind
+                == assets::facts::BlockRenderKind::Crystal
+        })
+        .collect();
+    assert!(!crystals.is_empty());
+    for entry in crystals {
+        assert!(
+            assets::facts::block_render_fact(&entry.identifier).flat_icon,
+            "{} must declare its carried presentation",
+            entry.identifier
+        );
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(&entry.identifier), None),
+                None,
+                "{}",
+                entry.identifier
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:amethyst_block"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1))
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}
+
 use assets::{CompiledAssets, RegistryRecord};
 use std::fs;
 /// Compiles real barrel selectors with original opaque sprite artwork for held-consumer checks.
