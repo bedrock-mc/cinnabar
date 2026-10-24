@@ -801,8 +801,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   fair frame callbacks and expanded triangle limits have regression coverage. Bundle
   admission and helper failures revoke only their producer; paused dispatch continues
   completion polling, and temporary culling preserves retained mask selections. Actor
-  references stay live during callbacks and partial snapshot transfers; only confirmed
-  despawns or world rebinds revoke them. Guest
+  references stay live during callbacks and partial snapshot transfers. Native actor
+  liveness admits references and mask selections independently of culling or prior
+  publication; only confirmed despawns or world rebinds revoke them. Guest
   drawing imports share the receiver's per-bundle draw ceiling. Immediate
   primitives share one admitted list whose allocation ranges survive layer merging.
   One frame publisher rebuilds anchor availability from all current contributors,

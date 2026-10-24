@@ -591,7 +591,9 @@ fn advance_runtime(
         while let Some((received_ms, bytes)) = extension.pop() {
             live.receive(&bytes, received_ms)?;
         }
-        for bytes in live.poll(extension.epoch, now_ms, context.is_some())? {
+        for bytes in live.poll(extension.epoch, now_ms, context.is_some(), |key| {
+            drawing.current(key)
+        })? {
             let packet = protocol::experience_packet(bytes)
                 .ok_or_else(|| anyhow::anyhow!("outbound envelope too large"))?;
             anyhow::ensure!(

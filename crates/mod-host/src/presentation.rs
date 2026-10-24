@@ -117,6 +117,7 @@ impl Receiver {
     }
 
     /// Assembles a committed scene within its reservation and publishes it atomically.
+    /// `valid` queries the current native actor store, independently of drawing visibility.
     pub fn receive(
         &mut self,
         chunk: Chunk,
@@ -124,20 +125,23 @@ impl Receiver {
         context: &Context,
         memory_bytes: u64,
         gpu_bytes: u64,
+        valid: impl Fn(mod_render::retained::EntityKey) -> bool,
     ) -> Result<()> {
-        if let Some((output, context)) = self.assembly.receive(chunk, context, memory_bytes)? {
-            self.apply(output, permissions, &context, gpu_bytes)?;
+        if let Some(output) = self.assembly.receive(chunk, context, memory_bytes)? {
+            self.apply(output, permissions, context, gpu_bytes, valid)?;
         }
         Ok(())
     }
 
     /// Rechecks permissions and reservations before publishing any helper output.
+    /// `valid` must check the actor incarnation against the current native actor store.
     pub fn apply(
         &mut self,
         input: Output,
         permissions: DrawingPermissions,
         context: &Context,
         gpu_bytes: u64,
+        valid: impl Fn(mod_render::retained::EntityKey) -> bool,
     ) -> Result<()> {
         ensure!(
             permissions.world_draw
@@ -165,7 +169,7 @@ impl Receiver {
                 permissions,
                 context.connection,
                 context.dimension,
-                &context.live,
+                &valid,
                 |id| {
                     let owner = *owners
                         .entry(id.owner)
@@ -217,11 +221,6 @@ impl Receiver {
             mask.handle.owner = *owners
                 .entry(mask.handle.owner)
                 .or_insert_with(mod_render::next_owner);
-            let previous = self
-                .output
-                .masks
-                .iter()
-                .find(|old| old.handle == mask.handle);
             ensure!(
                 permissions.entity_highlight
                     && (mask.depth == mod_api::drawing::MaskDepth::Test
@@ -241,13 +240,17 @@ impl Receiver {
                         && entity.dimension == context.dimension,
                     "foreign mask actor"
                 );
+                ensure!(
+                    valid(mod_render::retained::EntityKey {
+                        session: entity.connection,
+                        dimension: entity.dimension,
+                        runtime_id: entity.runtime_id,
+                        spawn_revision: entity.spawn_revision,
+                    }),
+                    "unadmitted mask actor"
+                );
                 if let Some((_, count)) = context.targets.iter().find(|(key, _)| key == entity) {
                     vertices = vertices.saturating_add(*count);
-                } else {
-                    ensure!(
-                        previous.is_some_and(|old| old.entities.contains(entity)),
-                        "unadmitted mask actor"
-                    );
                 }
             }
             ensure!(

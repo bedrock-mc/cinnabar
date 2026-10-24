@@ -68,7 +68,7 @@ fn restarted_initializer_references_stay_live_while_dispatch_pauses() {
         fuel: Some(1),
     });
     live.bind_drawing(&context(1), |_| true).unwrap();
-    live.poll(1, CALLBACK_INTERVAL_MS, false).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, false, |_| true).unwrap();
     live.bind_drawing(&context(1), |_| true).unwrap();
     let instance = live.instances.get_mut("bundle0").unwrap();
     assert!(instance.stopped.is_none());
@@ -132,7 +132,7 @@ fn held_actor_references_survive_candidate_turnover_during_snapshot_transfer() {
         next.candidates.push(other);
         next.live.push(other);
         live.bind_drawing(&next, |_| true).unwrap();
-        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true)
+        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true, |_| true)
             .unwrap();
         let instance = &live.instances["bundle0"];
         assert!(instance.stopped.is_none());
@@ -185,7 +185,11 @@ fn staggered_drawing_initializers_send_ready_before_overlapping_frames() {
             .insert(Permission::WorldDraw);
     }
     complete(&mut live, "bundle0");
-    assert!(live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap().is_empty());
+    assert!(
+        live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true)
+            .unwrap()
+            .is_empty()
+    );
     // Let an early frame stay pending while the second initializer finishes.
     live.instances
         .get_mut("bundle0")
@@ -195,7 +199,9 @@ fn staggered_drawing_initializers_send_ready_before_overlapping_frames() {
         .unwrap()
         .response = None;
     complete(&mut live, "bundle1");
-    let packets = live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+    let packets = live
+        .poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Ready { .. }
@@ -222,7 +228,7 @@ fn initialized(count: usize) -> Live<FakeWorker> {
                 });
             }
         }
-        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true)
+        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true, |_| true)
             .unwrap();
     }
     assert!(live.ready);
@@ -240,7 +246,8 @@ fn frame_callbacks_share_the_session_budget_fairly() {
             .insert(Permission::WorldDraw);
     }
     for slice in 4..12 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS, true).unwrap();
+        live.poll(1, slice * CALLBACK_INTERVAL_MS, true, |_| true)
+            .unwrap();
     }
     for instance in live.instances.values() {
         let helper = instance.helper.as_ref().unwrap();
@@ -292,7 +299,8 @@ fn every_multichunk_initial_scene_finishes_under_frame_budget_pressure() {
                 });
             }
         }
-        live.poll(1, slice * CALLBACK_INTERVAL_MS, true).unwrap();
+        live.poll(1, slice * CALLBACK_INTERVAL_MS, true, |_| true)
+            .unwrap();
     }
     assert!(live.ready);
     for instance in live.instances.values() {
@@ -337,7 +345,7 @@ fn drawing_releases_retired_gpu_charges_without_a_helper_reply() {
         .next()
         .unwrap()
         .presentation
-        .apply(input, DrawingPermissions::ALL, &context, u64::MAX)
+        .apply(input, DrawingPermissions::ALL, &context, u64::MAX, |_| true)
         .unwrap();
     let ledger = live.drawing().0.gpu_reservations[0].ledger.clone();
     let gpu_mesh = ledger.allocate(256, || Some(())).unwrap();
@@ -351,6 +359,7 @@ fn drawing_releases_retired_gpu_charges_without_a_helper_reply() {
             DrawingPermissions::ALL,
             &context,
             u64::MAX,
+            |_| true,
         )
         .unwrap();
     let (output, revision) = live.drawing();
@@ -418,8 +427,9 @@ fn idle_dimension_change_binds_current_entities_before_epoch_callback() {
     };
     live.bind_drawing(&current_context, |key| key == current)
         .unwrap();
-    live.poll(2, CALLBACK_INTERVAL_MS, true).unwrap();
-    live.poll(2, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(2, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
+    live.poll(2, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     let instance = &live.instances["bundle0"];
     assert!(instance.stopped.is_none());
     let context = instance.helper.as_ref().unwrap().contexts.last().unwrap();
@@ -465,7 +475,7 @@ fn pending_initialization_uses_its_original_drawing_fence() {
         ..context(1)
     };
     live.bind_drawing(&changed, |_| false).unwrap();
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     assert!(live.ready);
     assert_eq!(live.instances["bundle0"].presentation.time, None);
 }
@@ -557,7 +567,8 @@ fn over_limit_group_stops_only_its_bundle_while_another_keeps_drawing() {
         .presentation
         .len();
     for slice in 1..=pieces as u64 {
-        live.poll(1, slice * CALLBACK_INTERVAL_MS, true).unwrap();
+        live.poll(1, slice * CALLBACK_INTERVAL_MS, true, |_| true)
+            .unwrap();
     }
     assert!(live.instances["bundle0"].stopped.is_some());
     assert!(live.instances["bundle0"].helper.is_none());
@@ -565,8 +576,10 @@ fn over_limit_group_stops_only_its_bundle_while_another_keeps_drawing() {
     let (output, _) = live.drawing();
     assert_eq!(output.retained.len(), 1);
     assert_eq!(output.retained[0].instances.len(), 1);
-    live.poll(1, (pieces as u64 + 1) * CALLBACK_INTERVAL_MS, true)
-        .unwrap();
+    live.poll(1, (pieces as u64 + 1) * CALLBACK_INTERVAL_MS, true, |_| {
+        true
+    })
+    .unwrap();
     assert!(live.instances["bundle1"].stopped.is_none());
     assert!(
         live.instances["bundle1"]
@@ -589,20 +602,21 @@ fn paused_dispatch_keeps_polling_completions_and_defers_all_new_work() {
             .permissions
             .insert(Permission::WorldDraw);
     }
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     let instance = live.instances.get_mut("bundle0").unwrap();
     instance.events.push_back(Event::Epoch);
     assert!(instance.busy);
-    live.poll(1, 10_000, false).unwrap();
+    live.poll(1, 10_000, false, |_| true).unwrap();
     for instance in live.instances.values() {
         assert!(!instance.busy);
         assert!(instance.stopped.is_none());
         assert_eq!(instance.helper.as_ref().unwrap().dispatched, [Event::Frame]);
     }
     assert_eq!(live.instances["bundle0"].events.len(), 1);
-    live.poll(1, 20_000, false).unwrap();
+    live.poll(1, 20_000, false, |_| true).unwrap();
     assert_eq!(live.instances["bundle0"].events.len(), 1);
-    live.poll(1, 20_000, true).unwrap();
+    live.poll(1, 20_000, true, |_| true).unwrap();
     assert_eq!(
         live.instances["bundle0"]
             .helper
@@ -623,7 +637,7 @@ fn paused_dispatch_keeps_polling_completions_and_defers_all_new_work() {
     let mut live = fixture(3);
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    live.poll(1, 10_000, false).unwrap();
+    live.poll(1, 10_000, false, |_| true).unwrap();
     assert!(live.instances["bundle2"].helper.is_none());
     assert!(live.instances["bundle2"].component.is_some());
 }
@@ -648,10 +662,11 @@ fn helper_transport_and_dispatch_failures_do_not_stop_another_bundle() {
             .unwrap();
         helper.transport_error = !during_dispatch;
         helper.refuse_dispatch = during_dispatch;
-        live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+        live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
         assert!(live.instances["bundle0"].stopped.is_some());
         assert!(live.instances["bundle1"].stopped.is_none());
-        live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+        live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+            .unwrap();
         assert_eq!(
             live.instances["bundle1"]
                 .helper
@@ -694,7 +709,7 @@ fn rejected_drawing_decode_and_transactions_stop_only_their_producer() {
         } else {
             helper.response.as_mut().unwrap().owner.bundle = "bundle1".into();
         }
-        live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+        live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
         assert!(live.instances["bundle0"].stopped.is_some());
         assert!(live.instances["bundle1"].stopped.is_none());
         assert_eq!(live.drawing().0.retained[0].instances.len(), 1);
@@ -707,7 +722,7 @@ fn failed_launch_does_not_block_readiness_or_other_initializers() {
     live.instances.get_mut("bundle2").unwrap().component = Some(vec![255]);
     complete(&mut live, "bundle0");
     complete(&mut live, "bundle1");
-    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Ready { .. }
@@ -737,7 +752,7 @@ fn routed_payload_rejection_preserves_other_bundles_and_the_reliable_sequence() 
         .unwrap();
     assert!(live.instances["bundle0"].stopped.is_some());
     receive(&mut live, "bundle1", 2);
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     assert!(live.instances["bundle1"].stopped.is_none());
     assert!(matches!(
         live.instances["bundle1"]
@@ -755,7 +770,7 @@ fn routed_payload_rejection_preserves_other_bundles_and_the_reliable_sequence() 
 fn discarded_initialization_sends_do_not_leave_a_sequence_gap() {
     let mut live = fixture(2);
     complete(&mut live, "bundle0");
-    live.poll(1, 0, true).unwrap();
+    live.poll(1, 0, true, |_| true).unwrap();
     live.instances
         .get_mut("bundle0")
         .unwrap()
@@ -764,7 +779,7 @@ fn discarded_initialization_sends_do_not_leave_a_sequence_gap() {
         .unwrap()
         .transport_error = true;
     complete(&mut live, "bundle1");
-    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     let send: Envelope = serde_json::from_slice(&packets[1]).unwrap();
     assert_eq!(send.bundle, "bundle1");
     assert_eq!(send.sequence, 1);
@@ -783,7 +798,7 @@ fn guest_rate_exhaustion_cannot_reject_a_host_epoch_control() {
     for _ in 0..MAX_MESSAGES_PER_SECOND {
         live.egress.charge(1, 0).unwrap();
     }
-    let packets = live.poll(2, 0, false).unwrap();
+    let packets = live.poll(2, 0, false, |_| true).unwrap();
     assert!(matches!(
         serde_json::from_slice::<Control>(&packets[0]).unwrap(),
         Control::Epoch { world_epoch: 2, .. }
@@ -812,7 +827,7 @@ fn a_rejected_commit_releases_shared_queue_space_before_the_next_bundle() {
         .unwrap();
     transaction.commands = vec![transaction.commands[0].clone(); MAX_QUEUE_MESSAGES + 1];
     assert!(serde_json::to_vec(transaction).unwrap().len() <= MAX_HOST_OUTPUT);
-    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    let packets = live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     assert!(live.instances["bundle0"].stopped.is_some());
     assert!(live.instances["bundle1"].stopped.is_none());
     assert_eq!(live.drawing().0.retained[0].instances.len(), 1);
@@ -857,7 +872,7 @@ fn stopped_bundles_release_input_queues_even_while_dispatch_is_paused() {
                 .as_mut()
                 .unwrap()
                 .transport_error = true;
-            live.poll(1, CALLBACK_INTERVAL_MS, false).unwrap();
+            live.poll(1, CALLBACK_INTERVAL_MS, false, |_| true).unwrap();
             3
         };
         assert!(live.instances["bundle0"].stopped.is_some());
@@ -876,7 +891,7 @@ fn stopped_bundles_release_input_queues_even_while_dispatch_is_paused() {
 fn a_rejected_modal_stops_only_its_owner_and_restores_the_other_modal() {
     let mut live = initialized(2);
     scene(&mut live, "bundle0", 1);
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     for (index, instance) in live.instances.values_mut().enumerate() {
         instance.opened = index as u64 + 1;
         instance.contributions.modal.open(Some(SCREEN.into()));
@@ -887,8 +902,142 @@ fn a_rejected_modal_stops_only_its_owner_and_restores_the_other_modal() {
     assert!(live.instances["bundle0"].stopped.is_none());
     assert_eq!(live.modal().unwrap().bundle, "bundle0");
     assert_eq!(live.drawing().0.retained[0].instances.len(), 1);
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     assert!(live.instances["bundle0"].helper.is_some());
     assert!(live.reject_modal("invalid other screen", 2 * CALLBACK_INTERVAL_MS));
     assert!(live.modal().is_none());
+}
+
+#[test]
+fn mask_selected_during_transfer_is_admitted_while_culled_and_returns_to_drawing() {
+    let mut live = initialized(1);
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    let target = mod_api::drawing::MaskEntity {
+        connection: actor.session,
+        dimension: actor.dimension,
+        runtime_id: actor.runtime_id,
+        spawn_revision: actor.spawn_revision,
+    };
+    let visible = mod_host::presentation::Context {
+        targets: vec![(target, 36)],
+        ..context(1)
+    };
+    live.bind_drawing(&visible, |key| key == actor).unwrap();
+    let instance = live.instances.get_mut("bundle0").unwrap();
+    instance
+        .capabilities
+        .scope
+        .permissions
+        .insert(Permission::EntityHighlight);
+    instance.capabilities.scope.memory_bytes = MAX_GUEST_MEMORY;
+    instance.dispatch(None, Event::Frame, 1, None).unwrap();
+    let helper = instance.helper.as_mut().unwrap();
+    let old = serde_json::to_vec(&mod_host::presentation::Output::default()).unwrap();
+    let selected = serde_json::to_vec(&mod_host::presentation::Output {
+        masks: vec![mod_render::masks::Mask {
+            handle: mod_api::drawing::DrawingHandle {
+                owner: 1,
+                generation: 1,
+                slot: 1,
+            },
+            session: Default::default(),
+            depth: mod_api::drawing::MaskDepth::Test,
+            entities: vec![target],
+            style: Some(mod_api::drawing::MaskStyle {
+                fill: Some([1., 0., 0., 0.5]),
+                outline: [1.; 4],
+                outline_radius: 1.,
+                glow: [0.; 4],
+                glow_radius: 0.,
+            }),
+            position: None,
+        }],
+        ..Default::default()
+    })
+    .unwrap();
+    // The first piece predates the selection; the next snapshot starts after culling.
+    for (revision, bytes) in [(1, &old), (2, &selected)] {
+        helper
+            .presentation
+            .extend(bytes.chunks(32).enumerate().map(|(index, bytes)| {
+                mod_host::presentation::Chunk {
+                    revision,
+                    offset: (index * 32) as u32,
+                    total: if revision == 1 {
+                        old.len()
+                    } else {
+                        selected.len()
+                    } as u32,
+                    bytes: bytes.to_vec(),
+                }
+            }));
+    }
+    let pieces = helper.presentation.len();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |key| key == actor)
+        .unwrap();
+    assert!(live.drawing().0.masks.is_empty());
+    for slice in 2..=pieces {
+        live.bind_drawing(&context(1), |key| key == actor).unwrap();
+        live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true, |key| {
+            key == actor
+        })
+        .unwrap();
+        let instance = &live.instances["bundle0"];
+        assert!(
+            instance.stopped.is_none(),
+            "a live culled selection must keep running"
+        );
+        assert!(instance.helper.is_some());
+    }
+    let mut scene = render_scene::ModRenderScene::default();
+    let (output, revision) = live.drawing();
+    scene.apply_server(output, revision);
+    assert_eq!(scene.masks[0].entities, [target]);
+    assert!(scene.masks[0].authorized());
+    assert_eq!(scene.masks[0].style.unwrap().fill, Some([1., 0., 0., 0.5]));
+    live.bind_drawing(&visible, |key| key == actor).unwrap();
+    live.poll(1, (pieces as u64 + 1) * CALLBACK_INTERVAL_MS, true, |key| {
+        key == actor
+    })
+    .unwrap();
+    let (output, revision) = live.drawing();
+    scene.apply_server(output, revision);
+    assert!(
+        visible
+            .targets
+            .iter()
+            .any(|(key, _)| scene.masks[0].entities.contains(key))
+    );
+    let instance = &live.instances["bundle0"];
+    assert!(instance.stopped.is_none());
+    assert!(instance.helper.as_ref().unwrap().dispatched.len() > pieces);
+}
+
+#[test]
+fn callback_reference_admission_queries_liveness_outside_its_dispatch_context() {
+    let actor = mod_render::retained::EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 42,
+        spawn_revision: 3,
+    };
+    for alive in [true, false] {
+        let mut live = initialized(1);
+        let instance = live.instances.get_mut("bundle0").unwrap();
+        instance.dispatch(None, Event::Frame, 1, None).unwrap();
+        instance.helper.as_mut().unwrap().references = vec![actor];
+        live.poll(1, CALLBACK_INTERVAL_MS, false, |key| alive && key == actor)
+            .unwrap();
+        let instance = &live.instances["bundle0"];
+        assert_eq!(instance.stopped.is_none(), alive);
+        if alive {
+            assert_eq!(instance.drawing_references, [actor]);
+        }
+    }
 }

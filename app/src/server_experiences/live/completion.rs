@@ -5,11 +5,13 @@ use server_experience::runtime::Transaction;
 
 impl<H: Worker> Live<H> {
     /// Polls every existing helper even while native drawing pauses new callback dispatch.
+    /// `valid` checks current native actor liveness, never callback or render snapshots.
     pub(in crate::server_experiences) fn poll(
         &mut self,
         epoch: u64,
         now_ms: u64,
         dispatch: bool,
+        valid: impl Fn(mod_render::retained::EntityKey) -> bool,
     ) -> Result<Vec<Vec<u8>>> {
         let mut packets = Vec::new();
         self.discard_stopped();
@@ -51,6 +53,7 @@ impl<H: Worker> Live<H> {
                             references,
                             self.epoch,
                             self.drawing_fence,
+                            &valid,
                             &mut self.modal_order,
                         )
                         .and_then(|commands| {
@@ -110,7 +113,7 @@ impl<H: Worker> Live<H> {
                     let result = if instance.epoch == self.epoch
                         && Some(instance.pending_drawing_context.fence()) == self.drawing_fence
                     {
-                        instance.accept_references(references)
+                        instance.accept_references(references, &valid)
                     } else {
                         Ok(())
                     };
@@ -219,12 +222,15 @@ impl<H> Instance<H> {
     fn accept_references(
         &mut self,
         references: Vec<mod_render::retained::EntityKey>,
+        valid: impl Fn(mod_render::retained::EntityKey) -> bool,
     ) -> Result<()> {
         ensure!(
             references.len() <= mod_api::MAX_DRAW_ENTITIES
                 && references
                     .iter()
-                    .all(|key| self.pending_drawing_context.live.contains(key)),
+                    .all(|key| key.session == self.pending_drawing_context.connection
+                        && key.dimension == self.pending_drawing_context.dimension
+                        && valid(*key)),
             "unadmitted drawing references"
         );
         self.drawing_references = references;
@@ -254,6 +260,10 @@ impl<H> Instance<H> {
     }
 
     /// Revalidates one producer's transaction before returning its owned side effects.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "callback authority and output admission"
+    )]
     fn commit(
         &mut self,
         transaction: Transaction,
@@ -261,19 +271,21 @@ impl<H> Instance<H> {
         references: Vec<mod_render::retained::EntityKey>,
         epoch: u64,
         fence: Option<(u64, u64, i32)>,
+        valid: impl Fn(mod_render::retained::EntityKey) -> bool,
         modal_order: &mut u64,
     ) -> Result<Vec<Command>> {
         self.contributions
             .apply(&transaction, &self.owner, self.epoch, &self.capabilities)?;
         if transaction.epoch == epoch && Some(self.pending_drawing_context.fence()) == fence {
-            self.accept_references(references)?;
+            self.accept_references(references, &valid)?;
             if let Some(presentation) = presentation {
                 self.presentation.receive(
                     *presentation,
                     mod_host::server::drawing_grants(&self.capabilities).drawing_permissions(),
-                    &self.pending_drawing_context,
+                    &self.drawing_context,
                     self.capabilities.scope.memory_bytes,
                     self.capabilities.scope.gpu_bytes,
+                    valid,
                 )?;
             }
         }

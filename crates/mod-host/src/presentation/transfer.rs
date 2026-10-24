@@ -68,7 +68,7 @@ pub(super) struct Assembly {
     revision: u64,
     total: u32,
     bytes: Vec<u8>,
-    context: Context,
+    fence: (u64, u64, i32),
 }
 
 impl Assembly {
@@ -78,7 +78,7 @@ impl Assembly {
         chunk: Chunk,
         context: &Context,
         memory_bytes: u64,
-    ) -> Result<Option<(Output, Context)>> {
+    ) -> Result<Option<Output>> {
         ensure!(
             chunk.total > 0 && u64::from(chunk.total) <= memory_bytes,
             "drawing transfer memory budget exceeded"
@@ -89,13 +89,14 @@ impl Assembly {
             "invalid drawing chunk"
         );
         if chunk.offset == 0 {
-            self.context = context.clone();
+            self.fence = context.fence();
             self.revision = chunk.revision;
             self.total = chunk.total;
             self.bytes.clear();
         }
         ensure!(
-            chunk.revision == self.revision
+            context.fence() == self.fence
+                && chunk.revision == self.revision
                 && chunk.total == self.total
                 && chunk.offset as usize == self.bytes.len(),
             "stale or out-of-order drawing chunk"
@@ -107,9 +108,8 @@ impl Assembly {
         self.bytes.extend_from_slice(&chunk.bytes);
         if self.bytes.len() == self.total as usize {
             let output = serde_json::from_slice(&self.bytes)?;
-            let context = std::mem::take(&mut self.context);
             *self = Self::default();
-            Ok(Some((output, context)))
+            Ok(Some(output))
         } else {
             Ok(None)
         }

@@ -437,9 +437,9 @@ later callback, the host binds drawing to the current native connection, world
 epoch, dimension type and actor identities together. A changed binding revokes old
 references before guest code runs; an unbound or stale context cannot dispatch.
 Each reply reports the guest's held actor references independently of snapshot chunks.
-The application checks those references and the in-flight callback's candidates against
-the native actor store. Leaving the nearest-candidate set keeps a live reference,
-including while a callback or snapshot transfer is pending.
+The application checks returned references and mask selections against the current
+native actor store. A live actor remains admissible outside a callback's candidate
+list or visible frame, including while an older snapshot is transferring.
 While native context is unavailable, new callbacks wait and existing helpers keep
 being polled. Only outstanding work has a deadline; queued replies are judged by
 their completion time. Temporary culling never changes retained mask membership:

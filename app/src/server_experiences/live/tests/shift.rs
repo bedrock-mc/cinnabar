@@ -28,8 +28,8 @@ fn shift_reaches_the_open_bundle_when_it_changes() {
 fn held_shift_is_delivered_again_after_a_failed_callback() {
     let mut live = opened();
     assert!(live.shift_changed(true));
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     live.instances
         .get_mut("bundle0")
         .unwrap()
@@ -38,8 +38,10 @@ fn held_shift_is_delivered_again_after_a_failed_callback() {
         .unwrap()
         .fail = true;
     assert!(live.press("bundle0.pick", None));
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     let instance = live.instances.get_mut("bundle0").unwrap();
     assert!(instance.stopped.is_none());
     assert_eq!(instance.strikes.len(), 1);
@@ -50,7 +52,8 @@ fn held_shift_is_delivered_again_after_a_failed_callback() {
         "the replacement guest needs held Shift"
     );
     assert!(!live.shift_changed(true));
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     assert_eq!(
         live.instances["bundle0"]
             .helper
@@ -74,7 +77,7 @@ fn failed_shift_release_is_delivered_again_and_clears_retained_ui() {
     let mut live = opened();
     let binding = "#held";
     assert!(live.shift_changed(true));
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     let helper = live
         .instances
         .get_mut("bundle0")
@@ -91,7 +94,7 @@ fn failed_shift_release_is_delivered_again_and_clears_retained_ui() {
             name: binding.into(),
             value: screen::Value::Bool(true),
         });
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
 
     live.instances
         .get_mut("bundle0")
@@ -101,8 +104,10 @@ fn failed_shift_release_is_delivered_again_and_clears_retained_ui() {
         .unwrap()
         .fail = true;
     assert!(live.shift_changed(false));
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     let instance = live.instances.get_mut("bundle0").unwrap();
     assert!(instance.stopped.is_none());
     assert_eq!(
@@ -116,7 +121,8 @@ fn failed_shift_release_is_delivered_again_and_clears_retained_ui() {
         "the retained UI still needs the release"
     );
     assert!(!live.shift_changed(false));
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     let helper = live
         .instances
         .get_mut("bundle0")
@@ -137,7 +143,8 @@ fn failed_shift_release_is_delivered_again_and_clears_retained_ui() {
             name: binding.into(),
             value: screen::Value::Bool(false),
         });
-    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 3 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
     assert_eq!(
         live.instances["bundle0"].contributions.modal.values[binding],
         screen::Value::Bool(false)
@@ -156,7 +163,7 @@ fn queued_shift_survives_a_failed_callback_without_a_duplicate() {
         .unwrap()
         .fail = true;
     assert!(live.press("bundle0.pick", None));
-    live.poll(1, CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, CALLBACK_INTERVAL_MS, true, |_| true).unwrap();
     assert!(live.shift_changed(true));
     live.instances
         .get_mut("bundle0")
@@ -165,7 +172,8 @@ fn queued_shift_survives_a_failed_callback_without_a_duplicate() {
         .as_mut()
         .unwrap()
         .fail = false;
-    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true).unwrap();
+    live.poll(1, 2 * CALLBACK_INTERVAL_MS, true, |_| true)
+        .unwrap();
 
     assert!(!live.shift_changed(true));
     assert_eq!(

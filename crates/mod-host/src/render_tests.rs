@@ -409,6 +409,7 @@ fn bundle_and_personal_pass_revisions_share_one_namespace() {
                     ..Default::default()
                 },
                 u64::MAX,
+                |_| true,
             )
             .unwrap();
         let bundle = receiver.output().0.passes[0].revision;

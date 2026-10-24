@@ -185,6 +185,7 @@ fn bundle_draw_limit_rejects_the_guest_call_before_it_can_publish() {
             mod_api::drawing::DrawingPermissions::ALL,
             &drawing_context(1),
             u64::MAX,
+            |_| true,
         )
         .unwrap();
     assert_eq!(

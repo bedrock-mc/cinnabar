@@ -69,14 +69,14 @@ impl Snapshot {
     }
 
     /// Revalidates topology, materials, placements and aggregate costs atomically. The caller
-    /// supplies local tokens, so two helper processes cannot collide in the renderer.
+    /// supplies current actor liveness and local tokens, so helper processes cannot collide.
     pub fn admit(
         &self,
         previous: Option<&Resources>,
         permissions: DrawingPermissions,
         connection: u64,
         dimension: i32,
-        entities: &[EntityKey],
+        valid: impl Fn(EntityKey) -> bool,
         mut token: impl FnMut(Handle) -> Handle,
     ) -> Result<Resources, DrawError> {
         if !permissions.world_draw && !self.is_empty() {
@@ -101,7 +101,7 @@ impl Snapshot {
             if !permissions.entity_observe
                 || key.session != connection
                 || key.dimension != dimension
-                || !entities.contains(key)
+                || !valid(*key)
             {
                 return Err(error(ErrorCode::Denied, "entity reference"));
             }

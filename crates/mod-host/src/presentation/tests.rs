@@ -72,7 +72,7 @@ fn receiver_keeps_one_gpu_reservation_for_all_remapped_mask_owners() {
     }
     let mut receiver = Receiver::default();
     receiver
-        .apply(input, DrawingPermissions::ALL, &context(), 8192)
+        .apply(input, DrawingPermissions::ALL, &context(), 8192, |_| true)
         .unwrap();
     let output = receiver.output().0;
     let [reservation] = output.gpu_reservations.as_slice() else {
@@ -96,12 +96,20 @@ fn receiver_keeps_one_gpu_reservation_for_all_remapped_mask_owners() {
 fn retired_geometry_reservation_expires_without_another_guest_snapshot() {
     let mut receiver = Receiver::default();
     receiver
-        .apply(planet(), DrawingPermissions::ALL, &context(), 8192)
+        .apply(planet(), DrawingPermissions::ALL, &context(), 8192, |_| {
+            true
+        })
         .unwrap();
     let ledger = receiver.output().0.gpu_reservations[0].ledger.clone();
     let resident = ledger.allocate(4096, || Some(())).unwrap();
     receiver
-        .apply(Output::default(), DrawingPermissions::ALL, &context(), 8192)
+        .apply(
+            Output::default(),
+            DrawingPermissions::ALL,
+            &context(),
+            8192,
+            |_| true,
+        )
         .unwrap();
     assert_eq!(receiver.output().0.gpu_reservations[0].ledger, ledger);
     assert_eq!(ledger.used(), 4096);
@@ -141,7 +149,9 @@ fn entity_only_snapshots_keep_live_actor_handles_beyond_nearest_candidates() {
         ..Default::default()
     };
     receiver
-        .apply(input.clone(), DrawingPermissions::ALL, &context, 0)
+        .apply(input.clone(), DrawingPermissions::ALL, &context, 0, |_| {
+            true
+        })
         .unwrap();
     let resources = &receiver.output().0.retained[0];
     assert_eq!(
@@ -150,7 +160,7 @@ fn entity_only_snapshots_keep_live_actor_handles_beyond_nearest_candidates() {
     );
     let token = *resources.entities.keys().next().unwrap();
     receiver
-        .apply(input, DrawingPermissions::ALL, &context, 0)
+        .apply(input, DrawingPermissions::ALL, &context, 0, |_| true)
         .unwrap();
     assert_eq!(receiver.output().0.retained[0].entities[&token], actor);
 }
@@ -160,12 +170,18 @@ fn bundle_planet_and_environment_require_drawing_authority() {
     let mut receiver = Receiver::default();
     assert!(
         receiver
-            .apply(planet(), Default::default(), &context(), u64::MAX)
+            .apply(planet(), Default::default(), &context(), u64::MAX, |_| true)
             .is_err()
     );
     assert!(receiver.output().0.retained.is_empty());
     receiver
-        .apply(planet(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(
+            planet(),
+            DrawingPermissions::ALL,
+            &context(),
+            u64::MAX,
+            |_| true,
+        )
         .unwrap();
     assert_eq!(receiver.output().0.retained[0].instances.len(), 1);
     assert_eq!(receiver.time, Some(18_000));
@@ -175,7 +191,13 @@ fn bundle_planet_and_environment_require_drawing_authority() {
 fn invalid_output_preserves_the_previous_scene() {
     let mut receiver = Receiver::default();
     receiver
-        .apply(planet(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(
+            planet(),
+            DrawingPermissions::ALL,
+            &context(),
+            u64::MAX,
+            |_| true,
+        )
         .unwrap();
     let revision = receiver.output().1;
     let mut invalid = planet();
@@ -185,7 +207,13 @@ fn invalid_output_preserves_the_previous_scene() {
     };
     assert!(
         receiver
-            .apply(invalid, DrawingPermissions::ALL, &context(), u64::MAX)
+            .apply(
+                invalid,
+                DrawingPermissions::ALL,
+                &context(),
+                u64::MAX,
+                |_| true
+            )
             .is_err()
     );
     assert_eq!(receiver.output().1, revision);
@@ -196,10 +224,22 @@ fn helper_tokens_cannot_collide_and_unchanged_geometry_stays_shared() {
     let input = planet();
     let mut a = Receiver::default();
     let mut b = Receiver::default();
-    a.apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
-        .unwrap();
-    b.apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
-        .unwrap();
+    a.apply(
+        input.clone(),
+        DrawingPermissions::ALL,
+        &context(),
+        u64::MAX,
+        |_| true,
+    )
+    .unwrap();
+    b.apply(
+        input.clone(),
+        DrawingPermissions::ALL,
+        &context(),
+        u64::MAX,
+        |_| true,
+    )
+    .unwrap();
     let before = a.output().0.retained[0]
         .geometry
         .values()
@@ -221,8 +261,10 @@ fn helper_tokens_cannot_collide_and_unchanged_geometry_stays_shared() {
             .unwrap()
             .owner
     );
-    a.apply(input, DrawingPermissions::ALL, &context(), u64::MAX)
-        .unwrap();
+    a.apply(input, DrawingPermissions::ALL, &context(), u64::MAX, |_| {
+        true
+    })
+    .unwrap();
     assert!(Arc::ptr_eq(
         &before,
         a.output().0.retained[0].geometry.values().next().unwrap()
@@ -249,7 +291,8 @@ fn serialized_drawing_rechecks_topology_and_elevated_grants() {
                     ..Default::default()
                 },
                 &context(),
-                u64::MAX
+                u64::MAX,
+                |_| true
             )
             .is_err()
     );
@@ -297,6 +340,7 @@ fn large_scenes_stream_within_callback_limits_and_publish_only_when_complete() {
                 &context(),
                 server_experience::policy::MAX_GUEST_MEMORY,
                 u64::MAX,
+                |_| true,
             )
             .unwrap();
         if !complete {
@@ -329,7 +373,14 @@ fn partial_transfers_deny_overflow_and_release_their_memory_on_teardown() {
     };
     assert!(
         receiver
-            .receive(excessive, DrawingPermissions::ALL, &context(), 16, u64::MAX)
+            .receive(
+                excessive,
+                DrawingPermissions::ALL,
+                &context(),
+                16,
+                u64::MAX,
+                |_| true
+            )
             .is_err()
     );
     let mut pending = Pending::new(&planet(), server_experience::policy::MAX_GUEST_MEMORY).unwrap();
@@ -340,6 +391,7 @@ fn partial_transfers_deny_overflow_and_release_their_memory_on_teardown() {
             &context(),
             server_experience::policy::MAX_GUEST_MEMORY,
             u64::MAX,
+            |_| true,
         )
         .unwrap();
     let mut out_of_order = pending.take(32).unwrap();
@@ -351,7 +403,8 @@ fn partial_transfers_deny_overflow_and_release_their_memory_on_teardown() {
                 DrawingPermissions::ALL,
                 &context(),
                 server_experience::policy::MAX_GUEST_MEMORY,
-                u64::MAX
+                u64::MAX,
+                |_| true
             )
             .is_err()
     );
@@ -392,7 +445,13 @@ fn bundle_triangle_budget_counts_expanded_lines_per_placement() {
     };
     let mut receiver = Receiver::default();
     receiver
-        .apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(
+            input.clone(),
+            DrawingPermissions::ALL,
+            &context(),
+            u64::MAX,
+            |_| true,
+        )
         .unwrap();
     let revision = receiver.output().1;
     let error = receiver
@@ -401,6 +460,7 @@ fn bundle_triangle_budget_counts_expanded_lines_per_placement() {
             DrawingPermissions::ALL,
             &context(),
             u64::MAX,
+            |_| true,
         )
         .unwrap_err();
     assert_eq!(error.to_string(), "bundle triangle budget exceeded");
@@ -421,7 +481,13 @@ fn bundle_triangle_budget_combines_retained_and_immediate_geometry() {
     let input = placements(input, 2);
     let mut receiver = Receiver::default();
     receiver
-        .apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(
+            input.clone(),
+            DrawingPermissions::ALL,
+            &context(),
+            u64::MAX,
+            |_| true,
+        )
         .unwrap();
     let revision = receiver.output().1;
     let mut input = input;
@@ -433,7 +499,9 @@ fn bundle_triangle_budget_combines_retained_and_immediate_geometry() {
         intensity: 1.,
     });
     let error = receiver
-        .apply(input, DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(input, DrawingPermissions::ALL, &context(), u64::MAX, |_| {
+            true
+        })
         .unwrap_err();
     assert_eq!(error.to_string(), "bundle triangle budget exceeded");
     assert_eq!(receiver.output().1, revision);
@@ -443,14 +511,18 @@ fn bundle_triangle_budget_combines_retained_and_immediate_geometry() {
 fn retirement_keeps_resident_and_immediate_geometry_charged() {
     let mut receiver = Receiver::default();
     receiver
-        .apply(planet(), DrawingPermissions::ALL, &context(), 8192)
+        .apply(planet(), DrawingPermissions::ALL, &context(), 8192, |_| {
+            true
+        })
         .unwrap();
     let ledger = receiver.output().0.gpu_reservations[0].ledger.clone();
     let retained = ledger.allocate(1024, || Some(())).unwrap();
     let immediate = ledger.allocate(2048, || Some(())).unwrap();
     receiver.clear();
     receiver
-        .apply(planet(), DrawingPermissions::ALL, &context(), 8192)
+        .apply(planet(), DrawingPermissions::ALL, &context(), 8192, |_| {
+            true
+        })
         .unwrap();
     assert_eq!(receiver.output().0.gpu_reservations[0].ledger, ledger);
     assert_eq!(ledger.used(), 3072);
@@ -488,16 +560,30 @@ fn culled_mask_membership_survives_an_unrelated_publication() {
     let mut receiver = Receiver::default();
     assert!(
         receiver
-            .apply(input.clone(), DrawingPermissions::ALL, &context(), u64::MAX)
+            .apply(
+                input.clone(),
+                DrawingPermissions::ALL,
+                &context(),
+                u64::MAX,
+                |_| false
+            )
             .is_err()
     );
     assert!(receiver.output().0.masks.is_empty());
     receiver
-        .apply(input.clone(), DrawingPermissions::ALL, &visible, u64::MAX)
+        .apply(
+            input.clone(),
+            DrawingPermissions::ALL,
+            &visible,
+            u64::MAX,
+            |_| true,
+        )
         .unwrap();
     input.time = Some(18_000);
     receiver
-        .apply(input, DrawingPermissions::ALL, &context(), u64::MAX)
+        .apply(input, DrawingPermissions::ALL, &context(), u64::MAX, |_| {
+            true
+        })
         .unwrap();
     // Returning coverage uses the retained incarnation without another helper publication.
     let mask = &receiver.output().0.masks[0];
@@ -513,4 +599,67 @@ fn culled_mask_membership_survives_an_unrelated_publication() {
         spawn_revision: 2,
         ..actor
     }));
+}
+
+#[test]
+fn actor_admission_uses_liveness_instead_of_visible_or_published_evidence() {
+    let key = retained::EntityKey {
+        session: 7,
+        dimension: 0,
+        runtime_id: 5,
+        spawn_revision: 1,
+    };
+    let target = mod_api::drawing::MaskEntity {
+        connection: key.session,
+        dimension: key.dimension,
+        runtime_id: key.runtime_id,
+        spawn_revision: key.spawn_revision,
+    };
+    let id = DrawingHandle {
+        owner: 1,
+        generation: 1,
+        slot: 1,
+    };
+    let observed = Context {
+        candidates: vec![key],
+        live: vec![key],
+        targets: vec![(target, 36)],
+        ..context()
+    };
+    for mask in [false, true] {
+        let mut input = Output::default();
+        if mask {
+            input.masks.push(mod_render::masks::Mask {
+                handle: id,
+                session: Default::default(),
+                depth: mod_api::drawing::MaskDepth::Test,
+                entities: vec![target],
+                style: None,
+                position: None,
+            });
+        } else {
+            input.drawing.entities.push((id, key));
+        }
+        let mut receiver = Receiver::default();
+        // A live actor needs no candidate, visible target or previous publication.
+        receiver
+            .apply(
+                input.clone(),
+                DrawingPermissions::ALL,
+                &context(),
+                u64::MAX,
+                |actor| actor == key,
+            )
+            .unwrap();
+        let revision = receiver.output().1;
+        // Neither visible coverage nor previously published membership proves liveness.
+        assert!(
+            receiver
+                .apply(input, DrawingPermissions::ALL, &observed, u64::MAX, |_| {
+                    false
+                })
+                .is_err()
+        );
+        assert_eq!(receiver.output().1, revision);
+    }
 }
