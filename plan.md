@@ -344,7 +344,8 @@ Replay keeps the starting frame's capture, refreshes later ones and copies the r
 word back to the live state, keeping the live spin and glide counters, swim blend and
 camera eye blend. Glide, swim and crawl retain independent bits beside flight;
 their own trigger transitions produce actions, and their combined state feeds
-the compact body, swim blend and eye offset.
+the compact body, swim blend and eye offset. Replay preserves the pending swim-blend
+input across immobile pose transitions; only changed swim or crawl corrections replace it.
 Still incomplete: reconciling server `UsingItem` writes with local-use gameplay;
 the Riptide spin's entity-hit end, which
 needs a mob classification the entity facts lack (vanilla counts mobs whose box meets the

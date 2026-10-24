@@ -127,10 +127,14 @@ impl FlagCorrection {
     }
 }
 
-/// Applies selected pose bits independently and updates the next swim-blend input.
+/// Applies selected pose bits and updates the blend input only for a changed swim or crawl bit.
 fn apply_pose(word: FlagWord, mask: u8, modes: &mut ModeTracker, state: &mut PlayerState) {
+    let previous = modes.pose_flags();
     write_pose(word, mask, modes);
-    state.swim_pose_active = modes.pose_flags().swim_pose();
+    let poses = modes.pose_flags();
+    if previous.swimming != poses.swimming || previous.crawling != poses.crawling {
+        state.swim_pose_active = poses.swim_pose();
+    }
 }
 
 /// The pose half of [`apply_pose`].
@@ -152,15 +156,18 @@ fn set_spin(state: &mut PlayerState, spinning: bool, dormant: u8) {
     }
 }
 
-/// Imposes a frame's effective word on replayed pose and spin; a spin the word
-/// starts resumes from the `dormant` counter the previous tick left.
+/// Restores a frame's pose word without changing its pending blend input, then
+/// applies its corrections. A started spin resumes from the saved dormant counter.
 pub(super) fn impose(
-    word: FlagWord,
+    entry: FlagWord,
+    correction: FlagCorrection,
     modes: &mut ModeTracker,
     state: &mut PlayerState,
     dormant: u8,
 ) {
-    apply_pose(word, SPINNING - 1, modes, state);
+    write_pose(entry, SPINNING - 1, modes);
+    let word = correction.apply(entry);
+    apply_pose(word, correction.mask, modes, state);
     set_spin(state, word.has(SPINNING), dormant);
 }
 
@@ -174,13 +181,14 @@ pub(super) fn dormant_spin(spun: bool, state: &PlayerState) -> u8 {
     )
 }
 
-/// Counters vanilla keeps in components beside the flag word and snapshots
-/// with every frame: the glide counter, the swim blend and the Riptide spin
-/// counter, which keeps its value while the spin flag is clear.
+/// Per-frame state beside the flag word: the glide counter, the swim blend
+/// and its pending pose input, and the spin counter retained while its flag is clear.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct EntryCounters {
     fall_fly_ticks: u32,
     swim_amount: f32,
+    /// The blend input can outlive the pose when an immobile tick ends it.
+    swim_pose_active: bool,
     spin: u8,
 }
 
@@ -191,6 +199,7 @@ impl EntryCounters {
         Self {
             fall_fly_ticks: modes.fall_fly_ticks(),
             swim_amount: state.swim_amount,
+            swim_pose_active: state.swim_pose_active,
             spin: state.spin_attack_ticks.unwrap_or(dormant),
         }
     }
@@ -201,6 +210,7 @@ impl EntryCounters {
     pub(super) fn restore(self, modes: &mut ModeTracker, state: &mut PlayerState) -> u8 {
         modes.set_glide_counter(self.fall_fly_ticks);
         state.swim_amount = self.swim_amount;
+        state.swim_pose_active = self.swim_pose_active;
         if let Some(ticks) = state.spin_attack_ticks.as_mut() {
             *ticks = self.spin;
         }

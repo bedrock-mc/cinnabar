@@ -319,7 +319,13 @@ impl LocalPhysicsController {
                         dormant
                     };
                     let word = frame.flag_correction.apply(frame.entry_flags);
-                    server_flags::impose(word, &mut modes, state, dormant);
+                    server_flags::impose(
+                        frame.entry_flags,
+                        frame.flag_correction,
+                        &mut modes,
+                        state,
+                        dormant,
+                    );
                     // Accepted pose changes resize before local producers can end them.
                     // Replay them with dimensions in their original arrival order.
                     sync_state.replay_server(&frame.sync_server);
