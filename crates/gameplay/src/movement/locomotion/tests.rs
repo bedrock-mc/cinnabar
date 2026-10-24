@@ -699,6 +699,25 @@ fn a_gap_that_fits_a_sneak_but_not_a_stand_forces_the_sneak_pose() {
     assert!(choice.forced_sneak);
 }
 
+/// A level older than base game version 1.20.10 sneaks at standing height, so
+/// the same gap skips the sneak pose and crawls; resets keep that profile.
+#[test]
+fn a_legacy_sneak_profile_crawls_where_the_current_one_forces_a_sneak() {
+    let mut tracker = ModeTracker::default();
+    tracker.set_sneak_profile(SneakProfile::Legacy);
+    tracker.reset();
+    let observed = ModeObservation {
+        on_ground: true,
+        feet: Vec3::new(0.0, 0.0, 0.0),
+        ..airborne()
+    };
+    let choice = tracker
+        .select(ModeIntent::default(), observed, &Ceiling(Some(1.6)))
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Crawling);
+    assert!(!choice.forced_sneak);
+}
+
 /// Shallow water with the head above the surface never starts a swim; a swimmer keeps going.
 #[test]
 fn a_swim_starts_only_with_the_head_in_water() {

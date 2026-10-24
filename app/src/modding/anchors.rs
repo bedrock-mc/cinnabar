@@ -31,13 +31,14 @@ pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
                 .zip(origin)
                 .map(|(a, b)| (a - b).powi(2))
                 .sum::<f32>();
-            if !distance.is_finite()
-                || distance > mod_api::MAX_MOB_RANGE_BLOCKS.powi(2)
-                || actor.spawn_revision == 0
-            {
+            if !distance.is_finite() || distance > mod_api::MAX_MOB_RANGE_BLOCKS.powi(2) {
                 continue;
             }
-            nearest.push((distance.to_bits(), actor.runtime_id, actor.spawn_revision));
+            nearest.push((
+                distance.to_bits(),
+                actor.runtime_id,
+                actor.render_spawn_revision.get(),
+            ));
             if nearest.len() > mod_api::MAX_DRAW_ENTITIES {
                 nearest.pop();
             }
@@ -62,7 +63,7 @@ pub(super) fn reconcile(hosts: &mut ModHosts, context: &GameplayContext<'_>) {
                     || key.dimension != dimension
                     || authority
                         .actor(key.runtime_id)
-                        .is_none_or(|actor| actor.spawn_revision != key.spawn_revision)
+                        .is_none_or(|actor| actor.render_spawn_revision.get() != key.spawn_revision)
             })
             .collect();
         let candidates = if host.grants().entity_observe {
@@ -151,7 +152,7 @@ pub(super) fn publish(
         for resources in &output.retained {
             for (handle, key) in &resources.entities {
                 let Some(actor) = authority.actor(key.runtime_id).filter(|actor| {
-                    actor.spawn_revision == key.spawn_revision
+                    actor.render_spawn_revision.get() == key.spawn_revision
                         && key.session == authority.actor_session_id()
                         && key.dimension == authority.current_dimension()
                 }) else {

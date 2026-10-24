@@ -22,39 +22,39 @@ func blockGalleryListener(inner func(server.Config) (server.Listener, error), ga
 		if err != nil {
 			return nil, err
 		}
-		return &galleryListener{Listener: listener, gallery: gallery}, nil
+		return &blockGalleryPacketListener{Listener: listener, gallery: gallery}, nil
 	}
 }
 
-type galleryListener struct {
+type blockGalleryPacketListener struct {
 	server.Listener
 	gallery *blockGallery
 }
 
 // Accept wraps each connection without sharing mutable per-client state.
-func (l *galleryListener) Accept() (session.Conn, error) {
+func (l *blockGalleryPacketListener) Accept() (session.Conn, error) {
 	conn, err := l.Listener.Accept()
 	if err != nil {
 		return nil, err
 	}
-	return &galleryConn{Conn: conn, gallery: l.gallery}, nil
+	return &blockGalleryConn{Conn: conn, gallery: l.gallery}, nil
 }
 
 // Disconnect returns the original connection to the listener that owns it.
-func (l *galleryListener) Disconnect(conn session.Conn, reason string) error {
-	if c, ok := conn.(*galleryConn); ok {
+func (l *blockGalleryPacketListener) Disconnect(conn session.Conn, reason string) error {
+	if c, ok := conn.(*blockGalleryConn); ok {
 		conn = c.Conn
 	}
 	return l.Listener.Disconnect(conn, reason)
 }
 
-type galleryConn struct {
+type blockGalleryConn struct {
 	session.Conn
 	gallery *blockGallery
 }
 
 // WritePacket publishes labels with columns and actor defaults after their sub-chunks arrive.
-func (c *galleryConn) WritePacket(pk packet.Packet) error {
+func (c *blockGalleryConn) WritePacket(pk packet.Packet) error {
 	if err := c.Conn.WritePacket(pk); err != nil {
 		return err
 	}

@@ -124,12 +124,12 @@ impl SamplerClass {
     /// (`noisetex`, unknown names) is the shared repeat/linear sampler. Custom textures
     /// override this per program stage.
     pub fn for_name(name: &str) -> SamplerClass {
-        match name {
+        match crate::buffers::canonical_sampler_name(name).as_str() {
             "depthtex0" | "depthtex1" | "depthtex2" | "gdepthtex" => SamplerClass::ClampNearest,
             "shadow" | "watershadow" | "shadowtex0" | "shadowtex1" | "lightmap" => {
                 SamplerClass::ClampLinear
             }
-            "gtexture" | "texture" | "tex" | "normals" | "specular" => SamplerClass::RepeatNearest,
+            "gtexture" | "normals" | "specular" => SamplerClass::RepeatNearest,
             _ if crate::buffers::BufferId::parse(name).is_some() => SamplerClass::ClampLinear,
             _ => SamplerClass::RepeatLinear,
         }

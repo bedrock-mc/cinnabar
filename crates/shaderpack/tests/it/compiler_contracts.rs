@@ -4,6 +4,7 @@ use crate::{program, reflection};
 use shaderpack::{PackSource, PackTranslation, Phase, ShaderPack, StageMask, TranslateConfig};
 
 mod compatibility;
+mod local_constants;
 
 const VERTEX: &str = "#version 330\nvoid main() { gl_Position = vec4(0.0); }";
 const FRAGMENT: &str = "#version 330\nout vec4 color; void main() { color = vec4(1.0); }";

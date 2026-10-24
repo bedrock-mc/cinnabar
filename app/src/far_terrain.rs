@@ -7,8 +7,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use bevy::prelude::{AppExit, Local, MessageReader, Res, ResMut, Resource};
-use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, WorldStream};
+use bevy::prelude::{AppExit, DetectChangesMut, Local, MessageReader, Res, ResMut, Resource};
+use chunk_pipeline::{FarColumnSummary, FarSummaryInbox, TerrainPublicationCursor, WorldStream};
 use client_state::RuntimeSettings;
 use far_terrain::{
     ColumnPos, EncodedSummary, FarTerrainCache, FarTerrainConfig, FarTiles, NearMask,
@@ -44,6 +44,8 @@ pub(crate) struct FarTerrain {
     publication: Option<PublicationKey>,
     /// Session/dimension identity and residency indexes used by near publication receipts.
     source_revision: Option<((u64, u64), u64, u64)>,
+    /// Where the receipts' section membership was last reconciled with the stream.
+    source_cursor: Option<TerrainPublicationCursor>,
     retiring: Vec<Retiring>,
 }
 
@@ -79,6 +81,7 @@ impl FarTerrain {
             published: None,
             publication: None,
             source_revision: None,
+            source_cursor: None,
             retiring: Vec::new(),
         }
     }
@@ -114,24 +117,47 @@ impl FarTerrain {
     }
 
     /// Keeps near receipts bounded and scoped to the stream even while far terrain is disabled.
-    fn publish_source(&mut self, stream: Option<&WorldStream>, scene: &mut FarTerrainScene) {
+    /// Membership follows the stream's replayed changes, or every section when their history no
+    /// longer reaches back. Returns whether `scene` was replaced, which extraction must see.
+    fn publish_source(
+        &mut self,
+        stream: Option<&WorldStream>,
+        scene: &mut FarTerrainScene,
+    ) -> bool {
         let revision = stream.map(WorldStream::terrain_publication_source);
         if self.source_revision == revision {
-            return;
+            return false;
         }
-        if self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0) {
+        let replaced = self.source_revision.map(|stamp| stamp.0) != revision.map(|stamp| stamp.0);
+        if replaced {
             scene.publications = stream.map(|_| Default::default());
             self.publication = None;
+            self.source_cursor = None;
         }
         if let (Some(stream), Some(publications)) = (stream, &scene.publications) {
-            publications.retain(stream.terrain_publication_sections());
+            let cursor = stream.terrain_publication_cursor();
+            match self
+                .source_cursor
+                .and_then(|since| stream.terrain_publication_changes(since))
+            {
+                Some(changes) => publications.apply_membership(changes),
+                None => publications.retain(stream.terrain_publication_sections()),
+            }
+            self.source_cursor = Some(cursor);
         }
         self.source_revision = revision;
+        replaced
     }
 
     /// Shares current section requirements without rebuilding an unchanged publication target.
-    fn publish_target(&mut self, stream: &WorldStream, horizon: i32, scene: &mut FarTerrainScene) {
-        self.publish_source(Some(stream), scene);
+    /// Returns whether `scene` changed, which extraction must see.
+    fn publish_target(
+        &mut self,
+        stream: &WorldStream,
+        horizon: i32,
+        scene: &mut FarTerrainScene,
+    ) -> bool {
+        let replaced = self.publish_source(Some(stream), scene);
         let revision = stream.terrain_publication_revision();
         let centre = stream.far_terrain_centre();
         let key = (
@@ -141,7 +167,7 @@ impl FarTerrain {
             horizon,
         );
         if self.publication == Some(key) && scene.target.is_some() {
-            return;
+            return replaced;
         }
         let mut target = self
             .publication
@@ -154,6 +180,7 @@ impl FarTerrain {
         target.empty_far = Arc::new(self.tiles.empty_columns().collect());
         scene.target = Some(Arc::new(target));
         self.publication = Some(key);
+        true
     }
 
     /// Summarises the stream's resident columns before it is dropped, so this session's
@@ -483,7 +510,10 @@ pub(crate) fn feed_far_terrain(
         stream.set_full_detail_radius(full_detail);
     }
     let Some(stream) = world.stream.as_ref().filter(|_| enabled) else {
-        far.publish_source(world.stream.as_ref(), &mut scene);
+        // Borrowed mutably only on a change, so extraction does not copy the scene every frame.
+        if far.publish_source(world.stream.as_ref(), scene.bypass_change_detection()) {
+            scene.set_changed();
+        }
         far.cache.poll_budgeted(now, &mut summary_budget);
         if far.published.take().is_some() {
             *scene = FarTerrainScene {
@@ -578,8 +608,10 @@ pub(crate) fn feed_far_terrain(
             scene.near = Arc::clone(&far.near);
         }
     }
-    if let Some(stream) = world.stream.as_ref() {
-        far.publish_target(stream, loaded + reach, &mut scene);
+    if let Some(stream) = world.stream.as_ref()
+        && far.publish_target(stream, loaded + reach, scene.bypass_change_detection())
+    {
+        scene.set_changed();
     }
 }
 

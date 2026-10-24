@@ -51,6 +51,7 @@ fn persistent_blocks_and_icons_preserve_compiled_output_and_skip_work() {
             .map(|(index, component)| protocol::CustomBlock {
                 name: format!("fixture:offset_{index}").into(),
                 tags: Default::default(),
+                tags_complete: true,
                 state_count: 1,
                 collides: true,
                 collision_boxes: None,

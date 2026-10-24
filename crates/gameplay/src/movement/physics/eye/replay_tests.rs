@@ -474,3 +474,41 @@ fn riptide_eye_replay_preserves_a_collision_pause() {
     );
     assert_camera(&physics, &expected);
 }
+
+/// A timeline rewind whose preparatory riptide replay fails still schedules the vanilla sync.
+#[test]
+fn a_failed_riptide_preparation_keeps_the_prediction_sync() {
+    let world = Pool(false);
+    let origin = [0.0, PLAYER_NETWORK_OFFSET + 0.1, 0.0];
+    let mut physics = LocalPhysicsController::default();
+    physics.reanchor_network_position(origin, 100, false);
+    let mut ticker = MovementTicker::default();
+    ticker.reset(7, 100, origin);
+    ticker.set_source(MovementSource::Physics);
+    release(&mut physics, &mut ticker, Pose::Standing, false, &world);
+    let facing = ticker.completed_tick();
+    // The launch must be retained so discarding the unsent release replays history.
+    for index in 0..2 {
+        advance(
+            &mut physics,
+            &mut ticker,
+            controls(Pose::Standing, index),
+            &world,
+        );
+    }
+    assert!(physics.state().unwrap().spin_attack_ticks.is_some());
+    assert!(ticker.has_held_release());
+    let scheduled = |physics: &LocalPhysicsController| {
+        let mut countdown = physics.prediction_sync.clone();
+        (0..400).any(|_| {
+            countdown.tick();
+            countdown.due()
+        })
+    };
+    assert!(!scheduled(&physics));
+    assert!(
+        crate::movement::reconcile_timeline_rewind(&mut ticker, &mut physics, facing, &Unloaded)
+            .is_err()
+    );
+    assert!(scheduled(&physics));
+}

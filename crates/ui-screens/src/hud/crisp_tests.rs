@@ -202,6 +202,7 @@ fn paint(
                     engine,
                     HudInput {
                         capture_keep_out: false,
+                        renderers_unchanged: false,
                         crosshair,
                         catalog: engine.catalog(),
                         context: &context,

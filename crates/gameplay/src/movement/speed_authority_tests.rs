@@ -9,6 +9,47 @@ fn started(current: f32) -> LocalMovementSpeedAuthority {
     authority
 }
 
+/// Reporting invalidation follows arrival order and ends at a supported update or reset.
+#[test]
+fn unsupported_reporting_respects_scope_and_lifetimes() {
+    let mut authority = started(0.1);
+    for (session, sequence, dimension) in [(8, 2, 0), (7, 2, 1), (7, 1, 0)] {
+        authority.invalidate_reported(session, sequence, dimension);
+        assert_eq!(authority.reported_current(), authority.current());
+    }
+    authority.invalidate_reported(7, 2, 0);
+    assert_eq!(authority.reported_current(), None);
+    assert!(!authority.apply(7, 2, 0, attribute(0.2, 0.2, None)));
+    assert_eq!(authority.reported_current(), None);
+    authority.set_sprinting(true);
+    authority.apply_effect(
+        7,
+        3,
+        protocol::ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 7,
+            action: protocol::ActorEffectAction::Add,
+            effect_id: protocol_ids::Effect::Speed.wire_value(),
+            amplifier: 0,
+            particles: false,
+            ambient: false,
+            duration_ticks: 600,
+            tick: 0,
+        },
+    );
+    assert_eq!(authority.reported_current(), None);
+    assert!(authority.apply(7, 4, 0, attribute(f64::from(0.2_f32), 0.2, None)));
+    assert_eq!(authority.reported_current(), Some(f64::from(0.2_f32)));
+    authority.invalidate_reported(7, 5, 0);
+    authority.replace_dimension(7, 1);
+    assert!(authority.apply(7, 1, 1, attribute(f64::from(0.3_f32), 0.3, None)));
+    assert_eq!(authority.reported_current(), Some(f64::from(0.3_f32)));
+    authority.invalidate_reported(7, 2, 1);
+    authority.begin_session(8, 0);
+    assert!(authority.apply(8, 1, 0, attribute(f64::from(0.4_f32), 0.4, None)));
+    assert_eq!(authority.reported_current(), Some(f64::from(0.4_f32)));
+}
+
 #[test]
 fn server_effective_sprint_without_modifiers_is_never_boosted_twice() {
     let mut authority = started(0.1);
@@ -356,4 +397,22 @@ fn liquid_speed_admission_keeps_liquid_travel_simulable() {
             }
         }
     }
+}
+
+/// Reporting accepts finite attributes beyond the query budget without admitting them to physics.
+#[test]
+fn sync_reported_speed_retains_large_attributes_and_local_sprint_edges() {
+    let mut authority = started(0.1);
+    assert!(!authority.apply(7, 2, 0, attribute(33.0, 33.0, None)));
+    assert_eq!(authority.current(), Some(f64::from(0.1_f32)));
+    assert_eq!(authority.reported_current(), Some(33.0));
+    authority.set_sprinting(true);
+    assert_eq!(
+        authority.reported_current(),
+        Some(f64::from(33.0_f32 * sim::SPRINT_SPEED_MULTIPLIER as f32))
+    );
+    authority.set_sprinting(false);
+    assert_eq!(authority.reported_current(), Some(33.0));
+    assert!(authority.apply(7, 3, 0, attribute(0.2, 0.2, None)));
+    assert_eq!(authority.reported_current(), authority.current());
 }

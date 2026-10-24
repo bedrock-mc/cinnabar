@@ -239,7 +239,7 @@ fn key(entry: &ActorDrawManifestEntry) -> Key {
         id.session_id,
         id.dimension,
         id.runtime_id,
-        id.spawn_revision,
+        id.spawn_revision.get(),
         id.layer,
         entry.rig,
     )
