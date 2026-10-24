@@ -21,8 +21,22 @@ use crate::shaderpack::draws::DrawKind;
 #[path = "view/release_tests.rs"]
 mod release_tests;
 
+#[cfg(test)]
+#[path = "view/recycle_tests.rs"]
+mod recycle_tests;
+
 /// A drawn layer's identity: the texture, the layer and its composition.
 pub(super) type TextureKey = (TextureId, u32, LayerCompose);
+
+/// A layer view's identity in a draw binding, including its composition generation.
+pub(super) type BindingKey = (TextureKey, u64);
+
+/// A cached layer view, its last used frame and its composition generation.
+pub(super) struct LayerView {
+    pub(super) view: TextureView,
+    pub(super) used: u64,
+    pub(super) generation: u64,
+}
 
 /// One actor draw: its vertices in the view's stream, its texture and its values.
 #[derive(Clone, Debug, PartialEq)]
@@ -47,7 +61,7 @@ pub(super) fn draw_depth(position: Vec3, camera: Vec3, forward: Vec3, hand: bool
 /// One draw's uniform copy and the bind groups over it and its texture.
 pub(super) struct Slot {
     pub(super) uniforms: wgpu::Buffer,
-    pub(super) texture: Option<TextureKey>,
+    pub(super) texture: Option<BindingKey>,
     /// Per [`crate::shaderpack::targets::ViewTargets::parity`].
     pub(super) groups: [crate::shaderpack::targets::Groups; 2],
 }
@@ -129,7 +143,9 @@ pub(crate) struct ViewActors {
     pub(super) jobs: Vec<SkinJob>,
     pub(super) dispatches: Vec<Dispatch>,
     pub(super) slots: HashMap<DrawKind, Vec<Slot>>,
-    pub(super) views: HashMap<TextureKey, (TextureView, u64)>,
+    pub(super) views: HashMap<TextureKey, LayerView>,
+    /// Unique identity for each published composition, including recycled allocations.
+    composition_generation: u64,
     /// Composed layers first used this frame, recorded by [`Self::compose_layers`].
     pub(super) compositions: HashMap<TextureKey, Texture>,
     /// The texture behind each composed key in `views`.
@@ -212,7 +228,7 @@ impl ViewActors {
         self.compositions.retain(|(id, ..), _| *id != texture);
         self.composed.retain(|(id, ..), _| *id != texture);
         for slot in self.slots.values_mut().flatten() {
-            if slot.texture.is_some_and(|(id, ..)| id == texture) {
+            if slot.texture.is_some_and(|((id, ..), _)| id == texture) {
                 slot.texture = None;
                 slot.groups = Default::default();
             }
@@ -237,11 +253,17 @@ impl ViewActors {
     fn view(&mut self, texture: LayerTexture<'_>) -> TextureKey {
         let key = (texture.texture.id(), texture.layer, texture.compose);
         let frame = self.frame;
-        if let Some((_, used)) = self.views.get_mut(&key) {
-            *used = frame;
+        if let Some(view) = self.views.get_mut(&key) {
+            view.used = frame;
         } else if texture.compose == LayerCompose::Plain {
-            self.views
-                .insert(key, (layer_view(texture.texture, texture.layer), frame));
+            self.views.insert(
+                key,
+                LayerView {
+                    view: layer_view(texture.texture, texture.layer),
+                    used: frame,
+                    generation: 0,
+                },
+            );
         } else {
             self.compositions
                 .entry(key)
@@ -255,7 +277,7 @@ impl ViewActors {
     pub(super) fn retire_unused(&mut self) {
         let frame = self.frame;
         self.spare.clear();
-        self.views.retain(|_, (_, used)| *used == frame);
+        self.views.retain(|_, view| view.used == frame);
         let (views, spare) = (&self.views, &mut self.spare);
         self.composed.retain(|key, texture| {
             let kept = views.contains_key(key);
@@ -286,7 +308,15 @@ impl ViewActors {
             let (composed, view) =
                 super::compose::record(device, encoder, kernels, &texture, layer, compose, reuse)?;
             self.composed.insert(key, composed);
-            self.views.insert(key, (view, self.frame));
+            self.composition_generation += 1;
+            self.views.insert(
+                key,
+                LayerView {
+                    view,
+                    used: self.frame,
+                    generation: self.composition_generation,
+                },
+            );
         }
         Some(())
     }

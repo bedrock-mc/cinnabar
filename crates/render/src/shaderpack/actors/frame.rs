@@ -116,12 +116,13 @@ pub(crate) fn prepare(
             patch_block(block, &draw.values.uniforms(), &mut actors.scratch);
             queue.write_buffer(&slot.uniforms, 0, &actors.scratch);
         }
-        if slot.texture != Some(draw.texture) {
-            let Some((view, _)) = actors.views.get(&draw.texture) else {
-                continue;
-            };
+        let Some(view) = actors.views.get(&draw.texture) else {
+            continue;
+        };
+        let texture = (draw.texture, view.generation);
+        if slot.texture != Some(texture) {
             let atlas = AtlasViews {
-                color: view,
+                color: &view.view,
                 normals: &neutral.normals,
                 specular: &neutral.specular,
             };
@@ -137,7 +138,7 @@ pub(crate) fn prepare(
                     draws_into_geometry_depth(geometry.kind),
                 )
             });
-            slot.texture = Some(draw.texture);
+            slot.texture = Some(texture);
         }
     }
 }
@@ -370,10 +371,12 @@ pub(crate) fn record(
     for index in actors.draw_order(kind) {
         let draw = &actors.draws[index];
         let slot = actors.slot_of[index];
-        let Some(slot) = slots
-            .get(slot as usize)
-            .filter(|slot| slot.texture == Some(draw.texture))
-        else {
+        let Some(slot) = slots.get(slot as usize).filter(|slot| {
+            actors
+                .views
+                .get(&draw.texture)
+                .is_some_and(|view| slot.texture == Some((draw.texture, view.generation)))
+        }) else {
             continue;
         };
         for (index, group) in slot.groups[parity].iter().enumerate() {

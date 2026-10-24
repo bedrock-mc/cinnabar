@@ -44,7 +44,7 @@ fn block_entity_release_drops_actor_views_even_without_shared_effect_textures() 
                         usage: wgpu::BufferUsages::UNIFORM,
                         mapped_at_creation: false,
                     }),
-                    texture: Some(key),
+                    texture: Some((key, state.actors.views[&key].generation)),
                     groups: state.bindings.draws[index].groups.clone(),
                 }],
             );
