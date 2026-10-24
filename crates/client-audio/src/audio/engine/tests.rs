@@ -306,7 +306,13 @@ fn huge_aggregate_weights_pick_without_overflow() {
     let settings = AudioSettings::default();
     assert!(
         engine
-            .start_rolled(&request, None, &settings, None, [0.999_999, 0.0, 0.0, 0.0, 0.0])
+            .start_rolled(
+                &request,
+                None,
+                &settings,
+                None,
+                [0.999_999, 0.0, 0.0, 0.0, 0.0]
+            )
             .is_none()
     );
     assert_eq!(engine.stats.no_pcm, 1, "the pick reached PCM lookup");
