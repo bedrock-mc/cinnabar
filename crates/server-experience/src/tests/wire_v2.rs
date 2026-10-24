@@ -544,6 +544,34 @@ fn boolean_fields_reject_unknown_members_at_every_depth() {
 }
 
 #[test]
+fn foreign_producer_identities_quarantine_whole_and_fragmented_messages() {
+    for (wire, fragmented) in [(Wire::v1(), false), (v2(), false), (v2(), true)] {
+        for wrong_generation in [false, true] {
+            let grant = grant(wire);
+            let mut receiver = Receiver::new();
+            let items = if fragmented {
+                large_items(250)
+            } else {
+                vec![item(1, "valid")]
+            };
+            let mut message = envelope(&grant, 1, 7, items);
+            if wrong_generation {
+                message.generation += 1;
+            } else {
+                message.bundle = "unknown".into();
+            }
+            let frames = wire::encode(&message, &grant.wire).unwrap();
+            let error = receiver.feed(&grant, &frames[..1]).unwrap_err();
+            assert!(error.downcast_ref::<wire::BundleFailure>().is_none());
+            let valid =
+                wire::encode(&envelope(&grant, 2, 7, vec![item(1, "valid")]), &grant.wire).unwrap();
+            let error = receiver.feed(&grant, &valid).unwrap_err();
+            assert!(error.to_string().contains("quarantined"));
+        }
+    }
+}
+
+#[test]
 fn routed_rejections_preserve_queued_messages_and_consume_only_their_sequence() {
     for wire in [Wire::v1(), v2()] {
         let grant = grant(wire);

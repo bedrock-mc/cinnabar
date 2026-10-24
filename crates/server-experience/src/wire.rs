@@ -384,21 +384,8 @@ impl Ingress {
             .next
             .checked_add(1)
             .ok_or_else(|| anyhow::anyhow!("sequence exhausted"))?;
-        ensure!(
-            grant
-                .offer
-                .offer
-                .packages
-                .iter()
-                .any(|p| p.id == message.bundle),
-            "unknown bundle"
-        );
         let bundle = message.bundle.clone();
         let result = (|| {
-            ensure!(
-                message.generation == INITIAL_BUNDLE_GENERATION,
-                "wrong bundle generation"
-            );
             ensure!(
                 message.channel.starts_with(&format!("{}.", message.bundle)),
                 "foreign channel namespace"
@@ -437,7 +424,7 @@ impl Ingress {
         Ok(())
     }
 
-    /// Checks the session route and that `message` is the next in sequence.
+    /// Checks the session, producer identity and reliable sequence before attributing faults.
     fn route(&self, message: &Envelope, grant: &Grant) -> Result<()> {
         ensure!(
             message.version == grant.wire.version
@@ -449,6 +436,16 @@ impl Ingress {
         ensure!(
             message.sequence == self.next,
             "replay or reliable sequence gap"
+        );
+        ensure!(
+            message.generation == INITIAL_BUNDLE_GENERATION
+                && grant
+                    .offer
+                    .offer
+                    .packages
+                    .iter()
+                    .any(|p| p.id == message.bundle),
+            "wrong bundle generation"
         );
         Ok(())
     }
@@ -504,15 +501,7 @@ impl Ingress {
         let mut message = partial.header;
         message.payload = match serde_json::from_str(&partial.data) {
             Ok(payload) => payload,
-            Err(error)
-                if grant
-                    .offer
-                    .offer
-                    .packages
-                    .iter()
-                    .any(|p| p.id == message.bundle)
-                    && message.generation == INITIAL_BUNDLE_GENERATION =>
-            {
+            Err(error) => {
                 self.next = self
                     .next
                     .checked_add(1)
@@ -523,7 +512,6 @@ impl Ingress {
                 }
                 .into());
             }
-            Err(error) => return Err(error.into()),
         };
         Ok(Some((message, partial.bytes)))
     }
