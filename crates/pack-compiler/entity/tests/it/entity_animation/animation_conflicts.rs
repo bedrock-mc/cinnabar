@@ -54,6 +54,19 @@ fn conflicting_clips_keep_the_body_without_selecting_a_duplicate() {
     );
     let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
     assert_static_body(&compiled);
+    let runtime =
+        assets::RuntimeEntityAssets::decode(&encode_entity_blob(&compiled.assets).unwrap())
+            .unwrap();
+    assert_eq!(
+        runtime.server_animation_clip(0, "animation.test.walk"),
+        None
+    );
+    assert_eq!(runtime.server_animation_clip(0, "walk"), None);
+    assert!(
+        runtime
+            .server_animation_clip(0, "animation.test.attack")
+            .is_some()
+    );
 }
 
 #[test]

@@ -20,6 +20,7 @@ use super::{
 };
 
 pub(super) struct RigInputs<'a> {
+    pub animation_symbols: &'a BTreeMap<Box<str>, Option<u32>>,
     pub clip_indices: &'a ClipIndices,
     pub controllers: &'a [PendingController],
     pub geometry_selections: &'a GeometrySelections,
@@ -143,7 +144,6 @@ pub(super) fn compile_rigs(
     molang: &mut MolangCompiler,
 ) -> Result<(PendingRigPayload, Vec<Box<str>>), AssetError> {
     let render_indices = unique_symbol_indices(&input, EntityAssetKind::RenderController)?;
-    let animation_symbols = unique_symbol_indices(&input, EntityAssetKind::Animation)?;
     let controller_symbols = unique_symbol_indices(&input, EntityAssetKind::AnimationController)?;
     let RigSources {
         root,
@@ -153,6 +153,7 @@ pub(super) fn compile_rigs(
         geometries,
     } = input;
     let RigInputs {
+        animation_symbols,
         clip_indices,
         controllers,
         geometry_selections,
@@ -307,7 +308,7 @@ pub(super) fn compile_rigs(
                 let symbols = if is_controller {
                     &controller_symbols
                 } else {
-                    &animation_symbols
+                    animation_symbols
                 };
                 // A conflicting alias can also be reached indirectly through a controller.
                 if symbols.get(target.as_ref()).is_some_and(Option::is_none) {
@@ -547,7 +548,7 @@ fn select_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>
 }
 
 /// Indexes one named-map kind by identifier; only definitions that differ make it ambiguous.
-fn unique_symbol_indices(
+pub(super) fn unique_symbol_indices(
     input: &RigSources<'_>,
     kind: EntityAssetKind,
 ) -> Result<BTreeMap<Box<str>, Option<u32>>, AssetError> {

@@ -379,8 +379,9 @@ and rendered qualification remain incomplete.
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
   Geometry with matching resolved inheritance chains and identical animation or controller
   definitions across pack files resolve as one. Conflicting animation definitions retain
-  drawable geometry in an explicit rest-pose fallback. Turtle animation and duplicate-definition
-  precedence remain incomplete; the fallback does not establish native animation behavior.
+  drawable geometry in an explicit rest-pose fallback, including server-selected clips.
+  Turtle animation and duplicate-definition precedence remain incomplete; the fallback does not
+  establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact

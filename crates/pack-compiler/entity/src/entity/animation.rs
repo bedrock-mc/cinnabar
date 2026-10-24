@@ -142,6 +142,16 @@ pub(super) fn compile(
     let geometry_selections =
         compile_geometry_selections(root, payloads, sources, geometries, &environments, molang)?;
 
+    let animation_symbols = rig::unique_symbol_indices(
+        &RigSources {
+            root,
+            payloads,
+            sources,
+            symbols,
+            geometries,
+        },
+        EntityAssetKind::Animation,
+    )?;
     let mut pending_clips = Vec::new();
     for source in sources
         .iter()
@@ -169,6 +179,18 @@ pub(super) fn compile(
     let mut clip_indices = ClipIndices::new();
     for (symbol, source, definition) in pending_clips {
         let identifier = symbols[symbol as usize].identifier.as_ref();
+        // Omit conflicting definitions from every lookup path, including server requests.
+        if animation_symbols
+            .get(identifier)
+            .is_some_and(Option::is_none)
+        {
+            outcomes.push(fallback(
+                source,
+                symbol,
+                FallbackReason::AmbiguousAnimationReference,
+            ));
+            continue;
+        }
         let used_geometries = environments
             .iter()
             .flat_map(|environment| {
@@ -347,6 +369,7 @@ pub(super) fn compile(
             geometries,
         },
         RigInputs {
+            animation_symbols: &animation_symbols,
             clip_indices: &clip_indices,
             controllers: &pending_controllers,
             geometry_selections: &geometry_selections,
