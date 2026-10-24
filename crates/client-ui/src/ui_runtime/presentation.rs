@@ -14,6 +14,7 @@ use super::{UiRuntime, render_adapter::UiRenderViewport};
 use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 
 mod accessors;
+mod color_icons;
 mod construction;
 mod control_previews;
 pub mod debug_overlay;
@@ -22,6 +23,7 @@ pub mod dynamic_textures;
 pub mod forms;
 mod frame;
 pub mod gui_models;
+pub use gui_models::{GuiModelPreparation, PreparedGuiModels};
 pub mod gui_scale_settings;
 pub mod hud_layout;
 pub mod inventory_pointer;
@@ -160,6 +162,8 @@ pub struct UiPresentationRuntime {
     inventory_cache: Option<Box<publish::inventory_cache::InventoryCache>>,
     /// Semantic HUD content retained before binding construction.
     hud_cache: forms::hud::SemanticHud,
+    /// What the presentation's renderers drew the engine HUD and its crosshair overlay from.
+    hud_renderers: [forms::hud::HudRendererInputs; 2],
     /// Owner-scoped extension globals layered over the gameplay HUD's retained data.
     mod_hud_bindings: mod_hud_bindings::Bindings,
     control_previews: control_previews::Previews,

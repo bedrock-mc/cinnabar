@@ -565,3 +565,6 @@ mod cadence;
 
 #[path = "tests/policy.rs"]
 mod policy;
+
+#[path = "tests/spin.rs"]
+mod spin;

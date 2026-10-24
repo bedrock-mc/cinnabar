@@ -45,8 +45,8 @@ mod ui;
 mod world;
 
 pub use experience::{
-    EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet,
-    is_experience_packet,
+    EXPERIENCE_CHANNEL, ExperienceMessage, MAX_EXPERIENCE_CONTROL_BYTES,
+    MAX_EXPERIENCE_ENVELOPE_BYTES, experience_packet, experience_world_ack, is_experience_packet,
 };
 
 pub use credits::{ShowCreditsEvent, credits_finished_packet};
@@ -192,7 +192,7 @@ pub use item::{
 pub use item::{
     ItemAnvilData, ItemBlockList, ItemNbtEdit, book_init_extra, book_needs_init, edit_item_extra,
     item_anvil_data, item_block_list, item_custom_name, item_extra_lock, item_extra_slot_locked,
-    item_filtered_custom_name, item_has_trim, item_repair_cost, item_user_data_equal,
+    item_filtered_custom_name, item_has_trim, item_map_id, item_repair_cost, item_user_data_equal,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
@@ -251,7 +251,7 @@ pub use ui::{
     NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry,
     ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory, TextEvent,
     TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
-    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response,
+    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, server_settings_request_packet,
 };

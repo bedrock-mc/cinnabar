@@ -295,7 +295,7 @@ fn samples() -> Vec<WorldEvent> {
     };
     vec![
         WorldEvent::DimensionHeights(Vec::new()),
-        WorldEvent::Experience(ExperienceMessage { bytes: Vec::new() }),
+        WorldEvent::Experience(ExperienceMessage::new(Vec::new())),
         abilities(LOCAL as i64),
         abilities(REMOTE as i64),
         WorldEvent::BiomeDefinitions(BiomeDefinitionsEvent {
@@ -353,6 +353,7 @@ fn samples() -> Vec<WorldEvent> {
         }),
         WorldEvent::MapData(MapDataEvent {
             map_id: 1,
+            initialized_ids: Default::default(),
             start_x: 0,
             start_y: 0,
             width: 1,

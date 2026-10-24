@@ -87,7 +87,12 @@ pub(crate) fn register<T: PrewarmPipelines>(app: &mut App) {
     if !render_app.world().contains_resource::<WarmupOwner<T>>() {
         render_app
             .insert_resource(WarmupOwner::<T>(std::marker::PhantomData))
-            .add_systems(Render, prewarm_owner::<T>.in_set(WarmupSet::Owners));
+            .add_systems(
+                Render,
+                prewarm_owner::<T>
+                    .in_set(WarmupSet::Owners)
+                    .run_if(render_scene::startup_work::world_work_allowed),
+            );
     }
 }
 
@@ -102,28 +107,55 @@ pub(crate) fn register_pending<T: PendingPipelines>(app: &mut App) {
             .add_systems(
                 Render,
                 owner_pending::<T>
+                    .run_if(render_scene::startup_work::world_work_allowed)
                     .in_set(RenderSystems::Cleanup)
                     .before(publish_readiness),
             );
     }
 }
 
+/// Holds world-entry readiness while an asynchronous GPU owner is not yet installed.
+pub(crate) fn register_pending_resource<T: Resource>(app: &mut SubApp) {
+    app.init_resource::<WarmupRegistry>();
+    app.add_systems(
+        Render,
+        pending_resource::<T>
+            .in_set(RenderSystems::Cleanup)
+            .before(publish_readiness),
+    );
+}
+
+/// Folds the existence of an unfinished initializer into the same pipeline-readiness gate.
+fn pending_resource<T: Resource>(pending: Option<Res<T>>, mut registry: ResMut<WarmupRegistry>) {
+    registry.pending |= pending.is_some();
+}
+
 /// Installs shared scene formats and readiness tracking for custom pipeline owners.
 fn install(app: &mut App) -> Option<&mut SubApp> {
     app.init_resource::<PipelineWarmupReadiness>();
+    app.init_resource::<render_scene::startup_work::WorldWorkAdmission>();
+    let admission = app
+        .world()
+        .resource::<render_scene::startup_work::WorldWorkAdmission>()
+        .clone();
     let shared = app.world().resource::<PipelineWarmupReadiness>().clone();
     let render_app = app.get_sub_app_mut(RenderApp)?;
+    render_app.insert_resource(admission);
     crate::scene_target::install_formats(render_app);
     if !render_app.world().contains_resource::<WarmupRegistry>() {
         render_app
             .insert_resource(shared)
             .init_resource::<WarmupRegistry>()
+            // Bevy's upscaling blocks on its blit pipeline in `Prepare`, and that wait starts
+            // every queued pipeline first; their tasks share one shader-cache lock. Queuing
+            // after it lets the blit compile alone, and this frame's `Render` set still starts
+            // the warm-up.
             .configure_sets(
                 Render,
                 (WarmupSet::Views, WarmupSet::Owners)
                     .chain()
-                    .after(RenderSystems::PrepareViews)
-                    .before(RenderSystems::Queue),
+                    .after(RenderSystems::Prepare)
+                    .before(RenderSystems::Render),
             )
             .add_systems(Render, collect_views.in_set(WarmupSet::Views))
             .add_systems(Render, publish_readiness.in_set(RenderSystems::Cleanup));

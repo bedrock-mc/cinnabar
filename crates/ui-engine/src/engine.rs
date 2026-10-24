@@ -40,6 +40,8 @@ pub use paint_bounds::{PaintBounds, PaintObserver};
 mod paint_transform;
 pub mod pixel_snap;
 mod render;
+mod retained_paint;
+pub use retained_paint::RetainedPaint;
 mod rounded;
 pub mod screen;
 pub mod screen_cache;

@@ -13,6 +13,7 @@ mod commands;
 mod diagnostic_bundle;
 mod metadata;
 mod selection;
+mod startup;
 mod symbolicate;
 mod web;
 mod worktrees;
@@ -38,7 +39,7 @@ pub enum DevtoolError {
     #[error("workspace package manifest `{0}` has no parent directory")]
     ManifestWithoutParent(PathBuf),
     #[error(
-        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | ci-plan --base <git-ref> | capture | trace-summary --trace <file> | wt-gc | diag [--data-root <path>] | symbolicate <crash folder|minidump> [--symbols <dir|zip>] | check-web | build-web --assets <dir> --out <new-dir> [--release] | mod new <name> | mod build [--project <directory>] [--release]"
+        "{0}\nusage: devtool verify-affected --base <git-ref> [--dry-run] | ci-plan --base <git-ref> | startup [--client <release-client>] [--runs <N>] | capture | trace-summary --trace <file> | wt-gc | diag [--data-root <path>] | symbolicate <crash folder|minidump> [--symbols <dir|zip>] | check-web | build-web --assets <dir> --out <new-dir> [--release] | mod new <name> | mod build [--project <directory>] [--release]"
     )]
     Usage(String),
     #[error("failed to run `{command}`: {source}")]
@@ -64,6 +65,7 @@ pub fn dispatch(args: Vec<String>) -> Result<(), DevtoolError> {
         Some("mod") => cinnabar_cxb::project::run(&args[1..])
             .map_err(|error| DevtoolError::Usage(format!("{error:#}"))),
         Some("diag") => diagnostic_bundle::run(&args[1..]),
+        Some("startup") => startup::run(&args[1..]),
         Some("capture") => capture::run(&args[1..], false),
         Some("trace-summary") => capture::run(&args[1..], true),
         Some("wt-gc") => worktrees::run(&args[1..]),

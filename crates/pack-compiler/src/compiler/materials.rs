@@ -29,28 +29,13 @@ pub(super) fn compile_materials(
             .filter(|(_, source)| {
                 source.atlas_tile.as_ref() == key.as_ref() && source.source_path == descriptor.path
             })
-            .collect::<Vec<_>>();
-        let animation = if let Some((atlas_index, tile_variant)) = descriptor.flipbook_selector {
-            candidates.iter().find(|(_, source)| {
-                source.atlas_index == atlas_index && source.atlas_tile_variant == tile_variant
-            }).map(|(index, _)| *index)
-        } else {
-            match candidates.as_slice() {
-                [] => None,
-                [(index, _)] => Some(*index),
-                _ => Some(
-                    candidates.iter()
-                        .find(|(_, source)| source.atlas_index == 0 && source.atlas_tile_variant == 0)
-                        .map(|(index, _)| *index)
-                        .ok_or_else(|| AssetError::InvalidCompiledAssets {
-                            detail: format!(
-                                "texture {} has multiple flipbook selectors and no canonical selector (0, 0)",
-                                descriptor.path
-                            ).into(),
-                        })?,
-                ),
-            }
-        }.map(|index| u32::try_from(index).expect("bounded flipbook count"));
+            .map(|(index, source)| (index, source.atlas_index, source.atlas_tile_variant));
+        let animation = pack_compile_input::pack::select_flipbook_index(
+            candidates,
+            descriptor.flipbook_selector,
+            &descriptor.path,
+        )?
+        .map(|index| u32::try_from(index).expect("bounded flipbook count"));
         let texture = if let Some(animation) = animation {
             let source = &plan.animations[animation as usize];
             plan.frames[source.frame_start as usize]

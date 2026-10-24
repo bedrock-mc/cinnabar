@@ -74,6 +74,7 @@ fn paint(durability: Option<f32>, icon: bool) -> Vec<ui::UiNode> {
         renderers: &mut [],
     };
     let icon = icon.then_some(ui::IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 1, 1],
         glint: false,

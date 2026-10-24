@@ -175,6 +175,8 @@ pub struct MenuRuntime {
     player_skin: crate::player_skin::LocalPlayerSkin,
     dressing_room: std::sync::Arc<launcher::dressing_room::DressingRoomView>,
     dressing_room_worker: Option<dressing_room::Worker>,
+    /// Fallback pixels for catalog entries created before world assets were ready.
+    default_player_skin: Option<render_api::StandardSkin>,
     skin_update_pending: bool,
     skin_outbound: Option<(u64, protocol::Packet)>,
     skin_packet_pending: Option<protocol::Packet>,

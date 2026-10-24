@@ -183,8 +183,12 @@ fn new_world_messages_arriving_before_poll_survive_the_epoch_change() {
         world_epoch: 2,
         payload: vec![Scalar::List(Vec::new())],
     };
-    live.receive(&serde_json::to_vec(&message).unwrap(), 1, 2)
-        .unwrap();
+    live.receive(
+        &protocol::ExperienceMessage::new(serde_json::to_vec(&message).unwrap()),
+        1,
+        2,
+    )
+    .unwrap();
     for slice in 1..=3 {
         live.poll(2, slice * CALLBACK_INTERVAL_MS).unwrap();
     }

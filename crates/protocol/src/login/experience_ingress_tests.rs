@@ -17,7 +17,7 @@ fn experience_replies_cross_raw_ingress_with_existing_bounds_and_routes() {
     let bytes = b"accept fixture".to_vec();
     assert_eq!(
         ingress(crate::experience_packet(bytes.clone()).unwrap()),
-        Some(WorldEvent::Experience(crate::ExperienceMessage { bytes }))
+        Some(WorldEvent::Experience(crate::ExperienceMessage::new(bytes)))
     );
     for (channel, bytes) in [
         ("unrelated", vec![1]),

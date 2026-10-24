@@ -155,10 +155,14 @@ pub(super) struct Live<H = Helper> {
     slice_ms: u64,
     ready: bool,
     epoch: u64,
-    /// The world epoch last named by an outbound Ready or Epoch control.
-    announced_epoch: u64,
+    /// The latest epoch notification, retained until the next poll.
+    pending_control: Option<Control>,
     /// Counts modal openings across bundles.
     modal_order: u64,
+    /// Last native world epoch, tracked separately from server-requested logical epochs.
+    native_epoch: u64,
+    /// Minimum logical epoch requested by the server since the previous poll.
+    requested_epoch: Option<u64>,
     /// The drawn open modal's size and its bundle, which dispatches to that bundle carry.
     gui: Option<(GuiSize, String)>,
     /// The session's items, for guests granted `items`.
@@ -245,8 +249,10 @@ impl<H: Worker> Live<H> {
             slice_ms: now_ms,
             ready: false,
             epoch,
-            announced_epoch: epoch,
+            pending_control: None,
             modal_order: 0,
+            native_epoch: epoch,
+            requested_epoch: None,
             gui: None,
             session: None,
         };
@@ -258,15 +264,10 @@ impl<H: Worker> Live<H> {
     pub(super) fn poll(&mut self, epoch: u64, now_ms: u64) -> Result<Vec<Vec<u8>>> {
         let mut packets = Vec::new();
         self.set_epoch(epoch)?;
-        if self.ready && self.announced_epoch != self.epoch {
-            let control = serde_json::to_vec(&Control::Epoch {
-                session: self.grant.session.clone(),
-                world_epoch: self.epoch,
-            })?;
-            self.egress.charge(control.len(), now_ms)?;
-            packets.push(control);
-            self.announced_epoch = self.epoch;
+        if let Some(control) = self.pending_control.take() {
+            packets.push(serde_json::to_vec(&control)?);
         }
+        let epoch = self.epoch;
         if now_ms.saturating_sub(self.slice_ms) >= CALLBACK_INTERVAL_MS {
             self.slice_ms = now_ms;
             self.budget.begin_slice();
@@ -405,7 +406,7 @@ impl<H: Worker> Live<H> {
         }
         if !self.ready && self.instances.values().all(|instance| !instance.busy) {
             self.ready = true;
-            self.announced_epoch = self.epoch;
+            self.pending_control = None;
             packets.push(serde_json::to_vec(&Control::Ready {
                 session: self.grant.session.clone(),
                 packages: self
@@ -438,18 +439,43 @@ impl<H: Worker> Live<H> {
         Ok(packets)
     }
 
-    /// Keeps a wire v2 runtime through a world epoch change: once Ready has named the old epoch,
-    /// an `epoch` control names the new one ahead of every later send, and each guest is called
-    /// back to resend its state. A v1 session cannot continue.
-    pub(super) fn set_epoch(&mut self, epoch: u64) -> Result<()> {
-        if epoch == self.epoch {
+    /// Applies native world changes and coalesced server notices before admitting callbacks.
+    pub(super) fn set_epoch(&mut self, native_epoch: u64) -> Result<()> {
+        let requested = self.requested_epoch.take();
+        if native_epoch == self.native_epoch && requested.is_none() {
             return Ok(());
         }
+        let epoch = self
+            .epoch
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("world epoch exhausted"))?
+            .max(requested.unwrap_or(0));
+        self.native_epoch = native_epoch;
         ensure!(
             self.grant.wire.version != WIRE_VERSION,
             "world epoch changed; extension snapshot required"
         );
         self.epoch = epoch;
+        if self.ready {
+            let session = self.grant.session.clone();
+            let acknowledgment = requested.or_else(|| match &self.pending_control {
+                Some(Control::WorldAck {
+                    requested_epoch, ..
+                }) => Some(*requested_epoch),
+                _ => None,
+            });
+            self.pending_control = Some(match acknowledgment {
+                Some(requested_epoch) => Control::WorldAck {
+                    session,
+                    world_epoch: epoch,
+                    requested_epoch,
+                },
+                None => Control::Epoch {
+                    session,
+                    world_epoch: epoch,
+                },
+            });
+        }
         self.gui = None;
         let recipients: Vec<_> = self
             .instances
@@ -491,9 +517,19 @@ impl<H: Worker> Live<H> {
     }
 
     /// Applies aggregate limits and signed schemas before guest dispatch.
-    pub(super) fn receive(&mut self, bytes: &[u8], now_ms: u64, epoch: u64) -> Result<()> {
+    pub(super) fn receive(
+        &mut self,
+        message: &protocol::ExperienceMessage,
+        now_ms: u64,
+        epoch: u64,
+    ) -> Result<()> {
         ensure!(self.ready, "runtime message before readiness");
+        if let Some(requested) = self.ingress.receive_epoch_request(message, &self.grant)? {
+            self.requested_epoch = Some(self.requested_epoch.unwrap_or(0).max(requested));
+            return Ok(());
+        }
         self.set_epoch(epoch)?;
+        let bytes = message.as_bytes();
         let instances = &self.instances;
         let result = self.ingress.receive(bytes, now_ms, 0, &self.grant, |id| {
             instances.get(id).map(|instance| &instance.capabilities)

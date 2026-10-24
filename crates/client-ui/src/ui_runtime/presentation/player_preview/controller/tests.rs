@@ -153,6 +153,7 @@ fn dressing_room_uses_native_idle_arm_sway_without_changing_menu_paper_dolls() {
     use crate::ui_runtime::presentation::player_preview::{bob_degrees, geometry};
     let source = render_model::standard_biped_vertices();
     let icon = ui::IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 64, 64],
         glint: false,

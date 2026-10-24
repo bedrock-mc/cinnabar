@@ -19,7 +19,8 @@ use web_time::Instant;
 use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
 #[cfg(test)]
 use bevy::prelude::{
-    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
+    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, Transform, TransformPlugin,
+    UVec4, Vec3A,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset},
@@ -38,7 +39,7 @@ use bevy::{
         App, BevyError, Camera3d, Changed, Color, Commands, Component, Entity, ExtractSchedule,
         FromWorld, GlobalTransform, Has, InheritedVisibility, Last, Local, Mat4, Msaa, ParamSet,
         Plugin, Query, RemovedComponents, Res, ResMut, Resource, Result, Schedule, SubApp,
-        SystemSet, Time, Transform, Update, Vec3, Visibility, With, World, default,
+        SystemSet, Time, Update, Vec3, Visibility, With, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -129,15 +130,15 @@ use constants::{
 };
 #[allow(unused_imports)]
 use gpu::arena::{
-    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreshChunkRanges, GPU_UPDATE_OVERDUE_FRAMES,
-    GPU_UPDATE_STARVED_FRAMES, GpuUpdateCandidate, GpuUpdateFairness,
+    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreeRanges, FreshChunkRanges,
+    GPU_UPDATE_OVERDUE_FRAMES, GPU_UPDATE_STARVED_FRAMES, GpuUpdateCandidate, GpuUpdateFairness,
     MAX_GPU_UPDATE_FAIRNESS_ENTRIES, allocate_aligned_quad_range,
     allocate_aligned_range_for_update, allocate_origin, allocate_quad_range,
     allocate_range_for_update, arena_limits_from_device_limits, checked_geometry_range,
     chunk_tint_identity_is_active, commit_fresh_chunk_ranges, create_indirect_buffer,
-    create_storage_buffer, init_chunk_gpu_arena, insert_free_quad_range, plan_fresh_chunk_ranges,
-    plan_gpu_chunk_updates, plan_origin_allocation, release_completed_transparent_retirements,
-    release_origin, release_quad_range, take_free_quad_range,
+    create_storage_buffer, init_chunk_gpu_arena, plan_fresh_chunk_ranges, plan_gpu_chunk_updates,
+    plan_origin_allocation, release_completed_transparent_retirements, release_origin,
+    release_quad_range,
 };
 pub use gpu::bind_groups::ChunkTextureUploadStats;
 #[allow(unused_imports)]

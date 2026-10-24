@@ -210,6 +210,7 @@ fn selection_consumers_held_previews_draw_the_selected_definition_in_both_orders
                     glint: assets::item::glint::ItemGlint::Session { enabled: true },
                     use_animation: assets::item_use::ItemUseAnimation::None,
                     grip: assets::item::grip::ItemGrip::Unresolved,
+                    map_id: None,
                     charged_projectile: None,
                     charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                     damage: None,
@@ -346,6 +347,7 @@ fn selection_consumers_ownerless_shield_thumbnail_keeps_the_ordinary_definition(
     let icon = ui.item_icon(item, 0).unwrap();
     let actual = ui
         .gui_models
+        .sources
         .models
         .get(&super::super::icon_key(icon))
         .expect("ordinary shield thumbnail must remain available without an owner");
@@ -356,8 +358,8 @@ fn selection_consumers_ownerless_shield_thumbnail_keeps_the_ordinary_definition(
         .unwrap()
         .texture("textures/ordinary")
         .unwrap();
-    let source =
-        ui.gui_models.textures[&atlas::key([texture.width, texture.height], &texture.rgba8)];
+    let source = ui.gui_models.sources.textures
+        [&atlas::key([texture.width, texture.height], &texture.rgba8)];
     let expected = crate::ui_runtime::presentation::item_gui::shield(
         &pack.assets.geometries()[index as usize],
         texture,

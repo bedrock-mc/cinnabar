@@ -68,8 +68,8 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     }
 }
 
-/// Whether the game must wait for setup. Only carriers gate it: local worlds are optional, so an
-/// unprepared server never blocks remote play. An unreadable kit is reported during setup.
+/// Whether required assets need setup. Local worlds are optional, so an unprepared server
+/// never blocks remote play. An unreadable kit is reported during setup.
 fn needs_preparation(layout: &InstallLayout) -> bool {
     headless::assets_needed(layout)
 }

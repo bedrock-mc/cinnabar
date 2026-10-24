@@ -93,18 +93,13 @@ impl ShaderProperties {
             .map(|(_, value)| value.as_str())
     }
 
-    /// The enable rule for `program` in `dimension` (folder name like "world0"): a
-    /// `program.<dimension>/<program>.enabled` rule wins over `program.<program>.enabled`.
+    /// The last enable rule for `program` in `dimension` (folder name like "world0", empty for
+    /// the root). Iris keys rules by the program's pack path, so `program.<program>.enabled`
+    /// governs only root programs and `program.<dimension>/<program>.enabled` only that folder's.
     pub fn program_rule(&self, dimension: &str, program: &str) -> Option<&ProgramRule> {
-        let for_program = || {
-            self.program_rules
-                .iter()
-                .rev()
-                .filter(move |rule| rule.program == program)
-        };
-        for_program()
-            .find(|rule| rule.dimension.as_deref() == Some(dimension))
-            .or_else(|| for_program().find(|rule| rule.dimension.is_none()))
+        self.program_rules.iter().rev().find(|rule| {
+            rule.program == program && rule.dimension.as_deref().unwrap_or("") == dimension
+        })
     }
 }
 
@@ -292,6 +287,15 @@ impl CustomTexture {
     /// Whether it binds in programs of `group` (`texture.noise` binds everywhere).
     pub fn applies_to(&self, group: ProgramGroup) -> bool {
         self.stage == group.texture_stage() || self.stage == "noise"
+    }
+
+    /// Whether an earlier flip in the stage has released this binding, given `released`
+    /// ([`crate::ProgramTranslation::released_overrides`]): an image or resource bound to
+    /// a colour buffer in it no longer replaces the buffer. Iris renames a raw texture's
+    /// samplers in the stage's source instead, so flips never release it.
+    pub fn released_by(&self, released: u32) -> bool {
+        !matches!(self.source, TextureSource::Raw { .. })
+            && crate::flips::sampler_released(released, self.uniform())
     }
 
     /// Its filtering, as Iris reads it: `blur` and `clamp` from `<path>.mcmeta`, defaulting

@@ -27,8 +27,11 @@ fn drawing(paint: UiCoveragePaint, coverage: bool) -> UiDrawList {
                 color,
                 model_light: 1.,
                 overlay_color,
-                style_flags: if coverage { UI_STYLE_COVERAGE_PAINT } else { 0 },
-                alpha_test: false,
+                style_flags: if coverage {
+                    u32::from(UI_STYLE_COVERAGE_PAINT)
+                } else {
+                    0
+                },
                 alpha_cutoff: -1.,
             })
         })

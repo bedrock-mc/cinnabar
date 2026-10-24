@@ -44,7 +44,12 @@ fn enqueue(live: &mut Live<FakeWorker>, sequence: u64, epoch: u64, channel: &str
         )],
     };
     for bytes in wire::encode(&message, &live.grant.wire).unwrap() {
-        live.receive(&bytes, sequence * 1000, live.epoch).unwrap();
+        live.receive(
+            &protocol::ExperienceMessage::new(bytes),
+            sequence * 1000,
+            live.native_epoch,
+        )
+        .unwrap();
     }
 }
 

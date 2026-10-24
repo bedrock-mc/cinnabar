@@ -8,6 +8,8 @@ mod control_locked;
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
+#[cfg(feature = "test-support")]
+mod data_driven;
 mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
@@ -147,6 +149,10 @@ fn png_fixture(
         return form_overlap::png(state, dir);
     }
     #[cfg(feature = "test-support")]
+    if let Fixture::DataDriven(screen) = &fixture {
+        return data_driven::png(state, dir, *screen);
+    }
+    #[cfg(feature = "test-support")]
     if matches!(&fixture, Fixture::SettingsDraft) {
         return settings_draft::png(state, dir);
     }
@@ -183,6 +189,7 @@ fn png_fixture(
         | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked
@@ -234,6 +241,7 @@ fn png_fixture(
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap
+        | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked => {
@@ -344,6 +352,7 @@ fn png_fixture(
                     (
                         key.clone(),
                         ui::IconRef {
+                            color_mask: None,
                             page: first + sprite.page,
                             uv: sprite.bounds,
                             glint: false,
@@ -361,6 +370,7 @@ fn png_fixture(
                 .map_err(|error| Error::Invalid(format!("embedded title artwork: {error}")))?
                 .into_rgba8();
             let title_artwork = ui::IconRef {
+                color_mask: None,
                 page: carriers.pages.len() as u16,
                 uv: [0, 0, logo.width() as u16, logo.height() as u16],
                 glint: false,
@@ -736,6 +746,7 @@ fn mod_icons(
         artwork.insert(
             key,
             ui::IconRef {
+                color_mask: None,
                 page,
                 uv: [0, 0, width as u16, height as u16],
                 glint: false,
@@ -773,6 +784,7 @@ fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Pa
         artwork.insert(
             item.thumbnail_key(),
             ui::IconRef {
+                color_mask: None,
                 page: pages.len() as u16,
                 uv: [0, 0, image.width as u16, image.height as u16],
                 glint: false,

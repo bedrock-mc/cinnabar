@@ -14,6 +14,10 @@ fn fragmented_arena(holes: u32) -> ChunkGpuArena {
     arena
 }
 
+fn holes(free: &FreeRanges) -> Vec<Range<u32>> {
+    free.iter().collect()
+}
+
 /// Probing in place must choose exactly what the copying planner chose.
 #[test]
 fn fresh_range_probe_matches_the_copying_planner_on_fragmented_lists() {
@@ -29,11 +33,11 @@ fn fresh_range_probe_matches_the_copying_planner_on_fragmented_lists() {
         };
         let copied = plan_chunk_range_update(
             arena.quad_len,
-            &arena.free_quads,
+            &holes(&arena.free_quads),
             arena.geometry_stream_len,
-            &arena.free_geometry_stream_words,
+            &holes(&arena.free_geometry_stream_words),
             arena.biome_len,
-            &arena.free_biomes,
+            &holes(&arena.free_biomes),
             stream_counts,
             biome,
             None,
@@ -87,15 +91,20 @@ fn arena_planning_cost_with_4096_holes() {
         ..GeometryStreamCounts::default()
     };
     let plans = 512;
+    let (quads, geometry, biomes) = (
+        holes(&arena.free_quads),
+        holes(&arena.free_geometry_stream_words),
+        holes(&arena.free_biomes),
+    );
     let started = Instant::now();
     for _ in 0..plans {
         std::hint::black_box(plan_chunk_range_update(
             arena.quad_len,
-            &arena.free_quads,
+            &quads,
             arena.geometry_stream_len,
-            &arena.free_geometry_stream_words,
+            &geometry,
             arena.biome_len,
-            &arena.free_biomes,
+            &biomes,
             counts,
             4,
             None,
