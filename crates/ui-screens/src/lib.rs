@@ -29,6 +29,7 @@ pub mod furnace_book;
 pub mod global_resources;
 pub mod graphics_expander;
 pub mod hud;
+pub mod hud_placement;
 pub mod hud_renderers;
 pub mod inventory_capture;
 pub mod invite_screen;

@@ -1,6 +1,8 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
 mod backup_font;
+#[cfg(feature = "test-support")]
+mod bedrock_hotbar;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -168,6 +170,10 @@ fn png_fixture(
     if let Fixture::TouchUtilities(view) = &fixture {
         return touch_utilities::png(state, dir, *view);
     }
+    #[cfg(feature = "test-support")]
+    if let Fixture::BedrockHotbar { raised } = &fixture {
+        return bedrock_hotbar::png(state, dir, *raised);
+    }
     let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
@@ -186,6 +192,7 @@ fn png_fixture(
         #[cfg(feature = "test-support")]
         Fixture::TouchEditor { .. }
         | Fixture::TouchUtilities(..)
+        | Fixture::BedrockHotbar { .. }
         | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
@@ -244,6 +251,7 @@ fn png_fixture(
         | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
+        | Fixture::BedrockHotbar { .. }
         | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
