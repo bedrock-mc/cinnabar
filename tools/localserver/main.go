@@ -25,6 +25,7 @@ import (
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
+	"github.com/sandertv/gophertunnel/minecraft/resource"
 
 	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
@@ -78,6 +79,9 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if cfg.luckyBlock {
 		registerLuckyBlock()
 	}
+	if cfg.baseTextureIcon {
+		registerBaseTextureIcon()
+	}
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	// The offer's marker pack must be written before the resource packs load.
 	var ext *extension.Server
@@ -129,6 +133,17 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 			return fmt.Errorf("prepare totem texture fixture: %w", err)
 		}
 		conf.Resources = append(conf.Resources, pack)
+	}
+	if cfg.baseTextureIcon {
+		pack, err := baseTextureIconPack()
+		if err != nil {
+			if exps != nil {
+				err = errors.Join(err, exps.closeSupervisors())
+			}
+			return fmt.Errorf("prepare base texture icon fixture: %w", err)
+		}
+		// The first pack is the top of the stack, above the generated custom item pack.
+		conf.Resources = append([]*resource.Pack{pack}, conf.Resources...)
 	}
 	if ext != nil {
 		for i, listen := range conf.Listeners {

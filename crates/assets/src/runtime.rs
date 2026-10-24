@@ -274,6 +274,39 @@ impl RuntimeAssets {
             .unwrap_or(0)
     }
 
+    /// A material's first-mip texels in RGBA8 at its source size, so other consumers can reuse
+    /// the carrier's copy of a terrain raster. `None` for the diagnostic material or a layer
+    /// outside the retained pages.
+    #[must_use]
+    pub fn material_texels(&self, id: u32) -> Option<([u32; 2], Box<[u8]>)> {
+        if id == DIAGNOSTIC_MATERIAL {
+            return None;
+        }
+        let reference = self.materials.get(id as usize)?.texture;
+        let texture = &self.texture_pages.get(reference.page() as usize)?.texture;
+        let mip = texture.mips.first()?;
+        if reference.layer() >= texture.layers {
+            return None;
+        }
+        let side = mip.size as usize;
+        let [width, height] = self.texture_source_size(reference);
+        if width == 0 || height == 0 || width as usize > side || height as usize > side {
+            return None;
+        }
+        let layer_bytes = side * side * 4;
+        let layer = mip
+            .rgba8
+            .get(reference.layer() as usize * layer_bytes..)?
+            .get(..layer_bytes)?;
+        let texels = layer
+            .chunks_exact(side * 4)
+            .take(height as usize)
+            .flat_map(|row| &row[..width as usize * 4])
+            .copied()
+            .collect();
+        Some(([width, height], texels))
+    }
+
     /// Index of a shard reference's layer inside the flat per-layer arrays.
     fn flat_overlay_layer(&self, reference: TextureRef) -> Option<usize> {
         let shard = (reference.page() as usize).checked_sub(self.base_texture_page_count())?;

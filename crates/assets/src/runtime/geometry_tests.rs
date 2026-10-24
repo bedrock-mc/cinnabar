@@ -55,3 +55,31 @@ fn changes_within_one_variation_mode_keep_geometry_reusable() {
     changed_weights.materials[4].variation_weight = 0.75_f32.to_bits();
     assert!(two_choices.has_same_geometry(&changed_weights));
 }
+
+#[test]
+fn material_texels_copy_one_layer_and_reject_the_diagnostic_material() {
+    let mut assets = RuntimeAssets::diagnostic();
+    let layer = |shade: u8| [shade, 0, 0, 255].repeat(4);
+    assets.texture_pages = vec![TexturePage::new(TextureArray {
+        layers: 2,
+        mips: vec![TextureMip {
+            size: 2,
+            rgba8: [layer(10), layer(20)].concat().into(),
+        }]
+        .into(),
+    })]
+    .into();
+    assets.materials = vec![
+        Material::unvaried(),
+        Material {
+            texture: TextureRef::new(0, 1).unwrap(),
+            ..Material::unvaried()
+        },
+    ]
+    .into();
+    let (size, texels) = assets.material_texels(1).expect("second layer");
+    assert_eq!(size, [2, 2]);
+    assert_eq!(&*texels, layer(20).as_slice());
+    assert!(assets.material_texels(DIAGNOSTIC_MATERIAL).is_none());
+    assert!(assets.material_texels(2).is_none());
+}
