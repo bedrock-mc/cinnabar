@@ -459,6 +459,8 @@ pub(crate) struct GeometryDraw {
     /// The expanded vertex an expanded terrain draw's pipeline reads; it draws only while
     /// the terrain pages hold that layout.
     pub layout: Option<TerrainLayout>,
+    /// The alpha test applied to the draw, if any.
+    pub alpha_test: Option<AlphaTest>,
 }
 
 /// A geometry program's pipeline pieces, from which its draws' pipelines are built.
@@ -510,13 +512,20 @@ fn draw_layout(kind: DrawKind, terrain: TerrainLayout) -> TerrainLayout {
     }
 }
 
+/// The pipeline, colour targets and alpha test built for one geometry draw.
+pub(crate) struct BuiltDrawPipeline {
+    pub pipeline: wgpu::RenderPipeline,
+    pub outputs: Vec<Option<u32>>,
+    pub alpha_test: Option<AlphaTest>,
+}
+
 /// Builds the pipeline of `kind` with one program: the geometry vertex layout, Iris's
 /// culling and depth state (geometry winds counter-clockwise; the translator's clip-space
 /// Y flip mirrors it to clockwise), the alpha test and the blend state per draw buffer.
 pub(crate) fn draw_pipeline(
     kind: DrawKind,
     inputs: &DrawPipelineInputs<'_>,
-) -> Result<(wgpu::RenderPipeline, Vec<Option<u32>>), String> {
+) -> Result<BuiltDrawPipeline, String> {
     let reflection = inputs.reflection;
     let layouts = if kind.actor() {
         super::actors::layout::vertex_layouts(&reflection.vertex_inputs)
@@ -637,7 +646,11 @@ pub(crate) fn draw_pipeline(
             multiview_mask: None,
             cache: inputs.cache,
         });
-    Ok((pipeline, outputs))
+    Ok(BuiltDrawPipeline {
+        pipeline,
+        outputs,
+        alpha_test: alpha,
+    })
 }
 
 /// Builds every resolved draw's pipeline. Terrain draws read a [`TerrainLayout::compact`]
@@ -706,12 +719,13 @@ pub(crate) fn geometry_draws(
         let built = draw_pipeline(*kind, &inputs);
         let rejected = bevy::tasks::block_on(scope.pop());
         match (built, rejected) {
-            (Ok((pipeline, outputs)), None) => draws.push(GeometryDraw {
+            (Ok(built), None) => draws.push(GeometryDraw {
                 kind: *kind,
                 program: stage.program,
-                pipeline,
-                outputs,
+                pipeline: built.pipeline,
+                outputs: built.outputs,
                 layout: kind.category().is_some().then_some(terrain_layout),
+                alpha_test: built.alpha_test,
             }),
             (Err(error), _) => bevy::log::warn!(
                 target: "cinnabar::shaderpack",

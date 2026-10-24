@@ -289,6 +289,7 @@ impl ViewState {
                 lightmap_matrix: draw.kind.lightmap_matrix(),
                 atlas_size: context.atlas_size(draw.kind),
                 entity_id: effect.map_or(-1, |effect| self.pack.effects.entity_id(effect)),
+                alpha_test_ref: draw.alpha_test.map_or(0.0, |t| t.reference),
             };
             let lookup = |name: &str| values.value(name).or_else(|| lookup(name));
             pack_block(block, &lookup, &mut self.scratch, &mut self.unknown);

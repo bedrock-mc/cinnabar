@@ -316,6 +316,7 @@ fn history_supplies_previous_matrices_and_smoothed_values() {
         Some(HostValue::IVec([10, 70, -4, 0], 3))
     );
     assert_eq!(first.value("frameTimeCounter"), Some(HostValue::Float(0.0)));
+    assert_eq!(first.value("alphaTestRef"), Some(HostValue::Float(0.0)));
     assert_eq!(
         second.value("frameTimeCounter"),
         Some(HostValue::Float(0.25)),
@@ -499,6 +500,7 @@ fn draw_uniforms_fold_the_chunk_offset_into_the_legacy_model_view() {
         lightmap_matrix: true,
         atlas_size: [512, 256],
         entity_id: -1,
+        alpha_test_ref: 0.1,
     };
     let Some(HostValue::Mat4(legacy)) = draw.value("iris_ModelViewMat") else {
         panic!("legacy model-view is a matrix");
@@ -526,6 +528,7 @@ fn draw_uniforms_fold_the_chunk_offset_into_the_legacy_model_view() {
         "the frame's identity"
     );
     assert_eq!(draw.value("renderStage"), Some(HostValue::Int(8)));
+    assert_eq!(draw.value("alphaTestRef"), Some(HostValue::Float(0.1)));
 }
 
 #[test]
