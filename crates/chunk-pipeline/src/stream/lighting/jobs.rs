@@ -662,17 +662,9 @@ impl WorldStream {
                 let neighbour_in_flight = self.lighting.jobs.in_flight.contains_key(&neighbour);
                 let neighbour_in_same_batch =
                     self.lighting.last_dispatched_batch.get(&neighbour) == Some(&batch_id);
-                if !neighbour_in_flight
-                    && let Some(pending) = self.lighting.jobs.pending.get_mut(&neighbour)
-                {
-                    let revision = pending.revision;
-                    // Its retained light was solved against this face's previous light.
-                    self.lighting.changed_cells.remove(&neighbour);
-                    if urgent {
-                        pending.urgent = true;
-                        self.lighting.jobs.scan.push_front((neighbour, revision));
-                    }
-                    self.lighting.priority_wakeups.insert(neighbour, revision);
+                if !neighbour_in_flight && self.lighting.jobs.pending.contains_key(&neighbour) {
+                    // A deferred neighbour needs the same readiness wake as an explicit waiter.
+                    requeue.insert(neighbour);
                     continue;
                 }
                 if neighbour_in_same_batch {
