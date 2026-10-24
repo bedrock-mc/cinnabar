@@ -114,6 +114,15 @@ pub(crate) fn local_subject_column(dimension: i32, position: Vec3) -> Option<wor
         .then(|| camera_sub_chunk_key(dimension, position).chunk())
 }
 
+/// Reads the published subject eye, rejecting absent or nonfinite frame evidence.
+#[cfg(feature = "acceptance")]
+pub(crate) fn publication_subject_column(
+    dimension: i32,
+    carrier: &LocalPlayerFrameCarrier,
+) -> Option<world::ChunkKey> {
+    local_subject_column(dimension, carrier.snapshot()?.eye())
+}
+
 #[derive(Default)]
 pub(crate) struct MetricsSamplingState {
     pub(crate) last_marked_transparent_sort_generation: u64,
@@ -554,15 +563,13 @@ pub(crate) fn record_metrics(
     // evidence, not gameplay work. Gate the collection as well as the output.
     #[cfg(feature = "acceptance")]
     if publication_diagnostics_enabled(&acceptance)
-        && let (Some(stream), Some(local_frame), Some(graphics)) = (
+        && let (Some(stream), Some(graphics)) = (
             client_world.stream.as_ref(),
-            render_metrics.local_player.snapshot(),
             visibility_diagnostics.graphics_adapter(),
         )
-        && local_frame.eye().is_finite()
+        && let Some(player_column) =
+            publication_subject_column(stream.current_dimension(), &render_metrics.local_player)
     {
-        let player_column = local_subject_column(stream.current_dimension(), local_frame.eye())
-            .expect("finite local-player eyes have a subject column");
         let publication = stream.publication_snapshot(player_column);
         let session_generation = publication.session_generation;
         let publisher_epoch = publication.publisher_epoch;

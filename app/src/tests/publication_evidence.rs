@@ -214,24 +214,6 @@ fn player_column_witness_uses_subject_not_third_person_camera_boom() {
 }
 
 #[test]
-fn serialized_publication_path_reads_the_frozen_local_subject_column() {
-    let source = include_str!("../runtime/telemetry.rs");
-    let record = source
-        .split("pub(crate) fn record_metrics(")
-        .nth(1)
-        .expect("record_metrics source")
-        .split_once("\n    if client_world.stream.is_some()")
-        .expect("publication evidence ends before gameplay visibility counters")
-        .0;
-
-    assert!(record.contains("render_metrics.local_player.snapshot()"));
-    assert!(record.contains("local_subject_column(stream.current_dimension(), local_frame.eye())"));
-    assert!(
-        !record.contains("camera_sub_chunk_key(stream.current_dimension(), camera.translation)")
-    );
-}
-
-#[test]
 fn publication_emits_once_per_changed_combined_identity() {
     let snapshot = combined_snapshot();
     let mut previous = None;
@@ -407,22 +389,6 @@ fn key_manifest_identity_does_not_change_with_observation_frame() {
     assert!(
         publication_line_if_changed(&mut previous, snapshot).is_some(),
         "a semantic resident-manifest change must emit one updated marker",
-    );
-}
-
-#[test]
-fn frame_metrics_observe_the_real_clock() {
-    let source = include_str!("../runtime/telemetry.rs");
-    let function = source
-        .split_once("pub(crate) fn record_metrics(")
-        .expect("record_metrics definition")
-        .1
-        .split_once(") {")
-        .expect("record_metrics signature")
-        .0;
-    assert!(
-        function.contains("time: Res<Time<Real>>"),
-        "frame metrics must use unclamped wall-clock frame deltas, not Bevy's virtual clock",
     );
 }
 

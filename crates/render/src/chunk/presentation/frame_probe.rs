@@ -546,15 +546,19 @@ impl ActiveFrameProbe {
         }
     }
 
-    pub(in crate::chunk) fn record_transparent_draw(
+    /// Builds draw evidence only while a probe is active; ordinary drawing pays no scan.
+    pub(in crate::chunk) fn record_transparent_draw<I>(
         &self,
         generation: ViewSortGeneration,
-        draws: impl IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
-    ) -> usize {
+        draws: impl FnOnce() -> I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (Entity, FrameAllocationIdentity)>,
+    {
         let scope = self.scope();
         match scope.current() {
-            Some(probe) => probe.record_transparent_draw(generation, draws),
-            None => draws.into_iter().count(),
+            Some(probe) => probe.record_transparent_draw(generation, draws()),
+            None => 0,
         }
     }
 

@@ -125,12 +125,9 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
             }
         }
         frame_probe.record_direct_streams(item.entity(), frame_identity, ChunkStreamMask::MODEL);
-        if frame_probe.is_active()
-            && let Some(water_draw) =
-                transparent_frame_draw_for_range(snapshot, arena, draw.water_range.clone())
-        {
-            frame_probe.record_transparent_draw(snapshot.generation(), [water_draw]);
-        }
+        frame_probe.record_transparent_draw(snapshot.generation(), || {
+            transparent_frame_draw_for_range(snapshot, arena, draw.water_range.clone())
+        });
         record_encoded_transparent_generation(metrics.into_inner(), snapshot.generation());
         RenderCommandResult::Success
     }

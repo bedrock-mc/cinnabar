@@ -1,5 +1,50 @@
 use {super::*, diagnostics::markers::cumulative_counter_delta};
 
+/// The real telemetry system observes a long real frame even when virtual time is clamped.
+#[test]
+fn frame_metrics_observe_real_time_instead_of_the_virtual_delta() {
+    use crate::runtime::{
+        telemetry::{AcceptanceRuntimeConfig, record_metrics},
+        visibility::{AppMetrics, CaveVisibilityCache, DiagnosticQuads},
+        world::{ClientWorld, WorldStreamFramePoll},
+    };
+    use bevy::{diagnostic::DiagnosticsStore, prelude::*};
+    let mut app = App::new();
+    let mut real = Time::<bevy::time::Real>::default();
+    real.advance_by(std::time::Duration::from_millis(400));
+    let mut virtual_time = Time::<()>::default();
+    virtual_time.advance_by(std::time::Duration::from_millis(10));
+    app.insert_resource(real)
+        .insert_resource(virtual_time)
+        .insert_resource(ClientWorld::new(std::sync::Arc::new(
+            assets::RuntimeAssets::diagnostic(),
+        )))
+        .insert_resource(AppMetrics(MetricsCollector::new()))
+        .insert_resource(AcceptanceRuntimeConfig {
+            build_profile: "test",
+        })
+        .init_resource::<CaveVisibilityCache>()
+        .init_resource::<DiagnosticQuads>()
+        .init_resource::<render_scene::ChunkRenderQueue>()
+        .init_resource::<render_scene::TransparentSortMetrics>()
+        .init_resource::<render_scene::ModelWorkloadMetrics>()
+        .init_resource::<render_scene::VisibilityDiagnostics>()
+        .init_resource::<render_scene::VisibilityDiagnosticsInput>()
+        .init_resource::<DiagnosticsStore>()
+        .init_resource::<client_runtime::publication::PublicationController>()
+        .init_resource::<WorldStreamFramePoll>();
+    #[cfg(feature = "acceptance")]
+    app.insert_resource(::acceptance::AcceptanceRun::new(None, None, false, false))
+        .init_resource::<client_presentation::local_player::LocalPlayerFrameCarrier>()
+        .init_resource::<render_scene::TransparentWitnessEvidence>()
+        .init_resource::<render_scene::ModelWitnessEvidence>();
+    app.add_systems(Update, record_metrics);
+    app.update();
+    let metrics = &app.world().resource::<AppMetrics>().0;
+    assert_eq!(metrics.frame_count(), 1);
+    assert_eq!(metrics.report().max_frame_ms, 400.0);
+}
+
 #[test]
 fn diagnostic_telemetry_refreshes_only_after_resident_attribution_changes() {
     let key = SubChunkKey::new(0, 1, 2, 3);

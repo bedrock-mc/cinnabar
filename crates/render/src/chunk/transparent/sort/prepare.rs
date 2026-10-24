@@ -543,18 +543,22 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             snapshot.active_slot_age_frames = snapshot.active_slot_age_frames.saturating_add(1);
         }
     });
-    if let Some((identity, command)) = runtime.state.committed().and_then(|snapshot| {
-        Some((
-            (snapshot.buffer_slot(), snapshot.refs().len()),
-            transparent_indirect_args(snapshot, arena.transparent_slot_refs)?,
-        ))
-    }) && runtime.last_indirect_identity != Some(identity)
-    {
+    let runtime = &mut *runtime;
+    let state = &runtime.state;
+    let identity = state
+        .committed()
+        .map(|snapshot| (snapshot.buffer_slot(), snapshot.refs().len()));
+    let command = identity.and_then(|identity| {
+        indirect_upload(&mut runtime.last_indirect_identity, identity, || {
+            transparent_indirect_args(state.committed()?, arena.transparent_slot_refs)
+        })
+    });
+    if let Some(command) = command {
         #[cfg(feature = "tracy")]
         let _span = bevy::log::info_span!(
             "terrain.transparent_indirect_write",
-            buffer_slot = identity.0,
-            refs = identity.1
+            buffer_slot = identity.expect("command has an identity").0,
+            refs = identity.expect("command has an identity").1
         )
         .entered();
         render_queue.profiled_write_buffer(
@@ -562,6 +566,22 @@ pub(in crate::chunk) fn prepare_transparent_sorts(
             0,
             bytemuck::bytes_of(&command),
         );
-        runtime.last_indirect_identity = Some(identity);
     }
 }
+
+/// Reuses a valid uploaded command until its slot or reference count changes.
+fn indirect_upload(
+    last: &mut Option<(u8, usize)>,
+    identity: (u8, usize),
+    build: impl FnOnce() -> Option<DrawIndexedIndirectArgs>,
+) -> Option<DrawIndexedIndirectArgs> {
+    if *last == Some(identity) {
+        return None;
+    }
+    let command = build()?;
+    *last = Some(identity);
+    Some(command)
+}
+
+#[cfg(test)]
+mod indirect_tests;

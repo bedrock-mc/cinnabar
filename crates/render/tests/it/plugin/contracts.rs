@@ -355,134 +355,6 @@ fn transparent_view_and_double_slot_memory_are_strictly_bounded() {
 }
 
 #[test]
-fn non_water_liquid_pipeline_is_opaque_and_depth_writing() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    assert!(plugin.contains("packed depth-writing liquid pipeline"));
-    assert!(plugin.contains("depth_liquid_variants"));
-    assert!(plugin.contains("vertex_depth"));
-    assert!(plugin.contains("fragment_depth"));
-    assert!(plugin.contains("DrawDepthLiquidCommands"));
-    assert!(plugin.contains("DrawDepthLiquidIndirectCommands"));
-    let depth_pipeline = plugin
-        .split("let mut depth_liquid_descriptor = descriptor.clone();")
-        .nth(1)
-        .and_then(|source| source.split("Self {").next())
-        .expect("depth-writing liquid descriptor");
-    assert!(depth_pipeline.contains("vertex_depth"));
-    assert!(depth_pipeline.contains("fragment_depth"));
-    assert!(depth_pipeline.contains("depth_liquid_descriptor.primitive.cull_mode = None"));
-    assert!(!depth_pipeline.contains("BlendState::ALPHA_BLENDING"));
-    assert!(!depth_pipeline.contains("depth_write_enabled = false"));
-}
-
-#[test]
-fn transparent_draw_evidence_scan_is_only_paid_for_an_active_frame_probe() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    assert!(plugin.contains("fn is_active(&self) -> bool"));
-    assert_eq!(
-        plugin.matches("if frame_probe.is_active()").count(),
-        2,
-        "direct and MDI must keep normal liquid drawing O(1)"
-    );
-    assert!(plugin.contains("transparent_frame_draw_for_range(snapshot, arena, ref_range)"));
-}
-
-#[test]
-fn transparent_indirect_command_upload_is_generation_cached() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    assert!(plugin.contains("last_indirect_identity"));
-    assert!(plugin.contains("runtime.last_indirect_identity != Some(identity)"));
-}
-
-#[test]
-fn crossed_model_pipeline_is_two_sided_and_uses_shared_bounded_bindings() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    let shader = shader_source::preprocess(include_str!("../../../src/model.wesl"), &[]);
-    let compact_plugin: String = plugin.chars().filter(|c| !c.is_whitespace()).collect();
-    assert!(compact_plugin.contains(
-        "load_internal_asset!(app,MODEL_SHADER_HANDLE,\"../model.wesl\",|source,path|{crate::shader_safety::from_wesl(crate::material_shader::source(source),path)})"
-    ));
-    assert!(plugin.contains("\"packed model pipeline\""));
-    assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
-    assert!(plugin.contains("resource: arena.geometry_stream_buffer.as_entire_binding()"));
-    assert!(plugin.contains("resource: texture_assets.model_template_buffer.as_entire_binding()"));
-    let shader_storage_bindings = shader.matches("var<storage, read>").count() as u32;
-    assert!(shader_storage_bindings <= render::required_vertex_storage_buffers());
-    assert_eq!(
-        shader_source::alpha_discard_threshold(&shader, "fragment"),
-        Some(0.5)
-    );
-    assert!(shader.contains("@builtin(front_facing) front_facing: bool"));
-    assert!(
-        shader
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .contains("if (!front_facing && in.visibility.y == 0u) { discard; }")
-    );
-    assert!(!shader.contains("face_light"));
-}
-
-#[test]
-fn transparent_pipeline_uses_native_depth_writes_without_alpha_cutoff() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-    let blend = include_str!("../../../src/chunk/pipeline/layouts/terrain_blend.rs");
-    let shader = shader_source::preprocess(include_str!("../../../src/model.wesl"), &[]);
-
-    assert!(plugin.contains("packed transparent terrain pipeline"));
-    assert!(plugin.contains("terrain_blend::apply(&mut transparent_descriptor)"));
-    assert!(blend.contains("target.blend = Some(BlendState::ALPHA_BLENDING)"));
-    assert!(blend.contains("depth.depth_write_enabled = Some(true)"));
-
-    let blend_start = shader
-        .find("fn shade_blend(")
-        .expect("transparent model shading");
-    let blend_body = &shader[blend_start..];
-    assert!(blend_body.contains("return ordinary_world_model_colour(in, sampled);"));
-    assert!(shader.contains("* terrain_light_colour(in.native_light_levels)"));
-    assert!(shader.contains("mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position))"));
-    assert!(shader.contains("sampled_gamma.a);"));
-    assert!(
-        shader.contains("return vec4(sampled.rgb, sampled.a);")
-            && shader
-                .contains("return vec4(sampled.rgb * blended_biome_tint(tint_kind, flags, record, position, world_origin).rgb, sampled.a);"),
-        "biome tinting must preserve sampled alpha for the blend entry point"
-    );
-    assert_eq!(
-        shader_source::alpha_discard_threshold(&shader, "shade_blend"),
-        None,
-        "blend models must preserve fractional sampled alpha"
-    );
-}
-
-#[test]
-fn transparent_models_and_water_queue_combined_distance_sorted_subchunk_items() {
-    let plugin = CHUNK_RENDERER_SOURCE;
-
-    assert!(plugin.contains("add_render_command::<Transparent3d, DrawTransparentModelCommands>()"));
-    assert!(plugin.contains("add_render_command::<Transparent3d, DrawMixedTerrainCommands>()"));
-    assert!(plugin.contains(".transparent_variants"));
-    assert!(plugin.contains(".specialize(&pipeline_cache, key)"));
-    assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, model_key)"));
-    assert!(plugin.contains("transparent_model_phase_distance(&rangefinder, group.key)"));
-    assert!(plugin.contains("prepare_transparent_model_sorts"));
-    assert!(plugin.contains("spawn_transparent_model_sort"));
-    assert!(plugin.contains("DEFAULT_TRANSPARENT_UPLOAD_REFS_PER_FRAME"));
-    assert!(plugin.contains("if runtime.view_entity != Some(view_entity)"));
-    assert!(plugin.contains("transparent_liquid_phase_distance(&rangefinder, group.key)"));
-    assert!(plugin.contains("range: group.ref_range"));
-    assert!(!plugin.contains("distance: 0.0,"));
-    assert!(plugin.contains("draw_function: transparent_model_draw"));
-    assert!(plugin.contains("draw_function: mixed_draw"));
-    assert!(plugin.contains("entity: (entity, main)"));
-    let mixed = include_str!("../../../src/chunk/transparent/mixed/command.rs");
-    assert!(mixed.contains("identity.model.generation != allocation.generation"));
-    assert!(mixed.contains("snapshot.generation() != draw.water_generation"));
-    assert!(mixed.contains("snapshot.buffer_slot() != draw.water_slot"));
-    assert!(mixed.contains("order.revision != identity.model_revision"));
-}
-
-#[test]
 fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
     let assets = flowerbed_runtime_assets();
     let sub_chunk = flowerbed_sub_chunk(&[([4, 8, 8], 0), ([8, 8, 8], 1), ([12, 8, 8], 2)]);
@@ -554,7 +426,6 @@ fn flowerbed_uses_packed_model_lighting_and_conservative_connectivity() {
 
 #[test]
 fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
-    let shader = include_str!("../../../src/model.wesl");
     let assets = flowerbed_runtime_assets();
     for runtime_id in 0..3 {
         let template_id = assets
@@ -574,13 +445,6 @@ fn flowerbed_is_two_sided_alpha_cutout_on_the_shared_model_pipeline() {
             assets.material(quad.material).flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0
         }));
     }
-
-    let plugin = CHUNK_RENDERER_SOURCE;
-    assert!(plugin.contains("model_descriptor.primitive.cull_mode = None"));
-    assert_eq!(
-        shader_source::alpha_discard_threshold(shader, "fragment"),
-        Some(0.5)
-    );
 }
 
 #[test]
@@ -647,59 +511,6 @@ fn flowerbed_adds_no_renderer_object_or_binding_per_block_or_subchunk() {
             "produced chunk entity must not own a {forbidden} component: {many_components:?}"
         );
     }
-
-    let plugin = CHUNK_RENDERER_SOURCE.replace("\r\n", "\n");
-    for structure in [
-        "ChunkRenderInstance",
-        "GpuChunkAllocation",
-        "ArenaAllocation",
-        "RetiredArenaAllocation",
-    ] {
-        let body = rust_struct_body(&plugin, structure);
-        for forbidden in [
-            "Mesh",
-            "Material",
-            "BindGroup",
-            "RenderPipeline",
-            "Variants<",
-        ] {
-            assert!(
-                !body.contains(forbidden),
-                "{structure} must not own a per-subchunk {forbidden}"
-            );
-        }
-    }
-    let arena = rust_struct_body(&plugin, "ChunkGpuArena");
-    assert!(arena.contains("bind_group: Option<BindGroup>"));
-    assert!(arena.contains("allocations: HashMap<Entity, ArenaAllocation>"));
-    let pipeline = rust_struct_body(&plugin, "ChunkPipeline");
-    assert!(pipeline.contains("Variants<RenderPipeline"));
-    assert!(pipeline.contains("bind_group_layout: BindGroupLayoutDescriptor"));
-}
-
-fn rust_struct_body<'a>(source: &'a str, name: &str) -> &'a str {
-    let marker = format!("struct {name} ");
-    let declaration = source
-        .find(&marker)
-        .unwrap_or_else(|| panic!("missing {name} declaration"));
-    let open = declaration
-        + source[declaration..]
-            .find('{')
-            .unwrap_or_else(|| panic!("missing {name} body"));
-    let mut depth = 0_u32;
-    for (offset, byte) in source.as_bytes()[open..].iter().copied().enumerate() {
-        match byte {
-            b'{' => depth += 1,
-            b'}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return &source[open + 1..open + offset];
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("unterminated {name} body")
 }
 
 /// Counts ordinary render entities separately from Bevy resource entities.

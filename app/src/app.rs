@@ -227,7 +227,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
 }
 
 pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
-    app.add_plugins(client_runtime::ClientRuntimePlugin::<PackApplication>::default());
+    app.init_resource::<PublicationController>()
+        .add_plugins(client_runtime::ClientRuntimePlugin::<PackApplication>::default());
     crate::runtime::world::configure_world_service(app);
     app.add_observer(apply_added_chunk_visibility)
         .add_observer(remove_chunk_visibility)
@@ -712,10 +713,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         },
     ))
     .insert_resource(DiagnosticQuads::default())
-    .init_resource::<render_scene::BlockEntitySceneResource>()
-    .insert_resource(PublicationController::new(
-        PublicationServiceConfig::DEFAULT,
-    ));
+    .init_resource::<render_scene::BlockEntitySceneResource>();
     #[cfg(feature = "acceptance")]
     app.add_plugins(acceptance::AcceptancePlugin {
         seconds: args.acceptance_seconds,

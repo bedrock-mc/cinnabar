@@ -428,3 +428,34 @@ fn sub_chunk_origin_rejects_stale_camera_owners_and_falls_back_without_camera() 
         None
     );
 }
+
+/// Publication stays on the completed subject frame even when the camera is moved later.
+#[cfg(feature = "acceptance")]
+#[test]
+fn publication_column_reads_the_frozen_subject_instead_of_the_mutable_camera() {
+    let mut app = camera_app();
+    let camera = app
+        .world_mut()
+        .spawn((FlyCamera::default(), Transform::default()))
+        .id();
+    app.update();
+    let carrier = app.world().resource::<LocalPlayerFrameCarrier>();
+    let eye = carrier.snapshot().unwrap().eye();
+    let expected = crate::runtime::telemetry::local_subject_column(0, eye);
+    app.world_mut()
+        .entity_mut(camera)
+        .get_mut::<Transform>()
+        .unwrap()
+        .translation = Vec3::splat(2000.0);
+    assert_eq!(
+        crate::runtime::telemetry::publication_subject_column(
+            0,
+            app.world().resource::<LocalPlayerFrameCarrier>()
+        ),
+        expected
+    );
+    assert_ne!(
+        expected,
+        crate::runtime::telemetry::local_subject_column(0, Vec3::splat(2000.0))
+    );
+}

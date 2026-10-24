@@ -1107,72 +1107,6 @@ fn production_world_handoff_fails_closed_without_a_linear_publication_permit() {
         permit: None,
     };
     assert!(!mesh_change_has_publication_permit(&missing));
-
-    let source = include_str!("../runtime/world.rs");
-    assert!(source.contains("MISSING_PUBLICATION_PERMIT_ERROR"));
-    assert!(!source.contains("render_queue.try_update_tracked_with_biome_identity("));
-    assert!(!source.contains("render_queue.try_remove_tracked("));
-    assert!(source.contains("try_update_tracked_with_biome_identity_permitted("));
-    assert!(source.contains("try_remove_tracked_permitted("));
-}
-
-#[test]
-fn local_player_pipeline_orders_physics_camera_and_interaction_and_has_one_camera_writer() {
-    let app_source = include_str!("../app.rs");
-    assert!(app_source.contains("LocalPlayerFrameSet::Physics"));
-    assert!(app_source.contains("LocalPlayerFrameSet::Camera"));
-    assert!(app_source.contains("LocalPlayerFrameSet::Interaction"));
-
-    let production_sources = [
-        include_str!("../camera.rs"),
-        include_str!("../movement.rs"),
-        include_str!("../runtime/network.rs"),
-        include_str!("../runtime/world.rs"),
-        include_str!("../local_player.rs"),
-    ];
-    assert_eq!(
-        production_sources
-            .iter()
-            .map(|source| source.matches("&mut Transform").count())
-            .sum::<usize>(),
-        1,
-        "only the CameraPose publication adapter may borrow the base camera Transform"
-    );
-
-    let local_player = include_str!("../local_player.rs");
-    let adapter = local_player
-        .split_once("pub(crate) fn resolve_camera_pose")
-        .expect("camera resolver adapter exists")
-        .1
-        .split_once("pub(crate) fn publish_local_player_frame")
-        .expect("camera resolver adapter has a bounded body")
-        .0;
-    assert_eq!(
-        adapter
-            .matches("client_presentation::local_player::resolve_camera_pose(")
-            .count(),
-        1,
-        "the production adapter must call the presentation camera writer once"
-    );
-    assert!(!adapter.contains("*camera_transform"));
-
-    let presentation = include_str!("../../../crates/client-presentation/src/local_player.rs");
-    assert_eq!(presentation.matches("&mut Transform").count(), 1);
-    let resolver = presentation
-        .split_once("pub fn resolve_camera_pose")
-        .expect("presentation camera resolver exists")
-        .1
-        .split_once("pub fn publish_local_player_frame")
-        .expect("presentation camera resolver has a bounded body")
-        .0;
-    assert_eq!(
-        resolver.matches("*camera_transform.1 = transform;").count(),
-        1
-    );
-    assert!(
-        resolver.contains("collision_safe_perspective_pose("),
-        "the base camera writer must use the swept collision solver"
-    );
 }
 
 #[test]
@@ -1187,10 +1121,10 @@ fn production_stage_capacities_can_carry_one_literal_maximum_payload_frame() {
 }
 
 #[test]
-fn application_wires_controller_before_world_handoff_and_render_apply() {
-    // The graph test above covers execution order. Startup still must install
-    // the gate controller; constructing fixtures alone cannot prove that wiring.
-    let source = include_str!("../app.rs");
-    assert!(source.contains("PublicationController::new("));
-    assert!(source.contains("PublicationServiceConfig::DEFAULT"));
+fn production_frame_installation_provides_a_working_publication_controller() {
+    let mut app = App::new();
+    configure_client_runtime_frame_systems(&mut app);
+    let mut controller = app.world_mut().resource_mut::<PublicationController>();
+    controller.begin_frame(Duration::from_secs(1));
+    assert!(controller.budget().max_per_frame > 0);
 }

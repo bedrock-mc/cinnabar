@@ -12,7 +12,6 @@ reads = [
     "assets/cinnangles-sans-source.json",
     "assets/vanilla-source.json",
     "crates/assets/data/*",
-    "crates/client-presentation/src/local_player.rs",
     "crates/mod-api/wit/extension.wit",
     "crates/mod-host/src/tests/gameplay.wat",
     "crates/mod-host/src/tests/guest.wat",
