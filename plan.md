@@ -319,9 +319,8 @@ and its already accepted updates and effects. Replacement retires cached flags, 
 comparisons, dimensions, item use and movement attributes. Replay retains ordered
 actor and controller writes independently of the replaced actor state. Unknown passenger identities
 defer controller selection until their arrival order can be resolved.
-Server-driven item-use gameplay starts, block-climber flags, custom collision
-definitions, legacy sneak height, transition-tick packet ordering and broader
-live-server qualification remain incomplete.
+Block-climber flags, custom collision definitions, legacy sneak height,
+transition-tick packet ordering and broader live-server qualification remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
