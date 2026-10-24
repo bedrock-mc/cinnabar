@@ -374,7 +374,7 @@ and rendered qualification remain incomplete.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
-  Dropped crossed plants use their carried sprites; falling blocks retain their world models.
+  Dropped crossed plants and lanterns use their carried sprites; falling blocks retain their world models.
   Held heads reuse the placed-head meshes and textures; their native hand pose, scale,
   inventory preview and resource-pack geometry acceptance remain incomplete.
   Held maps submit server image updates over runtime pack paper in either hand.
@@ -548,7 +548,22 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Malformed item entries never match, and conditions the client reads as zero keep
   the base value; item-tag filters compile during session preparation for
   allocation-free evaluation, and an unsupported filter matches no item.
-  Complex Molang conditions and item-tag scripts read as zero, which is incomplete.
+  Mining uncertainty leaves known physics and local placement prediction usable.
+  Mining states use separate storage and admission, preserving the physical state budget.
+  Complex Molang conditions, item-tag scripts and live custom-block mining acceptance
+  remain incomplete.
+  Server items' `minecraft:digger` speeds replace tool speed and harvest for blocks
+  matched by name or tag query. Native block tags other than the pickaxe, axe, shovel
+  and hoe destructible tags are not carried yet. Serialized state restrictions compare
+  the target's prepared values in both palette modes. Unknown native tags and unsupported
+  queries stay unresolved, including under negation, and fall back to hand mining.
+  Custom tag sets stay unresolved when decoding drops entries. The decoder's 256-tag
+  and 256-byte tag limits are implementation bounds; removing them remains incomplete
+  parity work.
+  Complex legacy aliases, full native tags and general Molang remain incomplete.
+  Digger tag programs are prepared off the frame thread at bootstrap and registry
+  replacement; replacements retain only active queries and session retirement drops
+  pending preparations before a new login.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Server-requested local swings retain their source and echo after inventory authority
@@ -1011,6 +1026,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   pixels, liquids and entities; complete Iris type checking and target-dependent return
   overloads; array-bound folding of aggregate values and built-in calls; constant folding
   for half-float packing and bit casts. Java sky and fog time
+  which keep the native scene copy; actor colour masks, multitexture materials, dissolve
+  pairs, beacon beams and additive rays, which keep native composition; packs without
+  geometry programs, whose `depthtex*` and `centerDepthSmooth` read the Vanilla scene depth
+  with its translucent layers; computed custom uniform expressions using `centerDepthSmooth`
+  beyond float aliases; complete Iris type checking and target-dependent return
+  overloads; constant folding for half-float packing and bit casts. Java sky and fog time
   curves and sunrise colours remain provisional. Shared loose uniforms still need
   stage-local type and constant resolution, equivalent array declaration matching and
   isolation from unrelated stage globals. Whole boolean uniform arrays and partially
@@ -1027,6 +1048,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   colours remain provisional. Pack rain samples a sheet scattered from the Bedrock rain
   sprites at `rain.png`'s size and streak density rather than Java's texture, and weather
   vertices carry open-sky light rather than each column's light.
+  water, whose final depth can hide those layers; complete Iris type checking and
+  target-dependent return overloads; constant folding for half-float packing and bit casts.
+  Java sky and fog time curves and sunrise colours remain provisional.
 - `registryc --kind java-mapping` generates `crates/assets/data/java-mapping-v2193.bin` from
   the GeyserMC data pinned in `assets/geyser-mappings-source.json`: Java block states, block
   tags, biomes and their colours, entity types and items for every Bedrock id Geyser maps.

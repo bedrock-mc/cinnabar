@@ -178,7 +178,7 @@ fn retained_items_and_falling_blocks_resolve_the_current_session_palette() {
     for internal in [7, 6] {
         let stream = stream(false, internal);
         assert_eq!(
-            item_block_id(&stream, visual, None),
+            item_block_id(&stream, visual, None, None),
             Some((NetworkIdMode::Sequential, internal))
         );
         assert_eq!(
@@ -213,6 +213,7 @@ fn retained_items_and_falling_blocks_preserve_high_bit_hashes() {
                 block_runtime_id: raw
             },
             None,
+            None,
         ),
         Some((NetworkIdMode::Hashed, hash)),
     );
@@ -232,7 +233,7 @@ fn compiled_block_item_and_tnt_visuals_are_already_internal() {
     let stream = stream(false, 7);
     let visual = ItemVisualRoute::BlockItem(assets::BlockVisualId(1));
     assert_eq!(
-        item_block_id(&stream, visual, None),
+        item_block_id(&stream, visual, None, None),
         Some((NetworkIdMode::Sequential, 1))
     );
     assert_eq!(
@@ -291,17 +292,70 @@ fn dropped_crossed_plants_use_sprites_while_falling_blocks_keep_their_model() {
             block_runtime_id: 1,
         },
     ] {
-        assert_eq!(item_block_id(&stream, visual, Some(&assets)), None);
+        assert_eq!(item_block_id(&stream, visual, None, Some(&assets)), None);
     }
     assert_eq!(
         item_block_id(
             &stream,
             ItemVisualRoute::BlockItem(assets::BlockVisualId(2)),
+            None,
             Some(&assets),
         ),
         Some((NetworkIdMode::Sequential, 2)),
     );
     assert!(block_template(&assets, NetworkIdMode::Sequential, 1).is_some());
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1,
+            },
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0)),
+    );
+}
+
+#[test]
+fn dropped_lantern_variants_use_sprites_without_changing_other_block_routes() {
+    let stream = stream(false, 1);
+    let visuals = [
+        ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 1,
+        },
+    ];
+    let registry = protocol::vanilla_item_registry();
+    let lanterns: Vec<_> = registry
+        .iter()
+        .filter(|entry| {
+            assets::facts::block_render_fact(&entry.identifier).kind
+                == assets::facts::BlockRenderKind::Lantern
+        })
+        .collect();
+    assert!(!lanterns.is_empty());
+    for entry in lanterns {
+        for visual in visuals {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(&entry.identifier), None),
+                None,
+                "{} must use its carried sprite",
+                entry.identifier,
+            );
+        }
+    }
+    for identifier in [
+        "minecraft:sea_lantern",
+        "minecraft:stone",
+        "cinnabar:lantern",
+    ] {
+        for visual in visuals {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                Some((NetworkIdMode::Sequential, 1)),
+                "{identifier} must keep its block route",
+            );
+        }
+    }
     assert_eq!(
         entity_block_id(
             &stream,

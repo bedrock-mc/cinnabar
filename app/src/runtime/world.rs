@@ -128,6 +128,10 @@ pub(crate) struct ClientWorld {
     pub(crate) session_items: Option<Arc<client_presentation::session_assets::SessionItems>>,
     /// Item tag programs compiled with this session's block registries.
     pub(crate) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
+    /// Block tag programs compiled from the session item registry's digger components.
+    pub(crate) digger_filters: Arc<pack_runtime::DiggerFilters>,
+    /// One registry held at its ingress position until its digger queries are ready.
+    pub(crate) pending_digger_registry: Option<super::network::digger_registry::PendingRegistry>,
     pub(crate) pending_surface_spawn: Option<[i32; 2]>,
     pub(crate) dimension_transfer: dimension::DimensionTransfer,
     pub(crate) respawn: respawn::RespawnLifecycle,
@@ -157,6 +161,8 @@ impl ClientWorld {
             prepared_actor_artwork: None,
             session_items: None,
             mining_filters: Arc::default(),
+            digger_filters: Arc::default(),
+            pending_digger_registry: None,
             pending_surface_spawn: None,
             dimension_transfer: dimension::DimensionTransfer::default(),
             respawn: respawn::RespawnLifecycle::default(),
