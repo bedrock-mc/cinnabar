@@ -392,6 +392,9 @@ impl ModelCache {
         cost: impl FnOnce() -> Option<planning::ModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
+        if !self.can_warm(&key) {
+            return None;
+        }
         self.admit(key, cost, build, false)
     }
 

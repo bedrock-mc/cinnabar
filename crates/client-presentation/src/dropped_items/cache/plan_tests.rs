@@ -258,6 +258,14 @@ fn device_rejections_never_build_and_recheck_only_after_budget_changes() {
             let chosen = cache.prepare(|cache| resolve(cache, &models, &items));
             assert_eq!(chosen.iter().flatten().count(), 32);
             cache.finish_frame();
+            cache.warm_icon(
+                rejected_key.clone(),
+                || planning::ModelCost::from_model(&artwork[1].model),
+                || {
+                    artwork[1].builds.set(artwork[1].builds.get() + 1);
+                    Some(artwork[1].model.clone())
+                },
+            );
             assert_eq!(artwork[0].builds.get(), 1, "admitted artwork is retained");
             assert_eq!(
                 artwork[1].builds.get(),
@@ -354,5 +362,63 @@ fn selected_residents_survive_a_new_model_before_them_in_demand_order() {
             builds + 1,
             "only the newly selected source is built"
         );
+    }
+}
+
+#[test]
+fn animation_warming_reuses_rejection_after_later_consumers_fill_the_budget() {
+    let artwork = [
+        Artwork::new(1, false, false),
+        Artwork::new(16, false, false),
+        Artwork::new(1, false, false),
+    ];
+    let models: Vec<_> = artwork.iter().collect();
+    let items = [0, 1, 2].map(|id| [None, Some(id), None, None]);
+    let budget = ItemModelBudget::new(
+        assets::texture::policy::device_policy(),
+        MAX_ITEM_LAYERS,
+        ((artwork[0].vertices + artwork[2].vertices)
+            * render_model::dropped_item::ITEM_MESH_VERTEX_BYTES) as u64,
+    );
+    let mut cache = ModelCache {
+        budget,
+        ..Default::default()
+    };
+    let key = ModelKey::Block {
+        hashed: false,
+        id: 1,
+    };
+    let mut checks = None;
+    for frame in 0..24 {
+        assert_eq!(
+            cache
+                .prepare(|cache| resolve(cache, &models, &items))
+                .iter()
+                .flatten()
+                .count(),
+            2
+        );
+        assert!(
+            cache
+                .warm_icon(
+                    key.clone(),
+                    || planning::ModelCost::from_model(&artwork[1].model),
+                    || {
+                        artwork[1].builds.set(artwork[1].builds.get() + 1);
+                        Some(artwork[1].model.clone())
+                    }
+                )
+                .is_none()
+        );
+        cache.finish_frame();
+        let current = cache.admission_checks[&key];
+        if frame > 0 {
+            assert_eq!(
+                *checks.get_or_insert(current),
+                current,
+                "unchanged later upload state reuses its warming refusal"
+            );
+        }
+        assert_eq!(artwork[1].builds.get(), 0);
     }
 }

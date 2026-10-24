@@ -4,13 +4,49 @@ pub(super) use render_model::dropped_item::ItemModelCost as ModelCost;
 
 /// The exact upload and source capacity under which an artwork source was refused.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) struct RejectionBudget {
+struct Capacity {
     upload: render_model::dropped_item::ItemModelBudget,
     layers: usize,
     pixels: usize,
 }
 
+/// A refused capacity and the last later upload state that also refused animation warming.
+pub(super) struct RejectionBudget {
+    capacity: Capacity,
+    warm_upload: Option<render_model::dropped_item::ItemModelBudget>,
+}
+
 impl ModelCache {
+    /// Keeps speculative animation warming from rebuilding artwork still refused by current demand.
+    pub(super) fn can_warm(&mut self, key: &ModelKey) -> bool {
+        let Some(rejection) =
+            self.budget_rejections
+                .get_mut(&(key.clone(), false, self.sprite_only))
+        else {
+            return true;
+        };
+        if rejection.capacity.upload == self.budget || rejection.warm_upload == Some(self.budget) {
+            return false;
+        }
+        let cost = self
+            .costs
+            .get(key)
+            .expect("budget rejection has measured costs");
+        #[cfg(test)]
+        {
+            *self.admission_checks.entry(key.clone()).or_default() += 1;
+        }
+        let mut upload = self.budget;
+        if upload
+            .admit_dimensions(cost.side, cost.layers, cost.vertices)
+            .is_some()
+        {
+            return true;
+        }
+        rejection.warm_upload = Some(self.budget);
+        false
+    }
+
     /// Resolves source metadata once per artwork generation, without building a model.
     pub(super) fn measure_cost(
         &mut self,
@@ -51,13 +87,17 @@ impl ModelCache {
         layers: usize,
         pixels: usize,
     ) -> bool {
-        let context = RejectionBudget {
+        let context = Capacity {
             upload: self.budget,
             layers,
             pixels,
         };
         let rejection_key = (key.clone(), self.planning, self.sprite_only);
-        if self.budget_rejections.get(&rejection_key) == Some(&context) {
+        if self
+            .budget_rejections
+            .get(&rejection_key)
+            .is_some_and(|cached| cached.capacity == context)
+        {
             self.budget_refusals = self.budget_refusals.saturating_add(1);
             return false;
         }
@@ -73,7 +113,13 @@ impl ModelCache {
                 .is_none()
         {
             self.budget_refusals = self.budget_refusals.saturating_add(1);
-            self.budget_rejections.insert(rejection_key, context);
+            self.budget_rejections.insert(
+                rejection_key,
+                RejectionBudget {
+                    capacity: context,
+                    warm_upload: None,
+                },
+            );
             self.remember_rejection(key.clone(), false);
             return false;
         }
