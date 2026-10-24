@@ -1,0 +1,22 @@
+[package]
+name = "dragonfly-extension-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+reads = ["examples/dragonfly-extension/experience.toml"]
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["client"] }
+
+[build-dependencies]
+experience-sdk = { path = "../../../crates/experience-sdk", default-features = false, features = ["declarations"] }
+
+[lints]
+workspace = true

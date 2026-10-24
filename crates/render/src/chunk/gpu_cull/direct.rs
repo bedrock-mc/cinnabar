@@ -777,7 +777,9 @@ pub(crate) fn terrain_pass(
     let view_entity = query.entity();
     let (camera, target, scene_target, depth, resolution_override) = query.into_inner();
     let render_context = &mut render_context;
-    let occlusion = world.resource::<DirectOcclusion>();
+    let Some(occlusion) = world.get_resource::<DirectOcclusion>() else {
+        return Ok(());
+    };
     let batches = world.resource::<pipeline::units::TerrainUnitBatches>();
     if occlusion.same_frame || occlusion.reset_masks {
         batches.encode_masks(
@@ -947,8 +949,9 @@ fn select_visibility(
 
 /// Inserts the direct occlusion path's resources, systems and graph node.
 pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
+    let worker_device = device.clone();
+    crate::deferred_resource::install(render_app, move || DirectOcclusion::new(&worker_device));
     render_app
-        .insert_resource(DirectOcclusion::new(device))
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, super::prepare::extract_hidden_chunks)
         .add_systems(
@@ -966,7 +969,7 @@ pub(super) fn install(render_app: &mut SubApp, device: &RenderDevice) {
                     .after(prepare_gpu_chunks)
                     .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                 submit_direct_occlusion.in_set(crate::device_poll::FrameSubmissions),
-            ),
+            ).run_if(bevy::prelude::resource_exists::<DirectOcclusion>),
         );
     install_graph(render_app.world_mut());
 }

@@ -50,6 +50,7 @@ pub enum NativeEntityClass {
     Item,
     XpOrb,
     Wolf,
+    Sheep,
     SplashPotion,
     LingeringPotion,
     Tropicalfish,

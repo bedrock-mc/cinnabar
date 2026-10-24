@@ -776,3 +776,7 @@ mod sensor_tests;
 #[cfg(test)]
 #[path = "bake/shrieker_tests.rs"]
 mod shrieker_tests;
+
+#[cfg(test)]
+#[path = "bake/dripleaf_tests.rs"]
+mod dripleaf_tests;

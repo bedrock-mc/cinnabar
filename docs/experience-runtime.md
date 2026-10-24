@@ -354,7 +354,7 @@ WIT cannot express the rules below; the runtime (`crates/experience-runtime`) an
 
 ## Client parts
 
-The server half of client parts (`tools/localserver/extension`) offers each Experience's client
+The server half of client parts (`tools/localserver/cinnabarext`) offers each Experience's client
 part, a `.cxb` that `cinnabar-cxb build --experience` makes from the Experience's
 `experience.toml`, over PR #34's unchanged handshake and typed channels
 ([server-experiences.md](server-experiences.md)). On the client a failed client part callback

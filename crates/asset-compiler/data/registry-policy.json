@@ -5658,6 +5658,16 @@
       }
     },
     {
+      "id": "class-Sheep",
+      "status": "provisional",
+      "members": [
+        "minecraft:sheep"
+      ],
+      "facts": {
+        "native_class": "Sheep"
+      }
+    },
+    {
       "id": "class-SplashPotion",
       "status": "provisional",
       "members": [
@@ -7087,6 +7097,8 @@
       "SculkSensor": "minecraft:sculk_sensor",
       "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
       "SculkShrieker": "minecraft:sculk_shrieker",
+      "BigDripleaf": "minecraft:big_dripleaf",
+      "SmallDripleaf": "minecraft:small_dripleaf_block",
       "StrawBed": "minecraft:straw_bed"
     },
     "selectors": {

@@ -123,6 +123,12 @@ pub(crate) fn load_shaders(cache: &mut PipelineCache) {
     let (id, shader) =
         crate::shader_asset::internal_shader_asset!(SKIN_SHADER, "skin.wesl", shader);
     cache.set_shader(id, shader);
+    let (id, shader) = crate::shader_asset::internal_shader_asset!(
+        super::compose::COMPOSE_SHADER,
+        "compose.wesl",
+        super::compose::shader
+    );
+    cache.set_shader(id, shader);
 }
 
 fn storage(binding: u32, read_only: bool) -> BindGroupLayoutEntry {
@@ -182,7 +188,8 @@ fn pipeline_layouts() -> [[BindGroupLayoutDescriptor; 2]; 2] {
     ]
 }
 
-/// The largest per-stage storage budget used by an actor conversion kernel.
+/// The largest per-stage storage budget used by an actor conversion kernel. Layer
+/// composition binds no storage buffers.
 pub(crate) fn required_storage_buffers() -> u32 {
     pipeline_layouts()
         .iter()
@@ -198,14 +205,17 @@ pub(crate) fn required_storage_buffers() -> u32 {
         .unwrap_or_default()
 }
 
-/// The two cached kernels (rig skinning and block-entity conversion) and their layouts.
+/// The cached kernels (rig skinning, block-entity conversion and layer composition) and
+/// their layouts.
 #[derive(Resource)]
 pub(crate) struct ActorSkinPipelines {
     rig: CachedComputePipelineId,
     block_entities: CachedComputePipelineId,
+    compose: CachedComputePipelineId,
     rig_layout: BindGroupLayout,
     block_entity_layout: BindGroupLayout,
     output_layout: BindGroupLayout,
+    compose_layout: BindGroupLayout,
 }
 
 impl FromWorld for ActorSkinPipelines {
@@ -229,9 +239,17 @@ impl FromWorld for ActorSkinPipelines {
                 &block_entities,
                 "convert_block_entities",
             ),
+            compose: cache.queue_compute_pipeline(ComputePipelineDescriptor {
+                label: Some("shader-pack actor layer composition".into()),
+                layout: vec![super::compose::layout()],
+                shader: super::compose::COMPOSE_SHADER,
+                entry_point: Some("compose_layer".into()),
+                ..default()
+            }),
             rig_layout: cache.get_bind_group_layout(&rig[0]),
             block_entity_layout: cache.get_bind_group_layout(&block_entities[0]),
             output_layout: cache.get_bind_group_layout(&rig[1]),
+            compose_layout: cache.get_bind_group_layout(&super::compose::layout()),
         }
     }
 }
@@ -241,20 +259,24 @@ impl FromWorld for ActorSkinPipelines {
 pub(crate) struct SkinKernels<'a> {
     pub rig: &'a ComputePipeline,
     pub block_entities: &'a ComputePipeline,
+    pub compose: &'a ComputePipeline,
     pub rig_layout: &'a BindGroupLayout,
     pub block_entity_layout: &'a BindGroupLayout,
     pub output_layout: &'a BindGroupLayout,
+    pub compose_layout: &'a BindGroupLayout,
 }
 
 impl ActorSkinPipelines {
-    /// Both kernels, or `None` while either is still compiling.
+    /// Every kernel, or `None` while any is still compiling.
     pub(crate) fn kernels<'a>(&'a self, cache: &'a PipelineCache) -> Option<SkinKernels<'a>> {
         Some(SkinKernels {
             rig: cache.get_compute_pipeline(self.rig)?,
             block_entities: cache.get_compute_pipeline(self.block_entities)?,
+            compose: cache.get_compute_pipeline(self.compose)?,
             rig_layout: &self.rig_layout,
             block_entity_layout: &self.block_entity_layout,
             output_layout: &self.output_layout,
+            compose_layout: &self.compose_layout,
         })
     }
 }

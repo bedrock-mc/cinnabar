@@ -301,6 +301,7 @@ fn custom_storage_images_reject_mismatched_dimensions() {
         let result = bindings::resolve_bindings(
             &mut constants,
             ProgramGroup::Composite,
+            0,
             reflection,
             &[None; MAX_COLOR_BUFFERS as usize],
             0,
@@ -406,18 +407,26 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
         let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D2)
+                .custom("composite", sampler, TextureDimension::D2, 0)
                 .is_some(),
             "{property} aliases {sampler}"
         );
+        // A flip releases images bound to colour buffers, never to shadow buffers.
+        assert_eq!(
+            builder
+                .custom("composite", sampler, TextureDimension::D2, u32::MAX)
+                .is_none(),
+            !sampler.starts_with("shadowcolor"),
+            "{property} released as {sampler}"
+        );
         assert!(
             builder
-                .custom("deferred", sampler, TextureDimension::D2)
+                .custom("deferred", sampler, TextureDimension::D2, 0)
                 .is_none()
         );
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D3)
+                .custom("composite", sampler, TextureDimension::D3, 0)
                 .is_none()
         );
     }
@@ -457,6 +466,7 @@ fn geometry_unit_zero_aliases_bind_the_custom_texture() {
             let bindings = bindings::resolve_bindings(
                 &mut builder,
                 program.program.group,
+                program.released_overrides,
                 program.reflection.as_ref().unwrap(),
                 &[None; MAX_COLOR_BUFFERS as usize],
                 0,
@@ -520,6 +530,7 @@ fn raw_tex_keeps_gtexture_and_unbound_samplers_on_the_atlas() {
         let bindings = bindings::resolve_bindings(
             &mut builder,
             program.program.group,
+            program.released_overrides,
             program.reflection.as_ref().unwrap(),
             &[None; MAX_COLOR_BUFFERS as usize],
             0,
@@ -552,6 +563,88 @@ fn raw_tex_keeps_gtexture_and_unbound_samplers_on_the_atlas() {
             [[0, 255, 0, 255], [255, 255, 0, 255]]
         );
     }
+}
+
+#[test]
+fn flips_release_cached_unit_zero_overrides_but_keep_exact_raw_bindings() {
+    let Some(gpu) = gpu() else { return };
+    let properties = "texture.composite.colortex0 = sample.png\n\
+        texture.composite.tex = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n";
+    let (directory, _) = png_pack(properties);
+    let shaders = directory.path().join("shaders");
+    std::fs::write(shaders.join("lut.dat"), [0, 255, 0, 255, 255, 255, 0, 255]).unwrap();
+    for name in ["composite", "composite1"] {
+        std::fs::write(
+            shaders.join(format!("{name}.vsh")),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        std::fs::write(
+            shaders.join(format!("{name}.fsh")),
+            "#version 120\nuniform sampler2D albedo; uniform sampler2D tex;\n\
+             void main() { gl_FragData[0] = texture2D(albedo, vec2(0.5)) + texture2D(tex, vec2(0.5)); }",
+        )
+        .unwrap();
+    }
+    let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default();
+    let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let mut formats = [None; MAX_COLOR_BUFFERS as usize];
+    formats[0] = Some(TextureFormat::Rgba8Unorm);
+    let mut raw_index = None;
+    for (name, released) in [("composite", 0), ("composite1", 1)] {
+        let program = translation
+            .programs
+            .iter()
+            .find(|p| p.program.name == name)
+            .unwrap();
+        assert!(program.is_ok(), "{name}");
+        assert_eq!(program.released_overrides, released);
+        let reflection = program.reflection.as_ref().unwrap();
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            released,
+            reflection,
+            &formats,
+            0,
+            TextureFormat::R32Float,
+            &[],
+            &[],
+        )
+        .unwrap();
+        for (texture, source) in reflection.textures.iter().zip(&bindings.textures) {
+            match texture.name.as_str() {
+                "colortex0" if released != 0 => assert_eq!(
+                    *source,
+                    TextureSource::Buffer {
+                        index: 0,
+                        format: TextureFormat::Rgba8Unorm
+                    }
+                ),
+                binding => {
+                    let TextureSource::Constant { index, .. } = *source else {
+                        panic!("{name}: {binding} must bind a custom texture: {source:?}");
+                    };
+                    let raw = binding == "texture.composite.tex";
+                    assert_eq!(
+                        read_rows(&gpu, &builder.constant(index).view),
+                        if raw {
+                            [[0, 255, 0, 255], [255, 255, 0, 255]]
+                        } else {
+                            [[255, 0, 0, 255], [0, 0, 255, 255]]
+                        }
+                    );
+                    if raw {
+                        assert_eq!(*raw_index.get_or_insert(index), index);
+                    }
+                }
+            }
+        }
+    }
+    assert!(raw_index.is_some());
+    assert_eq!(builder.out.textures.len(), 2);
 }
 
 #[test]

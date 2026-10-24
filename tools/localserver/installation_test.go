@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashimthearab/rust-mcbe/tools/localserver/experience"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/experience"
 )
 
 // TestInstalledDefinitionsSurviveRestart checks that updates retain every previously registered block.
