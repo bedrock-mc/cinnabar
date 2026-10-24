@@ -8,7 +8,7 @@ use super::items::{
     parse_decl, sampler_info, split_items, strip_layout_keys,
 };
 use super::{ProgramInterface, ResourceNames, TransformError, UboMember};
-use crate::buffers::canonical_sampler_name;
+use crate::buffers::{canonical_sampler_name, unit_zero_texture};
 use crate::programs::StageKind;
 use crate::reflection::{
     FIRST_OTHER_ATTRIBUTE_LOCATION, IMAGE_GROUP, STORAGE_BUFFER_GROUP, SamplerClass, StoredNumbers,
@@ -544,15 +544,26 @@ fn uniforms(
         if is_opaque(&d.ty) {
             if let Some((tex_ty, shadow)) = sampler_info(&d.ty) {
                 let b = iface.texture_binding(name);
-                c.resource_names.push((TEXTURE_GROUP, b, name.clone()));
                 let classes = names.sampler_classes;
-                let key = canonical_sampler_name(name);
-                let shaped = (key.clone(), Some(texture_dimension(tex_ty)));
-                let class = classes
-                    .get(&shaped)
-                    .or_else(|| classes.get(&(key, None)))
-                    .copied()
-                    .unwrap_or_else(|| SamplerClass::for_name(name));
+                let dimension = texture_dimension(tex_ty);
+                let custom = |name: &str| {
+                    let key = canonical_sampler_name(name);
+                    classes
+                        .get(&(key.clone(), Some(dimension)))
+                        .or_else(|| classes.get(&(key, None)))
+                        .copied()
+                };
+                // The texture the binding reads, as Iris names it. Unit 0's 2D target holds
+                // a float colour texture, so only plain `sampler2D`s reach it.
+                let bound = match custom(name) {
+                    None if d.ty == "sampler2D" && d.ty_arr.is_empty() && arr.is_empty() => {
+                        unit_zero_texture(&canonical_sampler_name(name), names.geometry)
+                            .map_or_else(|| name.clone(), str::to_owned)
+                    }
+                    _ => name.clone(),
+                };
+                let class = custom(&bound).unwrap_or_else(|| SamplerClass::for_name(&bound));
+                c.resource_names.push((TEXTURE_GROUP, b, bound));
                 c.samplers
                     .insert(name.clone(), (d.ty.clone(), shadow, class));
                 c.resources.extend(
@@ -841,6 +852,7 @@ mod tests {
         ResourceNames {
             image_formats,
             sampler_classes: &NO_CLASSES,
+            geometry: false,
         }
     }
 

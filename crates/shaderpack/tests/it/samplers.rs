@@ -126,12 +126,72 @@ fn each_texture_reads_through_the_class_iris_gives_it() {
     read("gaux1", SamplerClass::ClampLinear);
     read("depthtex0", SamplerClass::ClampNearest);
     read("noisetex", SamplerClass::RepeatLinear);
-    read("unknownTex", SamplerClass::RepeatLinear);
+    // Iris leaves unrecognised samplers on texture unit 0, `colortex0` in full-screen passes.
+    read("unknownTex", SamplerClass::ClampLinear);
     // PNG without .mcmeta: nearest, repeat. With blur and no clamp: linear, repeat.
     read("dust", SamplerClass::RepeatNearest);
     read("grain", SamplerClass::RepeatLinear);
     // Raw textures default to blur and clamp.
     read("lut", SamplerClass::ClampLinear);
+}
+
+#[test]
+fn unbound_samplers_read_the_texture_on_unit_zero() {
+    let names = |t: &shaderpack::PackTranslation, program_name: &str| {
+        let mut names: Vec<String> = reflection(program(t, program_name))
+            .textures
+            .iter()
+            .map(|texture| texture.name.clone())
+            .collect();
+        names.sort();
+        names
+    };
+    // Full-screen passes: `tex`, `gtexture` and other unknown names read colortex0, while
+    // names Iris binds and custom textures keep their own texture.
+    let fragment = "#version 120\n\
+        uniform sampler2D tex;\n\
+        uniform sampler2D gtexture;\n\
+        uniform sampler2D scene;\n\
+        uniform sampler2D colortex2;\n\
+        uniform sampler2D noisetex;\n\
+        uniform sampler2D lut;\n\
+        varying vec2 uv;\n\
+        void main() {\n\
+            gl_FragData[0] = texture2D(tex, uv) + texture2D(gtexture, uv) + texture2D(scene, uv)\n\
+                + texture2D(colortex2, uv) + texture2D(noisetex, uv) + texture2D(lut, uv);\n\
+        }\n";
+    // Geometry: unit 0 holds the block atlas instead.
+    let geometry = "#version 120\n\
+        uniform sampler2D tex;\n\
+        uniform sampler2D albedo;\n\
+        varying vec2 uv;\n\
+        void main() { gl_FragData[0] = texture2D(tex, uv) + texture2D(albedo, uv); }\n";
+    let p = pack(
+        fragment,
+        "texture.composite.lut = tex/lut.png\n",
+        &[
+            ("gbuffers_basic.vsh", VERTEX),
+            ("gbuffers_basic.fsh", geometry),
+        ],
+    );
+    let t = p.translate(&TranslateConfig::default());
+    assert_eq!(
+        names(&t, "composite"),
+        [
+            "colortex0",
+            "colortex0",
+            "colortex0",
+            "colortex2",
+            "lut",
+            "noisetex"
+        ]
+    );
+    let glsl = fragment_glsl(program(&t, "composite"));
+    assert!(
+        glsl.contains("sampler2D(tex, iris_samplerClampLinear)"),
+        "{glsl}"
+    );
+    assert_eq!(names(&t, "gbuffers_basic"), ["gtexture", "tex"]);
 }
 
 #[test]

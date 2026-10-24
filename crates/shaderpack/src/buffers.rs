@@ -59,6 +59,42 @@ pub fn canonical_sampler_name(name: &str) -> String {
     }
 }
 
+/// The texture a sampler uniform reads when Iris does not bind its name. Iris assigns texture
+/// units only to the names it recognises; every other sampler keeps OpenGL's default unit 0,
+/// which holds the block atlas (`gtexture`) in geometry programs and `colortex0` in full-screen
+/// and compute programs. `None` when Iris binds `name` (canonical, see
+/// [`canonical_sampler_name`]) itself.
+pub(crate) fn unit_zero_texture(name: &str, geometry: bool) -> Option<&'static str> {
+    let bound_everywhere = BufferId::parse(name).is_some()
+        || matches!(
+            name,
+            "depthtex0"
+                | "depthtex1"
+                | "depthtex2"
+                | "gdepthtex"
+                | "shadowtex0"
+                | "shadowtex1"
+                | "shadow"
+                | "watershadow"
+                | "shadowtex0HW"
+                | "shadowtex1HW"
+                | "shadowtex0DH"
+                | "shadowtex1DH"
+                | "noisetex"
+                | "dhDepthTex"
+                | "dhDepthTex0"
+                | "dhDepthTex1"
+        );
+    let bound_in_geometry = matches!(
+        name,
+        "gtexture" | "tex" | "normals" | "specular" | "lightmap"
+    );
+    if bound_everywhere || geometry && bound_in_geometry {
+        return None;
+    }
+    Some(if geometry { "gtexture" } else { "colortex0" })
+}
+
 macro_rules! buffer_formats {
     ($($variant:ident => $name:literal),* $(,)?) => {
         /// A colour buffer internal format, named as in OptiFine/Iris directives.
