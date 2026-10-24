@@ -10,10 +10,10 @@ import (
 	"testing/synctest"
 	"time"
 
+	cinnabarext "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/session"
 	"github.com/google/uuid"
-	cinnabarext "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
