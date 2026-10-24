@@ -19,6 +19,7 @@ mod attachable;
 pub(crate) mod collect;
 mod geometry;
 mod geometry_layers;
+mod offered_use;
 mod seats;
 pub use geometry_layers::select_entity_geometry;
 mod item;
@@ -35,12 +36,12 @@ mod native_held_items;
 mod pack;
 mod painting;
 mod policy_sources;
-mod sample_harnesses;
+mod sample_omissions;
 mod sanitize;
 mod vanilla_refs;
 mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
-pub use sample_harnesses::missing_harness_bindings;
+pub use sample_omissions::missing_harness_bindings;
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub(crate) use pack::compile_entity_pack_unless;
@@ -190,13 +191,14 @@ fn compile_with_behavior(
         &["json", "png", "tga"],
         &mut selected,
     )?;
-    for identifier in assets::entity::GLINT_TEXTURE_IDENTIFIERS {
+    for identifier in assets::entity::shared_equipment_textures() {
         for extension in ["png", "tga"] {
             let path = format!("{identifier}.{extension}");
             collect_optional_file(root, &path, &mut selected)?;
         }
     }
     collect_optional_file(root, "textures/item_texture.json", &mut selected)?;
+    collect::collect_atlas_block_rasters(root, &mut selected)?;
     collect_optional_file(root, "manifest.json", &mut selected)?;
     if let Some(behavior) = behavior {
         let mut definitions = Vec::new();
@@ -281,7 +283,7 @@ fn compile_with_behavior(
         &mut geometries,
         None,
     )?;
-    total_source_bytes += sample_harnesses::complete_bindings(
+    total_source_bytes += sample_omissions::complete_bindings(
         root,
         &mut sources,
         &mut source_payloads,
@@ -343,6 +345,10 @@ fn compile_with_behavior(
             use_hash,
         ),
         raw(legacy_icons::SOURCE_PATH, legacy_icons::SOURCE_BYTES),
+        raw(
+            assets::item::names::SOURCE_PATH,
+            assets::item::names::SOURCE_BYTES,
+        ),
     ] {
         total_source_bytes = total_source_bytes
             .checked_add(source_bytes)
@@ -496,7 +502,7 @@ fn assemble(
         &mut molang_compiler,
         !include_items,
     )?;
-    validate_reference_coverage(&symbols, &animation)?;
+    animation.validate_reference_coverage(&symbols)?;
     let seat_layouts = seats::compile(&symbols, &sources, source_payloads, &mut molang_compiler)?;
     let mut molang = molang_compiler.finish()?;
     let controller_resources =
@@ -519,7 +525,11 @@ fn assemble(
         }
     };
     let reference_outcomes = animation.outcomes;
-    let interaction_traits = assets::interactions::compile(&symbols);
+    let mut interaction_traits = assets::interactions::compile(&symbols);
+    let mut offered_uses = offered_use::compile(&symbols, &sources, source_payloads)?;
+    for entry in &mut interaction_traits {
+        entry.offered_use = offered_uses.remove(&entry.identifier).unwrap_or_default();
+    }
     let assets = CompiledEntityAssets {
         seat_layouts,
         interaction_traits,
@@ -563,58 +573,6 @@ fn assemble(
     })
 }
 
-fn validate_reference_coverage(
-    symbols: &[EntityAssetSymbol],
-    animation: &animation::AnimationPayload,
-) -> Result<(), AssetError> {
-    let attributed = animation
-        .outcomes
-        .iter()
-        .filter_map(|outcome| match outcome {
-            CompileReferenceOutcome::Resolved(_) => None,
-            CompileReferenceOutcome::OptionalStaticFallback { symbol, .. }
-            | CompileReferenceOutcome::RequiredRigRejected { symbol, .. } => Some(*symbol),
-        })
-        .collect::<BTreeSet<_>>();
-    let compiled_clips = animation
-        .clips
-        .iter()
-        .map(|clip| clip.symbol)
-        .collect::<BTreeSet<_>>();
-    let compiled_controllers = animation
-        .controllers
-        .iter()
-        .map(|controller| controller.symbol)
-        .collect::<BTreeSet<_>>();
-    let compiled_entities = animation
-        .rig_bindings
-        .iter()
-        .map(|rig| rig.entity_symbol)
-        .collect::<BTreeSet<_>>();
-    for (index, symbol) in symbols.iter().enumerate() {
-        let index = index as u32;
-        let covered = match symbol.kind {
-            EntityAssetKind::Animation => {
-                compiled_clips.contains(&index) || attributed.contains(&index)
-            }
-            EntityAssetKind::AnimationController => {
-                compiled_controllers.contains(&index) || attributed.contains(&index)
-            }
-            EntityAssetKind::Entity | EntityAssetKind::Attachable => {
-                compiled_entities.contains(&index) || attributed.contains(&index)
-            }
-            _ => true,
-        };
-        if !covered {
-            return Err(invalid(format!(
-                "unexplained entity asset loss for {:?} `{}`",
-                symbol.kind, symbol.identifier
-            )));
-        }
-    }
-    Ok(())
-}
-
 fn parse_source(
     relative_path: &str,
     absolute_path: &Path,
@@ -629,7 +587,9 @@ fn parse_source(
         parse_unique_json(absolute_path, bytes)?;
         return Ok(());
     }
-    if relative_path.starts_with("textures/items/") {
+    // Item sprites, including block art the item atlas names, are rasters, not entity textures.
+    if relative_path.starts_with("textures/items/") || relative_path.starts_with("textures/blocks/")
+    {
         if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
             return Ok(());
         }

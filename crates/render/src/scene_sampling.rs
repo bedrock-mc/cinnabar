@@ -40,23 +40,29 @@ pub(crate) struct ResolvedDepth {
 
 impl ResolvedDepth {
     /// Samples depth instead of copying it and attributes the pass to its consumer.
+    /// `None` when the device is out of memory.
     pub(crate) fn new(
         device: &RenderDevice,
         depth: &ViewDepthStencilTexture,
         stage: RuntimeStage,
-    ) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("resolved scene depth"),
-            size: depth.texture().size(),
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                | wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
+    ) -> Option<Self> {
+        let size = depth.texture().size();
+        let bytes = u64::from(size.width) * u64::from(size.height) * 4;
+        let texture =
+            crate::gpu_allocation::checked(device, "resolved scene depth", bytes, || {
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("resolved scene depth"),
+                    size: depth.texture().size(),
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Depth32Float,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                })
+            })?;
         let view = texture.create_view(&Default::default());
         let gpu = device.wgpu_device();
         let shader = gpu.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -101,14 +107,14 @@ impl ResolvedDepth {
                 )),
             }],
         });
-        Self {
+        Some(Self {
             _texture: texture,
             view,
             source: crate::scene_sampling::view_depth(depth).id(),
             stage,
             pipeline,
             binding,
-        }
+        })
     }
 
     /// The source view identity includes both the attachment size and its sample count.

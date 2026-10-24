@@ -38,16 +38,18 @@ mod dragon_egg;
 mod end_rod;
 #[path = "tests/entity_particles.rs"]
 mod entity_particles;
+#[path = "tests/facing.rs"]
+mod facing;
 #[path = "tests/facing_cube.rs"]
 mod facing_cube;
 #[path = "tests/flowerbed.rs"]
 mod flowerbed;
-#[path = "tests/furnace.rs"]
-mod furnace;
 #[path = "tests/grass_side_mips.rs"]
 mod grass_side_mips;
 #[path = "tests/grindstone.rs"]
 mod grindstone;
+#[path = "tests/heavy_core.rs"]
+mod heavy_core;
 #[path = "tests/hollow_containers.rs"]
 mod hollow_containers;
 #[path = "tests/isotropic.rs"]
@@ -64,6 +66,8 @@ mod potted_plants;
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/stonecutter.rs"]
+mod stonecutter;
 #[path = "tests/straw_beds.rs"]
 mod straw_beds;
 #[path = "tests/torch.rs"]

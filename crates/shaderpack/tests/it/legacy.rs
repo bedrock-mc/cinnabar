@@ -356,7 +356,7 @@ fn a_texture_sampler_is_gtexture_in_every_version_and_const_in_parameters_compil
 }
 
 #[test]
-fn live_fragment_inputs_require_vertex_outputs() {
+fn live_fragment_inputs_receive_missing_vertex_outputs() {
     let vertex = "#version 120\n\
         varying vec4 color;\n\
         varying vec2 waves;\n\
@@ -383,12 +383,25 @@ fn live_fragment_inputs_require_vertex_outputs() {
     ]);
     let t = pack.translate(&TranslateConfig::default());
     let entities = program(&t, "gbuffers_entities");
-    assert!(!entities.is_ok());
+    reflection(entities);
+    let module = &entities.stages[0].result.as_ref().unwrap().module;
+    let function = &module.entry_points[0].function;
+    let result = function.result.as_ref().unwrap();
+    let naga::TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
+        panic!("vertex outputs form an interface structure");
+    };
     assert!(
-        entities
-            .diagnostics
+        members
             .iter()
-            .any(|d| d.phase == shaderpack::Phase::Link)
+            .any(|member| member.name.as_deref() == Some("worldNormal"))
+    );
+    assert_eq!(
+        function
+            .expressions
+            .iter()
+            .filter(|(_, expression)| matches!(expression, naga::Expression::ZeroValue(_)))
+            .count(),
+        4
     );
 }
 

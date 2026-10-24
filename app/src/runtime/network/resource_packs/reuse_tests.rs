@@ -569,36 +569,28 @@ fn kept_stacks_compare_archives_without_holding_their_lock() {
     assert_eq!(kept.len(), 1, "the same contents replace their entry");
 }
 
-// Rejoining the same server from the menu reuses the last compile; releasing it on leave
-// compiled every stack output again.
+// Rejoining reuses the archives but rebuilds session outputs after leaving for the menu.
 #[test]
-fn a_rejoin_from_the_menu_reuses_the_last_compile() {
+fn a_rejoin_from_the_menu_rebuilds_outputs_over_the_same_archives() {
     let _cache = overlay_cache();
     let archive = every_subscriber_archive(47, b"a=b");
     let kept = CompiledStacks::new();
     let first = join(&kept, &archive);
-    kept.release();
-    let released = recompiled(&first, &join(&kept, &archive));
-    let kept = CompiledStacks::new();
-    let first = join(&kept, &archive);
     kept.keep_for_rejoin();
     let rejoined = join(&kept, &archive);
-    println!(
-        "rejoin recompiled {} outputs after a release ({released:?}), {} when kept",
-        released.len(),
-        recompiled(&first, &rejoined).len()
-    );
-    assert_eq!(released, ["language", "glyphs", "ui", "sounds"]);
-    assert_shares_stack_outputs(&first, &rejoined);
-    assert!(same_or_absent(&first.item_icons, &rejoined.item_icons));
+    for output in ["language", "glyphs", "ui", "sounds"] {
+        assert!(
+            recompiled(&first, &rejoined).contains(&output),
+            "{output} survived leaving"
+        );
+    }
     assert!(Arc::ptr_eq(stack(&first), stack(&rejoined)));
     assert_eq!(summary(&first), summary(&rejoined));
 }
 
-// The kept join holds its prepared UI catalog, so a rejoin binds it instead of resolving the
-// server UI against the carrier again.
+// Prepared UI belongs to the session; keeping its small archives must not keep the catalog.
 #[test]
-fn a_rejoin_from_the_menu_reuses_the_prepared_ui_catalog() {
+fn leaving_releases_the_prepared_ui_catalog() {
     let _cache = overlay_cache();
     let base = Arc::new(
         json_ui::Catalog::from_files([
@@ -626,15 +618,14 @@ fn a_rejoin_from_the_menu_reuses_the_prepared_ui_catalog() {
     let kept = CompiledStacks::new();
     let prepared = Arc::downgrade(join(&kept).server_ui.as_ref().unwrap());
     kept.keep_for_rejoin();
-    assert!(prepared.upgrade().is_some(), "kept with the join");
+    test_time::eventually("the ended session's prepared UI is released", || {
+        prepared.upgrade().is_none()
+    });
     let rejoined = join(&kept);
-    assert!(Arc::ptr_eq(
-        rejoined.server_ui.as_ref().unwrap(),
-        &prepared.upgrade().unwrap()
-    ));
+    assert!(rejoined.server_ui.is_some());
 }
 
-// Leaving keeps only the newest stack, and only while its archives fit the rejoin budget.
+// Leaving keeps only the newest stack, and only while what it retains fits the rejoin budget.
 #[test]
 fn leaving_keeps_only_the_newest_stack_within_the_rejoin_budget() {
     let _cache = overlay_cache();
@@ -646,14 +637,14 @@ fn leaving_keeps_only_the_newest_stack_within_the_rejoin_budget() {
     assert_eq!(kept.len(), 1);
     let environment = CompileEnvironment::current();
     assert!(kept.matching(stack(&game), &environment).is_some());
-    let archive_bytes = stack(&game)
-        .packs()
-        .iter()
-        .map(|pack| pack.archive_bytes().len())
-        .sum::<usize>();
-    kept.keep_newest_within(archive_bytes);
+    let retained = kept
+        .lock()
+        .front()
+        .expect("the game stack is kept")
+        .archive_bytes;
+    kept.keep_newest_within(retained);
     assert_eq!(kept.len(), 1, "a stack exactly at the budget stays");
-    kept.keep_newest_within(archive_bytes - 1);
+    kept.keep_newest_within(retained - 1);
     assert_eq!(kept.len(), 0);
 }
 
@@ -669,4 +660,121 @@ fn taking_the_kept_stacks_releases_them() {
     drop(kept.take());
     assert!(archives.upgrade().is_none());
     assert_eq!(kept.len(), 0);
+}
+
+/// Observes a compiled allocation without retaining it through the leave boundary.
+fn released<T: ?Sized + 'static>(value: &Option<Arc<T>>) -> Box<dyn Fn() -> bool> {
+    let weak = Arc::downgrade(value.as_ref().expect("the fixture supplies this output"));
+    Box::new(move || weak.strong_count() == 0)
+}
+
+// Even a tiny archive can produce large rasters. Leaving drops the whole compiled application,
+// including newly added fields, rather than trying to enumerate and budget its allocations.
+#[test]
+fn leaving_releases_all_decoded_outputs_but_keeps_the_archives() {
+    let _cache = overlay_cache();
+    let kept = CompiledStacks::new();
+    let mut application = super::super::prepare_validated_application(
+        admitted(&every_subscriber_archive(52, b"a=b")),
+        every_input(),
+    );
+    let (_, artwork, entities) = crate::tests::actor_rest_presentation::compiled_fixture(
+        "1.0",
+        1,
+        assets::ActorPoseMode::CompiledLiteral,
+    );
+    application.entities = Some(Arc::new(assets::SessionEntityPack {
+        assets: entities,
+        textures: vec![assets::ActorTexture {
+            source: 0,
+            width: 2,
+            height: 2,
+            pixel_sha256: [0; 32],
+            rgba8: vec![7; 16].into(),
+        }]
+        .into(),
+        bindings: Arc::from([]),
+        equipment: None,
+    }));
+    application.entity_artwork = Some(Arc::new(artwork.clone()));
+    application.block_overlay = Some(Arc::new(super::super::CompiledBlockOverlay {
+        overlay: Default::default(),
+        gaps: Default::default(),
+        vanilla_carried: Vec::new(),
+    }));
+    let width = render_model::block_entity::MIN_DYNAMIC_ATLAS_WIDTH;
+    let carrier =
+        assets::encode_block_entity_catalog(b"{}", width, 1, &vec![7; width as usize * 4], &[])
+            .unwrap();
+    application.block_entity_art = Some(Arc::new(
+        render_model::BlockEntityArtworkPreparer::default()
+            .prepare(&assets::RuntimeBlockEntityAssets::decode(&carrier).unwrap())
+            .unwrap(),
+    ));
+    application.prepare_actor_artwork(Some(&artwork), None);
+    application.item_components = Some(Arc::default());
+    application.extension_marker = Some(Arc::from([7u8]));
+    application.aim_assist_textures = std::array::from_fn(|_| {
+        Some(Arc::new(
+            render_scene::AimAssistTexture::new([1, 1], Arc::from([7u8; 4])).unwrap(),
+        ))
+    });
+    // Exhaustive destructuring makes a new application field require an explicit test decision.
+    let PackApplication {
+        registries: _,
+        dependencies: _,
+        terrain_identity: _,
+        admission: _,
+        inputs: _,
+        property_defaults: _,
+        extension_marker,
+        server_lang,
+        block_overlay,
+        item_icons,
+        item_components,
+        glyph_sheets,
+        block_entity_art,
+        entities,
+        entity_artwork,
+        prepared_actor_artwork,
+        server_ui,
+        server_sounds,
+        aim_assist_textures,
+    } = &application;
+    let outputs = [
+        released(extension_marker),
+        released(server_lang),
+        released(block_overlay),
+        released(item_icons),
+        released(item_components),
+        released(glyph_sheets),
+        released(block_entity_art),
+        released(entities),
+        released(entity_artwork),
+        released(prepared_actor_artwork),
+        released(server_ui),
+        released(server_sounds),
+        released(&aim_assist_textures[0]),
+        released(&aim_assist_textures[1]),
+    ];
+    let archives = Arc::downgrade(stack(&application));
+    kept.remember(
+        CompileEnvironment::current(),
+        &application,
+        application.server_ui.clone(),
+        &|| false,
+    );
+    drop(application);
+    assert!(outputs.iter().all(|released| !released()));
+    kept.keep_for_rejoin();
+    assert_eq!(kept.len(), 1);
+    assert!(kept.lock().front().unwrap().compiled.is_none());
+    test_time::eventually(
+        "all of the ended session's decoded outputs are released",
+        || outputs.iter().all(|released| released()),
+    );
+    assert!(
+        archives.upgrade().is_some(),
+        "compressed archives remain available"
+    );
 }

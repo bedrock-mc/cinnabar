@@ -28,7 +28,7 @@ pub use stream::{
 pub use stream::{FarSummaryFixture, PublicationFixtureIdentity, PublicationFixtureSnapshot};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use stream::on_idle_world_cores;
+pub use stream::{logical_cores, on_idle_world_cores};
 
 pub use stream::ResourceMeshSnapshot;
 

@@ -36,6 +36,16 @@ pub struct RosterRow {
     pub skin: Option<render_api::StandardSkin>,
 }
 
+/// Inputs that invalidate the roster's prepared geometry and bindings.
+#[derive(Clone, Copy, PartialEq)]
+struct Geometry {
+    root: [f64; 2],
+    px: f32,
+    language: [usize; 3],
+    badge: bool,
+    top_inset: f32,
+}
+
 /// The roster screen over its own bundled catalog, rebound only when the rows change.
 pub struct PlayerList {
     catalog: Arc<Catalog>,
@@ -44,7 +54,7 @@ pub struct PlayerList {
     total: usize,
     data: Arc<DataSource>,
     dimensions: [usize; 2],
-    geometry: Option<([f64; 2], f32, [usize; 3], bool)>,
+    geometry: Option<Geometry>,
     context: Context,
     portraits: BTreeMap<String, render_model::UiTexturePage>,
     heads: Vec<String>,
@@ -237,16 +247,19 @@ impl Default for PlayerList {
 }
 
 impl PlayerList {
-    /// Paints the roster `players` over the frame, badging each row that carries one.
+    /// Paints the roster inside a clear vertical region in logical pixels.
     pub fn paint(
         &mut self,
         engine: &FormEngine,
         players: &[RosterRow],
         frame: &mut PaintFrame<'_>,
+        available_y: std::ops::Range<f32>,
     ) -> Result<(), PaintError> {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
-        let max_rows = ((f64::from(frame.content[1] / px) - 40.0) / ROW_HEIGHT)
+        let top_inset = available_y.start.clamp(0., frame.content[1]);
+        let bottom = available_y.end.clamp(top_inset, frame.content[1]);
+        let max_rows = ((f64::from((bottom - top_inset) / px) - 40.0) / ROW_HEIGHT)
             .floor()
             .clamp(1.0, MAX_ROWS as f64) as usize;
         let [columns, rows] = self.refresh(players, max_rows);
@@ -256,7 +269,13 @@ impl PlayerList {
             .set_client_rasters(PORTRAIT_RASTER_NAMESPACE, &self.portraits);
         engine.draw(ScreenArt::default(), frame, |env, root| {
             let badge = self.rows.iter().any(|row| row.badged);
-            let geometry = (root, px, language, badge);
+            let geometry = Geometry {
+                root,
+                px,
+                language,
+                badge,
+                top_inset,
+            };
             if self.geometry != Some(geometry) {
                 let widest = self
                     .rows
@@ -272,6 +291,7 @@ impl PlayerList {
                     .max(env.text.extent(&title)[0] + 4.0)
                     .min(root[0]);
                 self.context = Context::default()
+                    .with_var("top_inset", serde_json::json!(top_inset / px))
                     .with_var("row_height", serde_json::json!(ROW_HEIGHT))
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
                     .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))

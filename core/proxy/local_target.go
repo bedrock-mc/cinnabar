@@ -63,7 +63,8 @@ func withLocalTarget(local LocalTargetFunc, online func(context.Context) (*resol
 				CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 			}}.New()
 			return &resolvedUpstreamTarget{
-				address: "http://" + target.Address,
+				address:         "http://" + target.Address,
+				keylessFallback: true,
 				network: localNetherNetNetwork{NetherNet: minecraft.NetherNet{
 					Signaling: localSignaling{client},
 					Dialer:    nethernet.Dialer{API: localNetherNetAPI()},
@@ -142,8 +143,8 @@ func (n localNetherNetNetwork) PingContext(ctx context.Context, address string) 
 	return n.status.PingContext(ctx, address)
 }
 
-// DialContext is the signed-out dial. BDS refuses HTTP offers without an identity even with
-// online-mode off, but admits a self-signed one; signed-in dials present the account's instead.
+// DialContext is the signed-out dial. BDS requires a self-signed identity even with
+// online mode off; authenticated dials present the account's identity instead.
 func (n localNetherNetNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
 	identity, err := selfSignedIdentity(time.Now())
 	if err != nil {

@@ -10,6 +10,8 @@ const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.jso
 /// Byte offset of the alpha of [`pack`]'s probe texel, which its plane samples.
 const PROBE_ALPHA: usize = (7 * 16) * 4 + 3;
 
+#[path = "actor/branch_route.rs"]
+mod branch_route;
 #[path = "actor/charged_overlay.rs"]
 mod charged_overlay;
 #[path = "actor/color_mask.rs"]
@@ -28,6 +30,8 @@ mod light_multiplier;
 mod material_states;
 #[path = "actor/multitexture.rs"]
 mod multitexture;
+#[path = "actor/omitted_controller.rs"]
+mod omitted_controller;
 #[path = "actor/server_pack_budgets.rs"]
 mod server_pack_budgets;
 #[path = "actor/sulfur_cube.rs"]
@@ -174,19 +178,32 @@ fn ordinary_cube_mirror_and_default_bone_flags_remain_admissible() {
     );
 }
 
-#[test]
-fn fractional_alpha_actor_pixels_are_counted_not_quantized() {
-    let reason = "missing_or_ambiguous_texture";
-    let pack = pack(128, "entity_alphatest", false);
+/// Compiles [`pack`] and returns its binding count and the carrier's probe-texel alpha.
+fn probe_alpha(alpha: u8, material: &str) -> (usize, u8) {
+    let pack = pack(alpha, material, false);
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
-    assert_eq!(compiled.report.bindings, 0);
-    assert!(
-        compiled
-            .report
-            .fallbacks
-            .iter()
-            .any(|entry| entry.reason.as_ref() == reason)
-    );
+    let entities =
+        encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
+    let catalog = RuntimeActorCatalog::decode(
+        &compiled.bytes,
+        &assets::RuntimeEntityAssets::decode(&entities).unwrap(),
+    )
+    .unwrap();
+    (
+        compiled.report.bindings,
+        catalog.textures()[0].rgba8[PROBE_ALPHA],
+    )
+}
+
+#[test]
+fn alpha_tested_material_keeps_fractional_alpha_for_its_shader_test() {
+    assert_eq!(probe_alpha(128, "entity_alphatest"), (1, 128));
+}
+
+#[test]
+fn unverified_vanilla_material_rounds_fractional_alpha_instead_of_dropping_the_actor() {
+    assert_eq!(probe_alpha(4, "spider"), (1, 0));
+    assert_eq!(probe_alpha(200, "spider"), (1, 255));
 }
 
 #[test]
@@ -212,7 +229,7 @@ fn actor_pixels_are_not_cropped_to_geometry_dimensions() {
 
 #[test]
 fn runtime_rejects_rehashed_untrusted_pixels_and_binding_substitutions() {
-    let pack = pack(0, "entity_alphatest", false);
+    let pack = pack(0, "spider", false);
     let compiled = compile_actor_assets(pack.path(), MANIFEST).unwrap();
     let entities =
         encode_entity_blob(&compile_entity_assets(pack.path(), MANIFEST).unwrap()).unwrap();
@@ -243,7 +260,7 @@ fn runtime_rejects_rehashed_untrusted_pixels_and_binding_substitutions() {
     bindings.pop();
     textures[0].source = u32::MAX;
     assert!(encode_actor_catalog(&entities, &textures, &bindings).is_err());
-    // Valid outer digest and pixel digest cannot authorize fractional alpha.
+    // Valid outer digest and pixel digest cannot authorize alpha its material rounds.
     let mut malicious = compiled.bytes;
     malicious[128 + 40 + 3] = 128;
     let pixel_end = 128 + 40 + 16 * 16 * 4;

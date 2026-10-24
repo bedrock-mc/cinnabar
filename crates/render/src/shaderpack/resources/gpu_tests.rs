@@ -301,6 +301,7 @@ fn custom_storage_images_reject_mismatched_dimensions() {
         let result = bindings::resolve_bindings(
             &mut constants,
             ProgramGroup::Composite,
+            0,
             reflection,
             &[None; MAX_COLOR_BUFFERS as usize],
             0,
@@ -406,18 +407,26 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
         let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D2)
+                .custom("composite", sampler, TextureDimension::D2, 0)
                 .is_some(),
             "{property} aliases {sampler}"
         );
+        // A flip releases images bound to colour buffers, never to shadow buffers.
+        assert_eq!(
+            builder
+                .custom("composite", sampler, TextureDimension::D2, u32::MAX)
+                .is_none(),
+            !sampler.starts_with("shadowcolor"),
+            "{property} released as {sampler}"
+        );
         assert!(
             builder
-                .custom("deferred", sampler, TextureDimension::D2)
+                .custom("deferred", sampler, TextureDimension::D2, 0)
                 .is_none()
         );
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D3)
+                .custom("composite", sampler, TextureDimension::D3, 0)
                 .is_none()
         );
     }

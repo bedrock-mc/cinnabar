@@ -79,9 +79,9 @@ fn accepting_a_sent_drop_rebuilds_the_next_unsent_drop() {
         protocol::item_extra_damage_value(&transaction.actions[0].from_item.user_data),
         Some(-1)
     );
-    assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(91));
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
     assert_eq!(transaction.actions[0].to_item.count, 2);
-    assert_eq!(transaction.actions[1].to_item.stack_network_id, Some(91));
+    assert_eq!(transaction.actions[1].to_item.stack_network_id, None);
     assert!(ledger.mark_transport_enqueued(0));
     ledger.apply(&response(
         second_legacy,
@@ -104,7 +104,7 @@ fn rejecting_two_drops_across_transport_backpressure_restores_every_item() {
     ledger.apply(&response(first_legacy, StackResponseStatus::Rejected, None));
     let transaction = queued_transaction(&ledger);
     assert_eq!(transaction.actions[0].from_item.count, 5);
-    assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(100));
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
     assert_eq!(transaction.actions[0].to_item.count, 4);
     assert!(ledger.mark_transport_enqueued(0));
     ledger.apply(&response(
@@ -185,7 +185,7 @@ fn a_screen_request_correction_rebuilds_a_drop_queued_on_its_source() {
     ));
     let transaction = queued_transaction(&ledger);
     assert_eq!(transaction.actions[0].from_item.count, 4);
-    assert_eq!(transaction.actions[0].from_item.stack_network_id, Some(91));
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
     assert_eq!(transaction.actions[0].to_item.count, 3);
     assert_eq!(ledger.displayed_stack(2).unwrap().count, 3);
 }
@@ -198,10 +198,7 @@ fn admitted_consumption_is_in_the_next_drops_source_and_rollback() {
     let legacy = drop_legacy_id(&ledger, request);
     let transaction = queued_transaction(&ledger);
     assert_eq!(transaction.actions[0].from_item.count, 2);
-    assert_eq!(
-        transaction.actions[0].from_item.stack_network_id,
-        Some(change.legacy_request_id)
-    );
+    assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
     assert_eq!(transaction.actions[0].to_item.count, 1);
     assert!(ledger.mark_transport_enqueued(0));
     ledger.apply(&response(legacy, StackResponseStatus::Rejected, None));

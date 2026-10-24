@@ -135,13 +135,17 @@ impl crate::pipeline_warmup::PrewarmPipelines for EntityShadowGpu {
 }
 
 /// Allocates storage only when the caster capacity grows.
-fn instance_buffer(device: &RenderDevice, capacity: u64) -> Buffer {
-    device.create_buffer(&BufferDescriptor {
+fn instance_descriptor(capacity: u64) -> BufferDescriptor<'static> {
+    BufferDescriptor {
         label: Some("entity shadow casters"),
         size: capacity * INSTANCE_BYTES,
         usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
         mapped_at_creation: false,
-    })
+    }
+}
+
+fn instance_buffer(device: &RenderDevice, capacity: u64) -> Buffer {
+    device.create_buffer(&instance_descriptor(capacity))
 }
 
 /// Multiplies each covered sample once, even when several shadow volumes overlap.
@@ -260,15 +264,23 @@ pub(crate) fn prepare_shadow_buffers(
     if gpu.uploaded_revision != Some(frame.revision) {
         let needed = frame.shadows.len() as u64;
         if needed > gpu.capacity {
-            gpu.capacity = needed.next_power_of_two();
-            gpu.instances = instance_buffer(&uploads.device, gpu.capacity);
+            let capacity = needed.next_power_of_two();
+            if let Some(instances) =
+                crate::gpu_allocation::buffer(&uploads.device, &instance_descriptor(capacity))
+            {
+                gpu.capacity = capacity;
+                gpu.instances = instances;
+            }
         }
-        if needed > 0 {
-            uploads.write(&gpu.instances, 0, bytemuck::cast_slice(&frame.shadows));
+        // Out of memory casts the shadows that fit and retries the rest next frame.
+        let fitted = needed.min(gpu.capacity);
+        if fitted > 0 {
+            let shadows = &frame.shadows[..fitted as usize];
+            uploads.write(&gpu.instances, 0, bytemuck::cast_slice(shadows));
             gpu.uploads += 1;
         }
-        gpu.count = needed as u32;
-        gpu.uploaded_revision = Some(frame.revision);
+        gpu.count = fitted as u32;
+        gpu.uploaded_revision = (fitted == needed).then_some(frame.revision);
     }
     let params = shadow_params(&atmosphere.map(|frame| *frame).unwrap_or_default());
     if gpu.params_value != Some(params) {

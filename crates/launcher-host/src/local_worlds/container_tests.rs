@@ -1,13 +1,14 @@
 use super::*;
+#[cfg(unix)]
+use crate::local_worlds::{
+    process::HostGrant,
+    provision::Platform,
+    test_support::{FAKE_DOCKER, installed_provisioner, write_script},
+};
 use crate::local_worlds::{
     process::Runner,
     provision::{Provisioner, RuntimeKind},
     test_support::{VERSION, scratch, spec},
-};
-#[cfg(unix)]
-use crate::local_worlds::{
-    provision::Platform,
-    test_support::{FAKE_DOCKER, installed_provisioner, write_script},
 };
 
 const IMAGE: &str = "itzg/minecraft-bedrock-server:2026.9.2@sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -116,15 +117,42 @@ fn the_container_runner_starts_stops_and_removes_its_container() {
     );
 }
 
-/// The image serves the mounted install's operator list, which names only the host.
+/// Docker's run status distinguishes a saved shutdown from a crash or its stop-timeout kill.
+#[cfg(unix)]
+#[test]
+fn only_a_successful_container_exit_is_clean() {
+    for status in [0, 3, 137] {
+        let dir = scratch();
+        let (mut runner, _) = container_runner(dir.path(), IMAGE, false);
+        runner
+            .env
+            .push(("FAKE_DOCKER_EXIT".into(), status.to_string().into()));
+        let instance = runner
+            .start(&spec(&dir.path().join("world")), &Cancel::never())
+            .expect("start");
+        assert!(!instance.exited_cleanly(), "still running");
+        instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
+        assert_eq!(instance.exited_cleanly(), status == 0, "exit {status}");
+    }
+}
+
+/// The image serves the mounted install's operator list, which names only the host. Its console
+/// is not attached, so the host is resolved before launch and cannot be granted later.
 #[cfg(unix)]
 #[test]
 fn the_container_runner_makes_only_the_host_an_operator() {
     let dir = scratch();
     let (runner, log) = container_runner(dir.path(), IMAGE, false);
+    assert_eq!(runner.host_grant(), HostGrant::AtLaunch);
     let mut spec = spec(&dir.path().join("world"));
     spec.host_xuid = Some("2535400000000001".to_owned());
     let instance = runner.start(&spec, &Cancel::never()).expect("start");
+    assert!(
+        instance
+            .grant_host(Some("2535400000000002"), &Cancel::never())
+            .is_err(),
+        "a container cannot reload its operators"
+    );
     instance.stop(test_time::DEFAULT_TIMEOUT).expect("stop");
     let install = runner.provisioner.root.join(VERSION);
     let file = fs::read(install.join(super::super::bds::PERMISSIONS_FILE)).expect("permissions");

@@ -53,6 +53,7 @@ pub fn run(
                 ..default()
             })
             .disable::<AntiAliasPlugin>()
+            .add_before::<PostProcessPlugin>(render::ClientPostProcessPlugin)
             .add_before::<PostProcessPlugin>(render::StockSystemsPlugin)
             .disable::<PostProcessPlugin>(),
     );

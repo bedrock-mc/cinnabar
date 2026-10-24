@@ -6,14 +6,14 @@ use std::{
     process::Command,
     sync::{Arc, Once},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bridge::contract::HOSTED_WORLD_MAX_PLAYERS;
 use crossbeam_channel::Receiver;
 use launcher::local_worlds::{
-    options::{Storage, WorldOption as O},
-    world::Generator,
+    options::{Control, Storage, WorldOption as O},
+    world::{Generator, World, WorldUpdate},
 };
 
 use super::{
@@ -21,19 +21,25 @@ use super::{
     docker::DOCKER,
     junction::create_world_link,
     ports::{LOCAL_SERVER_HOST, bds_udp_mapping, free_bds_port, lan_address, loopback},
-    process::{Instance, Launch, Process, Runner, StartSpec, launch},
+    process::{ExitHook, HostGrant, Instance, Launch, Process, Runner, StartSpec, launch},
     provision::{Provisioner, RuntimeKind, install_dir},
     store::LEVEL_DIR,
     world::{WorldError, failed, wire_name},
     write_private,
 };
 
-const BDS_START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+pub(crate) const BDS_START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 pub(crate) const BDS_READY_MARKER: &str = "Server started.";
+/// The server configuration each start writes into the install.
+pub(crate) const PROPERTIES_FILE: &str = "server.properties";
+/// The install folder holding the link to the open world.
+pub(crate) const WORLDS_DIR: &str = "worlds";
 /// BDS raises a smaller `view-distance` to this; it has no upper bound.
 const MIN_BDS_VIEW: u32 = 5;
 /// BDS's `transport` setting for its NetherNet HTTP listener.
 pub(crate) const BDS_TRANSPORT: &str = "nethernet";
+/// Players Sleeping Percentage above 100, where no number of sleepers skips the night.
+pub(crate) const SLEEP_DISABLED_PERCENTAGE: i32 = 101;
 /// Makes existing BDS worlds use the launcher's selected game mode at login.
 pub(crate) const FORCE_GAME_MODE: bool = true;
 
@@ -59,6 +65,8 @@ pub(crate) struct BdsRunner {
     pub docker: String,
     /// Must name a digest.
     pub image: String,
+    /// An APK-bundled translator; absent for native and container servers.
+    pub translation: Option<Arc<super::translated::Translation>>,
 }
 
 impl BdsRunner {
@@ -73,14 +81,19 @@ impl BdsRunner {
             lan_host_port: 0,
             docker: DOCKER.to_owned(),
             image,
+            translation: None,
         }
     }
 }
 
 impl Runner for BdsRunner {
     fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
-        if self.provisioner.runtime_info().kind == RuntimeKind::Container {
+        let runtime = self.provisioner.runtime_info().kind;
+        if runtime == RuntimeKind::Container {
             return self.start_container(spec, cancel);
+        }
+        if runtime == RuntimeKind::Translated && self.translation.is_none() {
+            return Err(WorldError::BackendUnavailable);
         }
         let binary = self.provisioner.ensure(cancel)?;
         let max_players = world_player_limit(spec, self.max_players);
@@ -89,18 +102,25 @@ impl Runner for BdsRunner {
         let world_dir = spec.dir.join(LEVEL_DIR);
         create_private_dir(&world_dir)
             .map_err(|error| failed(format!("create world folder: {error}")))?;
-        let link = install.join("worlds").join(&spec.world.id);
+        let link = install.join(WORLDS_DIR).join(&spec.world.id);
         link_world(&link, &world_dir)?;
         let properties = server_properties(spec, port, max_players, self.lan_visible);
-        if let Err(error) = write_private(&install.join("server.properties"), properties.as_bytes())
+        if let Err(error) = write_private(&install.join(PROPERTIES_FILE), properties.as_bytes())
             .map_err(|error| failed(format!("write server.properties: {error}")))
-            .and_then(|()| write_host_permissions(install, spec))
+            .and_then(|()| write_host_permissions(install, spec.host_xuid.as_deref()))
         {
             unlink_world(&link);
             return Err(error);
         }
         let run = |label: &str| {
-            let mut command = Command::new(binary.as_os_str());
+            let (mut command, code_cache) = match &self.translation {
+                Some(translation) => {
+                    let (command, used) =
+                        translation.command(&binary, &self.provisioner, cancel)?;
+                    (command, Some(used))
+                }
+                None => (Command::new(binary.as_os_str()), None),
+            };
             command
                 .current_dir(install)
                 .env("LD_LIBRARY_PATH", ".")
@@ -113,22 +133,31 @@ impl Runner for BdsRunner {
                     can_pause: false,
                     ready: |line| line.contains(BDS_READY_MARKER),
                     label: format!("{label} {}", spec.world.id),
+                    // Records the ending before the exit is reported, so a stopped create run's
+                    // generation is settled before the final run chooses its mode.
+                    on_exit: code_cache
+                        .map(|used| Box::new(move |ending| used.finish(ending)) as ExitHook),
                 },
                 cancel,
             )
         };
-        let created = create_world(&world_dir, || {
-            let process = run("bds create")?;
-            Ok(move || process.stop(super::process::SAVE_BUDGET))
+        let id = &spec.world.id;
+        let created = timed_create(id, || {
+            create_world(&world_dir, || {
+                let process = run("bds create")?;
+                Ok(move || process.stop(super::process::SAVE_BUDGET))
+            })
         });
         if let Err(error) = created.and_then(|created| {
             let fresh = created || spec.options_unapplied;
-            super::level_dat::configure(&spec.world, &world_dir, fresh)
+            timed("bds configure", id, || {
+                super::level_dat::configure(&spec.world, &world_dir, fresh)
+            })
         }) {
             unlink_world(&link);
             return Err(error);
         }
-        let launched = run("bds");
+        let launched = timed("bds final run", id, || run("bds"));
         let process = match launched {
             Ok(process) => process,
             Err(error) => {
@@ -138,6 +167,7 @@ impl Runner for BdsRunner {
         };
         let instance = Arc::new(BdsInstance {
             process,
+            install: install.to_path_buf(),
             link,
             unlinked: Once::new(),
             lan_address: self.lan_visible.then(|| lan_address(0)),
@@ -151,11 +181,53 @@ impl Runner for BdsRunner {
         let instance: Arc<dyn Instance> = instance;
         Ok(instance)
     }
+
+    /// A container's operator list is fixed when it launches; a native or translated server
+    /// reloads its list from the install while running.
+    fn host_grant(&self) -> HostGrant {
+        match self.provisioner.runtime_info().kind {
+            RuntimeKind::Container => HostGrant::AtLaunch,
+            RuntimeKind::Native | RuntimeKind::Translated | RuntimeKind::None => {
+                HostGrant::WhenReady
+            }
+        }
+    }
+}
+
+/// Logs how long startup phase `phase` of world `id` took and whether it succeeded.
+pub(crate) fn timed<T>(
+    phase: &str,
+    id: &str,
+    run: impl FnOnce() -> Result<T, WorldError>,
+) -> Result<T, WorldError> {
+    let started = Instant::now();
+    let result = run();
+    let outcome = if result.is_ok() { "done" } else { "failed" };
+    let elapsed = started.elapsed().as_millis();
+    tracing::info!("{phase} {id}: {outcome} in {elapsed} ms");
+    result
+}
+
+/// Runs `create`, a [`create_world`] call, and logs its span unless the world already existed.
+pub(crate) fn timed_create(
+    id: &str,
+    create: impl FnOnce() -> Result<bool, WorldError>,
+) -> Result<bool, WorldError> {
+    let started = Instant::now();
+    let result = create();
+    if !matches!(result, Ok(false)) {
+        let outcome = if result.is_ok() { "done" } else { "failed" };
+        let elapsed = started.elapsed().as_millis();
+        tracing::info!("bds create run {id}: {outcome} in {elapsed} ms");
+    }
+    result
 }
 
 /// A native server that drops its world link once it has exited.
 struct BdsInstance {
     process: Arc<Process>,
+    /// Holds the operator list the server reloads.
+    install: PathBuf,
     link: PathBuf,
     unlinked: Once,
     lan_address: Option<String>,
@@ -204,7 +276,31 @@ impl Instance for BdsInstance {
     fn lan_address(&self) -> Option<&str> {
         self.lan_address.as_deref()
     }
+
+    fn exited_cleanly(&self) -> bool {
+        self.process.exited_cleanly()
+    }
+
+    fn console(&self, command: &str) -> io::Result<()> {
+        self.process.send(command)
+    }
+
+    /// Rewrites the operator list and waits for BDS to confirm reloading it before the host joins.
+    fn grant_host(&self, xuid: Option<&str>, cancel: &Cancel) -> Result<(), WorldError> {
+        write_host_permissions(&self.install, xuid)?;
+        self.process.send_confirmed(
+            PERMISSION_RELOAD,
+            PERMISSION_RELOADED,
+            BDS_START_TIMEOUT,
+            cancel,
+        )
+    }
 }
+
+/// The console command that makes a running BDS reread its operator list.
+pub(crate) const PERMISSION_RELOAD: &str = "permission reload";
+/// The server confirms the entire permission list after reloading operators.
+const PERMISSION_RELOADED: &str = "Permissions reloaded from file.";
 
 /// Lets BDS create a world that has no level data yet, so its own new-world setup (spawn search,
 /// world version, flat layers) runs before owned fields change; true when it did. `start` runs a
@@ -293,12 +389,16 @@ pub(crate) fn server_properties(
 /// BDS's operator list in the install, keyed by XUID.
 pub(crate) const PERMISSIONS_FILE: &str = "permissions.json";
 
-/// Makes the host an operator as a vanilla world owner is. BDS reads XUIDs only from
-/// service-signed logins, so friends and other joiners keep the world's default permission.
-/// Rewriting the list each start drops an earlier account's grant from the shared install.
-pub(crate) fn write_host_permissions(install: &Path, spec: &StartSpec) -> Result<(), WorldError> {
-    let operators: Vec<_> = spec
-        .host_xuid
+/// Makes the host an operator as a vanilla world owner is; a malformed XUID grants nobody. BDS
+/// reads XUIDs only from service-signed logins, so friends and other joiners keep the world's
+/// default permission. Rewriting the list each start drops an earlier account's grant from the
+/// shared install.
+pub(crate) fn write_host_permissions(
+    install: &Path,
+    host_xuid: Option<&str>,
+) -> Result<(), WorldError> {
+    let operators: Vec<_> = host_xuid
+        .filter(|xuid| bridge::valid_cinnabar_xuid(xuid))
         .iter()
         .map(|xuid| serde_json::json!({ "permission": "operator", "xuid": xuid }))
         .collect();
@@ -345,6 +445,74 @@ pub(crate) fn option_properties(spec: &StartSpec) -> Vec<(&'static str, String)>
         .collect()
 }
 
+/// BDS console commands that make the running server match `world` after `update` changed it.
+/// Settings BDS reads only at startup, the default game mode among them, yield none.
+pub(crate) fn live_commands(world: &World, update: &WorldUpdate) -> Vec<String> {
+    let options = &world.options;
+    let mut commands = Vec::new();
+    if update.difficulty.is_some() {
+        commands.push(format!("difficulty {}", wire_name(world.difficulty)));
+    }
+    let changed = |id: O| {
+        update
+            .options
+            .as_ref()
+            .is_some_and(|changes| changes.get(id).is_some())
+    };
+    // Cheats first, so the rules they gate apply after them.
+    for &id in O::ALL.iter().filter(|&&id| changed(id)) {
+        let rule = |key: &str, value: String| format!("gamerule {key} {value}");
+        match (id, id.definition().storage) {
+            (O::ActivateCheats, _) => commands.push(format!(
+                "changesetting allow-cheats {}",
+                options.enabled(id)
+            )),
+            (O::AlwaysDay, _) => {
+                commands.push(format!("alwaysday {}", options.enabled(id)));
+                if !options.enabled(id) {
+                    commands.push(rule(
+                        rule_key(O::DaylightCycle),
+                        options.enabled(O::DaylightCycle).to_string(),
+                    ));
+                }
+            }
+            (O::SleepSkipNight | O::SleepPercentage, _) => {
+                let percentage = if options.enabled(O::SleepSkipNight) {
+                    options.get(O::SleepPercentage)
+                } else {
+                    SLEEP_DISABLED_PERCENTAGE
+                };
+                commands.push(rule(rule_key(O::SleepPercentage), percentage.to_string()));
+            }
+            (_, Storage::Rule(key)) => commands.push(rule(
+                key,
+                match id.definition().control {
+                    Control::Toggle => options.enabled(id).to_string(),
+                    Control::Choice(choices) => choices
+                        .iter()
+                        .find(|choice| choice.value == options.get(id))
+                        .map_or_else(
+                            || options.get(id).to_string(),
+                            |choice| choice.wire.to_owned(),
+                        ),
+                    Control::Number { .. } => options.get(id).to_string(),
+                },
+            )),
+            (_, Storage::Level(_) | Storage::Property(..) | Storage::Combined) => {}
+        }
+    }
+    commands.dedup();
+    commands
+}
+
+/// The game rule behind a rule-stored option.
+fn rule_key(id: O) -> &'static str {
+    match id.definition().storage {
+        Storage::Rule(key) => key,
+        storage => unreachable!("{id:?} is stored as {storage:?}, not a game rule"),
+    }
+}
+
 /// Drops control characters and `#`, which would end or comment out a property line.
 pub(crate) fn sanitize_property(value: &str) -> String {
     value
@@ -384,7 +552,7 @@ pub(crate) fn unlink_world(link: &Path) {
 /// Drops world links and empty mount points from an install; false when anything else remains,
 /// so deleting the install can never reach world data.
 pub(crate) fn release_world_links(install: &Path) -> bool {
-    let worlds = install.join("worlds");
+    let worlds = install.join(WORLDS_DIR);
     let entries = match fs::read_dir(&worlds) {
         Ok(entries) => entries,
         Err(error) => return error.kind() == io::ErrorKind::NotFound,

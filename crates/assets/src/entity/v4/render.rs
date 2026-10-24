@@ -220,6 +220,10 @@ pub struct EntityRenderGeometry {
 pub struct EntityRenderSlot {
     pub first_candidate: u32,
     pub candidate_count: u16,
+    /// Offset of the candidate a default actor draws, with every query and variable at zero;
+    /// absent when no candidate's condition folds to true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_candidate: Option<u16>,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -327,6 +331,9 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
     }
     for slot in render.slots.iter() {
         if slot.candidate_count == 0
+            || slot
+                .default_candidate
+                .is_some_and(|offset| offset >= slot.candidate_count)
             || !range_in_bounds(
                 slot.first_candidate,
                 u32::from(slot.candidate_count),

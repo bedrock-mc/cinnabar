@@ -73,18 +73,18 @@ pub use nametag::{
 };
 pub use panorama::{MAX_PANORAMA_FACE_SIDE, PanoramaFaces, PanoramaView};
 pub use presentation::{
-    DisplayTiming, PresentModeKind, PresentationIntent, SurfacePresentModes, VrrStatus,
-    configured_present_mode, frame_rate_target, initial_present_mode, select_present_mode,
-    vrr_ceiling,
+    DisplayTiming, FrameRateContext, PresentModeKind, PresentationIntent, SurfacePresentModes,
+    VrrStatus, configured_present_mode, frame_rate_target, initial_present_mode,
+    select_present_mode, vrr_ceiling,
 };
 pub use ui::{
     MAX_UI_BATCHES, MAX_UI_DRAW_BYTES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_INDICES,
     MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, MAX_UI_VERTICES,
     UI_BLEND_ALPHA, UI_BLEND_BACKDROP, UI_BLEND_FILTER, UI_BLEND_INVERT, UI_STYLE_ADDITIVE,
-    UI_STYLE_ALPHA_TEST, UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UI_STYLE_PARTICLE,
-    UI_STYLE_RADIAL_GRADIENT, UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason,
-    UiRenderScene, UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex,
-    UiScissor, ui_particle_uv,
+    UI_STYLE_COLOR_MASK, UI_STYLE_GLINT, UI_STYLE_PARTICLE, UI_STYLE_RADIAL_GRADIENT,
+    UiRenderBatch, UiRenderInput, UiRenderReject, UiRenderRejectReason, UiRenderScene,
+    UiRenderStats, UiRenderStatsSnapshot, UiRenderTextureArray, UiRenderVertex, UiScissor,
+    ui_particle_uv,
 };
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
@@ -160,7 +160,6 @@ pub mod native_trig;
 pub mod spawner;
 pub mod viewmodel;
 pub mod weather;
-pub use actor::ActorRigVertexSegments;
 pub use actor::{
     ACTOR_BONE_MATRIX_BYTES, ACTOR_GPU_INSTANCE_WORDS, ACTOR_LAYER_BODY, ACTOR_LAYER_FLAME,
     ACTOR_LAYER_SKIN_BASE, ActorDrawManifestEntry, ActorGpuInstance, ActorMaterial,
@@ -178,6 +177,7 @@ pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
     MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
+pub use actor::{ActorRigVertexSegments, share_identical_vertices};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
 pub use actor::{GlintTexture, ITEM_GLINT_UV_SCALE};
 pub use block_entity::BeaconModel;

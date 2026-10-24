@@ -3,12 +3,12 @@
 use super::*;
 
 impl UiRuntime {
-    /// Crafts the fallback book's `index` entry on the current page once, or a stack with `all`.
+    /// Uses the fallback book's `index` entry on the current page as `click` does.
     pub(super) fn book_widget_craft(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
         index: u8,
-        all: bool,
+        click: BookClick,
     ) -> Outcome {
         let skip = self.screen_state().book_page * BOOK_CELLS + usize::from(index);
         let recipe = self
@@ -16,14 +16,12 @@ impl UiRuntime {
             .into_iter()
             .next()
             .ok_or(InventoryGestureError::InvalidRequest)?;
-        player_runtime
-            .inventory
-            .begin_book_craft(&recipe.recipe, all)
+        book_recipe_click(player_runtime, &recipe.recipe, click)
     }
 
-    /// A click on a recipe book entry: a creative item as on the catalog grid, else
-    /// auto-crafting the recipe into the inventory; `into_inventory` (shift) crafts a stack
-    /// and `requested` marks a secondary click.
+    /// A click on a recipe book entry: a creative item as on the catalog grid, else the
+    /// recipe: a primary click lays it into the grid, `into_inventory` (shift) crafts a stack
+    /// and `requested` (a secondary click) crafts once.
     pub(super) fn recipe_book_click(
         &mut self,
         player_runtime: &mut player_state::PlayerState,
@@ -75,9 +73,14 @@ impl UiRuntime {
             {
                 Err(InventoryGestureError::InvalidRequest)
             }
-            Some(Clicked::Recipe(recipe)) => player_runtime
-                .inventory
-                .begin_book_craft(&recipe, into_inventory),
+            Some(Clicked::Recipe(recipe)) => {
+                let click = match (into_inventory, requested) {
+                    (true, _) => BookClick::CraftAll,
+                    (false, Some(_)) => BookClick::CraftOnce,
+                    (false, None) => BookClick::Place,
+                };
+                book_recipe_click(player_runtime, &recipe, click)
+            }
             Some(Clicked::Furnace(recipe)) => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_furnace_recipe(&recipe),
@@ -155,5 +158,28 @@ impl UiRuntime {
         };
         self.inventory_ledger_mut(player_runtime)
             .begin_creative_take(id, destination, requested)
+    }
+}
+
+/// What a click on a survival recipe does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum BookClick {
+    /// Lays the ingredients into the crafting grid.
+    Place,
+    /// Crafts once into the inventory.
+    CraftOnce,
+    /// Crafts up to one output stack into the inventory.
+    CraftAll,
+}
+
+fn book_recipe_click(
+    player_runtime: &mut player_state::PlayerState,
+    recipe: &protocol::RecipeHandle,
+    click: BookClick,
+) -> Outcome {
+    match click {
+        BookClick::Place => player_runtime.inventory.begin_book_placement(recipe),
+        BookClick::CraftOnce => player_runtime.inventory.begin_book_craft(recipe, false),
+        BookClick::CraftAll => player_runtime.inventory.begin_book_craft(recipe, true),
     }
 }

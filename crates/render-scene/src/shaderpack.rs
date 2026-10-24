@@ -40,6 +40,10 @@ pub struct ShaderPackRequest {
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShaderPackSettledRevision(pub u64);
 
+/// An executable compiler host on platforms where the client is a shared library.
+#[derive(Resource, Clone, Debug)]
+pub struct ShaderPackCompilerExecutable(pub PathBuf);
+
 /// Load state of the requested pack, written by the render host.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ShaderPackStatus {

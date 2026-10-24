@@ -11,6 +11,7 @@ mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+mod vsync;
 pub use pose_generation::PoseGeneration;
 mod skin;
 pub mod sprite_mask;
@@ -41,6 +42,7 @@ pub use skin::{
     StandardSkin, expand_legacy_skin_rgba8,
 };
 pub use vrr::VrrPreference;
+pub use vsync::VsyncMode;
 
 /// Largest render distance the client offers and requests; the server grant still bounds streaming.
 pub const MAX_VIEW_RADIUS_CHUNKS: i32 = 255;
@@ -57,3 +59,15 @@ pub const BLOCK_OVERLAY_FACE_OFFSET: f32 = 0.002;
 
 /// Vertex style bit selecting linear filtering for UI sprites.
 pub const UI_STYLE_BILINEAR: u8 = 1 << 3;
+
+/// Structured report emitted after the first presented main-menu frame.
+pub const STARTUP_TIMING_MARKER: &str = "CINNABAR_STARTUP";
+
+/// Requests an acceptance client to exit after reporting its first completed menu frame.
+pub const STARTUP_BENCHMARK_ENV: &str = "CINNABAR_STARTUP_BENCHMARK";
+
+/// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
+pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
+
+/// Selects half-alpha rejection when no explicit sampled-texture cutoff is supplied.
+pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;

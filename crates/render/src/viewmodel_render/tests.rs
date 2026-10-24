@@ -2,7 +2,6 @@ use super::*;
 use render_scene::{ViewmodelCompletionGate, ViewmodelScene, ViewmodelToken};
 
 fn empty_hand_world() -> World {
-    use bevy::ecs::system::RunSystemOnce;
     use std::{
         future::Future,
         pin::pin,
@@ -30,6 +29,40 @@ fn empty_hand_world() -> World {
     else {
         panic!("noop device must be immediate");
     };
+    hand_world(adapter, device, queue)
+}
+
+/// Real capability checks need a native adapter: Noop reports no texture format support.
+#[allow(clippy::print_stderr, reason = "names the missing native GPU fixture")]
+fn native_hand_world() -> Option<World> {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let adapter = match bevy::tasks::block_on(instance.request_adapter(&default())) {
+        Ok(adapter) if adapter.get_info().backend != wgpu::Backend::Noop => adapter,
+        Ok(_) | Err(wgpu::RequestAdapterError::NotFound { .. }) => {
+            eprintln!("skipping neutral hand depth allocation: missing native GPU adapter fixture");
+            return None;
+        }
+        Err(error) => panic!("neutral hand depth allocation adapter: {error}"),
+    };
+    let (device, queue) = bevy::tasks::block_on(
+        adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_inter_stage_shader_variables: wgpu::Limits::default()
+                    .max_inter_stage_shader_variables
+                    .min(adapter.limits().max_inter_stage_shader_variables),
+                ..wgpu::Limits::default().using_resolution(adapter.limits())
+            },
+            ..default()
+        }),
+    )
+    .expect("neutral hand depth allocation device");
+    Some(hand_world(adapter, device, queue))
+}
+
+/// Starts the actual hand owner on the fixture's matching adapter, device and queue.
+fn hand_world(adapter: wgpu::Adapter, device: wgpu::Device, queue: wgpu::Queue) -> World {
+    use bevy::ecs::system::RunSystemOnce;
     let device = RenderDevice::from(device);
     let adapter = RenderAdapter::new(adapter);
     let mut world = World::new();
@@ -389,6 +422,75 @@ fn test_token() -> ViewmodelToken {
     }
 }
 
+/// Neutral-hand depth backs off and retries changed requests without retaining stale targets.
+#[test]
+fn neutral_depth_allocation_failure_backs_off_then_recovers() {
+    let mut world = empty_hand_world();
+    let device = world.resource::<RenderDevice>().clone();
+    let mut gpu = world.remove_resource::<HandGpu>().unwrap();
+    let mut token = test_token();
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
+    let failure = crate::gpu_allocation::inject({
+        let attempts = attempts.clone();
+        move |label, _| {
+            if label != "bounded private hand reverse-Z depth" {
+                return false;
+            }
+            attempts.set(attempts.get() + 1);
+            true
+        }
+    });
+    for _ in 0..3 {
+        assert!(!ensure_depth(
+            &mut gpu,
+            &device,
+            token.owner,
+            token.viewport,
+            token.samples
+        ));
+        assert!(gpu.depth.is_none());
+    }
+    assert_eq!(attempts.get(), 1);
+    drop(failure);
+    assert!(ensure_depth(
+        &mut gpu,
+        &device,
+        token.owner,
+        token.viewport,
+        token.samples
+    ));
+    let depth = gpu.depth.as_ref().unwrap().view.id();
+    assert!(ensure_depth(
+        &mut gpu,
+        &device,
+        token.owner,
+        token.viewport,
+        token.samples
+    ));
+    assert_eq!(gpu.depth.as_ref().unwrap().view.id(), depth);
+    {
+        let _failure = crate::gpu_allocation::inject(|_, _| true);
+        token.viewport[0] *= 2;
+        assert!(!ensure_depth(
+            &mut gpu,
+            &device,
+            token.owner,
+            token.viewport,
+            token.samples
+        ));
+        assert!(gpu.depth.is_none());
+    }
+    token.viewport[1] *= 2;
+    assert!(ensure_depth(
+        &mut gpu,
+        &device,
+        token.owner,
+        token.viewport,
+        token.samples
+    ));
+    assert_eq!(gpu.depth.as_ref().unwrap().size, token.viewport);
+}
+
 #[test]
 fn actual_renderer_startup_revokes_pending_callback_and_equal_token_publish_recovers() {
     use bevy::{
@@ -437,4 +539,207 @@ fn actual_renderer_startup_revokes_pending_callback_and_equal_token_publish_reco
     assert!(!gate.complete(old));
     assert!(gate.complete(fresh));
     assert!(gate.completed(token));
+}
+
+#[test]
+fn scaled_hand_keeps_output_identity_and_refuses_unregistered_or_stale_extents() {
+    let token = test_token();
+    for main in [[640, 480], [320, 240], [427, 321], [1, 1]] {
+        assert_eq!(
+            hand_render_extent(
+                token,
+                UVec4::new(0, 0, main[0], main[1]),
+                Some(token.viewport),
+                Some(token.viewport),
+                main,
+            ),
+            Some(main),
+        );
+    }
+    for (viewport, output, scaled, main) in [
+        (
+            UVec4::new(0, 0, 320, 240),
+            Some(token.viewport),
+            None,
+            [320, 240],
+        ),
+        (
+            UVec4::new(0, 0, 320, 240),
+            Some([800, 600]),
+            Some(token.viewport),
+            [320, 240],
+        ),
+        (
+            UVec4::new(0, 0, 320, 240),
+            Some(token.viewport),
+            Some([800, 600]),
+            [320, 240],
+        ),
+        (
+            UVec4::new(0, 0, 640, 480),
+            Some(token.viewport),
+            Some(token.viewport),
+            [320, 240],
+        ),
+        (
+            UVec4::new(1, 0, 320, 240),
+            Some(token.viewport),
+            Some(token.viewport),
+            [320, 240],
+        ),
+        (
+            UVec4::new(0, 0, 641, 480),
+            Some(token.viewport),
+            Some(token.viewport),
+            [641, 480],
+        ),
+        (
+            UVec4::ZERO,
+            Some(token.viewport),
+            Some(token.viewport),
+            [0, 0],
+        ),
+    ] {
+        assert_eq!(
+            hand_render_extent(token, viewport, output, scaled, main),
+            None
+        );
+    }
+    assert_eq!(
+        hand_render_extent(
+            token,
+            UVec4::new(0, 0, 640, 480),
+            None,
+            None,
+            token.viewport
+        ),
+        Some(token.viewport),
+        "unchanged offscreen full-resolution hand admission remains available",
+    );
+}
+
+#[test]
+fn same_hand_token_reallocates_only_private_depth_when_internal_resolution_changes() {
+    use bevy::{
+        camera::{CameraMainTextureUsages, RenderTarget},
+        ecs::system::RunSystemOnce,
+        prelude::{ClearColor, GlobalTransform, Mat4, UVec2},
+        render::{
+            camera::{CameraMainPassTextureFormats, ExtractedCamera},
+            texture::{OutputColorAttachment, TextureCache},
+            view::{RetainedViewEntity, ViewTargetAttachments, prepare_view_targets},
+        },
+    };
+    let Some(mut world) = native_hand_world() else {
+        return;
+    };
+    let token = test_token();
+    let device = world.resource::<RenderDevice>().clone();
+    let output = device.create_texture(&TextureDescriptor {
+        label: Some("full-output neutral hand scale witness"),
+        size: Extent3d {
+            width: token.viewport[0],
+            height: token.viewport[1],
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: TextureDimension::D2,
+        format: render_scene::SCENE_COLOR_FORMAT,
+        usage: TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target = RenderTarget::Window(bevy::window::WindowRef::Entity(token.owner))
+        .normalize(None)
+        .unwrap();
+    let mut attachments = ViewTargetAttachments::default();
+    attachments.insert(
+        target.clone(),
+        OutputColorAttachment::new(output.create_view(&default()), output.format()),
+    );
+    world.insert_resource(attachments);
+    world.insert_resource(TextureCache::default());
+    world.insert_resource(ClearColor::default());
+    world.init_resource::<CameraMainPassTextureFormats>();
+    let mut camera = crate::render_test_support::camera(false);
+    camera.target = Some(target);
+    let view = world
+        .spawn((
+            MainEntity::from(token.owner),
+            camera,
+            ExtractedView {
+                retained_view_entity: RetainedViewEntity::new(token.owner.into(), None, 0),
+                clip_from_view: Mat4::IDENTITY,
+                world_from_view: GlobalTransform::default(),
+                clip_from_world: None,
+                target_format: render_scene::SCENE_COLOR_FORMAT,
+                viewport: UVec4::ZERO,
+                color_grading: default(),
+                invert_culling: false,
+            },
+            CameraMainTextureUsages::default(),
+            Msaa::Off,
+        ))
+        .id();
+    let skin = render_model::ViewmodelSkin::new(
+        vec![255; render_model::viewmodel::VIEWMODEL_TEXTURE_BYTES].into(),
+        token.skin,
+    )
+    .unwrap();
+    let geometry = render_model::ViewmodelGeometry {
+        vertices: std::sync::Arc::from([]),
+        identity: token.geometry,
+        allowed_rigs: std::sync::Arc::from([]),
+        cube_origin: false,
+    };
+    let gate = world.resource::<ViewmodelCompletionGate>().clone();
+    assert!(
+        world
+            .resource_mut::<ViewmodelScene>()
+            .publish(token, &skin, &geometry, &gate)
+    );
+    world
+        .resource_mut::<ViewmodelScene>()
+        .frame
+        .as_mut()
+        .unwrap()
+        .fallback = Some((7, 0, 0));
+    world.resource_mut::<HandGpu>().pipeline_variants[0] = Some(CachedRenderPipelineId::INVALID);
+    let mut previous = None;
+    for size in [[320, 240], [320, 240], [427, 321], token.viewport] {
+        let mut entity = world.entity_mut(view);
+        let mut camera = entity.get_mut::<ExtractedCamera>().unwrap();
+        camera.physical_target_size = Some(UVec2::from_array(size));
+        camera.physical_viewport_size = Some(UVec2::from_array(size));
+        entity.get_mut::<ExtractedView>().unwrap().viewport = UVec4::new(0, 0, size[0], size[1]);
+        if size == token.viewport {
+            entity.remove::<crate::render_scale::RenderScaleOutput>();
+        } else {
+            entity.insert(crate::render_scale::RenderScaleOutput(UVec2::from_array(
+                token.viewport,
+            )));
+        }
+        world.run_system_once(prepare_view_targets).unwrap();
+        world.run_system_once(prepare).unwrap();
+        let gpu = world.resource::<HandGpu>();
+        assert_eq!(
+            gpu.token,
+            Some(token),
+            "render scale never changes output identity"
+        );
+        let depth = gpu.depth.as_ref().unwrap();
+        assert_eq!(depth.size, size);
+        if let Some((previous_size, previous_id)) = previous {
+            assert_eq!(
+                depth._texture.id() == previous_id,
+                size == previous_size,
+                "only unchanged internal depth is reusable"
+            );
+        }
+        previous = Some((size, depth._texture.id()));
+        assert!(
+            !gate.rejected(token),
+            "valid scale transitions keep GPU admission"
+        );
+    }
 }

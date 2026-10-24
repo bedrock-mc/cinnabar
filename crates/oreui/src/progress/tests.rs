@@ -57,6 +57,7 @@ fn loading_logo_and_status_form_one_compact_centered_group() {
         std::collections::HashMap::from([(
             TITLE_KEY.to_owned(),
             IconRef {
+                color_mask: None,
                 page: 1,
                 uv: [0, 0, 300, 100],
                 glint: false,
@@ -105,6 +106,7 @@ fn loading_logo_and_status_form_one_compact_centered_group() {
 fn short_join_status_never_shows_a_scrollbar() {
     use ui_engine::{test_support::fixture_font, text_metrics::TextMetrics};
     let logo = ui::IconRef {
+        color_mask: None,
         page: 1,
         uv: [0, 0, 300, 100],
         glint: false,

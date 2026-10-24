@@ -40,7 +40,11 @@ pub(crate) fn prepare_shadow_views(
     cache: Res<PipelineCache>,
     mut gpu: ResMut<EntityShadowGpu>,
     mut views: ShadowViews,
+    mut failed: bevy::prelude::Local<
+        crate::gpu_allocation::FailedRequests<(bevy::render::render_resource::Extent3d, u32)>,
+    >,
 ) {
+    failed.retain(|view| views.contains(view));
     for (entity, view, target, msaa, state) in &mut views {
         let clip_from_world = view
             .clip_from_world
@@ -61,16 +65,25 @@ pub(crate) fn prepare_shadow_views(
         if rect.is_none() {
             continue;
         }
-        let stencil = device.create_texture(&TextureDescriptor {
-            label: Some("entity shadow overlap stencil"),
-            size: main.size(),
-            mip_level_count: 1,
-            sample_count: msaa.samples(),
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Stencil8,
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        let bytes = u64::from(main.width()) * u64::from(main.height()) * u64::from(msaa.samples());
+        let Some(stencil) = failed.attempt(entity, (main.size(), msaa.samples()), || {
+            crate::gpu_allocation::checked(&device, "entity shadow overlap stencil", bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some("entity shadow overlap stencil"),
+                    size: main.size(),
+                    mip_level_count: 1,
+                    sample_count: msaa.samples(),
+                    dimension: TextureDimension::D2,
+                    format: TextureFormat::Stencil8,
+                    usage: TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
+            })
+        }) else {
+            // Shadows are an effect: the view draws without them until its extent changes.
+            commands.entity(entity).remove::<EntityShadowView>();
+            continue;
+        };
         let stencil_view = stencil.create_view(&Default::default());
         let pipeline = gpu.pipeline(&cache, format, msaa.samples());
         commands.entity(entity).insert(EntityShadowView {

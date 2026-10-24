@@ -21,7 +21,7 @@ use super::{
 pub(super) const LINKS_API: &str =
     "https://net-secondary.web.minecraft-services.net/api/v1.0/download/links";
 /// minecraft.net resets requests that do not name their downloader.
-const AGENT: &str = "Cinnabar-local-worlds";
+pub(super) const AGENT: &str = "Cinnabar-local-worlds";
 const MAX_ZIP_BYTES: u64 = 1 << 30;
 const MAX_LINKS_BYTES: usize = 1 << 20;
 const MAX_REDIRECTS: usize = 10;
@@ -47,7 +47,7 @@ pub(super) fn official_host(url: &Url) -> bool {
 }
 
 /// Why a transfer ended early.
-enum Fetch {
+pub(super) enum Fetch {
     Stalled,
     TooLarge,
     Cancelled,
@@ -70,7 +70,7 @@ impl Fetch {
         Self::Other(error.to_string())
     }
 
-    fn into_error(self) -> WorldError {
+    pub(super) fn into_error(self) -> WorldError {
         match self {
             Self::Cancelled => WorldError::Cancelled,
             other => failed(other.to_string()),
@@ -99,7 +99,7 @@ struct Link {
 }
 
 /// Awaits `work`, failing once `stall` passes or `cancel` fires.
-async fn bounded<T>(
+pub(super) async fn bounded<T>(
     work: impl Future<Output = T>,
     stall: Duration,
     cancel: &Cancel,
@@ -176,7 +176,7 @@ impl Provisioner {
         client: &reqwest::Client,
         cancel: &Cancel,
     ) -> Result<(String, String), WorldError> {
-        let (kind, folder) = if self.platform.os == "windows" {
+        let (kind, folder) = if self.download_platform().os == "windows" {
             ("serverBedrockWindows", "win")
         } else {
             ("serverBedrockLinux", "linux")

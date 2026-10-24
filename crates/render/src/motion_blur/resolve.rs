@@ -20,7 +20,8 @@ pub(super) struct ResolvedInputs {
 }
 
 impl ResolvedInputs {
-    /// Rebuilds both exact resolves together when depth, coverage or extent changes.
+    /// Rebuilds both exact resolves together when depth, coverage or extent changes. Leaves
+    /// `state` empty when the device is out of memory.
     pub fn prepare(
         state: &mut Option<Self>,
         device: &RenderDevice,
@@ -37,18 +38,27 @@ impl ResolvedInputs {
         {
             return false;
         }
-        let textures = [MOTION_FORMAT, DEPTH_FORMAT].map(|format| {
-            device.create_texture(&TextureDescriptor {
-                label: Some("resolved exposure surface"),
-                size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: TextureDimension::D2,
-                format,
-                usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
+        *state = None;
+        let texels = u64::from(size.width) * u64::from(size.height);
+        let allocate = |format: TextureFormat| {
+            let bytes = texels * u64::from(format.block_copy_size(None).unwrap_or(16));
+            crate::gpu_allocation::checked(device, "resolved exposure surface", bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some("resolved exposure surface"),
+                    size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format,
+                    usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                })
             })
-        });
+        };
+        let (Some(motion), Some(depth)) = (allocate(MOTION_FORMAT), allocate(DEPTH_FORMAT)) else {
+            return true;
+        };
+        let textures = [motion, depth];
         let motion = textures[0].create_view(&Default::default());
         let depth = textures[1].create_view(&Default::default());
         let binding = device.create_bind_group(

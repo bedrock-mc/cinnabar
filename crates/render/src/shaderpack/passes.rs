@@ -103,14 +103,7 @@ impl ViewState {
         }
         let bindings =
             bindings.ok_or_else(|| "shader pack view bindings ran out of GPU memory".to_owned())?;
-        let (custom, errors) = CustomUniforms::new(&pack.custom_uniforms);
-        for error in errors {
-            bevy::log::debug!(
-                target: "cinnabar::shaderpack",
-                pack = %pack.name, line = error.line, name = %error.name,
-                "custom uniform dropped: {}", error.message
-            );
-        }
+        let custom = pack.custom_uniforms.clone();
         Ok(Self {
             depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack view depth parameters"),

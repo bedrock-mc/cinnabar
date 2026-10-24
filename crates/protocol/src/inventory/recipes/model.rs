@@ -4,7 +4,7 @@ use std::sync::Arc;
 /// Grid cells a crafting-table recipe may address.
 pub const MAX_INGREDIENTS: usize = 9;
 /// Ingredient metadata that accepts any item metadata.
-pub const ANY_AUX: u16 = 32767;
+pub const ANY_AUX: u16 = protocol_ids::ITEM_AUXILIARY_WILDCARD;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Ingredient {

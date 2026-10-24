@@ -208,15 +208,116 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(cache.superseded(entries, "linux-current", "linux-", "refs/heads/dev"), [1])
         self.assertEqual(cache.superseded(entries, "linux-unsaved", "linux-", "refs/heads/dev"), [])
 
-    def test_saving_replaces_every_entry_in_its_bucket_first(self):
-        """Old and new entries never coexist, so a save cannot push the total over the limit."""
-        entries = [
-            {"id": 1, "key": "linux-old", "ref": "refs/heads/dev"},
-            {"id": 2, "key": "linux-older", "ref": "refs/heads/dev"},
-            {"id": 3, "key": "macos-old", "ref": "refs/heads/dev"},
-            {"id": 4, "key": "linux-old", "ref": "refs/pull/1/merge"},
+    def setUp(self):
+        """Use a small budget and isolated cache listing for retention checks."""
+        self.env = {"CACHE_BUCKET": "linux-", "CACHE_KEY": "linux-current", "GITHUB_REF": "refs/heads/dev"}
+        self.entries = [
+            {"id": 1, "key": "linux-old", "ref": "refs/heads/dev", "created_at": "2026-01-01", "size_in_bytes": 20},
+            {"id": 2, "key": "linux-current", "ref": "refs/heads/dev", "created_at": "2026-01-02", "size_in_bytes": 30},
         ]
-        self.assertEqual(cache.replaced(entries, "linux-", "refs/heads/dev"), [1, 2])
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.budgets = Path(temporary.name) / "budgets.json"
+        self.budgets.write_text(json.dumps({"cache": {"linux-": 30}}))
+        for patcher in (patch.object(cache, "BUDGETS", self.budgets), patch.object(cache, "caches", return_value=self.entries)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = patch.object(cache, "delete_caches")
+        self.deleted = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_save_preserves_the_predecessor(self):
+        """Admission never removes a working cache before uploading its replacement."""
+        self.entries.pop()
+        cache.make_room(self.env)
+        self.deleted.assert_not_called()
+
+    def test_save_requires_room_for_both_entries(self):
+        """A replacement cannot evict a predecessor by exceeding the shared storage limit."""
+        self.entries[1]["ref"] = "refs/pull/1/merge"
+        with patch.object(cache, "CACHE_LIMIT", 60):
+            self.assertFalse(cache.make_room(self.env))
+        self.deleted.assert_not_called()
+
+    def test_admission_reserves_every_concurrent_bucket_replacement(self):
+        """Separate upload decisions cannot each spend the same remaining repository space."""
+        self.budgets.write_text(json.dumps({"cache": {"linux-": 30, "other-": 20}}))
+        self.entries[1]["ref"] = "refs/pull/1/merge"
+        with patch.object(cache, "CACHE_LIMIT", 90):
+            self.assertFalse(cache.make_room(self.env))
+        self.deleted.assert_not_called()
+
+    def test_interrupted_pruning_does_not_block_all_future_uploads(self):
+        """An already validated replacement lets admission retire a stranded predecessor."""
+        with patch.object(cache, "CACHE_LIMIT", 60):
+            self.assertTrue(cache.make_room(self.env))
+        self.deleted.assert_called_once_with(self.env, [1])
+
+    def test_reconciliation_keeps_the_newest_valid_entry_on_each_ref(self):
+        """A completed newer save protects a working cache through cleanup of stranded entries."""
+        self.entries.extend([
+            {**self.entries[1], "id": 3, "key": "linux-newer", "created_at": "2026-01-03"},
+            {**self.entries[0], "id": 4, "key": "other-old"},
+            {**self.entries[1], "id": 5, "key": "linux-another-ref", "ref": "refs/pull/1/merge"},
+        ])
+        cache.make_room(self.env)
+        self.deleted.assert_called_once_with(self.env, [1, 2])
+
+    def test_reconciliation_can_discard_a_stranded_oversized_upload(self):
+        """An oversized interrupted upload cannot block replacement of the retained valid cache."""
+        self.entries[1]["size_in_bytes"] = 31
+        with patch.object(cache, "CACHE_LIMIT", 60):
+            self.assertTrue(cache.make_room(self.env))
+        self.deleted.assert_called_once_with(self.env, [2])
+
+    def test_reconciliation_preserves_the_only_oversized_predecessor(self):
+        """Admission cannot remove a sole working predecessor without a validated replacement."""
+        self.entries.pop()
+        self.entries[0]["size_in_bytes"] = 31
+        with patch.object(cache, "CACHE_LIMIT", 60):
+            self.assertFalse(cache.make_room(self.env))
+        self.deleted.assert_not_called()
+
+    def test_admission_outputs_control_the_upload_step(self):
+        """The composite action receives an explicit decision even when storage is full."""
+        self.entries[1]["ref"] = "refs/pull/1/merge"
+        for repository_limit, expected in ((80, "true"), (60, "false")):
+            with self.subTest(repository_limit=repository_limit), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary) / "output"
+                with patch.dict(os.environ, {**self.env, "GITHUB_OUTPUT": str(output)}), \
+                        patch.object(cache.sys, "argv", [str(MODULE), "make-room"]), \
+                        patch.object(cache, "CACHE_LIMIT", repository_limit):
+                    cache.main()
+                self.assertEqual(output.read_text(), f"save={expected}\n")
+        self.deleted.assert_not_called()
+
+    def test_oversized_replacement_removes_only_itself(self):
+        """Rejecting a saved archive must leave the last valid entry available."""
+        self.entries[1]["size_in_bytes"] = 31
+        with self.assertRaises(cache.BudgetError):
+            cache.prune(self.env)
+        self.deleted.assert_called_once_with(self.env, [2])
+
+    def test_missing_replacement_preserves_the_predecessor(self):
+        """A skipped or failed upload never authorizes retention cleanup."""
+        self.entries.pop()
+        cache.prune(self.env)
+        self.deleted.assert_not_called()
+
+    def test_wrong_ref_does_not_validate_a_replacement(self):
+        """An entry with the same key on another ref cannot replace this ref's cache."""
+        self.entries[1]["ref"] = "refs/pull/1/merge"
+        cache.prune(self.env)
+        self.deleted.assert_not_called()
+
+    def test_valid_replacement_retires_only_older_entries(self):
+        """Validated saves preserve concurrent newer writes and unrelated buckets."""
+        self.entries.extend([
+            {**self.entries[0], "id": 3, "key": "linux-newer", "created_at": "2026-01-03"},
+            {**self.entries[0], "id": 4, "key": "macos-old"},
+        ])
+        cache.prune(self.env)
+        self.deleted.assert_called_once_with(self.env, [1])
 
 
 class BudgetTests(unittest.TestCase):
@@ -224,21 +325,53 @@ class BudgetTests(unittest.TestCase):
 
     def test_cache_budgets_fit_the_repository_limit(self):
         budgets = json.loads(cache.BUDGETS.read_text())
-        self.assertLessEqual(sum(budgets["cache"].values()), cache.CACHE_LIMIT)
+        self.assertLessEqual(2 * sum(budgets["cache"].values()), cache.CACHE_LIMIT)
+        self.assertFalse(budgets["cache"].keys() & budgets["artifact"].keys())
         for store in ("cache", "artifact"):
             for bucket, size in budgets[store].items():
                 self.assertTrue(bucket.startswith("build-v1-") and bucket.endswith("-"), bucket)
                 self.assertGreater(size, 0, bucket)
 
+    def test_observed_ci_archives_fit_their_budgets(self):
+        """The largest observed Rust and Go archives must survive retention."""
+        self.assertLessEqual(2_791_327_868, cache.budget("artifact", "build-v1-rust-Linux-X64-ci-"))
+        self.assertLessEqual(2_555_389_355, cache.budget("artifact", "build-v1-rust-Windows-X64-ci-"))
+        self.assertLessEqual(2_173_649_337, cache.budget("cache", "build-v1-rust-macOS-ARM64-ci-"))
+        self.assertLessEqual(857_488_115, cache.budget("artifact", "build-v1-go-Linux-X64-ci-"))
+
     def test_release_caches_stay_out_of_the_shared_cache(self):
         """Rarely used release entries would be the first evicted from the shared cache."""
         budgets = json.loads(cache.BUDGETS.read_text())
         self.assertTrue(all(bucket.endswith("-ci-") for bucket in budgets["cache"]))
-        self.assertTrue(all(bucket.endswith("-release-") for bucket in budgets["artifact"]))
+        self.assertTrue(all(bucket.endswith(("-release-", "-ci-")) for bucket in budgets["artifact"]))
 
     def test_unbudgeted_buckets_cannot_be_saved(self):
         with self.assertRaisesRegex(cache.BudgetError, "has no cache budget"):
             cache.budget("cache", "build-v1-rust-Plan9-X64-ci-")
+
+
+class StorageTests(unittest.TestCase):
+    """Store selection follows the single budget manifest, including saves from existing callers."""
+
+    def test_every_bucket_selects_its_budgeted_store(self):
+        """Changing a budget's store changes both restore and save decisions together."""
+        for store, budgets in json.loads(cache.BUDGETS.read_text()).items():
+            for bucket in budgets:
+                with self.subTest(bucket=bucket):
+                    prefix = bucket + "compiler-"
+                    selected = cache.storage({"CACHE_BUCKET": bucket, "CACHE_KEY": prefix + "revision-123-1"})
+                    self.assertEqual(selected, {"store": store, "prefix": prefix})
+
+    def test_unbudgeted_buckets_fail_before_uploading(self):
+        """An unknown lane cannot silently use unallocated shared space."""
+        with self.assertRaises(cache.BudgetError):
+            cache.storage({"CACHE_BUCKET": "unknown-", "CACHE_KEY": "unknown-compiler-revision-123-1"})
+
+    def test_explicit_release_store_and_prefix_are_preserved(self):
+        """Release callers retain their explicitly selected store and compatible prefix."""
+        bucket = next(iter(json.loads(cache.BUDGETS.read_text())["artifact"]))
+        self.assertEqual(cache.storage({"CACHE_STORE": "artifact", "CACHE_BUCKET": bucket, "CACHE_PREFIX": "given-"}),
+                         {"store": "artifact", "prefix": "given-"})
 
 
 class ArchiveTests(unittest.TestCase):
@@ -403,6 +536,31 @@ class ProvenanceTests(unittest.TestCase):
         }
         self.assertEqual(self.select(runs), [2, 1])
 
+    def test_ci_and_its_warmer_share_only_trusted_default_branch_artifacts(self):
+        """CI can restore the warmer's archive without trusting unrelated workflows or forks."""
+        env = {**self.ENV, "CACHE_BUCKET": "build-v1-rust-Linux-X64-ci-",
+               "GITHUB_WORKFLOW_REF": self.ENV["GITHUB_WORKFLOW_REF"].replace("package.yml", "ci.yml")}
+        run = self.run_(path=".github/workflows/ci-cache.yml")
+        self.assertTrue(cache.trusted_run(run, env))
+        self.assertFalse(cache.trusted_run({**run, "head_repository": {"id": 99}}, env))
+        self.assertFalse(cache.trusted_run({**run, "path": ".github/workflows/package.yml"}, env))
+        self.assertFalse(cache.trusted_run({**run, "event": "pull_request"}, env))
+        self.assertFalse(cache.trusted_run({**run, "head_branch": "feature"}, env))
+        for workflow in cache.CI_WORKFLOWS:
+            self.assertTrue((MODULE.parents[3] / workflow).is_file(), workflow)
+
+    def test_artifact_listing_accepts_attempt_names_and_legacy_names(self):
+        """Unique uploads remain discoverable by compiler prefix without matching unrelated artifacts."""
+        entries = [{"id": index, "name": name, "expired": False, "created_at": f"2026-01-0{index}",
+                    "workflow_run": {"id": index}} for index, name in enumerate(
+                        ["compiler", "compiler-123-1", "different-compiler-123-1"], start=1)]
+        def api(*arguments):
+            """Return artifact pages or the trusted workflow metadata for the requested resource."""
+            return json.dumps([{"artifacts": entries}] if "artifacts?" in arguments[-1] else self.run_())
+        with patch.object(cache, "command", side_effect=api):
+            self.assertEqual([entry["id"] for entry in cache.artifacts({**self.ENV, "GITHUB_REPOSITORY": self.REPOSITORY}, "compiler")],
+                             [2, 1])
+
     def test_listing_failures_leave_a_cold_build(self):
         with tempfile.TemporaryDirectory() as temp:
             env = {"CACHE_PATHS": str(Path(temp) / "target"), "CACHE_PREFIX": "bucket-",
@@ -423,6 +581,77 @@ class ArtifactRetentionTests(unittest.TestCase):
         ]
         self.assertEqual(cache.superseded_artifacts(found, 20), [10])
         self.assertEqual(cache.superseded_artifacts(found, 99), [])
+
+    def test_missing_uploaded_artifact_preserves_both_predecessor_stores(self):
+        """A failed upload or delayed listing cannot authorize any cache deletion."""
+        with tempfile.TemporaryDirectory() as temporary:
+            env = {"CACHE_ARCHIVE": str(Path(temporary) / "archive"), "CACHE_PREFIX": "linux-compiler-",
+                   "CACHE_ARTIFACT_ID": "20"}
+            with patch.object(cache, "artifacts", return_value=[]), patch.object(cache, "delete") as deleted, \
+                    patch.object(cache, "delete_caches") as deleted_caches:
+                cache.prune_artifacts(env)
+            deleted.assert_not_called()
+            deleted_caches.assert_not_called()
+
+    def test_concurrent_writer_can_retire_this_upload_before_pruning(self):
+        """A newer successful writer may remove this upload before its own prune step runs."""
+        with tempfile.TemporaryDirectory() as temporary:
+            env = {"CACHE_ARCHIVE": str(Path(temporary) / "archive"), "CACHE_PREFIX": "linux-ci-compiler-",
+                   "CACHE_BUCKET": "linux-ci-", "CACHE_ARTIFACT_ID": "20", "GITHUB_REF": "refs/heads/dev",
+                   "GITHUB_REPOSITORY": "owner/repo"}
+            newer = [{"id": 30, "created_at": "2026-01-03"}]
+            with patch.object(cache, "artifacts", return_value=newer), patch.object(cache, "delete") as deleted, \
+                    patch.object(cache, "delete_caches") as deleted_caches:
+                cache.prune_artifacts(env)
+            deleted.assert_not_called()
+            deleted_caches.assert_not_called()
+
+    def test_valid_artifact_retires_only_older_entries_from_either_store(self):
+        """A migration retains other refs, other buckets and concurrent newer saves."""
+        with tempfile.TemporaryDirectory() as temporary:
+            env = {"CACHE_ARCHIVE": str(Path(temporary) / "archive"), "CACHE_PREFIX": "linux-ci-compiler-",
+                   "CACHE_BUCKET": "linux-ci-", "CACHE_ARTIFACT_ID": "20", "GITHUB_REF": "refs/heads/dev",
+                   "GITHUB_REPOSITORY": "owner/repo"}
+            found = [{"id": 10, "created_at": "2026-01-01"}, {"id": 20, "created_at": "2026-01-02"},
+                     {"id": 30, "created_at": "2026-01-03"}]
+            old = {"id": 1, "key": "linux-ci-old", "ref": env["GITHUB_REF"], "created_at": "2026-01-01"}
+            entries = [old, {**old, "id": 2, "ref": "refs/pull/1/merge"}, {**old, "id": 3, "key": "other-ci-old"},
+                       {**old, "id": 4, "created_at": "2026-01-03"}]
+            with patch.object(cache, "artifacts", return_value=found), patch.object(cache, "caches", return_value=entries), \
+                    patch.object(cache, "delete") as deleted, patch.object(cache, "delete_caches") as deleted_caches:
+                cache.prune_artifacts(env)
+            deleted.assert_called_once_with("repos/owner/repo/actions/artifacts/10")
+            deleted_caches.assert_called_once_with(env, [1])
+
+    def test_reruns_prepare_distinct_artifact_names(self):
+        """An upload for a later attempt cannot overwrite the earlier attempt's valid archive."""
+        with tempfile.TemporaryDirectory() as temporary:
+            env = {"RUNNER_TEMP": temporary, "CACHE_PREFIX": "compiler-", "CACHE_BUCKET": "linux-ci-",
+                   "CACHE_PATHS": "source", "GITHUB_RUN_ID": "123"}
+            names = []
+            def pack(paths, archive):
+                """Create a small compressed archive without invoking a compiler."""
+                archive.write_bytes(b"archive")
+            for attempt in ("1", "2"):
+                output = Path(temporary) / f"output-{attempt}"
+                with patch.object(cache, "pack", side_effect=pack), patch.object(cache, "budget", return_value=30):
+                    cache.pack_artifact({**env, "GITHUB_RUN_ATTEMPT": attempt, "GITHUB_OUTPUT": str(output)})
+                names.append(dict(line.split("=", 1) for line in output.read_text().splitlines())["name"])
+            self.assertNotEqual(*names)
+            self.assertTrue(all((Path(temporary) / f"{name}.tar.gz").is_file() for name in names))
+
+    def test_oversized_archive_is_rejected_before_publication(self):
+        """A compressed candidate over budget cannot replace an existing valid archive."""
+        with tempfile.TemporaryDirectory() as temporary:
+            env = {"RUNNER_TEMP": temporary, "CACHE_PREFIX": "linux-ci-compiler-", "CACHE_BUCKET": "linux-ci-",
+                   "CACHE_PATHS": "source"}
+            def pack(paths, archive):
+                """Write an already compressed fixture archive that exceeds the allocation."""
+                archive.write_bytes(b"x" * 31)
+            with patch.object(cache, "pack", side_effect=pack), patch.object(cache, "budget", return_value=30), \
+                    self.assertRaises(cache.BudgetError):
+                cache.pack_artifact(env)
+            self.assertFalse(list(Path(temporary).iterdir()))
 
 
 class DeletionTests(unittest.TestCase):

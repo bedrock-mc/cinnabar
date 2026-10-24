@@ -26,6 +26,7 @@ minecraft:birch_door	0	birch_door	0
 minecraft:birch_hanging_sign	0	sign_birch_hanging	0
 minecraft:birch_sign	0	sign_birch	0
 minecraft:black_bundle	0	bundle_black	0
+minecraft:black_cushion	0	cushion	0
 minecraft:black_dye	0	dye_powder	16
 minecraft:black_harness	0	harness_black	0
 minecraft:blade_pottery_sherd	0	blade_pottery_sherd	0
@@ -33,6 +34,7 @@ minecraft:blaze_powder	0	blaze_powder	0
 minecraft:blaze_rod	0	blaze_rod	0
 minecraft:bleach	0	bleach	0
 minecraft:blue_bundle	0	bundle_blue	0
+minecraft:blue_cushion	0	cushion	4
 minecraft:blue_dye	0	dye_powder	18
 minecraft:blue_egg	0	blue_egg	0
 minecraft:blue_harness	0	harness_blue	0
@@ -49,6 +51,7 @@ minecraft:brewer_pottery_sherd	0	brewer_pottery_sherd	0
 minecraft:brewing_stand	0	brewing_stand	0
 minecraft:brick	0	brick	0
 minecraft:brown_bundle	0	bundle_brown	0
+minecraft:brown_cushion	0	cushion	3
 minecraft:brown_dye	0	dye_powder	17
 minecraft:brown_egg	0	brown_egg	0
 minecraft:brown_harness	0	harness_brown	0
@@ -78,6 +81,7 @@ minecraft:coast_armor_trim_smithing_template	0	coast_armor_trim_smithing_templat
 minecraft:cocoa_beans	0	dye_powder	3
 minecraft:cod	0	fish	0
 minecraft:cod_bucket	0	bucket	4
+minecraft:command_block_minecart	0	minecart_command_block	0
 minecraft:comparator	0	comparator	0
 minecraft:compass	0	compass_item	0
 minecraft:compound	0	compound	0
@@ -103,6 +107,7 @@ minecraft:crimson_hanging_sign	0	sign_crimson_hanging	0
 minecraft:crimson_sign	0	crimson_sign_item	0
 minecraft:crossbow	0	crossbow_standby	0
 minecraft:cyan_bundle	0	bundle_cyan	0
+minecraft:cyan_cushion	0	cushion	6
 minecraft:cyan_dye	0	dye_powder	6
 minecraft:cyan_harness	0	harness_cyan	0
 minecraft:danger_pottery_sherd	0	danger_pottery_sherd	0
@@ -144,6 +149,7 @@ minecraft:eye_armor_trim_smithing_template	0	eye_armor_trim_smithing_template	0
 minecraft:feather	0	feather	0
 minecraft:fermented_spider_eye	0	spider_eye_fermented	0
 minecraft:field_masoned_banner_pattern	0	field_masoned_banner_pattern	0
+minecraft:filled_map	0	map_filled	0
 minecraft:fire_charge	0	fireball	0
 minecraft:firework_rocket	0	fireworks	0
 minecraft:firework_star	0	fireworks_charge	0
@@ -180,9 +186,11 @@ minecraft:golden_pickaxe	0	pickaxe	3
 minecraft:golden_shovel	0	shovel	3
 minecraft:golden_sword	0	sword	3
 minecraft:gray_bundle	0	bundle_gray	0
+minecraft:gray_cushion	0	cushion	8
 minecraft:gray_dye	0	dye_powder	8
 minecraft:gray_harness	0	harness_gray	0
 minecraft:green_bundle	0	bundle_green	0
+minecraft:green_cushion	0	cushion	2
 minecraft:green_dye	0	dye_powder	2
 minecraft:green_harness	0	harness_green	0
 minecraft:gunpowder	0	gunpowder	0
@@ -229,12 +237,15 @@ minecraft:leather_helmet	0	helmet	0
 minecraft:leather_horse_armor	0	leather_horse_armor	0
 minecraft:leather_leggings	0	leggings	0
 minecraft:light_blue_bundle	0	bundle_light_blue	0
+minecraft:light_blue_cushion	0	cushion	12
 minecraft:light_blue_dye	0	dye_powder	12
 minecraft:light_blue_harness	0	harness_light_blue	0
 minecraft:light_gray_bundle	0	bundle_light_gray	0
+minecraft:light_gray_cushion	0	cushion	7
 minecraft:light_gray_dye	0	dye_powder	7
 minecraft:light_gray_harness	0	harness_light_gray	0
 minecraft:lime_bundle	0	bundle_lime	0
+minecraft:lime_cushion	0	cushion	10
 minecraft:lime_dye	0	dye_powder	10
 minecraft:lime_harness	0	harness_lime	0
 minecraft:lingering_potion	0	potion_bottle_lingering	0
@@ -287,6 +298,7 @@ minecraft:lingering_potion	46	potion_bottle_lingering	20
 minecraft:lodestone_compass	0	lodestonecompass_item	0
 minecraft:mace	0	mace	0
 minecraft:magenta_bundle	0	bundle_magenta	0
+minecraft:magenta_cushion	0	cushion	13
 minecraft:magenta_dye	0	dye_powder	13
 minecraft:magenta_harness	0	harness_magenta	0
 minecraft:magma_cream	0	magma_cream	0
@@ -350,6 +362,7 @@ minecraft:oak_chest_boat	0	chest_boat	0
 minecraft:oak_hanging_sign	0	sign_oak_hanging	0
 minecraft:oak_sign	0	sign	0
 minecraft:orange_bundle	0	bundle_orange	0
+minecraft:orange_cushion	0	cushion	14
 minecraft:orange_dye	0	dye_powder	14
 minecraft:orange_harness	0	harness_orange	0
 minecraft:oxidized_copper_door	0	oxidized_copper_door	0
@@ -364,9 +377,14 @@ minecraft:phantom_membrane	0	phantom_membrane	0
 minecraft:photo_item	0	photo	0
 minecraft:piglin_banner_pattern	0	piglin_banner_pattern	0
 minecraft:pink_bundle	0	bundle_pink	0
+minecraft:pink_cushion	0	cushion	9
 minecraft:pink_dye	0	dye_powder	9
 minecraft:pink_harness	0	harness_pink	0
 minecraft:plenty_pottery_sherd	0	plenty_pottery_sherd	0
+minecraft:poplar_boat	0	boat	10
+minecraft:poplar_chest_boat	0	chest_boat	10
+minecraft:poplar_door	0	poplar_door	0
+minecraft:poplar_hanging_sign	0	sign_poplar_hanging	0
 minecraft:popped_chorus_fruit	0	chorus_fruit_popped	0
 minecraft:portfolio	0	book_portfolio	0
 minecraft:potion	0	potion_bottle_drinkable	0
@@ -422,6 +440,7 @@ minecraft:prismarine_shard	0	prismarine_shard	0
 minecraft:prize_pottery_sherd	0	prize_pottery_sherd	0
 minecraft:pufferfish_bucket	0	bucket	7
 minecraft:purple_bundle	0	bundle_purple	0
+minecraft:purple_cushion	0	cushion	5
 minecraft:purple_dye	0	dye_powder	5
 minecraft:purple_harness	0	harness_purple	0
 minecraft:quartz	0	quartz	0
@@ -434,6 +453,7 @@ minecraft:raw_gold	0	raw_gold	0
 minecraft:raw_iron	0	raw_iron	0
 minecraft:recovery_compass	0	recovery_compass_item	0
 minecraft:red_bundle	0	bundle_red	0
+minecraft:red_cushion	0	cushion	1
 minecraft:red_dye	0	dye_powder	1
 minecraft:red_harness	0	harness_red	0
 minecraft:repeater	0	repeater	0
@@ -517,6 +537,7 @@ minecraft:stone_hoe	0	hoe	1
 minecraft:stone_pickaxe	0	pickaxe	1
 minecraft:stone_shovel	0	shovel	1
 minecraft:stone_sword	0	sword	1
+minecraft:straw_bed	0	straw_bed	0
 minecraft:string	0	string	0
 minecraft:sugar	0	sugar	0
 minecraft:sugar_cane	0	reeds	0
@@ -546,6 +567,7 @@ minecraft:wayfinder_armor_trim_smithing_template	0	wayfinder_armor_trim_smithing
 minecraft:weathered_copper_door	0	weathered_copper_door	0
 minecraft:wheat	0	wheat	0
 minecraft:white_bundle	0	bundle_white	0
+minecraft:white_cushion	0	cushion	15
 minecraft:white_dye	0	dye_powder	19
 minecraft:white_harness	0	harness_white	0
 minecraft:wild_armor_trim_smithing_template	0	wild_armor_trim_smithing_template	0
@@ -559,5 +581,6 @@ minecraft:wooden_sword	0	sword	0
 minecraft:writable_book	0	book_writable	0
 minecraft:written_book	0	book_written	0
 minecraft:yellow_bundle	0	bundle_yellow	0
+minecraft:yellow_cushion	0	cushion	11
 minecraft:yellow_dye	0	dye_powder	11
 minecraft:yellow_harness	0	harness_yellow	0

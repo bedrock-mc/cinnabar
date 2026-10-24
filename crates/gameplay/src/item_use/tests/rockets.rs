@@ -23,7 +23,11 @@ fn a_gliding_rocket_air_use_admits_hand_feedback_atomically() {
     });
     assert_eq!(swings.take_started(), Some(6));
     assert_eq!(packets.len(), 2);
-    assert_eq!(format!("{:?}", wire(&packets[0]).kind()), "AnimatePacket");
+    // A rocket boost swings as an item use, not a throw.
+    assert_eq!(
+        protocol::test_support::packets::swing(&wire(&packets[0])),
+        Some((7, Some("useitem".to_owned())))
+    );
     assert_eq!(use_kind(&packets[1]), "use");
     assert!(!runtime.is_using());
     assert!(runtime.take_inventory_change().is_none());

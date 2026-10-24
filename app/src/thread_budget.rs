@@ -29,7 +29,7 @@ impl ThreadBudget {
     }
 
     fn current() -> Self {
-        Self::for_cores(std::thread::available_parallelism().map_or(1, usize::from))
+        Self::for_cores(chunk_pipeline::logical_cores())
     }
 
     pub(crate) fn task_pool_plugin() -> TaskPoolPlugin {
@@ -74,15 +74,19 @@ impl ThreadBudget {
     }
 
     /// Must run before anything touches the global rayon pool.
+    /// Later calls, such as `run` after a setup-activity preload, do nothing.
     pub(crate) fn configure_global_rayon() {
-        let threads = Self::current().rayon;
-        if let Err(error) = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .thread_name(|index| format!("rayon-{index}"))
-            .build_global()
-        {
-            bevy::log::warn!("global rayon pool was already configured: {error}");
-        }
+        static CONFIGURED: std::sync::Once = std::sync::Once::new();
+        CONFIGURED.call_once(|| {
+            let threads = Self::current().rayon;
+            if let Err(error) = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .thread_name(|index| format!("rayon-{index}"))
+                .build_global()
+            {
+                bevy::log::warn!("global rayon pool was already configured: {error}");
+            }
+        });
     }
 }
 

@@ -53,6 +53,7 @@ pub fn icons(pages: &mut Vec<Page>) -> Result<[IconRef; session::ITEMS.len()], E
             }
         }
         IconRef {
+            color_mask: None,
             page,
             uv: [
                 index as u16 * ICON_SIZE,
@@ -247,8 +248,7 @@ fn draw(
         storage_durability: &durability.storage,
         ui_icons: &ui_icons,
         ui_durability: &durability.ui,
-        crafting_icons: &contents.crafting.icons,
-        crafting_output: contents.crafting.output.as_ref(),
+        crafting: &contents.crafting,
         armor_icons: &[None; 4],
         armor_durability: &[None; 4],
         offhand_icon: None,

@@ -232,3 +232,77 @@ fn stair_picking_ignores_corner_collision_state() {
         }));
     }
 }
+
+#[test]
+fn end_rod_selection_follows_the_facing_axis() {
+    let expected = [
+        ([0.375, 0.0, 0.375], [0.625, 1.0, 0.625]),
+        ([0.375, 0.0, 0.375], [0.625, 1.0, 0.625]),
+        ([0.375, 0.375, 0.0], [0.625, 0.625, 1.0]),
+        ([0.375, 0.375, 0.0], [0.625, 0.625, 1.0]),
+        ([0.0, 0.375, 0.375], [1.0, 0.625, 0.625]),
+        ([0.0, 0.375, 0.375], [1.0, 0.625, 0.625]),
+    ];
+    for record in fixture()
+        .0
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:end_rod")
+    {
+        let facing = super::super::state::State::read(record)
+            .unwrap()
+            .number(BlockProperty::FacingDirection)
+            .unwrap() as usize;
+        let input = fixture().1.by_sequential_id(record.sequential_id).unwrap();
+        assert_eq!(
+            compile(record, input).shapes.unwrap().selection.as_ref(),
+            [ShapeBox::new(
+                expected[facing].0.map(f64::from),
+                expected[facing].1.map(f64::from),
+            )],
+            "{} {}",
+            record.name,
+            record.canonical_state
+        );
+    }
+}
+
+#[test]
+fn lightning_rod_selection_follows_the_facing_axis() {
+    let rods: Vec<_> = fixture()
+        .0
+        .iter()
+        .filter(|record| {
+            assets::facts::block_render_fact(&record.name).kind
+                == assets::facts::BlockRenderKind::LightningRod
+        })
+        .collect();
+    assert!(!rods.is_empty());
+    let mut facings = std::collections::BTreeSet::new();
+    for record in rods {
+        let facing = super::super::state::State::read(record)
+            .unwrap()
+            .number(BlockProperty::FacingDirection)
+            .unwrap();
+        let (min, max) = match facing {
+            0 | 1 => ([0.375, 0.0, 0.375], [0.625, 1.0, 0.625]),
+            2 | 3 => ([0.375, 0.375, 0.0], [0.625, 0.625, 1.0]),
+            4 | 5 => ([0.0, 0.375, 0.375], [1.0, 0.625, 0.625]),
+            _ => panic!("invalid lightning rod facing {facing}"),
+        };
+        let shapes = compile(
+            record,
+            fixture().1.by_sequential_id(record.sequential_id).unwrap(),
+        )
+        .shapes
+        .unwrap();
+        assert_eq!(
+            shapes.selection.as_ref(),
+            [ShapeBox::new(min.map(f64::from), max.map(f64::from))],
+            "{} {}",
+            record.name,
+            record.canonical_state
+        );
+        facings.insert(facing);
+    }
+    assert_eq!(facings, (0..=5).collect());
+}

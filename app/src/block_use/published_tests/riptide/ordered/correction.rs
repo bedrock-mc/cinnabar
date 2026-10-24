@@ -86,11 +86,11 @@ fn ordered_position_correction_preserves_an_active_charge() {
 #[test]
 fn ordered_position_correction_preserves_a_pending_release() {
     let (mut world, mut captured) = observed_release();
-    ordered_frame(&mut world, Default::default(), vec![2]);
+    ordered_frame(&mut world, Default::default(), Vec::new());
     let timing = world.resource::<ItemUseRuntime>().active_timing().unwrap();
     let facing = world.resource::<ItemUseRuntime>().riptide_release_facing();
     correct_position(&mut world);
-    ordered_frame(&mut world, Default::default(), vec![2]);
+    ordered_frame(&mut world, Default::default(), Vec::new());
     let runtime = world.resource::<ItemUseRuntime>();
     assert!(runtime.has_pending_release());
     assert_eq!(runtime.active_timing(), Some(timing));

@@ -256,6 +256,91 @@ fn a_digest_only_update_rebuilds_the_book_listing() {
 }
 
 #[test]
+fn grid_only_changes_refresh_recipe_book_availability() {
+    for workbench in [false, true] {
+        let mut session = session();
+        if workbench {
+            session
+                .ledger_mut()
+                .apply(&InventoryEvent::Open(protocol::ContainerOpenEvent {
+                    container: protocol::ContainerIdentity::window(7),
+                    window_type: protocol::WINDOW_TYPE_WORKBENCH,
+                    position: [0; 3],
+                    runtime_entity_id: -1,
+                }));
+        }
+        let planks = protocol::vanilla_item_registry()
+            .iter()
+            .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+            .unwrap()
+            .network_id;
+        let slot = session.ledger().crafting_grid().slots().next().unwrap();
+        for count in [0, 4, 1, 0, 4] {
+            session
+                .ledger_mut()
+                .apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+                    identity: protocol::SlotIdentity {
+                        container: protocol::ContainerIdentity::window(
+                            protocol::UI_INVENTORY_WINDOW_ID,
+                        ),
+                        slot: u16::from(slot),
+                    },
+                    stack: NetworkItemStack {
+                        network_id: planks,
+                        count,
+                        stack_network_id: 1,
+                        ..NetworkItemStack::empty()
+                    },
+                    storage_item: None,
+                }));
+            let listed = session.book_recipes(false, false, 0, usize::MAX);
+            assert_eq!(listed.len(), 2);
+            assert!(listed.iter().all(|entry| entry.craftable == (count >= 4)));
+            assert_eq!(
+                session.book_recipes(true, false, 0, usize::MAX).len(),
+                if count == 0 { 0 } else { 2 }
+            );
+        }
+    }
+}
+
+#[test]
+fn block_identity_changes_refresh_recipe_book_availability() {
+    let mut session = session();
+    let planks = protocol::vanilla_item_registry()
+        .iter()
+        .find(|item| item.identifier.as_ref() == "minecraft:oak_planks")
+        .unwrap()
+        .network_id;
+    for block_runtime_id in [0, 1, 0] {
+        session
+            .ledger_mut()
+            .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(0),
+                storage_item: NetworkItemStack::empty(),
+                slots: [0, block_runtime_id]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(slot, block_runtime_id)| NetworkItemStack {
+                        network_id: planks,
+                        count: 2,
+                        stack_network_id: slot as i32 + 1,
+                        block_runtime_id,
+                        ..NetworkItemStack::empty()
+                    })
+                    .collect(),
+            }));
+        let listed = session.book_recipes(false, false, 0, usize::MAX);
+        assert_eq!(listed.len(), 2);
+        assert!(
+            listed
+                .iter()
+                .all(|entry| entry.craftable == (block_runtime_id == 0))
+        );
+    }
+}
+
+#[test]
 fn replacing_recipes_while_the_book_is_closed_frees_the_old_batch() {
     let mut session = session();
     assert!(!session.book_recipes(false, false, 0, usize::MAX).is_empty());

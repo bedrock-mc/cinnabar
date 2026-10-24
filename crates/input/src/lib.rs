@@ -29,10 +29,7 @@ pub use device::{
     MAX_MOUSE_BUTTONS, MAX_TOUCH_CONTACTS, MAX_TOUCH_CONTROLS, TouchAxis, TouchContact,
     TouchControl, TouchControlKind, TouchControlLayout, TouchLayoutError,
 };
-pub use ordered::{
-    ActionButtons, ActionEvent, DesktopEvent, DesktopEvents, MAX_PENDING_ACTION_EVENTS,
-    OrderedActions,
-};
+pub use ordered::{ActionButtons, ActionEvent, DesktopEvent, DesktopEvents, OrderedActions};
 pub use router::{MAX_LOOK_DELTA_PER_FRAME, RouterError, SemanticInputRouter};
 
 /// Stable default hit identifiers supplied by the app-owned touch layout.
@@ -75,6 +72,10 @@ pub mod touch {
     pub const INVENTORY: u16 = 34;
     pub const CHAT: u16 = 35;
     pub const EMOTE: u16 = 36;
+    pub const UTILITIES: u16 = 37;
+    pub const DEBUG_OVERLAY: u16 = 38;
+    pub const PLAYER_LIST: u16 = 39;
+    pub const DISMISS_UTILITIES: u16 = 40;
 }
 
 mod touch_controls;

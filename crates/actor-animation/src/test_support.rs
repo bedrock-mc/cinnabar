@@ -218,6 +218,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
             slots: vec![EntityRenderSlot {
                 first_candidate: 0,
                 candidate_count: 1,
+                default_candidate: None,
             }]
             .into_boxed_slice(),
             candidates: vec![EntityRenderCandidate {

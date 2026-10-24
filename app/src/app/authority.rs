@@ -41,6 +41,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             .run_if(|| cfg!(target_os = "android")),
     )
     .add_systems(
+        bevy::prelude::PreUpdate,
+        crate::ui_runtime::platform_back::press_mouse_back_for_platform_back
+            .after(bevy::input::InputSystems)
+            .run_if(|| cfg!(target_os = "android")),
+    )
+    .add_systems(
         Update,
         route_semantic_input.in_set(ClientFrameSet::SemanticSample),
     )
@@ -50,6 +56,8 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
             drive_sign_editor.in_set(OrdinaryInputSet),
             drive_server_form_input.in_set(OrdinaryInputSet),
+            // Runs while consent owns input too, to drain the ordered events it must not replay.
+            crate::ui_runtime::data_driven::drive_data_driven_input,
             crate::ui_runtime::emotes::drive_emote_input,
             drive_chat_ui_actions.in_set(OrdinaryInputSet),
             drain_inventory_authority,
@@ -90,6 +98,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         reconcile_world_stream_before_physics
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(receive_network_events)
             .before(drain_committed_ui_before_authority)
             .before(ClientFrameSet::UiAuthority)
@@ -98,6 +111,11 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         advance_dimension_transfer
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(reconcile_world_stream_before_physics)
             .after(ClientFrameSet::UiAuthority)
             .before(ClientFrameSet::SemanticFinalize),
@@ -105,7 +123,17 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         drain_committed_ui_before_authority
+            .run_if(
+                bevy::prelude::resource_exists::<
+                    client_interaction::movement::PhysicsCollisionRegistries,
+                >,
+            )
             .after(reconcile_world_stream_before_physics)
             .before(ClientFrameSet::UiAuthority),
+    )
+    .add_systems(
+        Update,
+        crate::ui_runtime::data_driven::publish_host_screens
+            .before(drain_committed_ui_before_authority),
     );
 }

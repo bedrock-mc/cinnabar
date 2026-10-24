@@ -7,12 +7,14 @@
 //! reuses its composited pixels, so a static filter costs nothing after its first frame. Layers
 //! without filter batches draw exactly as before.
 
+use super::target::UiTarget;
 use super::*;
 use super::{
     backdrop::{Pyramid, UiBackdropPipeline, UiBackdropStore, pyramid},
     composite::{UI_LAYER_FORMAT, UiLayerTexture},
     layer::{LayerDrawn, UiLayerDraw, draw_batches, draw_ui_layer},
 };
+use crate::gpu_allocation::checked;
 use bevy::render::{
     render_resource::{
         BindGroupLayout, Extent3d, LoadOp, Operations, RenderPassColorAttachment,
@@ -49,7 +51,7 @@ pub(super) fn prepare<'a>(
     device: &RenderDevice,
     layouts: [&BindGroupLayout; 2],
     sampler: &Sampler,
-    views: impl Iterator<Item = (Entity, &'a ViewTarget)>,
+    views: impl Iterator<Item = (Entity, UiTarget<'a>)>,
 ) {
     let pipelines = [pipeline.downsample(cache), pipeline.filter_composite(cache)];
     for (entity, target) in views {
@@ -62,22 +64,33 @@ pub(super) fn prepare<'a>(
         {
             continue;
         }
-        let texture = device.create_texture(&TextureDescriptor {
-            label: Some("UI element filter group"),
-            size: Extent3d {
-                width: extent[0],
-                height: extent[1],
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: UI_LAYER_FORMAT,
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        // Without targets, filter groups draw unblurred (see `draw_layer`).
+        store.filters.remove(&entity);
+        let Some((texture, mut blur)) = store.failed_filters.attempt(entity, extent, || {
+            let bytes = u64::from(extent[0])
+                * u64::from(extent[1])
+                * super::composite::UI_LAYER_BYTES_PER_TEXEL;
+            let texture = checked(device, "UI element filter group", bytes, || {
+                device.create_texture(&TextureDescriptor {
+                    label: Some("UI element filter group"),
+                    size: Extent3d {
+                        width: extent[0],
+                        height: extent[1],
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: TextureDimension::D2,
+                    format: UI_LAYER_FORMAT,
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+            })?;
+            Some((texture, pyramid(device, layouts[0], sampler, extent)?))
+        }) else {
+            continue;
+        };
         let view = texture.create_view(&TextureViewDescriptor::default());
-        let mut blur = pyramid(device, layouts[0], sampler, extent);
         blur.bind_source(device, layouts, sampler, &view);
         store.filters.insert(
             entity,
@@ -224,7 +237,8 @@ impl Blur<'_> {
         let profile = self.draw.world.get_resource::<profile::UiProfile>();
         let extent = self.targets.pyramid.scene;
         let sigma = super::backdrop_levels::batch_maximum(self.input, composite.1);
-        let Some(bounds) = group_bounds(self.input, run, sigma, extent) else {
+        let Some(bounds) = group_bounds(self.input, run, sigma, extent, self.draw.output_extent)
+        else {
             return (false, false);
         };
         let pyramid = &self.targets.pyramid;
@@ -298,6 +312,7 @@ impl Blur<'_> {
             self.draw.indices,
             self.draw.viewport,
             extent,
+            self.draw.output_extent,
             std::slice::from_ref(composite),
             None,
             Some(bounds),
@@ -314,6 +329,7 @@ pub(super) fn group_bounds(
     run: &[(usize, &UiRenderBatch, UiTextureLocation)],
     sigma: f32,
     extent: [u32; 2],
+    output_extent: Option<[u32; 2]>,
 ) -> Option<UiScissor> {
     let mut bounds = [
         f32::INFINITY,
@@ -338,6 +354,17 @@ pub(super) fn group_bounds(
             }
         }
     }
+    if let Some(output) = output_extent {
+        if output.contains(&0) {
+            return None;
+        }
+        for axis in 0..2 {
+            let scale = extent[axis] as f32 / output[axis] as f32;
+            bounds[axis] *= scale;
+            bounds[axis + 2] *= scale;
+        }
+    }
+    // The shader's blur radius remains in target pixels, including for scaled views.
     let spread = sigma.max(0.0) * 3.0 + 1.0;
     let left = (bounds[0] - spread).floor().max(0.0);
     let top = (bounds[1] - spread).floor().max(0.0);

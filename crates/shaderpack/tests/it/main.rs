@@ -15,6 +15,7 @@ mod legacy;
 mod options;
 mod progress;
 mod samplers;
+mod translation_protections;
 mod zip_source;
 
 use shaderpack::{PackTranslation, ProgramReflection, ProgramTranslation, ShaderPack};

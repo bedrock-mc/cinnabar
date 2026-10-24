@@ -142,7 +142,7 @@ impl ControllerFrame {
         input.sneaking = self.sneak_override.unwrap_or(self.requested_sneak) || choice.forced_sneak;
         if matches!(
             input.mode,
-            sim::MovementMode::Crawling | sim::MovementMode::Gliding | sim::MovementMode::Riding
+            sim::MovementMode::Crawling | sim::MovementMode::Riding
         ) {
             input.sprinting = false;
         }

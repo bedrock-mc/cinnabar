@@ -158,11 +158,19 @@ fn switching_presets_preserves_vsync() {
             .chain(VideoPreset::ALL.into_iter().rev())
         {
             settings.apply_video_preset(preset);
-            assert_eq!(settings.user_settings().video.vsync, vsync, "{preset:?}");
+            assert_eq!(
+                settings.user_settings().video.vsync,
+                vsync.into(),
+                "{preset:?}"
+            );
             assert_eq!(settings.video_preset(), Some(preset));
 
             let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
-            assert_eq!(loaded.user_settings().video.vsync, vsync, "{preset:?}");
+            assert_eq!(
+                loaded.user_settings().video.vsync,
+                vsync.into(),
+                "{preset:?}"
+            );
             assert_eq!(loaded.video_preset(), Some(preset));
         }
     }

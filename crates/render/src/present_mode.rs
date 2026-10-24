@@ -34,13 +34,19 @@ const CAPABILITIES_KNOWN: u16 = 1 << 8;
 /// Marks a published selection; the low bits hold its [`PresentModeKind`].
 const SELECTION_KNOWN: u8 = 1 << 7;
 
+/// The session's presentation request; `Auto` and `Vsync` differ only in remedy eligibility.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(u8)]
 pub enum PresentModePreference {
+    /// VSync on, eligible for the affected-driver Immediate remedy.
     #[default]
     Auto = 0,
+    /// VSync on, pinned by a launch flag or evidence run.
     Vsync = 1,
+    /// VSync off: Immediate first.
     NoVsync = 2,
+    /// VSync off without tearing: Mailbox first.
+    TearFree = 3,
 }
 
 impl PresentModePreference {
@@ -48,6 +54,7 @@ impl PresentModePreference {
         match value {
             1 => Self::Vsync,
             2 => Self::NoVsync,
+            3 => Self::TearFree,
             _ => Self::Auto,
         }
     }
@@ -57,6 +64,7 @@ impl PresentModePreference {
         match self {
             Self::Auto | Self::Vsync => PresentationIntent::Synchronized,
             Self::NoVsync => PresentationIntent::LowLatency,
+            Self::TearFree => PresentationIntent::TearFree,
         }
     }
 }

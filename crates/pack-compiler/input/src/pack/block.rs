@@ -7,10 +7,10 @@ use serde_json::{Map, Value};
 
 use super::parse::{BoundedMapIssue, BoundedUniqueMap, MAX_TEXTURE_KEYS, read_json};
 
+#[path = "block/facing.rs"]
+mod facing;
 #[path = "block/facing_cube.rs"]
 mod facing_cube;
-#[path = "block/furnace.rs"]
-mod furnace;
 #[path = "block/leaf_metadata.rs"]
 mod leaf_metadata;
 
@@ -294,8 +294,8 @@ pub fn resolve_texture_key(
                         TextureKey::resolved(key, false)
                     });
             }
-            if furnace::is_record(record) {
-                return furnace::source_face(record, face)
+            if facing::is_record(record) {
+                return facing::source_face(record, face)
                     .and_then(|source_face| faces.resolve(source_face))
                     .map_or_else(TextureKey::diagnostic, |key| {
                         TextureKey::resolved(key, false)
@@ -383,13 +383,25 @@ pub fn resolve_carried_face_key(
     carried_or_world_key(blocks, record, face, false).map(std::borrow::Cow::into_owned)
 }
 
-/// Retains the unrotated carried fallback used when a block has no carried override.
+/// Resolves an unrotated world face independently of partial carried overrides.
 pub fn resolve_carried_fallback_key(
     blocks: &BlockTextureMap,
     record: &RegistryRecord,
     face: BlockFace,
 ) -> Option<Box<str>> {
-    carried_or_world_key(blocks, record, face, true).map(|key| key.into_owned().into_boxed_str())
+    let name = record
+        .name
+        .strip_prefix("minecraft:")
+        .unwrap_or(&record.name);
+    let entry = blocks
+        .entries
+        .get(name)
+        .or_else(|| blocks.entries.get(legacy_resource_pack_block_alias(name)?))?;
+    let key = match &entry.textures {
+        TextureValue::Key(key) => key.as_str(),
+        TextureValue::Faces(faces) => faces.resolve(face)?,
+    };
+    (!key.is_empty()).then(|| key.into())
 }
 
 fn carried_or_world_key<'a>(

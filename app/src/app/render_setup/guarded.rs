@@ -10,7 +10,7 @@ use super::selection::{
     Candidate, VideoFallback, eligible, probe_backend, rank, summary, try_candidates,
     with_recovery, with_video_fallback,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bevy::{
     app::OnAppExitSystems,
     prelude::{
@@ -23,13 +23,13 @@ use bevy::{
         settings::{RenderCreation, WgpuSettings},
     },
 };
-use launcher::graphics_backend::{Backend, Platform, candidates, default_order};
+use launcher::graphics_backend::{Backend, Platform, candidates};
 use launcher_host::renderer_startup::StartupGuard;
 
 #[derive(Resource)]
 struct RendererGuard(StartupGuard);
 
-/// Applies explicit overrides, vendor defaults and crash recovery before device creation.
+/// Applies explicit overrides, platform defaults and crash recovery before device creation.
 pub(super) fn render_plugin(
     app: &mut App,
     root: &Path,
@@ -49,19 +49,11 @@ pub(super) fn render_plugin(
         .collect();
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let defaults = guard
-        .recovery
-        .working
-        .as_ref()
-        .and_then(|attempt| attempt.adapter.as_ref())
-        .map_or_else(
-            || platform.backends().to_vec(),
-            |adapter| default_order(platform, adapter),
-        );
+    let defaults = platform.backends();
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
     let crashed = guard.recovery.crashed_choice();
-    let automatic = candidates(&defaults, &supported, None, None, &[]);
+    let automatic = candidates(defaults, &supported, None, None, &[]);
     let ((creation, chosen), fallback) = with_video_fallback(
         environment.is_some(),
         video,
@@ -70,7 +62,7 @@ pub(super) fn render_plugin(
         |video, excluded| {
             let explicit = environment.is_some() || video.is_some();
             let allowed = candidates(
-                &defaults,
+                defaults,
                 &supported,
                 environment.as_deref(),
                 video,
@@ -83,6 +75,7 @@ pub(super) fn render_plugin(
                     "Renderer trying {order:?} (allowed {allowed:?}; excluded after interrupted startups: {failed:?})"
                 ));
                 let mut adapters = Vec::new();
+                let mut failures = Vec::new();
                 for backend in order {
                     let found = probe_backend(guard, backend, explicit, || {
                         log(format_args!(
@@ -102,6 +95,10 @@ pub(super) fn render_plugin(
                             bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
                         {
                             if let Err(error) = meets_requirements(&adapter) {
+                                failures.push(format!(
+                                    "{} ({backend:?}): {error:#}",
+                                    adapter.get_info().name
+                                ));
                                 log(format_args!(
                                     "Renderer skipping incompatible adapter {:?}: {error:#}",
                                     adapter.get_info()
@@ -129,6 +126,7 @@ pub(super) fn render_plugin(
                     match found {
                         Ok(found) => adapters.extend(found),
                         Err(error) => {
+                            failures.push(format!("{backend:?}: {error:#}"));
                             log(format_args!("Renderer {backend:?} probe failed: {error:#}"));
                         }
                     }
@@ -139,6 +137,16 @@ pub(super) fn render_plugin(
                     let (instance, adapter) = candidate.native;
                     bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
                         .map(|creation| (creation, backend))
+                })
+                .with_context(|| {
+                    if failures.is_empty() {
+                        "No compatible graphics adapter could be initialized".to_owned()
+                    } else {
+                        format!(
+                            "Graphics adapters lack required capabilities: {}",
+                            failures.join("; ")
+                        )
+                    }
                 })
             })
         },
@@ -217,7 +225,11 @@ async fn create_renderer(
 ) -> Result<RenderCreation> {
     let info = adapter.get_info();
     log(format_args!("Renderer creating device: {info:?}"));
+    let started = std::time::Instant::now();
     let (device, queue) = request_device(&adapter, settings).await?;
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.record("device", started.elapsed());
+    }
     log(format_args!(
         "Renderer device ready; awaiting first presentation: {info:?}"
     ));

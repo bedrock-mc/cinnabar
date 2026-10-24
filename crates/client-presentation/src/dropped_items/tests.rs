@@ -178,7 +178,7 @@ fn retained_items_and_falling_blocks_resolve_the_current_session_palette() {
     for internal in [7, 6] {
         let stream = stream(false, internal);
         assert_eq!(
-            item_block_id(&stream, visual),
+            item_block_id(&stream, visual, None),
             Some((NetworkIdMode::Sequential, internal))
         );
         assert_eq!(
@@ -211,7 +211,8 @@ fn retained_items_and_falling_blocks_preserve_high_bit_hashes() {
             &stream,
             ItemVisualRoute::RetainedBlock {
                 block_runtime_id: raw
-            }
+            },
+            None,
         ),
         Some((NetworkIdMode::Hashed, hash)),
     );
@@ -231,11 +232,83 @@ fn compiled_block_item_and_tnt_visuals_are_already_internal() {
     let stream = stream(false, 7);
     let visual = ItemVisualRoute::BlockItem(assets::BlockVisualId(1));
     assert_eq!(
-        item_block_id(&stream, visual),
+        item_block_id(&stream, visual, None),
         Some((NetworkIdMode::Sequential, 1))
     );
     assert_eq!(
         entity_block_id(&stream, &BlockEntityKind::PrimedTnt { visual }),
+        Some((NetworkIdMode::Sequential, 1, 1.0)),
+    );
+}
+
+#[test]
+fn dropped_crossed_plants_use_sprites_while_falling_blocks_keep_their_model() {
+    let cross = assets::BlockVisual {
+        faces: [0; 6],
+        flags: assets::BlockFlags::empty(),
+        kind: VisualKind::Cross,
+        support: assets::VisualSupport::Exact,
+        contributor_role: assets::ContributorRole::Primary,
+        model_template: 0,
+        animation: assets::NO_ANIMATION,
+        variant: 0,
+        destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+        native_material: assets::native_material::NativeMaterialFacts::Unresolved,
+    };
+    let quad = assets::ModelQuad {
+        positions: [[0, 256, 0], [256, 256, 256], [256, 0, 256], [0, 0, 0]],
+        uvs: [[0, 0], [4096, 0], [4096, 4096], [0, 4096]],
+        material: 0,
+        flags: assets::MODEL_QUAD_FLAG_TWO_SIDED,
+    };
+    let overlay = assets::BlockOverlay {
+        visuals: vec![
+            cross,
+            assets::BlockVisual {
+                kind: VisualKind::Cube,
+                flags: assets::BlockFlags::CUBE_GEOMETRY,
+                model_template: assets::NO_MODEL_TEMPLATE,
+                ..cross
+            },
+        ],
+        light_properties: vec![assets::LightProperties::default(); 2],
+        materials: vec![assets::Material::unvaried()],
+        model_templates: vec![assets::ModelTemplate {
+            quad_start: 0,
+            quad_count: 1,
+            flags: 0,
+        }],
+        model_quads: vec![quad],
+        ..Default::default()
+    };
+    let assets = RuntimeAssets::diagnostic()
+        .with_block_overlay(1, &overlay)
+        .unwrap();
+    let stream = stream(false, 1);
+    for visual in [
+        ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+        ItemVisualRoute::RetainedBlock {
+            block_runtime_id: 1,
+        },
+    ] {
+        assert_eq!(item_block_id(&stream, visual, Some(&assets)), None);
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(2)),
+            Some(&assets),
+        ),
+        Some((NetworkIdMode::Sequential, 2)),
+    );
+    assert!(block_template(&assets, NetworkIdMode::Sequential, 1).is_some());
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1,
+            },
+        ),
         Some((NetworkIdMode::Sequential, 1, 1.0)),
     );
 }

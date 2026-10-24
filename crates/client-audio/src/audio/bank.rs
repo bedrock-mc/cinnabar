@@ -316,26 +316,42 @@ impl SoundBank {
         }
     }
 
-    /// Queues a small set of finite UI, footstep and interaction sounds during loading.
+    /// Prepares finite combat alternatives before common UI, footstep and block sounds.
     pub fn prewarm_common(&mut self) {
         let Some(catalog) = &self.catalog else { return };
+        let mut combat: HashSet<_> = self
+            .tables()
+            .individual_events()
+            .filter(|(event, _)| event.starts_with("attack."))
+            .map(|(_, route)| route.sound.clone())
+            .collect();
+        combat.extend(
+            self.tables()
+                .entity_events(assets::facts::VanillaEntity::Player.identifier())
+                .filter(|(event, _)| event.starts_with("attack.") || *event == "hurt")
+                .map(|(_, route)| route.sound),
+        );
+        let mut definitions: Vec<_> = catalog.definitions().iter().collect();
+        definitions.sort_by_key(|definition| !combat.contains(&definition.identifier));
         let mut counts = [0; 3];
         let mut bytes = 0;
         let mut paths = Vec::new();
-        for definition in catalog.definitions() {
-            let group = if definition.category.as_deref() == Some("ui") {
-                0
+        for definition in definitions {
+            let group = if combat.contains(&definition.identifier) {
+                None
+            } else if definition.category.as_deref() == Some("ui") {
+                Some(0)
             } else if definition.identifier.starts_with("step.") {
-                1
+                Some(1)
             } else if definition.identifier.starts_with("dig.")
                 || definition.identifier.starts_with("hit.")
             {
-                2
+                Some(2)
             } else {
                 continue;
             };
             for alternative in &definition.alternatives {
-                if counts[group] == PREWARM_SOUNDS_PER_GROUP {
+                if group.is_some_and(|group| counts[group] == PREWARM_SOUNDS_PER_GROUP) {
                     break;
                 }
                 if alternative.stream == Some(true) || paths.contains(&alternative.name) {
@@ -350,7 +366,9 @@ impl SoundBank {
                 }
                 paths.push(alternative.name.clone());
                 bytes += size;
-                counts[group] += 1;
+                if let Some(group) = group {
+                    counts[group] += 1;
+                }
             }
         }
         for path in paths {

@@ -679,10 +679,10 @@ impl ServerAtlas {
             return found.clone();
         }
         let (found, settled) = if is_remote(key) {
-            match self.remote.as_ref()?.state(key) {
+            match self.remote.as_ref()?.load(key) {
                 RemoteImage::Ready(bytes) => (source(bytes), true),
                 RemoteImage::Failed => (None, true),
-                RemoteImage::Loading => (None, false),
+                RemoteImage::Loading | RemoteImage::ReadyWithoutBody => (None, false),
             }
         } else {
             self.local_source(key)

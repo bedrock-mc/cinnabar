@@ -19,9 +19,15 @@ pub(in crate::compiler) fn compile_rule(
         let template = if let Some(&template) = templates.get(&materials) {
             template
         } else {
+            // The transparent-cube path is for alpha art; opaque powder snow is a plain model cube.
+            let flags = if translucent_cube_material_flags(&record.name) == 0 {
+                0
+            } else {
+                MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE
+            };
             let template = push_model_template(
                 native_cube_quads(materials).to_vec(),
-                MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+                flags,
                 storage.templates,
                 storage.quads,
             )?;

@@ -236,3 +236,43 @@ fn reporter_histogram_fits_the_storage_floor() {
     assert_eq!(compiled.gaps.missing_textures, 0);
     assert_eq!(compiled.gaps.saturated_textures, 0);
 }
+#[test]
+fn multi_page_base_reserves_arrays_before_admitting_overlay_frames() {
+    let view = view(&[]);
+    let keys = assets::material_keys::MaterialKeys::default();
+    let mut builder = builder(&view, &keys);
+    builder.sources = vec![(Source::Diagnostic, 0)];
+    builder.tiles = vec![MIN_TILE];
+    builder.overlay.base_texture_pages = 2;
+    builder.max_layers = 2;
+    builder.overlay.max_page_layers = 2;
+    builder.recount_texture_bytes();
+    let capacity = builder.max_layers * builder.max_shards() - 1;
+    assert_eq!(builder.remaining_layers(), capacity);
+    let mut references = Vec::new();
+    for index in 0..capacity {
+        let storage = builder
+            .store_frames(&format!("route{index}"), 0, hd_frames(MIN_TILE, 1), None)
+            .unwrap();
+        references.push((storage.page, storage.layer));
+    }
+    assert_eq!(references, [(2, 1), (3, 0), (3, 1), (4, 0), (4, 1)]);
+    assert_eq!(builder.remaining_layers(), 0);
+    assert!(
+        builder
+            .store_frames("overflow", 0, hd_frames(MIN_TILE, 1), None)
+            .is_err()
+    );
+    let compiled = builder.finish().unwrap();
+    assert_eq!(
+        compiled.overlay.textures.len(),
+        assets::MAX_TEXTURE_PAGES - 2
+    );
+    assert!(
+        compiled
+            .overlay
+            .textures
+            .iter()
+            .all(|page| page.layers == 2)
+    );
+}

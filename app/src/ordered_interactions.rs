@@ -93,17 +93,12 @@ fn accepted_work_pending(world: &World) -> bool {
         )
 }
 
-/// Keeps new input behind older mining, block stops, selections and terminal controls.
+/// Keeps new input behind older mining, block stops and terminal controls.
 fn maintenance_carrier_pending(world: &World) -> bool {
     world
         .resource::<MeleeRuntime>()
         .has_queued_work(world.resource::<MovementTicker>())
         || world.resource::<BlockUseRuntime>().stopping()
-        || world
-            .resource::<client_state::PlayerRuntime>()
-            .inventory
-            .pending_hotbar_selection()
-            .is_some()
         || world
             .resource::<NetworkHandle<PackApplication>>()
             .closed_command_has_pending_control()
@@ -261,14 +256,10 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
             !active || snapshot.authority_released || runtime.frames.quarantined(),
         )
         .expect("accepted block stop carrier");
-    let selection_ready = world
-        .run_system_cached(crate::hotbar::ordered::flush_existing)
-        .expect("older selection carrier");
     if active
         && !snapshot.authority_released
         && !runtime.frames.quarantined()
         && stop_ready
-        && selection_ready
         && !tail.is_empty()
     {
         let mut context = None;
@@ -283,6 +274,13 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
             if phase == DispatchPhase::BeforeMovement
                 && edge.action == Action::PickItem
                 && edge.pressed
+            {
+                break;
+            }
+            if announces_selection(edge)
+                && !world
+                    .run_system_cached(crate::hotbar::ordered::flush_existing)
+                    .expect("older selection carrier")
             {
                 break;
             }
@@ -305,8 +303,22 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase) {
         // A blocked suffix expires only at its final opportunity, without replay next frame.
         runtime.ingested = ordered.events().len();
     }
+    // Held hand actions keep capturing the selected stack, so they still announce it now.
+    let selection_ready = ![Action::Attack, Action::Use]
+        .into_iter()
+        .any(|action| snapshot.phases[action as usize].held)
+        || world
+            .run_system_cached(crate::hotbar::ordered::flush_existing)
+            .expect("older selection carrier");
     runtime.barrier_pending = !stop_ready || !selection_ready || maintenance_carrier_pending(world);
     world.insert_resource(runtime);
+}
+
+/// Hand edges capture the selected stack, so a pending selection must reach the server first.
+/// Selection-only frames leave the announcement to the next tick.
+fn announces_selection(edge: ActionEvent) -> bool {
+    edge.action == Action::Use
+        || (edge.pressed && matches!(edge.action, Action::Attack | Action::PickItem))
 }
 
 /// Dispatches one edge without rerunning a frame producer or retaining a failed attempt.

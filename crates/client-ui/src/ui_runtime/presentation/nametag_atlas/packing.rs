@@ -129,6 +129,8 @@ impl NametagAtlas {
     /// Reclaims unused lines from one shelf, or adjoining empty shelves for taller ink.
     /// A missing size only asks for a free line slot, independently of pixel placement.
     pub(super) fn reclaim_shelf(&mut self, size: Option<[u32; 2]>) -> bool {
+        #[cfg(feature = "tracy")]
+        let _zone = tracing::info_span!("nametag.atlas.reclaim").entered();
         if self.requested.is_empty() {
             // Retained debug text has no frame-wide liveness set and must keep its cells.
             return false;

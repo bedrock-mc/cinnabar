@@ -109,9 +109,9 @@ pub use service::{ServicedStream, WorldStreamService};
 mod sign_edit;
 mod transfer_priority;
 pub(crate) mod workers;
-#[cfg(not(target_arch = "wasm32"))]
-pub use workers::on_idle_world_cores;
 pub use workers::world_worker_threads;
+#[cfg(not(target_arch = "wasm32"))]
+pub use workers::{logical_cores, on_idle_world_cores};
 
 use client_world::ingestion::{
     BlockMutationBatch, CommitBudget, CommitStep, DecodeCommit, DecodeCompletion, DecodeIds,
@@ -168,6 +168,8 @@ const URGENT_RESULTS_PER_PASS: usize = 16;
 /// Cooperative time for one urgent pass outside the poll, so it never sweeps a backlog.
 const URGENT_PASS_BUDGET: Duration = Duration::from_millis(1);
 const MAX_PENDING_MESH_QUEUE_WORK_PER_POLL: usize = MAX_PENDING_MESH_CHANGES;
+// Removal scans clamp between these, which panics if the floor exceeds the ceiling.
+const _: () = assert!(MAX_PENDING_SCHEDULER_SCANS_PER_POLL <= MAX_PENDING_MESH_QUEUE_WORK_PER_POLL);
 pub const MAX_IN_FLIGHT_LIGHT_JOBS: usize = 32;
 const MIN_EFFECTIVE_LIGHT_JOB_CAP: usize = 2;
 const MAX_LIGHT_COLUMN_BATCH_SUB_CHUNKS: usize = 32;

@@ -6,7 +6,7 @@ pub mod blocklist;
 #[cfg(test)]
 mod tests;
 
-/// Intel's PCI vendor identifier for Windows backend policy.
+/// Intel's PCI vendor identifier, used to decode its Windows Vulkan driver versions.
 pub const INTEL_PCI_VENDOR: u32 = 0x8086;
 // Keep the enum, names and complete registry together so a new API cannot be omitted.
 macro_rules! backends {
@@ -70,7 +70,7 @@ impl Platform {
     /// The platform subset of available APIs in default order.
     pub const fn backends(self) -> &'static [Backend] {
         match self {
-            Self::Windows => &[Backend::Vulkan, Backend::Dx12],
+            Self::Windows => &[Backend::Dx12, Backend::Vulkan],
             Self::Linux | Self::Android => &[Backend::Vulkan],
             Self::Macos => &[Backend::Metal],
         }
@@ -91,16 +91,7 @@ pub struct Adapter {
     pub integrated: bool,
 }
 
-/// Chooses by the adapter that will render, never the first enumerated GPU.
-pub fn default_order(platform: Platform, selected: &Adapter) -> Vec<Backend> {
-    let mut order = platform.backends().to_vec();
-    if platform == Platform::Windows && selected.vendor == INTEL_PCI_VENDOR {
-        order.sort_by_key(|backend| *backend != Backend::Dx12);
-    }
-    order
-}
-
-/// Applies environment and Video overrides before vendor defaults and crash exclusions.
+/// Applies environment and Video overrides before platform defaults and crash exclusions.
 /// Explicit choices bypass automatic filters, but must still be supported by this platform.
 pub fn candidates(
     defaults: &[Backend],

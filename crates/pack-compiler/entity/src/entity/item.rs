@@ -77,7 +77,7 @@ pub(super) fn compile(
     let armour = armour::reviewed()?;
     let legacy = legacy_icons::reviewed()?;
     // Vanilla draws an item as its block only when it is that block's own block item: an item
-    // the retail client gives a legacy icon, or one placing a differently named block, keeps
+    // with an icon component or a legacy icon, or one placing a differently named block, keeps
     // its sprite.
     let sprite_first = legacy
         .iter()
@@ -85,6 +85,10 @@ pub(super) fn compile(
             identifier: row.identifier.into(),
             metadata: row.metadata,
         })
+        .chain(bindings.iter().map(|binding| ItemVisualKey {
+            identifier: binding.identifier.clone(),
+            metadata: 0,
+        }))
         .chain(routes.placers.iter().cloned())
         .collect::<BTreeSet<_>>();
     // Banner models replace their legacy sign fallback; beds keep their dye-selected sprites.
@@ -186,11 +190,6 @@ pub(super) fn compile(
                 identifier: binding.identifier,
                 metadata: 0,
             };
-            if routes.routes.contains_key(&key) && !routes.placers.contains(&key) {
-                return Err(invalid(
-                    "default sprite binding conflicts with a reviewed block route",
-                ));
-            }
             let canonical_alias = key
                 .identifier
                 .strip_prefix("minecraft:")
@@ -215,10 +214,10 @@ pub(super) fn compile(
                     },
                 },
             );
+            // An icon component replaces the item's block route.
             if definitions.get(&key).is_some_and(|(_, existing)| {
                 *existing != route
-                    && !(routes.placers.contains(&key)
-                        && matches!(existing, ItemVisualDefinitionRoute::BlockItem { .. }))
+                    && !matches!(existing, ItemVisualDefinitionRoute::BlockItem { .. })
             }) {
                 return Err(invalid(
                     "default sprite binding conflicts with an exact atlas route",
@@ -271,29 +270,16 @@ pub(super) fn compile(
             &mut definitions,
         )?;
     }
-    let fuel_source = *source_indices
-        .get(assets::item::fuel::SOURCE_PATH)
-        .ok_or_else(|| invalid("item fuel defining source is absent"))?;
-    for identifier in assets::item::retail::identifiers() {
-        definitions
-            .entry(ItemVisualKey {
-                identifier: (*identifier).into(),
-                metadata: 0,
-            })
-            .or_insert((fuel_source, ItemVisualDefinitionRoute::Missing));
-    }
-    let facts_source = *source_indices
-        .get(assets::item::armour::ITEM_ARMOUR_SOURCE_PATH)
-        .ok_or_else(|| invalid("compiled item facts source is absent"))?;
-    let retail = std::str::from_utf8(assets::item::retail::SOURCE_BYTES)
-        .map_err(|_| invalid("retail item list is not UTF-8"))?;
-    for identifier in retail.lines().filter_map(|line| line.split('\t').nth(1)) {
+    let registry_source = *source_indices
+        .get(assets::item::names::SOURCE_PATH)
+        .ok_or_else(|| invalid("item registry source is absent"))?;
+    for identifier in assets::item::names::identifiers() {
         definitions
             .entry(ItemVisualKey {
                 identifier: identifier.into(),
                 metadata: 0,
             })
-            .or_insert((facts_source, ItemVisualDefinitionRoute::Missing));
+            .or_insert((registry_source, ItemVisualDefinitionRoute::Missing));
     }
     let visuals = definitions
         .into_iter()
@@ -375,7 +361,7 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
             return Err(invalid("duplicate exact block item route"));
         }
     }
-    add_retail_block_items(&mut routes, &reviewed_blocks)?;
+    add_registry_block_items(&mut routes, &reviewed_blocks)?;
     Ok(ReviewedRoutes {
         block_visual_count: table.canonical_block_states,
         routes,
@@ -383,9 +369,9 @@ fn parse_block_item_routes() -> Result<ReviewedRoutes, AssetError> {
     })
 }
 
-/// Retail items named after a registry block the reviewed table omits (saplings, mushrooms,
-/// torchflower) are that block's block item, drawn from its first canonical state.
-fn add_retail_block_items(
+/// Registry items named after a registry block the reviewed table omits (saplings, mushrooms,
+/// torchflower, command blocks) are that block's block item, drawn from its first canonical state.
+fn add_registry_block_items(
     routes: &mut BTreeMap<ItemVisualKey, BlockVisualId>,
     reviewed_blocks: &BTreeSet<Box<str>>,
 ) -> Result<(), AssetError> {
@@ -396,9 +382,7 @@ fn add_retail_block_items(
             .entry(record.name.as_ref())
             .or_insert(record.sequential_id);
     }
-    let retail = std::str::from_utf8(assets::item::retail::SOURCE_BYTES)
-        .map_err(|_| invalid("retail item list is not UTF-8"))?;
-    for identifier in retail.lines().filter_map(|line| line.split('\t').nth(1)) {
+    for identifier in assets::item::names::identifiers() {
         let key = ItemVisualKey {
             identifier: identifier.into(),
             metadata: 0,

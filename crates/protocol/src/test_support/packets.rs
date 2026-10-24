@@ -346,3 +346,48 @@ pub fn entity_hover(packet: &Packet) -> Option<(u64, Option<[f32; 3]>)> {
         },
     )
 }
+
+/// Decodes an original map row with red in the low byte of each ABGR wire word.
+pub fn map_pixel_row(map_id: i64, rgba: &[[u8; 4]]) -> WorldEvent {
+    let packet = round_trip(packets::ClientboundMapItemData {
+        map_id: ActorUniqueID(map_id),
+        width: Some(wire::ZigZag32(rgba.len().try_into().unwrap())),
+        height: Some(wire::ZigZag32(1)),
+        start_x: Some(wire::ZigZag32(0)),
+        start_y: Some(wire::ZigZag32(0)),
+        pixels: Some(
+            rgba.iter()
+                .map(|&pixel| wire::U32LE(u32::from_le_bytes(pixel)))
+                .collect(),
+        ),
+        ..Default::default()
+    });
+    into_world_event(Packet::new(packet), 0).unwrap().unwrap()
+}
+
+/// Decodes a nonempty chain of primary and parent map identities without pixels.
+pub fn map_creation(map_ids: &[i64], scale: i8) -> WorldEvent {
+    let packet = round_trip(packets::ClientboundMapItemData {
+        map_id: ActorUniqueID(map_ids[0]),
+        creation_map_ids: Some(map_ids.iter().copied().map(ActorUniqueID).collect()),
+        scale: Some(wire::I8(scale)),
+        ..Default::default()
+    });
+    into_world_event(Packet::new(packet), 0).unwrap().unwrap()
+}
+
+/// Reads the actor runtime ID and swing source of an arm-swing animation.
+pub fn swing(packet: &Packet) -> Option<(u64, Option<String>)> {
+    let packets::Packet::Animate(animate) = &*packet.data else {
+        return None;
+    };
+    (animate.action == bedrock_protocol_1_26_51::enums::AnimateAction::Swing).then(|| {
+        (
+            animate.target_actor_runtime_id.0,
+            animate
+                .swing_source
+                .as_ref()
+                .map(|source| source.to_string_lossy().into_owned()),
+        )
+    })
+}

@@ -44,9 +44,7 @@ fn a_drop_after_an_admitted_placement_uses_the_remaining_block_count() {
     let drop = protocol::test_support::transactions::observe_transaction(&packet).unwrap();
     assert_ne!(drop.legacy_request_id, placement.legacy_request_id);
     assert_eq!(drop.actions[0].from_item.count, 2);
-    assert_eq!(
-        drop.actions[0].from_item.stack_network_id,
-        Some(placement.legacy_request_id)
-    );
+    assert_eq!(drop.actions[0].from_item.stack_network_id, None);
     assert_eq!(drop.actions[0].to_item.count, 1);
+    assert_eq!(drop.actions[0].to_item.stack_network_id, None);
 }

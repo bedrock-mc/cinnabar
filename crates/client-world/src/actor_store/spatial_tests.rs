@@ -3,6 +3,37 @@ use protocol::{ActorEvent, ActorMetadata, ActorMetadataUpdateEvent};
 use protocol_ids::ActorDataKey;
 
 #[test]
+fn interaction_and_movement_boxes_share_definition_defaults() {
+    for record in &EntityFacts::pinned().records {
+        let Some([width, height]) = record.fact.collision else {
+            continue;
+        };
+        let ActorEvent::Spawn(mut spawn) = super::super::tests::spawn(1, 1) else {
+            unreachable!();
+        };
+        spawn.kind = ActorKind::Entity {
+            identifier: record.identifier.as_ref().into(),
+        };
+        spawn.position = [0.0; 3];
+        spawn.metadata = [].into();
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, ActorEvent::Spawn(spawn));
+        let actor = store.get(1).unwrap();
+        let [x, y, z] = actor.position;
+        let half = width * 0.5;
+        let expected = ([x - half, y, z - half], [x + half, y + height, z + half]);
+        assert_eq!(
+            actor.bounding_box(),
+            Some(expected),
+            "{}",
+            record.identifier
+        );
+        assert_eq!(actor.hit_boxes().collect::<Vec<_>>(), [expected]);
+        assert_eq!(actor.movement_collision_bounds(), Some(expected));
+    }
+}
+
+#[test]
 fn zero_dimensions_and_scale_keep_the_minimum_collision_box() {
     for player in [false, true] {
         for (width, height, scale) in [

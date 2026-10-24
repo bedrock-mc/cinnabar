@@ -48,10 +48,12 @@ impl SettingsOptions {
         settings.video.camera_shake = self.value(SettingId::CameraShake) != 0;
         settings.video.damage_bob = self.value(SettingId::DamageBob) as f32 / 100.0;
         settings.video.frame_rate_limit = frame_rate_limit(self.value(SettingId::MaxFramerate));
-        settings.video.vsync = self.value(SettingId::Vsync) != 0;
+        settings.video.vsync = render_api::VsyncMode::from_value(self.value(SettingId::Vsync));
         settings.video.vrr =
             render_api::VrrPreference::from_value(self.value(super::VRR_OPTION.id));
         settings.video.anti_aliasing_samples = self.value(SettingId::Msaa) as u32;
+        settings.video.render_scale_percent = self.value(SettingId::RenderResolution) as u8;
+        settings.video.render_scale_sharpen = self.value(SettingId::RenderScaleSharpen) != 0;
         settings.video.motion_blur =
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));

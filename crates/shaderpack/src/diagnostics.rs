@@ -3,7 +3,9 @@
 use std::fmt;
 
 /// A pack file position: shaders-root-relative path with forward slashes and a 1-based line.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub struct SourceLocation {
     pub file: String,
     pub line: u32,
@@ -16,7 +18,9 @@ impl fmt::Display for SourceLocation {
 }
 
 /// Which translation step reported a problem.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub enum Phase {
     /// Reading a stage file or one of its `#include`s.
     Include,
@@ -48,7 +52,7 @@ impl fmt::Display for Phase {
 /// One error. `location` is the pack file and line the problem maps back to through
 /// `#include` expansion; `None` for code the translator generated or program-level problems.
 /// `snippet` is the offending translated GLSL line when the location is generated code.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Diagnostic {
     pub phase: Phase,
     pub message: String,

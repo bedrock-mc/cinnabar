@@ -232,6 +232,7 @@ impl AudioEngine {
             self.stats.queue_overflow += 1;
             return;
         }
+        bevy::log::trace!(sound = %request.name, audio_seconds = self.clock, "audio cue queued");
         self.queue.push(request);
     }
 
@@ -334,6 +335,7 @@ impl AudioEngine {
     pub fn clear_server_if_current(&mut self) {
         if super::server::current_generation() == self.server_seen {
             self.install_server(None);
+            super::server::release_if_current(self.server_seen);
         }
     }
 
@@ -676,6 +678,7 @@ impl AudioEngine {
             gain: new_gain,
         });
         self.stats.started += 1;
+        bevy::log::trace!(sound = %request.name, audio_seconds = self.clock, "audio voice ready");
         Some(source)
     }
 }

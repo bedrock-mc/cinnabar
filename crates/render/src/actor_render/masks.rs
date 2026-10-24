@@ -248,12 +248,12 @@ pub(crate) struct MaskGpu {
 
 impl FromWorld for MaskGpu {
     /// Shares actor bind layouts and shader ownership; no new mesh buffers are allocated.
-    fn from_world(_: &mut World) -> Self {
+    fn from_world(world: &mut World) -> Self {
+        world.init_resource::<ActorPipeline>();
+        let descriptor =
+            actor_pipeline_descriptor(world.resource::<ActorPipeline>().bind_group_layout.clone());
         Self {
-            variants: Variants::new(
-                MaskSpecializer,
-                actor_pipeline_descriptor(actor_bind_group_layout()),
-            ),
+            variants: Variants::new(MaskSpecializer, descriptor),
             targets: HashMap::new(),
             attachment_bytes: 0,
         }
@@ -280,7 +280,12 @@ pub(crate) struct MaskLabel;
 
 /// Installs preparation once; the post-pass owner installs the per-view draw schedule.
 pub(super) fn install(app: &mut SubApp) {
-    app.init_resource::<MaskGpu>().add_systems(
+    app.add_systems(
+        RenderStartup,
+        bevy::render::init_gpu_resource::<MaskGpu>
+            .after(bevy::render::init_gpu_resource::<ActorPipeline>),
+    )
+    .add_systems(
         Render,
         prepare
             .in_set(RenderSystems::PrepareBindGroups)

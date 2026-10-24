@@ -6,7 +6,7 @@ fn delay_fix_does_not_accelerate_repeated_throws_in_one_slot() {
     runtime.set_delay_fix(true);
     let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
     runtime.observe_press(true);
-    assert!(runtime.step(&first).swung);
+    assert!(runtime.step(&first).swung.is_some());
 
     runtime.observe_press(true);
     let repeated = UseFrame {
@@ -22,7 +22,7 @@ fn delay_fix_does_not_accelerate_repeated_throws_in_one_slot() {
         now_millis: first.now_millis + 250,
         ..first
     };
-    assert!(runtime.step(&ready).swung);
+    assert!(runtime.step(&ready).swung.is_some());
 }
 
 #[test]
@@ -32,10 +32,10 @@ fn delay_fix_grants_one_use_per_slot_change_then_keeps_repeat_timing() {
         runtime.set_delay_fix(enabled);
         let first = item_frame(1, true, stack(2, SNOWBALL, 16), "minecraft:snowball");
         runtime.observe_press(true);
-        assert!(runtime.step(&first).swung);
+        assert!(runtime.step(&first).swung.is_some());
 
         let switched = item_frame(2, true, stack(3, SNOWBALL, 16), "minecraft:snowball");
-        assert_eq!(runtime.step(&switched).swung, enabled);
+        assert_eq!(runtime.step(&switched).swung.is_some(), enabled);
         let repeated = UseFrame {
             tick: 3,
             now_millis: 150,
@@ -61,6 +61,7 @@ fn delay_fix_grants_one_use_per_slot_change_then_keeps_repeat_timing() {
                     ..switched
                 })
                 .swung
+                .is_some()
         );
     }
 }
@@ -71,7 +72,7 @@ fn delay_fix_observes_idle_switches_but_not_stack_updates_or_toggle_cycles() {
     runtime.set_delay_fix(true);
     let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
     runtime.observe_press(true);
-    assert!(runtime.step(&first).swung);
+    assert!(runtime.step(&first).swung.is_some());
     let replaced = item_frame(2, false, stack(2, MENU_ITEM, 16), "minecraft:snowball");
     runtime.observe_press(true);
     assert!(runtime.step(&replaced).packets.is_empty());
@@ -84,7 +85,7 @@ fn delay_fix_observes_idle_switches_but_not_stack_updates_or_toggle_cycles() {
         ..first.clone()
     };
     runtime.observe_press(true);
-    assert!(runtime.step(&switched_back).swung);
+    assert!(runtime.step(&switched_back).swung.is_some());
 
     runtime.step(&UseFrame {
         tick: 3,
@@ -114,7 +115,7 @@ fn delay_fix_allows_slot_hopping_between_frames_but_not_same_slot_repeats() {
     for (tick, slot) in [(1, 2), (1, 3), (1, 2), (2, 3)] {
         let first = item_frame(tick, false, stack(slot, SNOWBALL, 16), "minecraft:snowball");
         runtime.observe_press(true);
-        assert!(runtime.step(&first).swung);
+        assert!(runtime.step(&first).swung.is_some());
         runtime.observe_press(true);
         assert!(runtime.step(&first).packets.is_empty());
     }
@@ -126,7 +127,7 @@ fn delay_fix_preserves_shared_item_cooldowns_across_slot_changes() {
     runtime.set_delay_fix(true);
     let first = item_frame(1, false, stack(2, SNOWBALL, 16), "minecraft:ender_pearl");
     runtime.observe_press(true);
-    assert!(runtime.step(&first).swung);
+    assert!(runtime.step(&first).swung.is_some());
     for tick in 2..20 {
         let switched = item_frame(
             tick,
@@ -135,7 +136,7 @@ fn delay_fix_preserves_shared_item_cooldowns_across_slot_changes() {
             "minecraft:ender_pearl",
         );
         runtime.observe_press(true);
-        assert!(!runtime.step(&switched).swung);
+        assert!(runtime.step(&switched).swung.is_none());
     }
     runtime.observe_press(true);
     assert!(
@@ -147,6 +148,7 @@ fn delay_fix_preserves_shared_item_cooldowns_across_slot_changes() {
                 "minecraft:ender_pearl"
             ))
             .swung
+            .is_some()
     );
 }
 
@@ -192,7 +194,7 @@ fn native_rearm_applies_to_fresh_presses_and_holds_after_slot_changes() {
         let mut runtime = ItemUseRuntime::default();
         let first = item_frame(1, true, stack(0, SNOWBALL, 16), "minecraft:snowball");
         runtime.observe_press(true);
-        assert!(runtime.step(&first).swung);
+        assert!(runtime.step(&first).swung.is_some());
         let switched = UseFrame {
             tick: 2,
             now_millis: first.now_millis + 50,
@@ -220,6 +222,7 @@ fn native_rearm_applies_to_fresh_presses_and_holds_after_slot_changes() {
                     ..switched
                 })
                 .swung
+                .is_some()
         );
     }
 }
@@ -246,7 +249,7 @@ fn chorus_fruit_cooldown_survives_release_and_reselection() {
     let throw = item_frame(3, false, stack(2, SNOWBALL, 16), "minecraft:snowball");
     runtime.observe_press(true);
     assert!(
-        runtime.step(&throw).swung,
+        runtime.step(&throw).swung.is_some(),
         "chorus fruit does not cool down snowballs"
     );
     let cooldown = first.air_use.unwrap().cooldown().unwrap();
@@ -271,14 +274,14 @@ fn slot_change_throws_keep_cooldowns_in_their_item_categories() {
         let first = item_frame(1, false, stack(0, SNOWBALL, 16), identifier);
         let cooldown = first.air_use.unwrap().cooldown().unwrap();
         runtime.observe_press(true);
-        assert!(runtime.step(&first).swung);
+        assert!(runtime.step(&first).swung.is_some());
         let blocked = UseFrame {
             now_millis: first.now_millis + 16,
             ..item_frame(1, false, stack(1, SNOWBALL, 16), identifier)
         };
         runtime.observe_press(true);
         let outcome = runtime.step(&blocked);
-        assert!(!outcome.swung);
+        assert!(outcome.swung.is_none());
         assert_eq!(kinds(&outcome), ["use"]);
         assert_eq!(summary(&transaction(&outcome.packets[0])).1, 0);
         assert_eq!(runtime.cooldown_progress(cooldown, first.tick), 1.0);
@@ -293,17 +296,17 @@ fn slot_change_throws_keep_cooldowns_in_their_item_categories() {
             };
             runtime.observe_press(true);
             assert!(
-                runtime.step(&unrelated).swung,
+                runtime.step(&unrelated).swung.is_some(),
                 "{identifier} does not cool down {other}"
             );
         }
         let until = first.tick + u64::from(cooldown.ticks);
         let before = item_frame(until - 1, false, stack(5, SNOWBALL, 16), identifier);
         runtime.observe_press(true);
-        assert!(!runtime.step(&before).swung);
+        assert!(runtime.step(&before).swung.is_none());
         let expired = item_frame(until, false, stack(6, SNOWBALL, 16), identifier);
         runtime.observe_press(true);
-        assert!(runtime.step(&expired).swung);
+        assert!(runtime.step(&expired).swung.is_some());
     }
 }
 

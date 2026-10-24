@@ -85,6 +85,10 @@ fn device_requirements(
             features.remove(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
         }
     }
+    raise_window_texture_limits(&mut limits, &adapter.limits());
+    limits.max_storage_buffers_per_shader_stage = limits
+        .max_storage_buffers_per_shader_stage
+        .min(adapter.limits().max_storage_buffers_per_shader_stage);
     if let Some(disabled) = settings.disabled_features {
         features.remove(disabled);
     }
@@ -93,6 +97,17 @@ fn device_requirements(
         limits = limits.or_worse_values_from(constrained);
     }
     (features, limits)
+}
+
+/// Window-sized targets follow the window, which can span monitors beyond the 8192 default, so
+/// every priority takes the adapter's texture dimensions.
+fn raise_window_texture_limits(limits: &mut wgpu::Limits, adapter: &wgpu::Limits) {
+    limits.max_texture_dimension_1d = limits
+        .max_texture_dimension_1d
+        .max(adapter.max_texture_dimension_1d);
+    limits.max_texture_dimension_2d = limits
+        .max_texture_dimension_2d
+        .max(adapter.max_texture_dimension_2d);
 }
 
 /// Builds exactly one backend with the shipping compiler and display policy.
@@ -192,8 +207,10 @@ pub(super) fn meets_requirements(adapter: impl Into<AdapterCapabilities>) -> Res
     );
     anyhow::ensure!(
         adapter.limits.max_storage_buffers_per_shader_stage
-            >= render::required_vertex_storage_buffers(),
-        "GPU has too few vertex-stage storage buffers for the renderer"
+            >= render::minimum_vertex_storage_buffers(),
+        "GPU supports {} storage buffers per shader stage; terrain requires at least {}",
+        adapter.limits.max_storage_buffers_per_shader_stage,
+        render::minimum_vertex_storage_buffers()
     );
     Ok(())
 }

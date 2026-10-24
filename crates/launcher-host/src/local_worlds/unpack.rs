@@ -9,7 +9,7 @@ use std::{
     },
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use zip::ZipArchive;
 
 use super::{
@@ -52,6 +52,9 @@ pub(super) const BDS_LIMITS: UnpackLimits = UnpackLimits {
     max_archive_ratio: 100.0,
 };
 
+/// The provenance manifest's file name inside each install folder.
+pub(super) const INSTALL_MANIFEST: &str = "manifest.json";
+
 /// Where an installed build came from.
 #[derive(Serialize)]
 struct Manifest<'a> {
@@ -62,6 +65,19 @@ struct Manifest<'a> {
     platform: String,
     downloaded_unix: i64,
     client_version_prefix: String,
+}
+
+/// The archive digest recorded when `install` was unpacked from its download; `None` without a
+/// readable manifest.
+pub(super) fn install_digest(install: &Path) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Recorded {
+        zip_sha256: String,
+    }
+    let bytes = fs::read(install.join(INSTALL_MANIFEST)).ok()?;
+    serde_json::from_slice::<Recorded>(&bytes)
+        .ok()
+        .map(|recorded| recorded.zip_sha256)
 }
 
 struct PlannedFile {
@@ -116,12 +132,16 @@ impl Provisioner {
             url: link,
             zip_sha256: digest,
             zip_bytes: size,
-            platform: format!("{}/{}", self.platform.os, self.platform.arch),
+            platform: format!(
+                "{}/{}",
+                self.download_platform().os,
+                self.download_platform().arch
+            ),
             downloaded_unix: unix_now(),
             client_version_prefix: self.prefix(),
         })
         .map_err(|error| failed(error.to_string()))?;
-        write_private(&partial.join("manifest.json"), &manifest)
+        write_private(&partial.join(INSTALL_MANIFEST), &manifest)
             .map_err(|error| failed(error.to_string()))
     }
 

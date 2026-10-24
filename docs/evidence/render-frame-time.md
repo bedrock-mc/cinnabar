@@ -2,8 +2,8 @@
 
 Captures: aeris.land lobby spawn, idle, render distance 32, MSAA 2×, VSync off,
 developer-control client driven over client MCP, Tracy 0.14.1, 30 s each after a 20 s settle.
-Windows 11, Ryzen 9800X3D, Radeon RX 6600 XT, DX12 (then the Windows default; it is now
-Vulkan). Before and after builds, on `a12bc668c`, ran back to back in one session, two captures
+Windows 11, Ryzen 9800X3D, Radeon RX 6600 XT, DX12 (the Windows default for every GPU
+vendor). Before and after builds, on `a12bc668c`, ran back to back in one session, two captures
 each per resolution. Frame numbers come from captures without per-node GPU timing; GPU
 attribution comes from `CINNABAR_GPU_NODES=1` captures of the same builds.
 

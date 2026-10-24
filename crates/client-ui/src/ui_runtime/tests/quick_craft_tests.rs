@@ -1,4 +1,4 @@
-//! Both recipe-book renderers dispatch primary and secondary crafting gestures.
+//! Both recipe-book renderers dispatch primary placement and secondary crafting gestures.
 
 use super::*;
 use crate::ui_runtime::{inventory_actions::recipe_book_entries, inventory_drag::PointerAction};
@@ -105,37 +105,83 @@ fn session(workbench: bool) -> (player_state::PlayerState, UiRuntime, protocol::
 }
 
 #[test]
-fn both_buttons_craft_from_engine_and_fallback_recipe_books() {
+fn a_secondary_click_crafts_from_engine_and_fallback_recipe_books() {
     for workbench in [false, true] {
         for hit in [
             InventoryCellHit::RecipeBook(0),
             InventoryCellHit::Widget(Widget::BookRecipe(0)),
         ] {
-            for secondary in [false, true] {
-                let (mut player, mut runtime, output) = session(workbench);
-                runtime.perform_pointer_action(
-                    &mut player,
-                    if secondary {
-                        PointerAction::SecondaryClick(hit)
-                    } else {
-                        PointerAction::Click(hit)
-                    },
-                );
-                let ledger = player.inventory.ledger();
-                // The slot the craft empties never takes its output.
-                let crafted = ledger.displayed_stack(1).expect("recipe click must craft");
-                assert_eq!(crafted.network_id, output.network_id);
-                assert_eq!(crafted.count, u16::from(output.count));
-                assert_eq!(
-                    u32::from_ne_bytes(crafted.block_runtime_id.to_ne_bytes()),
-                    output.block_runtime_id
-                );
-                assert!(ledger.cursor_stack().is_none());
-                assert!(ledger.displayed_stack(0).is_none());
-                assert_eq!(ledger.pending_request_count(), 1);
-                assert!(ledger.pending_batch().unwrap().is_some());
-            }
+            let (mut player, mut runtime, output) = session(workbench);
+            runtime.perform_pointer_action(&mut player, PointerAction::SecondaryClick(hit));
+            let ledger = player.inventory.ledger();
+            // The slot the craft empties never takes its output.
+            let crafted = ledger.displayed_stack(1).expect("recipe click must craft");
+            assert_eq!(crafted.network_id, output.network_id);
+            assert_eq!(crafted.count, u16::from(output.count));
+            assert_eq!(
+                u32::from_ne_bytes(crafted.block_runtime_id.to_ne_bytes()),
+                output.block_runtime_id
+            );
+            assert!(ledger.cursor_stack().is_none());
+            assert!(ledger.displayed_stack(0).is_none());
+            assert_eq!(ledger.pending_request_count(), 1);
+            assert!(ledger.pending_batch().unwrap().is_some());
         }
+    }
+}
+
+/// A primary click moves the ingredients into the grid rather than crafting.
+#[test]
+fn a_primary_click_lays_the_recipe_into_the_grid() {
+    for workbench in [false, true] {
+        for hit in [
+            InventoryCellHit::RecipeBook(0),
+            InventoryCellHit::Widget(Widget::BookRecipe(0)),
+        ] {
+            let (mut player, mut runtime, _) = session(workbench);
+            let log = player
+                .inventory
+                .ledger()
+                .displayed_stack(0)
+                .unwrap()
+                .network_id;
+            runtime.perform_pointer_action(&mut player, PointerAction::Click(hit));
+            let ledger = player.inventory.ledger();
+            let first = ledger.crafting_grid().slots().next().unwrap();
+            let placed = ledger
+                .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(first))
+                .expect("the log moves into the grid");
+            assert_eq!((placed.network_id, placed.count), (log, 1));
+            assert!(ledger.displayed_stack(0).is_none());
+            assert!(ledger.displayed_stack(1).is_none());
+            assert_eq!(ledger.pending_request_count(), 1);
+        }
+    }
+}
+
+/// After a primary click moves the only log into the grid, a secondary click crafts from it.
+#[test]
+fn a_secondary_click_crafts_from_ingredients_a_primary_click_placed() {
+    for workbench in [false, true] {
+        let (mut player, mut runtime, output) = session(workbench);
+        let hit = InventoryCellHit::RecipeBook(0);
+        runtime.perform_pointer_action(&mut player, PointerAction::Click(hit));
+        runtime.perform_pointer_action(&mut player, PointerAction::SecondaryClick(hit));
+        let ledger = player.inventory.ledger();
+        assert_eq!(ledger.pending_request_count(), 2);
+        let first = ledger.crafting_grid().slots().next().unwrap();
+        assert!(
+            ledger
+                .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(first))
+                .is_none()
+        );
+        let crafted = ledger
+            .displayed_stack(0)
+            .expect("the craft lands in the hotbar");
+        assert_eq!(
+            (crafted.network_id, crafted.count),
+            (output.network_id, u16::from(output.count))
+        );
     }
 }
 

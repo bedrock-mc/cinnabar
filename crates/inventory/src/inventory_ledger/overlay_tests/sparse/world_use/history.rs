@@ -356,7 +356,7 @@ fn consumption_rebuilds_an_unsent_drop_from_restored_backing() {
     assert_eq!(ledger.confirmed_stack(Cell::Inventory(0)).unwrap().count, 4);
     answer_drop(&mut ledger, screen, true, 4);
     queue_drop(&mut ledger, true);
-    let consumption = consume_backing(&mut ledger, 0);
+    consume_backing(&mut ledger, 0);
     let (packet, _) = ledger.pending_batch().unwrap().unwrap();
     let transaction = protocol::test_support::transactions::observe_transaction(&packet).unwrap();
     assert_eq!(
@@ -365,7 +365,7 @@ fn consumption_rebuilds_an_unsent_drop_from_restored_backing() {
             transaction.actions[0].from_item.stack_network_id,
             transaction.actions[0].to_item.count
         ),
-        (3, Some(consumption), 2)
+        (3, None, 2)
     );
 }
 
@@ -432,7 +432,7 @@ fn consumption_keeps_its_resolved_rollback_through_screen_retirement() {
                     transaction.actions[0].from_item.count,
                     transaction.actions[0].from_item.stack_network_id
                 ),
-                (5, Some(11))
+                (5, None)
             );
         }
     }

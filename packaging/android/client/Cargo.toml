@@ -21,6 +21,7 @@ cinnabar = { path = "../../../app", default-features = false }
 first-run = { path = "../../../crates/first-run" }
 jni = "=0.21.1"
 launcher = { path = "../../../crates/launcher" }
+launcher-host = { path = "../../../crates/launcher-host" }
 # Oboe, below cpal, links the C++ runtime the APK ships instead of a private copy.
 rodio = { version = "=0.20.1", default-features = false, features = ["cpal-shared-stdcxx"] }
 serde = { version = "1", features = ["derive"] }
@@ -28,3 +29,6 @@ serde_json = "1"
 
 [lints]
 workspace = true
+
+[features]
+shaderpacks = ["cinnabar/shaderpacks"]

@@ -131,6 +131,38 @@ fn recompiled_entities_share_unchanged_pixels_with_the_live_catalog() {
     assert!(pixels.upgrade().is_none());
 }
 
+// Leaving a server must release its compiled entities: the cache reuses a pack only while a session
+// or kept stack still owns it.
+#[test]
+fn the_cache_reuses_owned_entities_without_keeping_them_alive() {
+    let cache = super::EntityCache::default();
+    let view = resource_pack::LayeredPackView::tracked(entity_stack());
+    let compiles = std::cell::Cell::new(0);
+    let resolve = || {
+        cache
+            .get_or_compile(
+                inputs(None),
+                &view,
+                None,
+                &|| false,
+                |view, refs, dir, equipment, encode, cancelled| {
+                    compiles.set(compiles.get() + 1);
+                    super::super::compile_encoded(view, refs, dir, equipment, encode, cancelled)
+                },
+            )
+            .unwrap()
+            .unwrap()
+    };
+    let owned = resolve();
+    assert!(std::sync::Arc::ptr_eq(&owned, &resolve()));
+    assert_eq!(compiles.get(), 1);
+    let released = std::sync::Arc::downgrade(&owned);
+    drop(owned);
+    assert!(released.upgrade().is_none());
+    drop(resolve());
+    assert_eq!(compiles.get(), 2);
+}
+
 fn entity_stack() -> std::sync::Arc<resource_pack::ValidatedPackStack> {
     let mut png = std::io::Cursor::new(Vec::new());
     image::RgbaImage::from_pixel(1, 1, image::Rgba([37, 59, 83, 255]))

@@ -234,3 +234,15 @@ pub(super) fn mushroom_variant_index(record: &RegistryRecord) -> Option<usize> {
         .then_some(usize::from(state.huge_mushroom_bits.value))
         .filter(|&bits| bits <= 15)
 }
+
+/// The terrain array entry a built-in block's native class draws, for every key it uses.
+pub(super) fn class_variant(record: &RegistryRecord) -> Option<usize> {
+    use assets::facts::{StateValue, pack::TextureVariant};
+    match assets::facts::pack::texture_variant(&record.name)? {
+        TextureVariant::Fixed(index) => Some(index),
+        TextureVariant::Flag(property) => Some(usize::from(matches!(
+            record.property(property)?,
+            StateValue::Bool(true) | StateValue::Int(1)
+        ))),
+    }
+}

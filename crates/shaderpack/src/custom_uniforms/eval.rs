@@ -12,7 +12,7 @@ const DEFAULT_FADE_SECONDS: f32 = 1.0;
 pub(super) const RANDOM_SEED: u64 = 0x5EED_C0FF_EE15_BEEF;
 
 /// One `smooth()` accumulator.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default)]
 pub(super) struct SmoothState {
     /// The previous smoothed value; `None` until the call first runs.
     last: Option<Value>,

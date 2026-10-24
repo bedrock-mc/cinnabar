@@ -65,6 +65,25 @@ fn frontend_splices_before_line_comments() {
 }
 
 #[test]
+fn unmatched_endif_skips_its_line_and_continues_as_jcpp_does() {
+    // The include closes the block its includer opened, so the includer's own `#endif` has
+    // no block left. Iris's JCPP reports it, skips that line and keeps preprocessing.
+    let pp = run(
+        &[
+            (
+                "a.fsh",
+                "#if 0\nint hidden;\n#include \"/b.glsl\"\nint reopened;\n#endif stray\nint tail;\n",
+            ),
+            ("b.glsl", "int also_hidden;\n#endif\n"),
+        ],
+        "a.fsh",
+        &[],
+    );
+    let idents: Vec<_> = pp.tokens.iter().filter_map(|t| t.ident()).collect();
+    assert_eq!(idents, ["int", "reopened", "int", "tail"]);
+}
+
+#[test]
 fn frontend_original_line_numbers_survive_metadata_and_comments() {
     let pp = run(
         &[(
@@ -817,4 +836,49 @@ fn repeated_defines_preserve_original_logical_lines() {
         })
         .collect();
     assert_eq!(values, ["2", "4", "2", "6", "82"]);
+}
+
+#[test]
+fn frontend_iris_empty_condition() {
+    let result = run(
+        &[(
+            "a.fsh",
+            "#define EMPTY\n#if EMPTY\n#error inactive\n#else\nint selected;\n#endif\n",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+}
+
+#[test]
+fn frontend_iris_trailing_conditional_tokens() {
+    let result = run(
+        &[(
+            "a.fsh",
+            "#define ON\n#ifdef ON && UNDEFINED\nint selected;\n#else\n#error inactive\n#endif\n",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+}
+
+#[test]
+fn frontend_iris_missing_conditional_name() {
+    let result = run(
+        &[(
+            "a.fsh",
+            "#ifdef\n#error skipped recovery line\nint selected;\n#else\n#error inactive\n#endif\n",
+        )],
+        "a.fsh",
+        &[],
+    );
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
+}
+
+#[test]
+fn frontend_iris_unclosed_condition_at_end() {
+    let result = run(&[("a.fsh", "#if 1\nint selected;\n")], "a.fsh", &[]);
+    assert!(result.tokens.iter().any(|t| t.ident() == Some("selected")));
 }

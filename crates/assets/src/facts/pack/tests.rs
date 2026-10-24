@@ -181,6 +181,28 @@ fn pack_rules_preserve_alpha_and_leather_sprite_membership() {
 }
 
 #[test]
+fn every_vanilla_pack_material_has_a_kind() {
+    for name in &vocabulary()["material"] {
+        assert!(rules().material(name).is_some(), "{name}");
+    }
+    assert_eq!(rules().material("spider"), Some(MaterialKind::Provisional));
+    assert_eq!(
+        rules().material("spider_invisible"),
+        Some(MaterialKind::Provisional)
+    );
+    assert_eq!(rules().material_state("spider"), None);
+    assert_eq!(rules().material("custom"), None);
+}
+
+#[test]
+fn pack_rules_reject_a_listed_provisional_material() {
+    let mut document: serde_json::Value = serde_json::from_slice(BLOCK_POLICY_BYTES).unwrap();
+    document["pack_rules"]["materials"]["spider"] = "Provisional".into();
+    let broken: PackRules = serde_json::from_value(document["pack_rules"].clone()).unwrap();
+    assert!(broken.validate().unwrap_err().contains("provisional"));
+}
+
+#[test]
 fn pack_rules_preserve_material_alias_states_and_rasters() {
     let mut names = BTreeSet::new();
     for row in include_str!("../../../data/vanilla-pack-vocabulary-1.26.50.tsv").lines() {
@@ -372,6 +394,7 @@ fn pack_rules_preserve_typed_texture_and_block_requests() {
         (PackBlock::CobblestoneWall, "minecraft:cobblestone_wall"),
         (PackBlock::Air, "minecraft:air"),
         (PackBlock::Stone, "minecraft:stone"),
+        (PackBlock::HeavyCore, "minecraft:heavy_core"),
     ] {
         assert_eq!(slot.identifier(), old);
     }
@@ -501,4 +524,29 @@ fn existing_item_and_entity_facts_preserve_pack_special_cases() {
             record.identifier.as_ref() == "minecraft:ender_crystal"
         );
     }
+}
+
+/// Each face-slot member is registered with the facing state its native class reads.
+#[test]
+fn face_slot_members_carry_the_state_their_class_reads() {
+    let records = crate::read_registry_for_protocol(
+        crate::pinned_block_registry_bytes(),
+        crate::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let mut members = BTreeSet::new();
+    for record in records.iter() {
+        let Some(slots) = face_slots(&record.name) else {
+            continue;
+        };
+        assert!(
+            record
+                .property(crate::facts::BlockProperty::MinecraftCardinalDirection)
+                .is_some(),
+            "{} ({slots:?})",
+            record.name
+        );
+        members.insert(record.name.to_string());
+    }
+    assert_eq!(members.len(), 9);
 }

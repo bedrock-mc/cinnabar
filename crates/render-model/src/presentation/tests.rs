@@ -3,9 +3,11 @@ use std::num::NonZeroU16;
 use super::*;
 use FrameRateLimit::{Fixed, Unlimited};
 use PresentModeKind::{Fifo, FifoRelaxed, Immediate, Mailbox};
-use PresentationIntent::{LowLatency, Synchronized, Unpaced};
+use PresentationIntent::{LowLatency, Synchronized, TearFree, Unpaced};
 
-const INTENTS: [PresentationIntent; 3] = [Synchronized, LowLatency, Unpaced];
+const GAMEPLAY: FrameRateContext = FrameRateContext::Gameplay;
+
+const INTENTS: [PresentationIntent; 4] = [Synchronized, LowLatency, TearFree, Unpaced];
 
 fn modes(list: &[PresentModeKind]) -> SurfacePresentModes {
     list.iter().copied().collect()
@@ -44,6 +46,10 @@ fn selection_table_matches_backend_capability_sets() {
         (LowLatency, metal, Immediate),
         (LowLatency, dx12, Mailbox),
         (LowLatency, fifo_only, Fifo),
+        (TearFree, dx12_tearing, Mailbox),
+        (TearFree, metal, Immediate),
+        (TearFree, dx12, Mailbox),
+        (TearFree, fifo_only, Fifo),
         (Unpaced, metal, Immediate),
         (Unpaced, dx12, Mailbox),
         (Unpaced, modes(&[Fifo, FifoRelaxed]), Fifo),
@@ -56,13 +62,13 @@ fn selection_table_matches_backend_capability_sets() {
     }
 }
 
-/// Synchronized presentation never tears; VSync off prefers Immediate whenever advertised.
+/// Low latency prefers Immediate, while the tear-free choice prefers Mailbox.
 #[test]
 fn presentation_intents_respect_the_tearing_boundary() {
     for surface in all_surfaces() {
-        assert_ne!(
+        assert_eq!(
             select_present_mode(Synchronized, surface),
-            Immediate,
+            Fifo,
             "{surface:?}"
         );
         assert_eq!(
@@ -70,6 +76,14 @@ fn presentation_intents_respect_the_tearing_boundary() {
             surface.contains(Immediate),
             "{surface:?}"
         );
+        assert_eq!(
+            select_present_mode(TearFree, surface) == Immediate,
+            surface.contains(Immediate) && !surface.contains(Mailbox),
+            "{surface:?}"
+        );
+        if surface.contains(Mailbox) {
+            assert_eq!(select_present_mode(TearFree, surface), Mailbox);
+        }
     }
 }
 
@@ -88,6 +102,7 @@ fn selection_never_requests_an_unadvertised_mode_or_relies_on_fallback() {
 fn unprobed_player_requests_start_on_fifo() {
     assert_eq!(initial_present_mode(Synchronized), Fifo);
     assert_eq!(initial_present_mode(LowLatency), Fifo);
+    assert_eq!(initial_present_mode(TearFree), Fifo);
     assert_eq!(initial_present_mode(Unpaced), Immediate);
     let fifo_only = SurfacePresentModes::FIFO_ONLY;
     assert_eq!(configured_present_mode(Immediate, fifo_only), Fifo);
@@ -98,14 +113,58 @@ fn unprobed_player_requests_start_on_fifo() {
     assert_eq!(configured_present_mode(FifoRelaxed, fifo_only), Fifo);
 }
 
+#[test]
+fn menus_bound_both_vsync_choices_by_the_display_and_retain_lower_player_caps() {
+    for intent in INTENTS {
+        let timing = display(144, VrrStatus::Inactive);
+        for limit in [Unlimited, fixed(240)] {
+            assert_eq!(
+                frame_rate_target(intent, limit, timing, FrameRateContext::Menus),
+                timing.refresh
+            );
+        }
+        assert_eq!(
+            frame_rate_target(intent, fixed(30), timing, FrameRateContext::Menus),
+            Some(hz(30))
+        );
+        assert_eq!(
+            frame_rate_target(
+                intent,
+                Unlimited,
+                DisplayTiming::default(),
+                FrameRateContext::Menus
+            ),
+            None
+        );
+    }
+}
+
+#[test]
+fn the_vrr_ceiling_applies_in_menus_and_gameplay() {
+    let timing = display(144, VrrStatus::Active);
+    for intent in [LowLatency, TearFree] {
+        for context in [FrameRateContext::Menus, GAMEPLAY] {
+            for limit in [Unlimited, fixed(240)] {
+                assert_eq!(
+                    frame_rate_target(intent, limit, timing, context),
+                    Some(vrr_ceiling(timing.refresh.unwrap(), None))
+                );
+            }
+        }
+    }
+}
+
 /// Unlimited adds no application cadence; presentation or rendering determines it.
 #[test]
 fn unlimited_leaves_pacing_to_the_display_or_rendering() {
     let fixed_120 = display(120, VrrStatus::Unknown);
     for intent in INTENTS {
-        assert_eq!(frame_rate_target(intent, Unlimited, fixed_120), None);
         assert_eq!(
-            frame_rate_target(intent, fixed(75), fixed_120),
+            frame_rate_target(intent, Unlimited, fixed_120, GAMEPLAY),
+            None
+        );
+        assert_eq!(
+            frame_rate_target(intent, fixed(75), fixed_120, GAMEPLAY),
             Some(hz(75))
         );
     }
@@ -117,22 +176,28 @@ fn unlimited_leaves_pacing_to_the_display_or_rendering() {
 fn variable_refresh_caps_low_latency_below_the_maximum() {
     let vrr_120 = display(120, VrrStatus::Active);
     assert_eq!(
-        frame_rate_target(LowLatency, Unlimited, vrr_120),
+        frame_rate_target(LowLatency, Unlimited, vrr_120, GAMEPLAY),
         Some(hz(116))
     );
     assert_eq!(
-        frame_rate_target(LowLatency, fixed(200), vrr_120),
+        frame_rate_target(LowLatency, fixed(200), vrr_120, GAMEPLAY),
         Some(hz(116))
     );
     assert_eq!(
-        frame_rate_target(LowLatency, fixed(90), vrr_120),
+        frame_rate_target(LowLatency, fixed(90), vrr_120, GAMEPLAY),
         Some(hz(90))
     );
-    assert_eq!(frame_rate_target(Unpaced, Unlimited, vrr_120), None);
-    assert_eq!(frame_rate_target(Synchronized, Unlimited, vrr_120), None);
+    assert_eq!(
+        frame_rate_target(Unpaced, Unlimited, vrr_120, GAMEPLAY),
+        None
+    );
+    assert_eq!(
+        frame_rate_target(Synchronized, Unlimited, vrr_120, GAMEPLAY),
+        None
+    );
     for unconfirmed in [VrrStatus::Inactive, VrrStatus::Unknown] {
         assert_eq!(
-            frame_rate_target(LowLatency, Unlimited, display(120, unconfirmed)),
+            frame_rate_target(LowLatency, Unlimited, display(120, unconfirmed), GAMEPLAY),
             None
         );
     }
@@ -190,7 +255,7 @@ fn vrr_preference_preserves_refresh_and_resolves_every_reported_state() {
                     }
                 );
                 assert_eq!(
-                    frame_rate_target(LowLatency, Unlimited, selected),
+                    frame_rate_target(LowLatency, Unlimited, selected, GAMEPLAY),
                     if expected == VrrStatus::Active && refresh.is_some() {
                         Some(hz(116))
                     } else {

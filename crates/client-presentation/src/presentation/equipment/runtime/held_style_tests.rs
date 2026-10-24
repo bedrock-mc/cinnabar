@@ -1,5 +1,6 @@
 use super::*;
-use crate::presentation::equipment::display::{LAYER_MAIN_HAND, LAYER_OFF_HAND};
+use crate::presentation::equipment::LAYER_MAIN_HAND;
+use crate::presentation::equipment::display::LAYER_OFF_HAND;
 use render_model::ActorRigSubmission;
 
 /// Authors one selected texture with independent controller shading and raster state.

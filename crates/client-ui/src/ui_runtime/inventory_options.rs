@@ -99,6 +99,8 @@ impl UiRuntime {
             }
             return Ok(0);
         }
+        // A tab change ends the recipe the book laid into the grid.
+        player.inventory.ledger_mut().clear_recipe_selection();
         let result = self.change_inventory_options(player, true, |controller| {
             controller.options.left_tab = selected
         });

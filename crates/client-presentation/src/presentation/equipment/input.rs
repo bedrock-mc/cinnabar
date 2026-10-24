@@ -3,12 +3,16 @@
 
 use actor_animation::AttachableAnimationInput;
 use assets::ItemVisualRoute;
+use assets::facts::FISHING_ROD_IDENTIFIER;
 use chunk_pipeline::WorldStream;
 use client_world::{ActorArmorSnapshot, CanonicalItemStack};
 use protocol::ActorHandedness;
 
 use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
 use client_ui::ui_runtime::UiRuntime;
+
+/// The vanilla `item_texture.json` cast texture is the second fishing-rod variant.
+const FISHING_ROD_CAST_METADATA: u32 = 1;
 
 impl ActorEquipmentInput {
     /// Carries owner identity and complete equipment into attachable queries while retaining timing.
@@ -30,11 +34,13 @@ pub(super) fn worn_item(
     item: &CanonicalItemStack,
     dye_rgb: Option<u32>,
     use_facts: client_world::EffectiveItemUse,
+    fishing_rod_cast: bool,
 ) -> Option<WornItem> {
     if item.identity.is_empty() {
         return None;
     }
     Some(WornItem {
+        map_id: item.map_id,
         charged_projectile: item
             .charged_projectile
             .as_ref()
@@ -42,7 +48,12 @@ pub(super) fn worn_item(
         use_facts,
         grip: item.grip,
         identifier: item.identifier.clone()?,
-        metadata: item.identity.metadata,
+        metadata: if fishing_rod_cast && item.identifier.as_deref() == Some(FISHING_ROD_IDENTIFIER)
+        {
+            FISHING_ROD_CAST_METADATA
+        } else {
+            item.identity.metadata
+        },
         damage: item.damage,
         kind: match item.visual {
             ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
@@ -66,11 +77,20 @@ fn armor_slots(armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
         &armor.leggings,
         &armor.boots,
     ]
-    .map(|piece| worn_item(&piece.item, piece.dye_rgb, Default::default()))
+    .map(|piece| worn_item(&piece.item, piece.dye_rgb, Default::default(), false))
+}
+
+/// Selects cast artwork while the actor owns a tracked hook.
+fn fishing_rod_cast(stream: &WorldStream, runtime_id: u64) -> bool {
+    stream
+        .authority()
+        .actor(runtime_id)
+        .is_some_and(|actor| stream.authority().has_fishing_hook(actor.unique_id))
 }
 
 /// A remote actor's equipment from its replicated equipment and armor events.
 pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInput {
+    let fishing_rod_cast = fishing_rod_cast(stream, runtime_id);
     let held = |hand| {
         stream
             .authority()
@@ -82,6 +102,7 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
                     stream
                         .authority()
                         .item_use_profile(equipment.item.identity.network_id),
+                    fishing_rod_cast,
                 )
             })
     };
@@ -94,7 +115,14 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
         body: stream
             .authority()
             .actor_armor(runtime_id)
-            .and_then(|armor| worn_item(&armor.body.item, armor.body.dye_rgb, Default::default())),
+            .and_then(|armor| {
+                worn_item(
+                    &armor.body.item,
+                    armor.body.dye_rgb,
+                    Default::default(),
+                    false,
+                )
+            }),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         java: None,
@@ -110,6 +138,7 @@ pub fn local_input(
     runtime_id: u64,
 ) -> ActorEquipmentInput {
     use inventory::inventory_ledger::InventoryTarget;
+    let fishing_rod_cast = fishing_rod_cast(stream, runtime_id);
     let actor = stream.authority().actor(runtime_id);
     let resolve = |stack: &protocol::NetworkItemStack, dye_rgb: Option<u32>| {
         stream
@@ -122,6 +151,7 @@ pub fn local_input(
                     stream
                         .authority()
                         .item_use_profile(item.identity.network_id),
+                    fishing_rod_cast,
                 )
             })
     };
@@ -172,6 +202,7 @@ pub(super) fn canonical_fixture(
         visual: assets::ItemVisualRoute::Missing,
         grip: assets::item::grip::ItemGrip::Unresolved,
         use_animation: assets::item_use::ItemUseAnimation::None,
+        map_id: None,
         charged_projectile: None,
         charged_projectile_role: assets::item_use::ItemProjectileRole::None,
         damage: None,
@@ -218,6 +249,7 @@ mod tests {
     #[test]
     fn local_attachable_input_retains_other_hand_and_render_timing() {
         let item = |identifier: &str| WornItem {
+            map_id: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -254,6 +286,32 @@ mod tests {
         assert_eq!(input.frame_alpha, 0.75);
         assert_eq!(input.use_elapsed_ticks, Some(2));
     }
+
+    #[test]
+    fn fishing_rod_uses_cast_icon_metadata_only_with_a_live_hook() {
+        let rod = canonical_fixture(FISHING_ROD_IDENTIFIER, false, false);
+        assert_eq!(
+            worn_item(&rod, None, Default::default(), false)
+                .unwrap()
+                .metadata,
+            0
+        );
+        assert_eq!(
+            worn_item(&rod, None, Default::default(), true)
+                .unwrap()
+                .metadata,
+            FISHING_ROD_CAST_METADATA
+        );
+
+        let other = canonical_fixture("minecraft:stick", false, false);
+        assert_eq!(
+            worn_item(&other, None, Default::default(), true)
+                .unwrap()
+                .metadata,
+            0
+        );
+    }
+
     #[test]
     fn worn_glint_combines_intrinsic_dispositions_and_enchantment_facts() {
         let mut item = CanonicalItemStack {
@@ -272,30 +330,31 @@ mod tests {
             },
             identifier: Some(std::sync::Arc::from("minecraft:enchanted_book")),
             visual: ItemVisualRoute::Missing,
+            map_id: None,
             charged_projectile: None,
             damage: None,
             enchanted: false,
         };
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Unresolved;
         assert!(
-            !worn_item(&item, None, Default::default())
+            !worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.enchanted = true;
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Session { enabled: false };
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );

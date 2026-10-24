@@ -154,3 +154,29 @@ fn palette_refresh_keeps_resident_faces_drawable_until_their_replacement() {
         "palette changes cannot revive stale atlas faces"
     );
 }
+
+#[test]
+fn idle_shader_geometry_does_not_record_work() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&Default::default());
+    let device = RenderDevice::from(device);
+    let mut world = World::new();
+    world.insert_resource(PipelineCache::new(device.clone(), true));
+    world.insert_resource(RenderQueue::new(queue));
+    let profiler = RuntimeStageProfiler::new(true);
+    world.insert_resource(profiler.clone());
+    for geometry in [None, Some(ShaderpackGeometry::new(&device, Some(false)))] {
+        if let Some(geometry) = geometry {
+            world.insert_resource(geometry);
+        }
+        world.insert_resource(device.clone());
+        world.run_system_once(prepare_shaderpack_geometry).unwrap();
+        let snapshot = profiler
+            .take_snapshot_if_due(std::time::Duration::ZERO)
+            .unwrap();
+        assert_eq!(
+            snapshot.samples[RuntimeStage::ShaderpackGeometry as usize].count,
+            0
+        );
+    }
+}

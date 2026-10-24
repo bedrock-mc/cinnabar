@@ -458,6 +458,8 @@ pub struct MenuView {
     pub shader_packs_revision: u64,
     /// The imported pack currently being removed by the host.
     pub shader_pack_removing: Option<std::sync::Arc<str>>,
+    /// A picked shader-pack import is open or copying; another waits until it finishes.
+    pub shader_pack_importing: bool,
     /// The requested pack while shader-pack mode is active, even if discovery no longer lists it.
     pub shader_pack: Option<String>,
     /// The highlighted renderer or shader-pack choice; `None` while the selected shader pack is missing.
@@ -513,6 +515,8 @@ pub struct MenuView {
     pub feeds: MenuFeeds,
     /// The open local world is hosted for Xbox friends, so the pause screen offers invites.
     pub hosting: bool,
+    /// The host's own local world while playing it, which Settings can change.
+    pub world_settings: Option<std::sync::Arc<crate::local_worlds::in_world::View>>,
     /// The code invitation flow covering the Realms tab.
     pub realm_membership: Option<super::realm_membership::State>,
     /// The invite screen's friends and picks while it is up.
@@ -661,6 +665,19 @@ impl MenuView {
         })
     }
 
+    /// Whether Settings lists `section`: Server only over a world, Game only in the host's world.
+    pub fn settings_section_shown(
+        &self,
+        section: super::settings_sections::SettingSection,
+    ) -> bool {
+        use super::settings_sections::SettingSection;
+        match section {
+            SettingSection::Server => self.over_world,
+            SettingSection::Game => self.world_settings.is_some(),
+            _ => true,
+        }
+    }
+
     /// Whether a popup draws over the screen and takes its input.
     pub fn popup_open(&self) -> bool {
         self.dialog.is_some()
@@ -726,6 +743,7 @@ impl MenuView {
             shader_packs: std::sync::Arc::from([]),
             shader_packs_revision: 0,
             shader_pack_removing: None,
+            shader_pack_importing: false,
             shader_pack: None,
             renderer: Some(super::RendererChoice::Vanilla),
             shader_options_available: false,
@@ -760,6 +778,7 @@ impl MenuView {
             editing: None,
             local_worlds: MenuList::default(),
             local: Default::default(),
+            world_settings: None,
             settings: SettingsInteraction::default(),
             settings_options: Default::default(),
             storage: Default::default(),

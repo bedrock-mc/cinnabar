@@ -2,8 +2,9 @@
 //!
 //! `DefaultPlugins` installs systems for features the client never enables: 2D cameras;
 //! prepass textures; order-independent transparency; occlusion depth pyramids; visibility
-//! ranges; mesh entities; GPU-culled entities; depth of field; the lens effect stack and Bevy's
-//! own motion blur. Each would still be dispatched every frame only to find no input.
+//! ranges; mesh entities and GPU-culled entities. Each would still be dispatched every frame
+//! only to find no input. [`crate::ClientPostProcessPlugin`] separately leaves out Bevy's
+//! unused camera effects.
 //!
 //! Removing a schedule node can reorder systems that have no ordering between them, so the
 //! stock per-view passes and queue systems stay: unordered passes may share an attachment, and
@@ -26,7 +27,6 @@ use bevy::{
         mark_2d_meshes_as_changed_if_their_assets_changed,
         mark_3d_meshes_as_changed_if_their_assets_changed,
     },
-    post_process::{bloom::BloomPlugin, msaa_writeback::MsaaWritebackPlugin},
     prelude::{IntoScheduleConfigs, IntoSystemSet, SystemSet, World},
     render::{
         Render, RenderApp, RenderStartup, render_phase::sort_phase_system,
@@ -38,18 +38,16 @@ use bevy::{
 #[cfg(test)]
 mod tests;
 
-/// Replaces Bevy's `PostProcessPlugin` with the two effects client cameras use, MSAA writeback
-/// and bloom, and removes the stock systems whose inputs the client never creates.
+/// Removes the stock systems whose inputs the client never creates.
 ///
-/// Add it in place of `PostProcessPlugin`, after `CorePipelinePlugin`, `CameraPlugin`,
-/// `MeshPlugin` and `TransformPlugin` have built.
+/// Add it after `RenderPlugin`, `CorePipelinePlugin`, `CameraPlugin`, `MeshPlugin` and
+/// `TransformPlugin` have built.
 pub struct StockSystemsPlugin;
 
 impl Plugin for StockSystemsPlugin {
     fn build(&self, app: &mut App) {
         // No client entity has a parent, so static-tree dirty marking would track nothing.
         app.insert_resource(StaticTransformOptimizations::Disabled)
-            .add_plugins((MsaaWritebackPlugin, BloomPlugin))
             .add_systems(PostStartup, remove_unused_main_systems);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             // RenderStartup reruns after device recovery; the removed systems stay removed.

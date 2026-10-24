@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::options::{OptionValues, PackOption, find_option};
 
 /// One profile with its includes resolved.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Profile {
     pub name: String,
     /// Values the profile sets, by option name. They are not checked against the options'
@@ -16,7 +16,7 @@ pub struct Profile {
 }
 
 /// Where the current values stand among the profiles (see [`super::OptionMenu::profiles`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProfileScan {
     /// The first profile whose values all hold; `None` shows "Custom".
     pub current: Option<usize>,

@@ -7,6 +7,7 @@ use super::*;
 pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     culling: Option<Res<'w, render_scene::ChunkOcclusionCulling>>,
     support: Option<Res<'w, GpuCullSupport>>,
+    state: Option<Res<'w, GpuCull>>,
     frame: Option<ResMut<'w, GpuCullFrame>>,
     feedback: Option<ResMut<'w, feedback::GpuCullFeedback>>,
     direct_support: Option<Res<'w, DirectOcclusionSupport>>,
@@ -35,7 +36,8 @@ impl GpuCullQueue<'_, '_> {
         if let Some(frame) = self.frame.as_deref_mut() {
             frame.view = None;
         }
-        let supported = self.support.as_deref().is_some_and(|support| support.0);
+        let supported = self.support.as_deref().is_some_and(|support| support.0)
+            && self.state.as_deref().is_some_and(|state| state.ready);
         if probing || !supported || !self.enabled() || draw_mode != ChunkDrawMode::MultiDrawIndirect
         {
             if let Some(feedback) = self.feedback.as_deref_mut() {
@@ -72,7 +74,11 @@ impl GpuCullQueue<'_, '_> {
         let supported = self
             .direct_support
             .as_deref()
-            .is_some_and(|support| support.0);
+            .is_some_and(|support| support.0)
+            && self
+                .direct_state
+                .as_deref()
+                .is_some_and(|state| state.ready);
         if probing || !supported || !self.enabled() || draw_mode != ChunkDrawMode::Direct {
             return None;
         }

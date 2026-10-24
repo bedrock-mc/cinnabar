@@ -22,13 +22,14 @@ use winit::{
     dpi::LogicalSize,
     event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
-    window::{Window, WindowId, WindowLevel},
+    window::{Window, WindowAttributes, WindowId},
 };
 
 struct Screen {
     model: Model,
     initial_size: LogicalSize<f64>,
     text: Text,
+    preferences: crate::Preferences,
     logo: Option<Image>,
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
@@ -58,6 +59,7 @@ pub(super) fn run() -> Result<()> {
         model: Model::default(),
         initial_size: LogicalSize::new(dimensions[0], dimensions[1]),
         text: crate::text(&layout)?,
+        preferences: crate::Preferences::load(&layout),
         logo: crate::decode_logo(),
         window: None,
         gpu: None,
@@ -104,9 +106,11 @@ impl Screen {
         }
         let (w, h) = (size.width as f32, size.height as f32);
         let layout = &appearance().layout;
-        let scale = (w / layout.design_size[0])
-            .min(h / layout.design_size[1])
-            .max(layout.minimum_scale);
+        let scale = artwork_scale(
+            size.to_logical(window.scale_factor()),
+            window.scale_factor(),
+            &self.preferences,
+        );
         let mut canvas = Canvas::new(size.width, size.height);
         let colors = appearance();
         canvas.fill(
@@ -169,19 +173,31 @@ impl Screen {
     }
 }
 
+/// Maps the shared artwork to the menu body-text size, converting display density once.
+fn artwork_scale(
+    size: LogicalSize<f64>,
+    scale_factor: f64,
+    preferences: &crate::Preferences,
+) -> f32 {
+    let physical: winit::dpi::PhysicalSize<u32> = size.to_physical(scale_factor);
+    preferences.rem(physical) * ui::oreui_theme::BODY.size / appearance().layout.label_size
+}
+
+/// The loading window stacks like any other window, so players can bring the game or other
+/// apps in front of it while the game initializes.
+fn loading_window_attributes(size: LogicalSize<f64>) -> WindowAttributes {
+    crate::window::attributes(size)
+}
+
 impl ApplicationHandler<Option<Message>> for Screen {
-    /// Creates one independent native window, kept above the initializing game until ready.
+    /// Creates one independent native window for feedback until the game is ready.
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() || self.model.finished() {
             return;
         }
         let opened = (|| -> Result<_> {
-            let window = Arc::new(
-                event_loop.create_window(
-                    crate::window::attributes(self.initial_size)
-                        .with_window_level(WindowLevel::AlwaysOnTop),
-                )?,
-            );
+            let window =
+                Arc::new(event_loop.create_window(loading_window_attributes(self.initial_size))?);
             let faces = crate::built_in_faces().context("decode loading artwork")?;
             let gpu = Gpu::new(window.clone(), &faces)?;
             Ok((window, gpu))
@@ -257,5 +273,55 @@ impl ApplicationHandler<Option<Message>> for Screen {
             self.next_redraw = now + Duration::from_millis(appearance().layout.frame_millis);
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_redraw));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loading_artwork_uses_menu_scale_at_standard_and_retina_density() {
+        for (logical, expected) in [
+            ([854.0, 480.0], [1, 3]),
+            ([1280.0, 720.0], [2, 5]),
+            ([1920.0, 1080.0], [4, 8]),
+        ] {
+            for (density, gui_scale) in [1.0, 2.0].into_iter().zip(expected) {
+                let size = LogicalSize::new(logical[0], logical[1]);
+                let preferences = crate::Preferences::default();
+                let label_px =
+                    appearance().layout.label_size * artwork_scale(size, density, &preferences);
+                assert_eq!(
+                    label_px,
+                    ui::oreui_theme::BODY.size
+                        * ui::oreui_theme::GUI_PIXELS_PER_REM
+                        * gui_scale as f32,
+                    "{size:?} at {density}x"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn loading_artwork_honors_the_saved_menu_scale_offset() {
+        let size = LogicalSize::new(1280.0, 720.0);
+        let preferences = crate::Preferences {
+            gui_scale_offset: -1,
+            ..Default::default()
+        };
+        for density in [1.0, 2.0] {
+            let physical = size.to_physical::<u32>(density);
+            let expected = preferences.rem(physical) * ui::oreui_theme::BODY.size;
+            let actual =
+                appearance().layout.label_size * artwork_scale(size, density, &preferences);
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn loading_window_does_not_stay_above_other_windows() {
+        let attributes = loading_window_attributes(LogicalSize::new(1280.0, 720.0));
+        assert_eq!(attributes.window_level, winit::window::WindowLevel::Normal);
     }
 }

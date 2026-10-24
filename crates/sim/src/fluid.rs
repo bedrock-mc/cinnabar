@@ -53,15 +53,19 @@ pub(crate) fn material_submersion(
     if !liquids.iter().any(|liquid| facts.flags.contains(*liquid)) {
         return false;
     }
+    (point.y as f32) < liquid_surface_y(facts, block[1])
+}
+
+/// Height of a liquid block's surface: the block top lowered by its depth state, where a
+/// falling (full-height) liquid counts as a source.
+pub(crate) fn liquid_surface_y(facts: BlockPhysicsFacts, block_y: i32) -> f32 {
     let level = if facts.fluid_height_blocks >= 1.0 {
         1.0
     } else {
         (LIQUID_LEVEL_DIVISOR - (facts.fluid_height_blocks as f32 * LIQUID_LEVEL_DIVISOR).round())
             .clamp(1.0, 8.0)
     };
-    let surface =
-        (i64::from(block[1]) + 1) as f32 - (level / LIQUID_LEVEL_DIVISOR + HEAD_SURFACE_OFFSET);
-    (point.y as f32) < surface
+    (i64::from(block_y) + 1) as f32 - (level / LIQUID_LEVEL_DIVISOR + HEAD_SURFACE_OFFSET)
 }
 
 /// Native liquid fetch shrinks each probe and clamps it to the body's center.

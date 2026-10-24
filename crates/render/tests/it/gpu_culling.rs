@@ -8,6 +8,8 @@ mod model;
 #[path = "../../src/chunk/gpu_cull/occlusion.rs"]
 mod occlusion;
 mod raster;
+#[path = "../../src/chunk/gpu_cull/storage.rs"]
+mod storage;
 #[path = "../../src/chunk/gpu_cull/unit_mask.rs"]
 mod unit_mask;
 mod units;
@@ -23,12 +25,13 @@ use meshing::{CubeQuadLayout, Face, PackedQuad};
 
 use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source, solid_terrain_raster};
 use gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
-use kernels::{CullKernels, CullStorage, HizPyramid};
+use kernels::{CullKernels, HizPyramid};
 use model::{
     ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullRecordSource, CullStream, CullViewInput,
     CullViewUniform, OFFSET_CORNERS, STREAM_COUNT, args_region, count_index, frustum_slack,
     reference_args, region_draws, resolve_culled_args,
 };
+use storage::CullStorage;
 
 const SIDE: f32 = world::SUB_CHUNK_SIDE as f32;
 const INDEX_COUNTS: [u32; STREAM_COUNT] = [6; STREAM_COUNT];
@@ -188,7 +191,13 @@ impl<'a> Culler<'a> {
         phase: CullPhase,
         pyramid: Option<&HizPyramid>,
     ) {
-        let uniform = CullViewUniform::new(input, phase, self.slots, self.storage.capacity);
+        let uniform = CullViewUniform::new(
+            input,
+            phase,
+            self.slots,
+            self.storage.capacity,
+            self.kernels.workgroup,
+        );
         self.storage.write_uniform(&self.gpu.queue, phase, &uniform);
         let groups = self
             .kernels
@@ -324,7 +333,7 @@ fn mixed_records() -> (Vec<CullRecord>, Vec<u32>) {
 #[test]
 fn cull_and_pyramid_kernels_validate() {
     for source in [
-        kernels::cull_shader_source(),
+        kernels::cull_shader_source(model::CULL_WORKGROUP),
         kernels::pyramid_shader_source().to_owned(),
     ] {
         let module = naga::front::wgsl::parse_str(&source).unwrap();
@@ -401,7 +410,15 @@ fn cull_counts_and_commands_stay_inside_their_regions() {
 /// two-phase history match the CPU reference draw for draw.
 #[test]
 fn gpu_cull_matches_cpu_visibility_and_compacts_every_stream() {
-    let Some(gpu) = Gpu::for_fixture("gpu terrain cull") else {
+    let Some(gpu) = Gpu::for_fixture_with_limits(
+        "gpu terrain cull on a 128-thread device",
+        wgpu::Features::empty(),
+        wgpu::Limits {
+            max_compute_invocations_per_workgroup: 128,
+            max_compute_workgroup_size_x: 128,
+            ..Default::default()
+        },
+    ) else {
         return;
     };
     let (records, enabled) = mixed_records();

@@ -157,7 +157,10 @@ pub(in crate::chunk) fn install(render_app: &mut SubApp) {
     crate::world_passes::install(render_app);
     render_app
         .init_resource::<TerrainUnitBatches>()
-        .add_systems(RenderStartup, configure_support)
+        .add_systems(
+            RenderStartup,
+            configure_support.after(bevy::render::init_gpu_resource::<ChunkPipeline>),
+        )
         .add_render_command::<Opaque3d, DrawTerrainUnits<0>>()
         .add_render_command::<Opaque3d, commands::DrawTerrainOccluders>()
         .add_render_command::<Opaque3d, DrawTerrainUnits<1>>()

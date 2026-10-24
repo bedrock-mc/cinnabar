@@ -275,7 +275,7 @@ fn actor_attack_events_reach_the_shared_swing_path() {
         assert_eq!(action.actor_runtime_ids.as_ref(), &[id]);
         assert_eq!(action.kind, ActorActionKind::SwingArm);
         assert_eq!(action.data, 0.0);
-        assert_eq!(action.swing_source, None);
+        assert_eq!(action.swing_source.as_deref(), Some("attack"));
     }
     for event_id in [ActorEventType::StopAttacking, ActorEventType::Unknown(200)] {
         let packet = ActorEventPacket {
@@ -760,4 +760,17 @@ fn repeated_registry_rows_still_validate_component_framing() {
             ItemPacketError::InvalidItemNbt
         )))
     ));
+}
+
+/// Empty stacks are built every frame for listings; building one must not allocate or hash.
+#[test]
+fn empty_stacks_carry_the_empty_digest_without_allocating() {
+    let first = protocol::NetworkItemStack::empty();
+    let empty_digest: [u8; 32] = Sha256::digest([]).into();
+    assert_eq!(first.nbt_digest, empty_digest);
+    assert!(first.extra_data.is_empty());
+    let before = test_alloc::thread_allocations();
+    let again = protocol::NetworkItemStack::empty();
+    assert_eq!(test_alloc::thread_allocations() - before, 0);
+    assert_eq!(again, first);
 }

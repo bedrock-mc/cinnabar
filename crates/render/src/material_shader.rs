@@ -53,10 +53,18 @@ pub(crate) fn gpu_grid_texture_ref(
 
 /// Resolves the generated biome tint module's table binding, shared by every chunk shader.
 pub(crate) fn bind_biome_tables(source: &str) -> String {
-    source.replace(
-        "BIOME_QUERY_TABLES_BINDING",
-        &BIOME_QUERY_TABLES_BINDING.to_string(),
-    )
+    source
+        .replace(
+            "BIOME_QUERY_TABLES_BINDING",
+            &BIOME_QUERY_TABLES_BINDING.to_string(),
+        )
+        .replace(
+            "BIOME_TINT_WORDS",
+            &format!(
+                "{}u",
+                (8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4)
+            ),
+        )
 }
 
 pub(crate) fn chunk_atlas_views_fit(limits: &wgpu::Limits) -> bool {
@@ -108,6 +116,7 @@ fn stem_colours_source() -> String {
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("ACTOR_COMPACT_CURRENT_BONE_BASE", &format!("{}u", render_model::actor::MAX_ACTOR_POSE_BONES))
         .replace("TERRAIN_UNIT_QUADS", &format!("{}u", render_model::terrain_units::QUADS_PER_UNIT))
         .replace("TERRAIN_UNITS_PER_INSTANCE", &format!("{}u", render_model::terrain_units::UNITS_PER_INSTANCE))
         .replace("FAR_TERRAIN_TILE_CELLS", &format!("{}u", far_terrain::config::TILE_CELLS))

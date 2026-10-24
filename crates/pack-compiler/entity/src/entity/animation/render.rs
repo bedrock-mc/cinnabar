@@ -13,8 +13,8 @@ use serde_json::{Map, Value};
 use super::{
     super::{SourceDocuments, molang::MolangCompiler},
     clip::{read_json, required_object},
-    environment::unique_geometry_indices,
-    selection::{Selector, condition_text},
+    environment::{unique_by_definition, unique_geometry_indices},
+    selection::{Selector, selection_condition},
 };
 
 const MAX_SLOTS_PER_LAYER: usize = 16;
@@ -118,25 +118,23 @@ pub(super) fn compile_render(
         rigs,
         rig_geometries,
     } = input;
-    let mut controllers = BTreeMap::<Box<str>, Option<&Value>>::new();
     let materials = materials::MaterialStates::load(root, payloads, sources)?;
+    let mut definitions = Vec::<(Box<str>, &Value)>::new();
     for source in sources
         .iter()
         .filter(|source| source.path.starts_with("render_controllers/"))
     {
         let value = read_json(root, payloads, source)?;
         for (name, definition) in required_object(value, "render_controllers")? {
-            controllers
-                .entry(name.as_str().into())
-                .and_modify(|existing| *existing = None)
-                .or_insert(Some(definition));
+            definitions.push((name.as_str().into(), definition));
         }
     }
+    let controllers = unique_by_definition(definitions, |first, other| first == other);
     let (mut layers, mut slots, mut candidates, mut visibility) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let mut layer_geometries = Vec::new();
     let mut geometry_parents = None;
-    let geometry_indices = unique_geometry_indices(geometries);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     for (rig_index, rig) in rigs.iter().enumerate() {
         let entity = &symbols[rig.entity_symbol as usize];
         debug_assert!(matches!(
@@ -225,14 +223,24 @@ pub(super) fn compile_render(
                     continue;
                 };
                 let first_candidate = candidates.len();
+                let mut default_candidate = None;
                 for (path, source) in leaves {
-                    let condition = match condition_text(&path) {
+                    let text = selection_condition(&path);
+                    let condition = match &text {
                         None => None,
-                        Some(text) => match compile_condition(molang, &text) {
+                        Some(text) => match compile_condition(molang, text) {
                             Some(index) => Some(index),
                             None => continue,
                         },
                     };
+                    // The leaf a default actor draws: every query and variable reads zero.
+                    if default_candidate.is_none()
+                        && text.as_deref().is_none_or(|text| {
+                            MolangCompiler::evaluate_default(text).is_some_and(|value| value != 0.0)
+                        })
+                    {
+                        default_candidate = Some((candidates.len() - first_candidate) as u16);
+                    }
                     candidates.push(EntityRenderCandidate { condition, source });
                 }
                 let count = candidates.len() - first_candidate;
@@ -242,6 +250,7 @@ pub(super) fn compile_render(
                 slots.push(EntityRenderSlot {
                     first_candidate: first_candidate as u32,
                     candidate_count: count as u16,
+                    default_candidate,
                 });
             }
             // Retain unresolved references so activation still controls artwork fallback.
@@ -397,7 +406,7 @@ fn compile_geometry_choices(
     };
     let mark = output.len();
     for (path, geometry) in leaves {
-        let condition = match condition_text(&path) {
+        let condition = match selection_condition(&path) {
             None => None,
             Some(text) => match compile_condition(molang, &text) {
                 Some(index) => Some(index),

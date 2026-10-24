@@ -275,6 +275,7 @@ fn unchanged_gallery_polls_and_installs_worker_results_and_resets_its_request() 
         refs: HashMap::from([(
             "completed-gallery".into(),
             IconRef {
+                color_mask: None,
                 page: 0,
                 uv: [0, 0, 2, 2],
                 glint: false,

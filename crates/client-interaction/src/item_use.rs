@@ -162,7 +162,9 @@ impl ItemUseRuntime {
             self.selected_projectile(player_runtime, ui),
         ) {
             Some(AirUse::Hold { .. } | AirUse::Instant { .. }) => LocalItemUse::Idle,
-            Some(AirUse::Throw { .. } | AirUse::GlideRocket) | None => LocalItemUse::Unpredicted,
+            Some(AirUse::Swing | AirUse::Throw { .. } | AirUse::GlideRocket) | None => {
+                LocalItemUse::Unpredicted
+            }
         }
     }
     /// Resolves a charge prediction against the currently selected authoritative stack.

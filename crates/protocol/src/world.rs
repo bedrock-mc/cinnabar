@@ -360,6 +360,16 @@ world_packets! {
     SetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
     BossEvent(packet) => WorldEvent::Ui(normalize_boss(packet)?),
     ModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
+    ClientboundDataStore(packet) => WorldEvent::Ui(crate::ui::normalize_data_store(packet)),
+    ClientboundDataDrivenUIShowScreen(packet) => {
+        WorldEvent::Ui(crate::ui::normalize_show_screen(packet))
+    },
+    ClientboundDataDrivenUICloseScreen(packet) => {
+        WorldEvent::Ui(crate::ui::normalize_close_screen(packet))
+    },
+    ClientboundDataDrivenUIReload(_) => {
+        WorldEvent::Ui(UiEvent::DataDrivenUi(crate::ui::ddui::DataDrivenUiEvent::Reload))
+    },
     ServerSettingsResponse(packet) => {
         WorldEvent::Ui(crate::ui::normalize_server_settings(packet)?)
     },

@@ -6,8 +6,9 @@ pub(super) mod controls;
 mod gui_scale;
 mod labels;
 mod layout;
+mod localization;
 mod mods;
-mod picker;
+pub(super) mod picker;
 mod presets;
 mod renderer;
 mod resources;
@@ -17,7 +18,10 @@ mod services;
 mod shader_options;
 mod sidebar;
 mod updates;
+mod world;
 
+#[cfg(test)]
+mod localization_tests;
 #[cfg(test)]
 mod row_tests;
 
@@ -106,8 +110,9 @@ pub(super) fn draw(
     let panel = [body[0], top, body[1] - canvas.r(1.6), bottom];
     canvas.fill(panel, NEUTRAL.fill)?;
     canvas.frame(panel, EDGE, theme::BORDER)?;
-    let section =
-        SettingSection::from_index(view.settings.section).unwrap_or(SettingSection::Accessibility);
+    let section = SettingSection::from_index(view.settings.section)
+        .filter(|section| view.settings_section_shown(*section))
+        .unwrap_or(SettingSection::Accessibility);
     // The Shader Pack Settings screen keeps a footer below the option grid.
     let options = view
         .shader_options
@@ -303,13 +308,7 @@ pub(super) struct Content<'a, 'b> {
 
 impl Content<'_, '_> {
     pub(super) fn word(&self, key: &str) -> String {
-        if key.is_empty() {
-            return String::new();
-        }
-        (self.translate)(key).map_or_else(
-            || sections::fallback(key).to_owned(),
-            |text| text.to_string(),
-        )
+        localization::word(key, self.view.settings_options.language(), self.translate)
     }
 
     pub(super) fn inset(&self) -> [f32; 2] {
@@ -353,9 +352,14 @@ impl Content<'_, '_> {
     pub(super) fn label(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let title = self.word(title);
         let description = self.word(description);
+        self.label_text(&title, &description)
+    }
+
+    /// Draws literal or already translated text without looking it up again.
+    pub(super) fn label_text(&mut self, title: &str, description: &str) -> Result<(), PaintError> {
         let [left, right] = self.inset();
-        let b = self.row(&title, &description, right - left, None, 0.0)?;
-        self.texts(b, &title, &description, right - left, 0.0)?;
+        let b = self.row(title, description, right - left, None, 0.0)?;
+        self.texts(b, title, description, right - left, 0.0)?;
         Ok(())
     }
 
@@ -392,6 +396,12 @@ impl Content<'_, '_> {
             MenuAction::SettingsOption(index, _) => SETTINGS_OPTIONS
                 .get(usize::from(index))
                 .is_some_and(|option| matches!(option.kind, SettingKind::Toggle)),
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(id, _)) => {
+                matches!(
+                    id.definition().control,
+                    launcher::local_worlds::options::Control::Toggle
+                )
+            }
             _ => false,
         });
         let interaction = if is_switch {
@@ -496,18 +506,23 @@ impl Content<'_, '_> {
         let option = id.definition();
         let value = self.view.settings_options.get(index);
         let (title, description) = self.option_text(id);
+        if id == SettingId::Vsync
+            && let Some(on) = self.view.vsync_override
+        {
+            return self.boolean(
+                &title,
+                &description,
+                on,
+                MenuAction::SettingsOption(index as u16, i32::from(!on)),
+                false,
+            );
+        }
         match option.kind {
             SettingKind::Host => {
                 unreachable!("host controls are dispatched before option rendering")
             }
             SettingKind::Toggle => {
-                let (on, enabled) = match id {
-                    SettingId::Vsync => (
-                        self.view.vsync_override.unwrap_or(value != 0),
-                        self.view.vsync_override.is_none(),
-                    ),
-                    _ => (value != 0, true),
-                };
+                let (on, enabled) = (value != 0, true);
                 self.boolean(
                     &title,
                     &description,

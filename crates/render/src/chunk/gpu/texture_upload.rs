@@ -274,7 +274,7 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
     let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk materials"),
         contents: bytemuck::cast_slice(&material_words),
-        usage: BufferUsages::STORAGE,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
     let animation_sentinel = [AnimationGpu {
         frame_start: 0,
@@ -289,7 +289,7 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         } else {
             bytemuck::cast_slice(&animation_words)
         },
-        usage: BufferUsages::STORAGE,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
     let animation_frame_sentinel = [TextureRef::DIAGNOSTIC.raw()];
     let animation_frame_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -299,12 +299,12 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         } else {
             &animation_frame_words
         }),
-        usage: BufferUsages::STORAGE,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
     let model_template_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk model templates"),
         contents: bytemuck::cast_slice(&model_template_words),
-        usage: BufferUsages::STORAGE,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
     let mut uploaded_bytes = 0u64;
     let mut textures = Vec::with_capacity(assets::MAX_TEXTURE_PAGES);

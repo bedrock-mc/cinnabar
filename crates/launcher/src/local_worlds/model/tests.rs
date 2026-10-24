@@ -503,6 +503,28 @@ fn backend_selection_preserves_terrain_and_seed() {
     assert_eq!(menu.create_form().seed_text, "42");
 }
 
+/// Unsupported terrain stays in the form until the user chooses flat terrain or BDS.
+#[test]
+fn dragonfly_natural_terrain_can_be_corrected_before_creation() {
+    let mut menu = loaded(&[]);
+    menu.update(Input::BeginCreate);
+    menu.update(Input::SetBackend(Backend::Dragonfly));
+    assert!(menu.update(Input::SubmitCreate).is_empty());
+    assert_eq!(
+        menu.form_error(),
+        Some(super::super::world::NATURAL_TERRAIN_REQUIRES_BDS)
+    );
+    assert_eq!(menu.screen(), Screen::Create);
+    menu.update(Input::SetFlat(true));
+    let effects = menu.update(Input::SubmitCreate);
+    let [Effect::Create(spec)] = effects.as_slice() else {
+        panic!("expected a flat world: {effects:?}");
+    };
+    assert_eq!(spec.backend, Some(Backend::Dragonfly));
+    assert_eq!(spec.generator, Generator::Flat);
+    assert!(menu.form_error().is_none());
+}
+
 #[test]
 fn retry_redetects_and_continues_once_docker_is_up() {
     let mut menu = docker_menu(UnavailableReason::DockerNotRunning, &[]);

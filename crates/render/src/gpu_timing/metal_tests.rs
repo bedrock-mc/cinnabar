@@ -332,7 +332,7 @@ fn metal_depth_resolve_uses_owned_pass_queries_without_extra_passes() {
         Some(0.0),
         None,
     );
-    let mut resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuShadows);
+    let mut resolved = ResolvedDepth::new(&device, &depth, RuntimeStage::GpuShadows).unwrap();
     let retained = resolved.view.id();
     let mut timestamps = GpuTimestamps::new(&device, &queue, false).unwrap();
     timestamps.begin(0, |_, _, _| unreachable!("first frame has no readback"));

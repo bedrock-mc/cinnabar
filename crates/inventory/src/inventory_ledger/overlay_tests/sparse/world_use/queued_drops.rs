@@ -46,10 +46,7 @@ fn newly_queued_world_drop_carries_earlier_consumption() {
                 let transaction = observe_transaction(&packet).unwrap();
                 assert_eq!(transaction.actions[0].from_item.count, 3);
                 assert_eq!(transaction.actions[0].to_item.count, 2);
-                assert_eq!(
-                    transaction.actions[0].from_item.stack_network_id,
-                    Some(screen)
-                );
+                assert_eq!(transaction.actions[0].from_item.stack_network_id, None);
                 send_all(&mut ledger);
                 assert_eq!(ledger.confirmed_stack(Cell::Inventory(0)).unwrap().count, 2);
                 let world = ledger

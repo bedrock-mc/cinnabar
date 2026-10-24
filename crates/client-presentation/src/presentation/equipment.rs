@@ -17,6 +17,8 @@ pub mod test_support;
 mod tests;
 
 pub use display::FirstPersonHand;
+/// Rig layer identity used by the main-hand equipment submission.
+pub(crate) const LAYER_MAIN_HAND: u8 = 1;
 pub use input::{local_input, remote_input};
 pub use runtime::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation, HeldKind,

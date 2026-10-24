@@ -106,7 +106,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "shaderpack"
 path = "crates/shaderpack"
-allowed_dependencies = ["zip-footer", "assets"]
+allowed_dependencies = ["zip-footer", "assets", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
@@ -134,7 +134,7 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "asset-compiler"
 path = "crates/asset-compiler"
-allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids"]
+allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids", "shaderpack"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 [[crates]]
@@ -421,7 +421,7 @@ forbidden_transitive_dependencies = ["asset-compiler"]
 [[crates]]
 name = "cinnabar-android"
 path = "packaging/android/client"
-allowed_dependencies = ["app", "assets", "first-run", "launcher"]
+allowed_dependencies = ["app", "assets", "first-run", "launcher", "launcher-host"]
 forbidden_dependencies = ["asset-compiler"]
 
 [[crates]]
@@ -505,6 +505,12 @@ allowed_dependencies = ["experience-sdk"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
 [[crates]]
+name = "dragonfly-extension-client"
+path = "examples/dragonfly-extension/client"
+allowed_dependencies = ["experience-sdk"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
 name = "ui"
 path = "crates/ui"
 allowed_dependencies = ["json-ui", "assets", "render-api", "semantic-input", "test-alloc"]
@@ -561,7 +567,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["crash-report", "diagnostics", "workspace-declarations"]
+allowed_dependencies = ["render-api", "crash-report", "diagnostics", "test-time", "workspace-declarations"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
 # The crate declarations the architecture gate enforces and devtool reads; std-only.
@@ -1318,7 +1324,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "
 [[crates]]
 name = "bootstrap-ui"
 path = "crates/bootstrap-ui"
-allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs"]
+allowed_dependencies = ["assets", "launcher", "launcher-host", "render-model", "semantic-input", "ui", "gilrs", "test-time"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "render", "bevy", "bevy_*"]
 
 # The `--crash-monitor` process and its crash window; launcher-host stays free of its GPU stack.
@@ -1369,6 +1375,16 @@ block_registries = ["crates/assets/data/block-registry-v2193.bin"]
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "tools/devtool/src/startup.rs"
+literal = "mesa"
+reason = "Directory for the Mesa driver's isolated shader cache, independent of biome identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/oreui/src/settings/localization.rs"
+literal = "fr"
+reason = "French locale prefix used to select settings translations, not a game identifier."
 
 [[identifier_literal_exceptions]]
 path = "crates/assets/src/sound_events.rs"

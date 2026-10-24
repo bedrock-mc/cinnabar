@@ -188,13 +188,28 @@ fn prepare_join_with(
         if let PackAdmission::Validated(stack) = &packs.admission {
             packs.terrain_identity = terrain_identity(stack, &packs.dependencies);
         }
-        packs.prepare_actor_artwork(bases.actor_artwork, None);
+        let stack_artwork = packs.entity_artwork.clone();
+        let artwork = bases
+            .actor_artwork
+            .map(|current| entity_artwork_base(current, stack_artwork.as_deref()));
+        packs.prepare_actor_artwork(artwork, None);
         let source_ui = packs.server_ui.clone();
         packs.prepare_ui_catalog(bases.ui_catalog);
         let now = reuse::CompileEnvironment::current();
         kept.keep_join(environment, &now, &packs, source_ui, cancelled);
         packs
     }))
+}
+
+/// The actor artwork a stack publishes over `current`: its entity texture overrides when they
+/// change the identity, else `current` itself, so prepared resources keep sharing its storage.
+pub(super) fn entity_artwork_base<'a>(
+    current: &'a render_model::ActorArtworkPages,
+    stack: Option<&'a render_model::ActorArtworkPages>,
+) -> &'a render_model::ActorArtworkPages {
+    stack
+        .filter(|next| next.identity() != current.identity())
+        .unwrap_or(current)
 }
 
 /// The recently compiled stacks joins and the post-join reload share.
@@ -723,14 +738,26 @@ struct CachedOverlay {
     hashed: bool,
     max_layers: u32,
     blocks: protocol::CustomBlocks,
-    overlay: Option<Arc<CompiledBlockOverlay>>,
+    /// Weak, so an overlay outlives its session only while a kept stack owns it; `None` when the
+    /// stack compiled no blocks.
+    overlay: Option<std::sync::Weak<CompiledBlockOverlay>>,
+}
+
+impl CachedOverlay {
+    /// The compiled overlay, or `None` once every owner has released it.
+    fn upgrade(&self) -> Option<Option<Arc<CompiledBlockOverlay>>> {
+        match &self.overlay {
+            None => Some(None),
+            Some(overlay) => overlay.upgrade().map(Some),
+        }
+    }
 }
 
 /// The current and previous stacks, so switching packs back reuses the earlier compile.
 const KEPT_OVERLAYS: usize = 2;
 
 /// Recently compiled overlays, newest first, reused when the same pack contents and block
-/// definitions return in a later session or reload.
+/// definitions return in a later session or reload while a session or kept stack owns them.
 static OVERLAY_CACHE: std::sync::Mutex<std::collections::VecDeque<CachedOverlay>> =
     std::sync::Mutex::new(std::collections::VecDeque::new());
 
@@ -752,6 +779,7 @@ fn cached_block_overlay(
     let mut cache = OVERLAY_CACHE
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
+    cache.retain(|cached| cached.upgrade().is_some());
     if let Some(index) = cache.iter().position(|cached| {
         cached.hashed == hashed
             && cached.max_layers == max_layers
@@ -764,9 +792,10 @@ fn cached_block_overlay(
         if let (Some(dependencies), Some(inputs)) = (view.dependencies(), &cached.dependencies) {
             dependencies.extend(inputs.clone());
         }
-        let overlay = cached.overlay.clone();
-        cache.push_front(cached);
-        return overlay;
+        if let Some(overlay) = cached.upgrade() {
+            cache.push_front(cached);
+            return overlay;
+        }
     }
     let overlay = disk_cache::compile(
         view,
@@ -782,7 +811,7 @@ fn cached_block_overlay(
         hashed,
         max_layers,
         blocks: blocks.clone(),
-        overlay: overlay.clone(),
+        overlay: overlay.as_ref().map(Arc::downgrade),
     });
     cache.truncate(KEPT_OVERLAYS);
     overlay

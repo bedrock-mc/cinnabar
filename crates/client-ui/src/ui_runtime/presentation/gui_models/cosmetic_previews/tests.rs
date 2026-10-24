@@ -16,6 +16,7 @@ fn menu_paper_dolls_animate_without_a_world_or_texture_rebuilds() {
     runtime.menu_artwork.refs.insert(
         wings.texture_key(),
         IconRef {
+            color_mask: None,
             page: 3,
             uv: [0, 0, 64, 64],
             glint: false,
@@ -85,6 +86,7 @@ fn visible_tiles_animate_with_original_texels_and_keep_their_camera() {
     let wings = hats::fixture::dragon_wings();
     prepare(wings);
     let icon = IconRef {
+        color_mask: None,
         page: 7,
         uv: [12, 34, 76, 98],
         glint: false,
@@ -123,6 +125,7 @@ fn gallery_replacement_preserves_bounds_parent_clip_and_selection() {
     let wings = hats::fixture::dragon_wings();
     prepare(wings);
     let thumbnail = IconRef {
+        color_mask: None,
         page: 3,
         uv: [0, 0, 96, 112],
         glint: false,
@@ -164,10 +167,17 @@ fn cosmetic_gallery_pressure_preserves_the_equipped_character_mesh() {
     let item = hats::fixture::dragon_wings();
     prepare(item);
     let mut runtime = UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    runtime.set_preview_cosmetics(&[item]);
+    // Settle the requested atlas before installing the synthetic frame's carriers.
+    test_time::eventually("equipped cosmetic artwork is installed", || {
+        runtime.sync_equipped_cosmetic_artwork();
+        runtime.menu_artwork_icon(&item.texture_key()).is_some()
+    });
     runtime.gui_models.enabled = true;
     runtime.gui_models.skin =
         Some(render_model::UiTexturePage::owned([64, 64], vec![255; 64 * 64 * 4].into()).unwrap());
     let character = IconRef {
+        color_mask: None,
         page: 3,
         uv: [0, 0, 96, 112],
         glint: false,
@@ -177,6 +187,7 @@ fn cosmetic_gallery_pressure_preserves_the_equipped_character_mesh() {
         ..character
     };
     let texture = IconRef {
+        color_mask: None,
         page: 5,
         uv: [0, 0, 64, 64],
         glint: false,
@@ -190,7 +201,6 @@ fn cosmetic_gallery_pressure_preserves_the_equipped_character_mesh() {
         .menu_artwork
         .refs
         .insert(item.texture_key(), texture);
-    runtime.set_preview_cosmetics(&[item]);
     runtime.sync_cosmetic_previews(true);
     let expected = runtime.gui_player_mesh().unwrap();
     assert!(expected.vertices().len() >= hats::rig(item).rest_vertices.len());

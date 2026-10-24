@@ -106,6 +106,17 @@ fn fixture_with_network(
         client_session::CapturedPackets,
     ),
 ) -> (World, client_session::CapturedPackets) {
+    fixture_with_entity_assets((network, captured), None)
+}
+
+/// Supplies optional original entity-component facts to the production admission fixture.
+fn fixture_with_entity_assets(
+    (network, captured): (
+        NetworkHandle<PackApplication>,
+        client_session::CapturedPackets,
+    ),
+    entity_assets: Option<std::sync::Arc<assets::RuntimeEntityAssets>>,
+) -> (World, client_session::CapturedPackets) {
     let bytes = assets::pinned_block_registry_bytes();
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(bytes, version).unwrap();
@@ -124,7 +135,7 @@ fn fixture_with_network(
     )
     .unwrap();
     let position = [4.5, 2.620_01, 8.5];
-    let mut stream = chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+    let bootstrap = protocol::WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 42,
         local_player_unique_id: 1,
@@ -132,7 +143,18 @@ fn fixture_with_network(
         world_spawn_position: [4, 1, 8],
         air_network_id: id("minecraft:air"),
         block_network_ids_are_hashes: false,
-    });
+    };
+    let mut stream = if let Some(entity_assets) = entity_assets {
+        chunk_pipeline::WorldStream::new_with_asset_sets(
+            bootstrap,
+            std::sync::Arc::new(assets::RuntimeAssets::diagnostic()),
+            entity_assets,
+            [0.0, client_world::server_position::SAFE_SERVER_HEIGHT, 0.0],
+            None,
+        )
+    } else {
+        chunk_pipeline::WorldStream::new(bootstrap)
+    };
     stream.submit(1, empty_column(0, 0)).unwrap();
     stream
         .submit(
@@ -756,6 +778,7 @@ fn attack_tap_then_use(crosshair: gameplay::melee::Crosshair) -> Vec<[i32; 3]> {
     melee.resolve(
         crosshair,
         &gameplay::melee::PressContext {
+            refused_destroy: None,
             tick: 102,
             player_position: [4.5, 2.620_01, 8.5],
             input_mode: protocol::PlayerInputMode::Mouse,
@@ -949,8 +972,9 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
     }
 }
 
+/// A held non-block item repeats the targeted block's own use with a simulation-tick trigger.
 #[test]
-fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
+fn a_held_nonblock_item_repeats_the_chest_use() {
     let (mut world, mut captured) = fixture();
     hold_use(&mut world);
     // An active physics clock lets this frame simulate the tick the repeat precedes.
@@ -996,25 +1020,14 @@ fn denied_nonblock_repeat_keeps_the_last_admitted_placement_schedule() {
         },
     );
     world.run_system_cached(produce_block_use).unwrap();
-    assert!(
-        captured.drain().is_empty(),
-        "the locally denied repeat must not emit a chest interaction"
-    );
-    // The denied attempt used tick 102; the next tick keeps the admitted schedule.
-    assert_eq!(
-        world.resource::<BlockUseRuntime>().due(
-            true,
-            103,
-            RepeatClock {
-                now: Duration::from_millis(1_001),
-                sneaking: false,
-                speed: 0.0,
-                survival: true
-            },
-        ),
-        Some((ItemUseTrigger::SimulationTick, Duration::from_millis(700))),
-        "an unsent interaction must not change the last admitted placement's schedule"
-    );
+    let uses: Vec<_> = captured.drain().iter().filter_map(item_use).collect();
+    let [chest] = &uses[..] else {
+        panic!("expected one held chest use, got {uses:?}");
+    };
+    assert_eq!(chest.trigger, Some(ItemUseTrigger::SimulationTick));
+    assert!(chest.predicted_success);
+    assert_eq!(chest.position, [4, 2, 6]);
+    assert_eq!(chest.item.network_id, 42);
 }
 
 #[test]

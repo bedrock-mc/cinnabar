@@ -25,6 +25,8 @@ pub enum AirUse {
     Throw {
         cooldown: Option<Cooldown>,
     },
+    /// A use transaction that only starts the local arm swing.
+    Swing,
     /// A gliding rocket swings without starting a held use or consuming a stack locally.
     GlideRocket,
     Instant {
@@ -36,16 +38,17 @@ impl AirUse {
     /// Returns the admitted category timer independently from charge state.
     pub const fn cooldown(self) -> Option<Cooldown> {
         match self {
+            Self::Swing | Self::GlideRocket => None,
             Self::Throw { cooldown } | Self::Hold { cooldown, .. } => cooldown,
             Self::Instant { unloaded } => unloaded.cooldown,
-            Self::GlideRocket => None,
         }
     }
-    /// Crossbow actions consume fresh presses; other admitted actions may repeat.
+    /// Crossbow and swing-only actions consume fresh presses; other admitted actions may repeat.
     pub const fn repeats_while_held(self) -> bool {
         !matches!(
             self,
             Self::Instant { .. }
+                | Self::Swing
                 | Self::Hold {
                     needs: Needs::ArrowOrOffhandRocket,
                     ..
@@ -85,6 +88,7 @@ impl AirUse {
 pub fn classify(profile: EffectiveItemUse, charged: bool, quick_charge: u8) -> Option<AirUse> {
     match profile.kind? {
         ItemUseKind::None => None,
+        ItemUseKind::Swing => Some(AirUse::Swing),
         ItemUseKind::Throw => Some(AirUse::Throw {
             cooldown: profile.cooldown,
         }),

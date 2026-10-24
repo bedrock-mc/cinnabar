@@ -51,9 +51,10 @@ mod tests {
         let mut state = SettingsState::default();
         let controls = state.controls_update().1.clone();
         let controls_generation = state.controls_update().0;
-        for vsync in [false, true, false] {
+        let default = render_api::VsyncMode::DEFAULT.enabled();
+        for vsync in [!default, default, !default] {
             let mut user = state.user_settings_update().1.clone();
-            user.video.vsync = vsync;
+            user.video.vsync = vsync.into();
             let previous_generation = state.user_settings_update().0;
             state.replace_user_settings(user);
             assert!(state.user_settings_update().0 > previous_generation);

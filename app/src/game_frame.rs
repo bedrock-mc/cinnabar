@@ -140,6 +140,7 @@ pub(crate) fn configure_pack_publication(app: &mut App) {
     app.init_resource::<PackReload>().add_systems(
         Update,
         reload_resource_packs
+            .run_if(resource_exists::<client_interaction::movement::PhysicsCollisionRegistries>)
             .after(receive_network_events)
             .before(ClientFrameSet::WorldPublication)
             .before(ClientFrameSet::UiPublication)

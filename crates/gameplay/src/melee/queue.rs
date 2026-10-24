@@ -30,6 +30,11 @@ pub(super) enum Work {
         tick: u64,
         payload: Box<SurvivalTickPayload>,
     },
+    /// A refused block press whose actions wait for their own unsent tick.
+    Refused {
+        tick: u64,
+        payload: Box<SurvivalTickPayload>,
+    },
     Carrying {
         tick: u64,
     },

@@ -37,6 +37,7 @@ mod dimensions;
 mod discover;
 mod environment;
 mod expr;
+mod flips;
 mod ids;
 mod install;
 mod java_sky;
@@ -57,17 +58,20 @@ mod source;
 mod token;
 mod transform;
 mod translate;
+pub mod worker;
 
 pub use biomes::{BiomeCategory, BiomeUniforms};
 pub use buffers::{
-    BufferDirectives, BufferFormat, BufferId, BufferSettings, canonical_sampler_name,
+    BufferDirectives, BufferFormat, BufferId, BufferSettings, MAX_COLOR_BUFFERS,
+    canonical_sampler_name,
 };
 pub use compile::CompiledStage;
 pub use custom_uniforms::{CustomUniformError, CustomUniforms, UniformValue};
 pub use diagnostics::{Diagnostic, Phase, SourceLocation};
-pub use discover::{DiscoveredPack, discover_packs};
+pub use discover::{DiscoveredPack, PACK_ARCHIVE_EXTENSIONS, discover_packs};
 pub use environment::{Environment, GpuVendor, HostOs};
 pub use expr::{BinaryOp, Expr, ExprError, UnaryOp};
+pub use flips::{FlipPass, pass_flips};
 pub use ids::{BlockIdMap, IdMaps, NamedIdMap, RenderLayer, UNMAPPED_BLOCK_ID};
 pub use install::{DropOutcome, add_dropped_packs};
 pub use java_sky::{BiomeColors, FogMedium, SkyFogColors, SkyFogInputs, sky_fog, sunrise_color};
@@ -99,5 +103,5 @@ pub use reflection::{
     VertexInput,
 };
 pub use remove::remove_pack;
-pub use source::{PackError, PackOrigin, PackSource};
+pub use source::{MAX_ARCHIVE_BYTES, PackError, PackOrigin, PackSource};
 pub use translate::{ProgramTranslation, StageTranslation};

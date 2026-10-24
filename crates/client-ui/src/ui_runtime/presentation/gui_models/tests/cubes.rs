@@ -170,7 +170,7 @@ fn cutout_cubes_show_outward_faces_and_fade_as_a_single_layer() {
         let icon = presentation
             .item_icon(&entry.identifier, entry.metadata)
             .unwrap();
-        let original = &presentation.gui_models.models[&icon_key(icon)];
+        let original = &presentation.gui_models.sources.models[&icon_key(icon)];
         assert_eq!(
             original.indices().len(),
             assets::gui_item::CUBE_FACES.len() * 6
@@ -226,9 +226,10 @@ fn actor_flames_reclaim_cutout_cube_pages_after_required_equipment() {
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .expect("required equipment and flames must fit after optional cubes are discarded");
-    assert_eq!(presentation.gui_models.pages.len(), MODEL_PAGES);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
     for (page, texture) in presentation
         .gui_models
+        .sources
         .pages
         .iter()
         .zip(equipment.textures())
@@ -240,7 +241,7 @@ fn actor_flames_reclaim_cutout_cube_pages_after_required_equipment() {
     let first = presentation.textures.dynamic_start() + MODEL_PAGE;
     for (index, frame) in frames.iter().enumerate() {
         assert_eq!(usize::from(frame.page), first + required + index);
-        let page = &presentation.gui_models.pages[required + index];
+        let page = &presentation.gui_models.sources.pages[required + index];
         let offset = (usize::from(frame.uv[1]) * page.dimensions()[0] as usize
             + usize::from(frame.uv[0]))
             * 4;
@@ -270,7 +271,7 @@ fn a_full_required_atlas_keeps_cutout_cube_thumbnails() {
     presentation
         .set_gui_models(&RuntimeAssets::diagnostic(), &entities)
         .expect("optional cube sources must not make required equipment fail");
-    assert_eq!(presentation.gui_models.pages.len(), MODEL_PAGES);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
     for entry in presentation.icon_catalog.as_deref().unwrap().entries() {
         let icon = presentation
             .item_icon(&entry.identifier, entry.metadata)

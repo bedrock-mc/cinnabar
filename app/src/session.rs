@@ -161,7 +161,7 @@ impl SessionController {
         true
     }
 
-    /// Returns a failed join to the menu, keeping only the newest compiled packs for a retry.
+    /// Returns a failed join to the menu, keeping only the newest archives for a retry.
     fn fail_join(&mut self, menu: &mut MenuRuntime, message: String) {
         bridge::join_profile::JoinProfile::current().finish("failed");
         menu.show_join_failure(message);
@@ -259,9 +259,12 @@ pub(crate) struct SessionResources<'w> {
     controller: ResMut<'w, SessionController>,
     state: crate::game_session::SessionWorld<'w>,
     network: ResMut<'w, NetworkHandle<PackApplication>>,
-    collisions: Res<'w, client_interaction::movement::PhysicsCollisionRegistries>,
+    collisions: Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
     launcher: Option<Res<'w, LauncherCoreSlot>>,
-    actor_artwork: Option<Res<'w, render_scene::ActorArtworkResource>>,
+    actor_artwork: Option<ResMut<'w, render_scene::ActorArtworkResource>>,
+    #[cfg(test)]
+    startup_actor_artwork: Option<Res<'w, StartupActorArtwork>>,
+    block_entity_scene: Option<ResMut<'w, render_scene::BlockEntitySceneResource>>,
     ui_catalog: Option<Res<'w, crate::runtime::network::PackUiCatalog>>,
     input: Option<Res<'w, client_state::SemanticInputSnapshot>>,
     far_terrain: Option<ResMut<'w, crate::far_terrain::FarTerrain>>,
@@ -269,12 +272,41 @@ pub(crate) struct SessionResources<'w> {
     mod_registration: Option<Res<'w, crate::modding::registration::Watcher>>,
 }
 
+/// An isolated startup snapshot for lifecycle tests without changing process-wide carriers.
+#[cfg(test)]
+#[derive(Resource)]
+pub(crate) struct StartupActorArtwork(pub(crate) render_model::ActorArtworkPages);
+
 impl SessionResources<'_> {
     /// Retires the live session with no join to follow, keeping only the newest
-    /// compiled server packs for a rejoin from the menu.
+    /// compressed server packs for a rejoin from the menu.
     fn leave(&mut self) {
         self.retire();
         self.controller.kept_packs.keep_for_rejoin();
+    }
+
+    /// Restores the startup actor and block-entity artwork, so the ended session's pack art
+    /// (often GiBs of rasters) is freed instead of staying resident in the menu.
+    fn restore_startup_artwork(&mut self) {
+        let startup = crate::runtime::network::startup_actor_artwork();
+        #[cfg(test)]
+        let startup = self
+            .startup_actor_artwork
+            .as_ref()
+            .map(|artwork| &artwork.0)
+            .or(startup);
+        if let (Some(artwork), Some(startup)) = (self.actor_artwork.as_mut(), startup)
+            && artwork.0.identity() != startup.identity()
+        {
+            let ended = std::mem::replace(&mut artwork.0, startup.clone());
+            client_runtime::session::release_off_frame(ended);
+        }
+        if let (Some(scene), Some(startup)) = (
+            self.block_entity_scene.as_mut(),
+            crate::runtime::network::block_entity_art::base(),
+        ) {
+            scene.0.reload_prepared_assets(startup);
+        }
     }
 
     /// Ends the live session and fences a fresh generation. The core stops off
@@ -298,6 +330,7 @@ impl SessionResources<'_> {
         ) {
             far.retire_stream(stream);
         }
+        self.restore_startup_artwork();
         self.state.retire(generation);
         generation
     }
@@ -430,9 +463,12 @@ fn poll_join(
     let attempt = controller.join.take().expect("pending join");
     let server_address = attempt.address.clone();
     use client_session::connection::JoinPoll;
-    match attempt.poll(controller.generation, controller.connecting, || {
-        controller.core.exit_status()
-    }) {
+    match attempt.poll(
+        controller.generation,
+        controller.connecting,
+        session.collisions.is_some(),
+        || controller.core.exit_status(),
+    ) {
         JoinPoll::Retired => {}
         JoinPoll::Pending(attempt) => controller.join = Some(attempt),
         JoinPoll::StartCore(mut attempt) => {
@@ -476,7 +512,10 @@ fn poll_join(
                     .and_then(|mods| mods.session_relay()),
                 crate::runtime::network::session_registries::RegistryBase::new(
                     &session.state.client_world.runtime_assets,
-                    &session.collisions,
+                    session
+                        .collisions
+                        .as_deref()
+                        .expect("join admission requires world collision resources"),
                 ),
             ) {
                 if owned_core {

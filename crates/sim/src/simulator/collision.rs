@@ -88,15 +88,54 @@ pub(super) fn resolve_motion(
         )
     };
 
-    let end_position = Vec3::new(
-        f64::from((resolved_box.min.x as f32 + resolved_box.max.x as f32) * 0.5),
-        resolved_box.min.y,
-        f64::from((resolved_box.min.z as f32 + resolved_box.max.z as f32) * 0.5),
-    );
-    Ok(ResolvedMotion {
-        aabb: resolved_box,
+    Ok(resolved_motion(
+        resolved_box,
         resolved,
-        position: end_position,
+        velocity,
+        identity,
+        stepped,
+        support,
+    ))
+}
+
+/// Resolves terrain clipping for a body that never auto-steps, such as a boat.
+pub(super) fn resolve_unstepped_motion(
+    world: &impl CollisionWorld,
+    start: Aabb,
+    velocity: Vec3,
+) -> Result<ResolvedMotion, WorldQueryError> {
+    let colliders = bounded_collision_boxes(world, start.swept(velocity))?;
+    let (aabb, resolved) = resolve_axes_reverse(start, velocity, &colliders.value);
+    let support = supporting_block(aabb, &colliders.value);
+    Ok(resolved_motion(
+        aabb,
+        resolved,
+        velocity,
+        colliders.identity,
+        false,
+        support,
+    ))
+}
+
+/// Builds the motion result: the box's floor-centre position and the per-axis collisions
+/// between the requested and resolved displacement.
+fn resolved_motion(
+    aabb: Aabb,
+    resolved: Vec3,
+    velocity: Vec3,
+    identity: WorldCollisionIdentity,
+    stepped: bool,
+    support: Option<[i32; 3]>,
+) -> ResolvedMotion {
+    let position = Vec3::new(
+        f64::from((aabb.min.x as f32 + aabb.max.x as f32) * 0.5),
+        aabb.min.y,
+        f64::from((aabb.min.z as f32 + aabb.max.z as f32) * 0.5),
+    );
+    ResolvedMotion {
+        aabb,
+        resolved,
+        position,
         collisions: AxisCollisions {
             x: (velocity.x as f32 - resolved.x as f32).abs() > COLLISION_EPSILON as f32,
             y: (velocity.y as f32 - resolved.y as f32).abs() > COLLISION_EPSILON as f32,
@@ -105,7 +144,7 @@ pub(super) fn resolve_motion(
         identity,
         stepped,
         support,
-    })
+    }
 }
 
 fn bounded_collision_boxes(

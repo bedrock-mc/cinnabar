@@ -52,6 +52,11 @@ impl Status {
         Self::new(Phase::Running, 0, 0, "Starting setup")
     }
 
+    /// Every required setup stage has finished; the game can start.
+    pub(super) fn ready() -> Self {
+        Self::new(Phase::Done, 0, 0, "Ready")
+    }
+
     pub(super) fn downloading(downloaded: u64, total: Option<u64>) -> Self {
         Self {
             downloaded: Some(downloaded),
