@@ -120,7 +120,7 @@ func TestEntityGalleryRejectsStaleAppearancesAndFiltersBeforePaging(t *testing.T
 func TestEntityGalleryReplacementClearsActorsAndLabels(t *testing.T) {
 	ordinary := &packet.CommandRequest{CommandLine: "/give stone"}
 	inner := &cameraFixtureConn{read: []packet.Packet{&packet.CommandRequest{CommandLine: "/entitygallery sheep"}, &packet.CommandRequest{CommandLine: "/entitygallery clear"}, ordinary}}
-	conn := &galleryConn{Conn: inner, gallery: []entityAppearance{{Identifier: "minecraft:sheep"}}}
+	conn := &entityGalleryPacketConn{Conn: inner, gallery: []entityAppearance{{Identifier: "minecraft:sheep"}}}
 	if got, err := conn.ReadPacket(); err != nil || got != ordinary {
 		t.Fatal("ordinary command was intercepted")
 	}
