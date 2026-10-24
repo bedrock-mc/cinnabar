@@ -109,6 +109,13 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
             .into_iter()
             .enumerate()
             {
+                let selected = if caption.starts_with('§') {
+                    BedrockColor::LightPurple
+                } else if color == 0 {
+                    BedrockColor::Base
+                } else {
+                    BedrockColor::Green
+                };
                 model.chat_local_player = Arc::from(local_player);
                 let mut options = SettingsOptions::default();
                 options.set(SettingId::ChatColor.index(), color);
@@ -191,11 +198,7 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                         mention.style.color,
                         if local_player.is_empty() || !caption.contains(&format!("@{local_player}"))
                         {
-                            if color == 0 {
-                                BedrockColor::Base
-                            } else {
-                                BedrockColor::Green
-                            }
+                            selected
                         } else if index == 1 {
                             BedrockColor::White
                         } else {
@@ -203,16 +206,7 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                         }
                     );
                     let tail = glyphs.last().unwrap();
-                    assert_eq!(
-                        tail.style.color,
-                        if caption.starts_with('§') {
-                            BedrockColor::LightPurple
-                        } else if color == 0 {
-                            BedrockColor::Base
-                        } else {
-                            BedrockColor::Green
-                        }
-                    );
+                    assert_eq!(tail.style.color, selected);
                     assert_eq!(tail.style.bold, caption.contains("§l"));
                     assert_eq!(tail.style.italic, caption.contains("§o"));
                 }
@@ -226,13 +220,6 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                         _ => None,
                     })
                     .collect::<BTreeMap<_, _>>();
-                let selected = if caption.starts_with('§') {
-                    BedrockColor::LightPurple
-                } else if color == 0 {
-                    BedrockColor::Base
-                } else {
-                    BedrockColor::Green
-                };
                 let first = caption
                     .strip_prefix("§d§l§o")
                     .or_else(|| caption.strip_prefix("§d"))
