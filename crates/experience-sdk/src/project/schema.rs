@@ -41,6 +41,7 @@ pub struct Message {
     pub id: String,
     pub schema: u16,
     pub to_server: bool,
+    pub control: bool,
     pub fields: Vec<FieldType>,
 }
 
@@ -129,6 +130,7 @@ impl Project {
                     let mut id = None;
                     let mut schema = None;
                     let mut to_server = None;
+                    let mut control = false;
                     attributes[0].parse_nested_meta(|meta| {
                         if meta.path.is_ident("id") && id.is_none() {
                             id = Some(meta.value()?.parse::<LitStr>()?.value());
@@ -143,11 +145,17 @@ impl Project {
                             && to_server.is_none()
                         {
                             to_server = Some(meta.path.is_ident("to_server"));
+                        } else if meta.path.is_ident("control") && !control {
+                            control = true;
                         } else {
                             return Err(meta.error("unknown or repeated message option"));
                         }
                         Ok(())
                     })?;
+                    ensure!(
+                        !control || to_server == Some(false),
+                        "control requires to_client"
+                    );
                     let id = id.context("message needs id")?;
                     ensure!(
                         id.starts_with(&format!("{}.", project.id)) && portable(&id),
@@ -177,6 +185,7 @@ impl Project {
                         id,
                         schema: schema.context("message needs schema")?,
                         to_server: to_server.context("message needs to_server or to_client")?,
+                        control,
                         fields: types,
                     });
                 }

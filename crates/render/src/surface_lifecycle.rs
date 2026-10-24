@@ -89,7 +89,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires a native GPU"]
     fn native_gpu_orphan_target_survives_bevy_resize_cleanup_and_is_released() {
         use bevy::{
             camera::{CameraMainTextureUsages, NormalizedRenderTarget, RenderTarget},
@@ -104,7 +103,11 @@ mod tests {
             },
         };
         const SIDE: u32 = 8;
-        let gpu = crate::gpu_snapshot::Gpu::new().unwrap();
+        let Some(gpu) = crate::gpu_snapshot::Gpu::for_fixture(
+            "native_gpu_orphan_target_survives_bevy_resize_cleanup_and_is_released",
+        ) else {
+            return;
+        };
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("surface ownership regression"),
             size: wgpu::Extent3d {

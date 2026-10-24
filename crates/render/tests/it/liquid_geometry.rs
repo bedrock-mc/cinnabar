@@ -7,9 +7,10 @@ use meshing::liquid::{LIQUID_FACE_INSET, LIQUID_TOP_INSET_BIT};
 use meshing::{Face, PackedLiquidQuad};
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_liquid_planes_and_flow_uvs_execute_on_gpu() {
-    let gpu = Gpu::new().expect("native GPU");
+    let Some(gpu) = Gpu::for_fixture("native_liquid_planes_and_flow_uvs_execute_on_gpu") else {
+        return;
+    };
     let source = format!(
         "{}\n{WITNESS}",
         shader_source::standalone(include_str!("../../src/liquid.wesl"), &[])

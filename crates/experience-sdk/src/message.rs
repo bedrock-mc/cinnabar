@@ -157,6 +157,22 @@ pub trait Message: Sized {
     fn decode(record: Vec<Value>) -> Result<Self, String>;
 }
 
+/// A message sent by the client and handled by the server.
+pub trait ToServer: Message {}
+
+/// A message sent by the server and handled by the client.
+pub trait ToClient: Message {
+    /// Whether a refused reply is retained until transport credit returns.
+    const CONTROL: bool = false;
+}
+
+/// Implementation details used by the entry macros.
+#[doc(hidden)]
+pub mod __private {
+    /// Makes duplicate handlers for the same message a conflicting implementation.
+    pub trait Handles<M> {}
+}
+
 /// Validates a record before a generated encoder or decoder exposes it.
 pub fn validate(channel: &Channel, record: &[Value]) -> Result<(), String> {
     if channel.fields.len() == record.len()

@@ -80,9 +80,29 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires the local compiled vanilla world carrier"]
     fn real_carrier_terrain_tiles_resolve_stone_deepslate_and_grass() {
-        let bytes = std::fs::read(assets::carriers::startup::DEFAULT_ASSET_PATH).unwrap();
+        use assets::carriers::startup::{
+            AssetPathSource, DEFAULT_ASSET_PATH, select_asset_path_from_environment,
+        };
+        let default = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join(DEFAULT_ASSET_PATH);
+        let selection = select_asset_path_from_environment(None, &default);
+        let path = &selection.path;
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    && selection.source == AssetPathSource::Default =>
+            {
+                eprintln!(
+                    "skipping real_carrier_terrain_tiles_resolve_stone_deepslate_and_grass: missing world carrier fixture ({})",
+                    path.display()
+                );
+                return;
+            }
+            Err(error) => panic!("world carrier fixture {}: {error}", path.display()),
+        };
         let assets = RuntimeAssets::decode(&bytes).unwrap();
         let records = assets::read_registry_for_protocol(
             assets::pinned_block_registry_bytes(),

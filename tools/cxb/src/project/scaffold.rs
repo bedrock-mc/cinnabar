@@ -100,7 +100,7 @@ impl ClientPart for Client {
     /// Starts after messages.RegisterRegistry confirms the shared definitions.
     fn init() {
         let _welcome = crate::shared::assets::ASSET_WELCOME_TXT;
-        // Move portable personal-mod setup here. Use client::send_message for typed requests.
+        // Move portable personal-mod setup here. Use client::send for typed requests.
     }
 }
 "#;

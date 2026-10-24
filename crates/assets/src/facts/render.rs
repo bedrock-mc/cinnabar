@@ -192,6 +192,15 @@ pub struct BlockRenderRoute {
 }
 
 impl BlockRenderKind {
+    /// Unit cubes drawn on the transparent-cube path; the registry gives them no cube family.
+    pub const fn is_translucent_cube(self) -> bool {
+        use BlockRenderKind as R;
+        matches!(
+            self,
+            R::Ice | R::FrostedIce | R::Slime | R::Honey | R::TintedGlass | R::PowderSnow
+        )
+    }
+
     /// Gives each dedicated shape one route policy, independent of its identifier.
     pub const fn route(self) -> BlockRenderRoute {
         use BlockRenderKind as R;
