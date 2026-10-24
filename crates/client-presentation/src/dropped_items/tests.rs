@@ -553,6 +553,65 @@ fn dropped_flat_block_families_keep_their_carried_sprite_routes() {
     );
 }
 
+#[test]
+fn dropped_torches_use_sprites_and_keep_the_identity_guard_current() {
+    let registry = protocol::vanilla_item_registry();
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let torches: std::collections::BTreeSet<_> = registry
+        .iter()
+        .filter(|entry| {
+            records.iter().any(|record| {
+                record.name.as_ref() == entry.identifier.as_ref()
+                    && record.model_family == assets::ModelFamily::Torch
+            })
+        })
+        .map(|entry| entry.identifier.as_ref())
+        .collect();
+    assert_eq!(
+        assets::facts::TORCH_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        torches
+    );
+    let stream = stream(false, 1);
+    for identifier in torches {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier}"
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1)),
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
+}
+
 use assets::{CompiledAssets, RegistryRecord};
 use std::fs;
 /// Compiles real barrel selectors with original opaque sprite artwork for held-consumer checks.
@@ -743,4 +802,65 @@ fn weighted_replacement_updates_dropped_pixels_and_keeps_the_variation_range() {
         assert_eq!(material.texture, group.texture);
         assert_eq!(material.variation_weight, weight.to_bits());
     }
+}
+
+#[test]
+fn dropped_powered_rails_use_sprites_and_keep_the_identity_guard_current() {
+    let registry = protocol::vanilla_item_registry();
+    let records = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let rails: std::collections::BTreeSet<_> = registry
+        .iter()
+        .filter(|entry| {
+            records.iter().any(|record| {
+                record.name.as_ref() == entry.identifier.as_ref()
+                    && record.model_family == assets::ModelFamily::Rail
+                    && assets::facts::block_render_fact(&record.name).kind
+                        != assets::facts::BlockRenderKind::DefaultRail
+            })
+        })
+        .map(|entry| entry.identifier.as_ref())
+        .collect();
+    assert_eq!(
+        assets::facts::POWERED_RAIL_ITEM_IDENTIFIERS
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        rails
+    );
+    let stream = stream(false, 1);
+    for identifier in rails {
+        for visual in [
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            ItemVisualRoute::RetainedBlock {
+                block_runtime_id: 1,
+            },
+        ] {
+            assert_eq!(
+                item_block_id(&stream, visual, Some(identifier), None),
+                None,
+                "{identifier}"
+            );
+        }
+    }
+    assert_eq!(
+        item_block_id(
+            &stream,
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(1)),
+            Some("minecraft:stone"),
+            None
+        ),
+        Some((NetworkIdMode::Sequential, 1)),
+    );
+    assert_eq!(
+        entity_block_id(
+            &stream,
+            &BlockEntityKind::Falling {
+                block_runtime_id: 1
+            }
+        ),
+        Some((NetworkIdMode::Sequential, 1, 1.0))
+    );
 }
