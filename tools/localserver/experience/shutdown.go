@@ -39,13 +39,21 @@ func (h *Host) Drain(ctx context.Context) error {
 		close(h.stop)
 	}
 	h.mu.Unlock()
+	if running {
+		for _, d := range h.dispatchers {
+			if err := h.waitDispatcher(ctx, d); err != nil {
+				errs = append(errs, err)
+				break
+			}
+		}
+	}
+	h.stopWorkers()
 	for _, d := range h.dispatchers {
-		if err := h.drainDispatcher(ctx, d, leaves, running); err != nil {
+		if err := h.drainDispatcher(ctx, d, leaves); err != nil {
 			errs = append(errs, err)
 			break
 		}
 	}
-	h.stopWorkers()
 	errs = append(errs, ctx.Err())
 	return errors.Join(errors.Join(errs...), h.store.Flush())
 }
@@ -70,12 +78,14 @@ func (h *Host) stopWorkers() {
 	h.workers.Wait()
 }
 
-// drainDispatcher delivers retained leaves outside world tasks, then waits for their final commits.
-// If Run never started, the shutdown caller owns the queue and dispatches it synchronously.
-func (h *Host) drainDispatcher(ctx context.Context, d *dispatcher, leaves []event, running bool) error {
-	if !running {
-		for len(d.events) != 0 && ctx.Err() == nil {
-			h.dispatch(ctx, d, <-d.events)
+// drainDispatcher drains a stopped worker's queue and commits retained final leaves on the caller.
+func (h *Host) drainDispatcher(ctx context.Context, d *dispatcher, leaves []event) error {
+	for len(d.events) != 0 && ctx.Err() == nil {
+		ev := <-d.events
+		if ev.barrier != nil {
+			close(ev.barrier)
+		} else {
+			h.dispatch(ctx, d, ev)
 		}
 	}
 	if d.sup.registered.Worlds != nil {
@@ -83,28 +93,26 @@ func (h *Host) drainDispatcher(ctx context.Context, d *dispatcher, leaves []even
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			if !running {
-				h.dispatch(ctx, d, leave)
-				continue
-			}
-			select {
-			case d.events <- leave:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			h.dispatch(ctx, d, leave)
 		}
 	}
-	if !running {
-		return ctx.Err()
-	}
+	return ctx.Err()
+}
+
+// waitDispatcher waits for admitted callbacks or yields ownership when Run's workers stop.
+func (h *Host) waitDispatcher(ctx context.Context, d *dispatcher) error {
 	barrier := make(chan struct{})
 	select {
 	case d.events <- event{barrier: barrier}:
+	case <-h.done:
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
 	select {
 	case <-barrier:
+		return nil
+	case <-h.done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

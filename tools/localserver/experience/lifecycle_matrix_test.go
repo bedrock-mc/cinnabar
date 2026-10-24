@@ -7,6 +7,7 @@ import (
 	"time"
 
 	ext "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/player/playerdb"
 	"github.com/df-mc/dragonfly/server/world"
@@ -159,6 +160,36 @@ func (m *lifecycleMatrix) step(name string) {
 			f.h.PlayerJoined(p)
 		})
 		m.fenced = false
+	case "duplicate_login":
+		if !m.live || f.h.epoch(f.actor) == 0 {
+			return
+		}
+		admitted := m.part.server.PlayerSession(f.actor.UUID())
+		hostSession := f.h.PlayerSession(f.actor)
+		listen := m.part.server.Listener(func(server.Config) (server.Listener, error) {
+			return lifecycleListener{c: &lifecycleConn{id: f.actor.UUID()}}, nil
+		})
+		l, err := listen(server.Config{})
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		duplicate, err := l.Accept()
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		if m.part.server.PlayerSession(f.actor.UUID()) != admitted {
+			f.t.Fatal("duplicate login replaced the connected player's session")
+		}
+		if err := duplicate.Close(); err != nil {
+			f.t.Fatal(err)
+		}
+		if m.part.server.PlayerSession(f.actor.UUID()) != admitted || f.h.PlayerSession(f.actor) != hostSession {
+			f.t.Fatal("rejecting a duplicate login lost the connected player's session")
+		}
+	case "cancel_run":
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		f.h.Run(ctx)
 	case "handshake":
 		if m.live && f.h.epoch(f.actor) != 0 {
 			m.part.handshake()
@@ -296,7 +327,7 @@ func (m *lifecycleMatrix) check() {
 
 // TestLifecycleEventPairs runs every pair in both orders through actual host and extension code.
 func TestLifecycleEventPairs(t *testing.T) {
-	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "shutdown"}
+	events := []string{"join", "leave", "disconnect", "reconnect", "handshake", "portal", "respawn", "prepare", "commit", "same_instance", "unload", "duplicate_login", "cancel_run", "shutdown"}
 	for i, first := range events {
 		for _, second := range events[i+1:] {
 			for _, pair := range [][2]string{{first, second}, {second, first}} {

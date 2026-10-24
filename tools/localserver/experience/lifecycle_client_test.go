@@ -116,6 +116,9 @@ func newLifecyclePart(t *testing.T, f *runtimeFixture, existing ...*ext.Server) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := part.conn.WritePacket(&packet.ItemRegistry{}); err != nil {
+		t.Fatal(err)
+	}
 	readExtensionFixture(t, "hello_payload.json", &part.hello)
 	encoded, err := ext.Encode(s.Offer())
 	if err != nil {

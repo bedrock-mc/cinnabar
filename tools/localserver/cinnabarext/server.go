@@ -88,7 +88,9 @@ type Server struct {
 	transferMu sync.Mutex
 
 	mu sync.Mutex
-	// connections holds accepted sessions, including those whose client part activates later.
+	// pending holds connections until Dragonfly accepts their login.
+	pending map[*Conn]struct{}
+	// connections holds admitted sessions, including those whose client part activates later.
 	connections map[uuid.UUID]*Conn
 	handlers    map[Route]func(uuid.UUID, Record)
 }
@@ -118,6 +120,7 @@ func New(cfg Config) (*Server, error) {
 		now:         cfg.Now,
 		rand:        cfg.Rand,
 		connections: make(map[uuid.UUID]*Conn),
+		pending:     make(map[*Conn]struct{}),
 		handlers:    make(map[Route]func(uuid.UUID, Record)),
 	}
 	if s.log == nil {
@@ -298,7 +301,7 @@ func (s *Server) SendRecord(player uuid.UUID, exp, channel string, schema uint16
 	return c != nil && c.send(exp, channel, schema, payload)
 }
 
-// PlayerSession returns the accepted connection, including a client part that has not activated.
+// PlayerSession returns the admitted connection, including a client part that has not activated.
 func (s *Server) PlayerSession(player uuid.UUID) PlayerSession {
 	s.mu.Lock()
 	defer s.mu.Unlock()
