@@ -1003,7 +1003,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
-  Source-driven mod projects generate typed Rust/Go messages, registry confirmation,
+  Source-driven mod projects generate typed Rust/Go messages, direction-checked sends
+  and handlers on both halves, registry confirmation,
   compile-checked asset constants and paired `.cmod` packages through `devtool mod new/build`.
   Typed block/item declarations generate server registration and ordinary packs; installation
   feeds the existing local-server hosts, and `mod run` builds an isolated development loop.

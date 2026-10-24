@@ -66,11 +66,14 @@ fn cloud_colour_and_fade_are_native_vertex_work_not_reinvented_fragment_weather(
 }
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_cloud_vertices_preserve_negative_cells_subpixel_scroll_rgba_and_fade_on_gpu() {
     use bevy::math::{Mat4, Vec3};
     use gpu_snapshot::{Draw, Gpu};
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) = Gpu::for_fixture(
+        "native_cloud_vertices_preserve_negative_cells_subpixel_scroll_rgba_and_fade_on_gpu",
+    ) else {
+        return;
+    };
     let mut source = shader();
     source.push_str(r#"
 @vertex fn probe_vertex(@builtin(vertex_index) index: u32) -> VertexOutput {

@@ -51,6 +51,8 @@ fn ambiguous_or_unbounded_schemas_fail_generation() {
         SOURCE.replace("id = \"space\",", "id = \"..\","),
         SOURCE.replace("#[field(max_bytes = 12)]", ""),
         SOURCE.replace("space.state", "foreign.state"),
+        SOURCE.replace("to_client", "to_server, control"),
+        SOURCE.replace("to_client", "to_client, control, control"),
         SOURCE.replace("pub count: u32", "pub count: f32"),
         SOURCE.replace("pub count: u32", "pub count: u64"),
         SOURCE.replace("max = 8", "max = 40000"),

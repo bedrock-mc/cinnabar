@@ -21,7 +21,7 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
             tell("staged");
             let channel = channels::COUNTER;
             let record = nodes(vec![Value::Integer(1)]);
-            let _ = ctx.send_client(player, channel.id, channel.schema, &record);
+            let _ = super::raw(ctx).send_client(player, channel.id, channel.schema, &record);
             // Lowers to the Wasm `unreachable` instruction.
             std::process::abort();
         }
@@ -93,12 +93,17 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
             Ok(n) => {
                 let channel = channels::COUNTER;
                 let record = nodes(vec![Value::Integer(n.into())]);
-                let sent = outcome(ctx.send_client(player, channel.id, channel.schema, &record));
+                let sent = outcome(super::raw(ctx).send_client(
+                    player,
+                    channel.id,
+                    channel.schema,
+                    &record,
+                ));
                 tell(&format!("count {n} {sent}"));
             }
             Err(error) => tell(&format!("error {}", error.name())),
         },
-        20 => tell(outcome(ctx.send_client(
+        20 => tell(outcome(super::raw(ctx).send_client(
             NIL_PLAYER,
             channels::COUNTER.id,
             channels::COUNTER.schema,
@@ -106,7 +111,7 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
         ))),
         21 => {
             let text = Value::Text("x".repeat(MIB));
-            tell(outcome(ctx.send_client(
+            tell(outcome(super::raw(ctx).send_client(
                 player,
                 channels::COUNTER.id,
                 channels::COUNTER.schema,
@@ -116,7 +121,8 @@ pub(super) fn interact(ctx: &Callback, player: &str, p: BlockPos) -> Result<(), 
         22 => {
             let channel = channels::ITEMS;
             let record = nodes(items(400));
-            let sent = outcome(ctx.send_client(player, channel.id, channel.schema, &record));
+            let sent =
+                outcome(super::raw(ctx).send_client(player, channel.id, channel.schema, &record));
             tell(&format!("items {sent}"));
         }
         23 => tell(&format!("focus {}", describe(ctx.focus()))),

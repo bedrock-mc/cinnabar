@@ -128,7 +128,7 @@ fn connected_model_mask<'a>(
         let connects = if connection_flag == MODEL_TEMPLATE_FLAG_PANE {
             neighbour_flags & MODEL_TEMPLATE_FLAG_PANE != 0
                 || neighbour_flags & MODEL_TEMPLATE_FLAG_WALL != 0
-                || neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                || grants_link(neighbour)
         } else {
             neighbour_flags & connection_flag != 0
                 || match face {
@@ -140,11 +140,20 @@ fn connected_model_mask<'a>(
                     }
                     Face::NegativeY | Face::PositiveY => false,
                 }
-                || neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+                || grants_link(neighbour)
         };
         connects.then_some(bit)
     })
     .fold(0, |mask, bit| mask | bit)
+}
+
+/// Whether panes and fences link to a neighbour regardless of their own family: a full-face
+/// occluder, or a built-in unit cube under the classification placement collision also reads.
+fn grants_link(neighbour: ResolvedPaletteEntry) -> bool {
+    neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
+        || neighbour.sequential_id.is_some_and(|id| {
+            assets::facts::connection::pinned_links_as_unit_cube(NetworkIdMode::Sequential, id)
+        })
 }
 
 pub(crate) fn model_template_flags(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry) -> u32 {

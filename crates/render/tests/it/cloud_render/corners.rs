@@ -3,9 +3,12 @@ use bevy::math::{Mat4, Vec3};
 use super::gpu_snapshot::{Draw, Gpu};
 
 #[test]
-#[ignore = "requires a native GPU adapter; run explicitly on a GPU host"]
 fn native_face_vertex_sequences_and_quad_diagonals_execute_on_gpu() {
-    let gpu = Gpu::new().expect("this fixture requires a native GPU adapter");
+    let Some(gpu) =
+        Gpu::for_fixture("native_face_vertex_sequences_and_quad_diagonals_execute_on_gpu")
+    else {
+        return;
+    };
     let mut source = super::shader();
     source.push_str(
         r#"

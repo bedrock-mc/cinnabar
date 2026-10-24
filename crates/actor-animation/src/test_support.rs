@@ -353,6 +353,23 @@ pub fn initialized_pose_compiled() -> assets::CompiledEntityAssets {
     compiled
 }
 
+/// Uses an explicit carrier when supplied, otherwise admits the installed fixture.
+/// A bad supplied path or invalid carrier fails instead of being treated as unavailable.
+pub fn entity_assets(variable: &str, fixture: &str) -> Option<Arc<RuntimeEntityAssets>> {
+    let Some(path) = std::env::var_os(variable) else {
+        return installed_entity_assets(fixture);
+    };
+    let bytes = std::fs::read(&path).unwrap_or_else(|error| {
+        panic!(
+            "{fixture}: supplied carrier fixture {} could not be read: {error}",
+            std::path::Path::new(&path).display()
+        )
+    });
+    Some(Arc::new(
+        RuntimeEntityAssets::decode(&bytes).expect("supplied entity carrier fixture must decode"),
+    ))
+}
+
 /// The installed entity carrier, or `None` after naming the missing `fixture`.
 #[expect(
     clippy::print_stderr,

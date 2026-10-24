@@ -95,6 +95,19 @@ impl UiRuntime {
         }
     }
 
+    /// A primary press on the empty background of the creative item grid. Vanilla maps it
+    /// to `button.destroy_selection`, which deletes the held stack in creative.
+    pub fn destroy_held_on_item_grid(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+    ) -> Outcome {
+        if player_runtime.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative) {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        self.inventory_ledger_mut(player_runtime)
+            .begin_destroy_cursor(None)
+    }
+
     /// A click on a catalog cell: take the item, or delete the held stack.
     pub(super) fn creative_click(
         &mut self,
