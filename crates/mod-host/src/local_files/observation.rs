@@ -2,7 +2,18 @@
 
 use super::{Opened, open};
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs::File, io, path::Path, path::PathBuf, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io,
+    path::Path,
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+/// A subsecond timestamp can repeat until its clock tick ends; confirm once after that window.
+pub(crate) const CONFIRMATION_DELAY: Duration = Duration::from_secs(1);
 
 /// One bounded source read and its digest, shared without copying the source buffer.
 #[derive(Clone)]
@@ -15,6 +26,7 @@ struct Cached {
     identity: Identity,
     snapshot: Snapshot,
     observed: bool,
+    confirm_after: Option<Instant>,
 }
 
 /// A worker-owned cache; each poll still reopens paths with the regular-file/link policy.
@@ -39,34 +51,54 @@ impl ObservationCache {
         });
     }
 
-    /// Invokes the bounded byte reader only after the newly opened leaf changes identity.
+    /// Uses the filesystem edge clock for changed reads and one confirmation of a new stamp.
     fn read_with(
         &mut self,
         path: &Path,
         limit: usize,
         read: impl FnOnce(&mut Opened) -> io::Result<Vec<u8>>,
     ) -> io::Result<Snapshot> {
+        self.read_at(path, limit, Instant::now(), Identity::of, read)
+    }
+
+    /// Confirms a newly observed stamp once after its possible subsecond collision window.
+    fn read_at(
+        &mut self,
+        path: &Path,
+        limit: usize,
+        now: Instant,
+        identify: impl Fn(&File) -> io::Result<Option<Identity>>,
+        read: impl FnOnce(&mut Opened) -> io::Result<Vec<u8>>,
+    ) -> io::Result<Snapshot> {
         let key = (path.to_owned(), limit);
         let mut opened = open(path)?;
-        let before = Identity::of(&opened.file)?;
+        let before = identify(&opened.file)?;
+        let mut confirming = false;
         if let Some(cached) = self.files.get_mut(&key)
             && before.as_ref() == Some(&cached.identity)
         {
-            cached.observed = true;
-            return Ok(cached.snapshot.clone());
+            confirming = cached.confirm_after.is_some_and(|deadline| now >= deadline);
+            if !confirming {
+                cached.observed = true;
+                return Ok(cached.snapshot.clone());
+            }
         }
-        self.files.remove(&key);
+        let previous = self.files.remove(&key);
         if opened.file.metadata()?.len() > limit as u64 {
             return Err(io::Error::other("source exceeds byte limit"));
         }
         let bytes = read(&mut opened)?;
-        let after = Identity::of(&opened.file)?;
+        let after = identify(&opened.file)?;
         if before != after {
             return Err(io::Error::other("source changed while being read"));
         }
-        let snapshot = Snapshot {
-            digest: Sha256::digest(&bytes).into(),
-            bytes: bytes.into(),
+        let digest = Sha256::digest(&bytes).into();
+        let snapshot = match previous {
+            Some(previous) if previous.snapshot.digest == digest => previous.snapshot,
+            _ => Snapshot {
+                digest,
+                bytes: bytes.into(),
+            },
         };
         if let Some(identity) = after {
             self.files.insert(
@@ -75,6 +107,7 @@ impl ObservationCache {
                     identity,
                     snapshot: snapshot.clone(),
                     observed: true,
+                    confirm_after: (!confirming).then_some(now + CONFIRMATION_DELAY),
                 },
             );
         }
@@ -83,7 +116,7 @@ impl ObservationCache {
 }
 
 /// File identity plus content and metadata change times; access times are deliberately excluded.
-#[derive(PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct Identity {
     created: Option<std::time::SystemTime>,
     #[cfg(unix)]
@@ -93,7 +126,7 @@ pub(crate) struct Identity {
 }
 
 impl Identity {
-    /// Returns no reusable identity when the filesystem cannot supply a precise change stamp.
+    /// Uses the available file identity and refuses missing or whole-second change stamps.
     pub(crate) fn of(file: &File) -> io::Result<Option<Self>> {
         #[cfg(unix)]
         {

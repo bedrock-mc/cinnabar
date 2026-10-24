@@ -7,7 +7,7 @@ use std::{
 };
 
 mod observation;
-pub(crate) use observation::Identity;
+pub(crate) use observation::{CONFIRMATION_DELAY, Identity};
 pub use observation::{ObservationCache, Snapshot};
 
 /// Reads a selected regular file with a byte ceiling and refuses a linked final entry.

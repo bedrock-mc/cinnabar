@@ -1,11 +1,12 @@
 //! Retains a verified package while every manifest-selected file has the same change identity.
 
 use super::{Directory, Package};
-use crate::local_files::Identity;
+use crate::local_files::{CONFIRMATION_DELAY, Identity};
 use anyhow::{Context, Result};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
+    time::Instant,
 };
 
 struct Dependency {
@@ -18,6 +19,7 @@ struct Dependency {
 pub struct Observation {
     cached: Option<(PathBuf, Result<Arc<Package>, String>)>,
     files: Vec<Dependency>,
+    confirm_after: Option<Instant>,
 }
 
 impl Observation {
@@ -30,19 +32,33 @@ impl Observation {
     pub(super) fn read_with(
         &mut self,
         path: &Path,
+        read: impl FnMut(&mut crate::local_files::Opened, usize) -> std::io::Result<Vec<u8>>,
+    ) -> Result<Arc<Package>> {
+        self.read_at(path, Instant::now(), read)
+    }
+
+    /// Confirms package inputs once after their initial timestamp collision window closes.
+    pub(super) fn read_at(
+        &mut self,
+        path: &Path,
+        now: Instant,
         mut read: impl FnMut(&mut crate::local_files::Opened, usize) -> std::io::Result<Vec<u8>>,
     ) -> Result<Arc<Package>> {
         let root = Directory::open(path).context("open mod package directory")?;
+        let mut confirming = false;
         if let Some((previous, package)) = &self.cached
             && previous == path
             && self.unchanged(&root)
         {
-            return package.clone().map_err(anyhow::Error::msg);
+            confirming = self.confirm_after.is_some_and(|deadline| now >= deadline);
+            if !confirming {
+                return package.clone().map_err(anyhow::Error::msg);
+            }
         }
-        self.cached = None;
+        let previous = self.cached.take();
         self.files.clear();
         let mut reusable = true;
-        let package = Package::read_files(|path, limit| {
+        let mut package = Package::read_files(|path, limit| {
             let mut opened = match root.open_file(path) {
                 Ok(opened) => opened,
                 Err(error) => {
@@ -81,8 +97,14 @@ impl Observation {
         })
         .map(Arc::new)
         .map_err(|error| format!("{error:#}"));
+        if let (Some((_, Ok(previous))), Ok(current)) = (&previous, &package)
+            && previous.digest == current.digest
+        {
+            package = Ok(previous.clone());
+        }
         if reusable {
             self.cached = Some((path.to_owned(), package.clone()));
+            self.confirm_after = (!confirming).then_some(now + CONFIRMATION_DELAY);
         }
         package.map_err(anyhow::Error::msg)
     }

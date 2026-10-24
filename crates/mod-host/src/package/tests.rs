@@ -228,10 +228,11 @@ fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     std::fs::write(&path, b"wrong hash").unwrap();
     let mut observer = Observation::default();
     let mut reads = 0;
+    let now = std::time::Instant::now();
     for _ in 0..8 {
         assert!(
             observer
-                .read_with(dir.path(), |opened, limit| {
+                .read_at(dir.path(), now, |opened, limit| {
                     reads += 1;
                     opened.read(limit)
                 })
@@ -242,7 +243,7 @@ fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     std::fs::write(&path, COMPONENT).unwrap();
     assert!(
         observer
-            .read_with(dir.path(), |opened, limit| {
+            .read_at(dir.path(), now, |opened, limit| {
                 reads += 1;
                 opened.read(limit)
             })
@@ -253,7 +254,7 @@ fn rejected_package_observations_do_not_reread_bytes_and_repairs_retry() {
     for _ in 0..8 {
         assert!(
             observer
-                .read_with(dir.path(), |opened, limit| {
+                .read_at(dir.path(), now, |opened, limit| {
                     reads += 1;
                     opened.read(limit)
                 })
@@ -280,4 +281,35 @@ fn package_observations_retry_transient_read_errors_without_a_source_edit() {
             .is_err()
     );
     assert_eq!(observer.read(dir.path()).unwrap().component, COMPONENT);
+}
+
+#[test]
+fn package_observations_confirm_new_stamps_once_without_periodic_reads() {
+    let dir = write_package(&[("mod.wasm", COMPONENT)], |_| {});
+    let now = std::time::Instant::now();
+    let mut observer = Observation::default();
+    let reads = std::cell::Cell::new(0);
+    let observe = |observer: &mut Observation, now| {
+        observer
+            .read_at(dir.path(), now, |opened, limit| {
+                reads.set(reads.get() + 1);
+                opened.read(limit)
+            })
+            .unwrap()
+    };
+    let first = observe(&mut observer, now);
+    assert!(Arc::ptr_eq(&first, &observe(&mut observer, now)));
+    assert_eq!(reads.get(), 2);
+    assert!(Arc::ptr_eq(
+        &first,
+        &observe(&mut observer, now + crate::local_files::CONFIRMATION_DELAY)
+    ));
+    assert_eq!(reads.get(), 4);
+    for seconds in [2, 10, 100, 1000] {
+        assert!(Arc::ptr_eq(
+            &first,
+            &observe(&mut observer, now + std::time::Duration::from_secs(seconds))
+        ));
+    }
+    assert_eq!(reads.get(), 4, "package confirmation is not periodic");
 }
