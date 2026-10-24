@@ -152,3 +152,39 @@ fn spawn_handles_use_ordinals_when_block_writes_are_coalesced() {
     assert_eq!(staged, [first.id, second.id, third.id]);
     assert_eq!(res.entities().unwrap().len(), 2);
 }
+
+#[test]
+fn leave_cannot_spawn_entities_or_discard_private_state() {
+    let mut res = callback();
+    res.actor = None;
+    res.player_store = true;
+    res.store_write(
+        wit::StoreKey {
+            scope: wit::StoreScope::Player,
+            schema: 1,
+        },
+        Some(vec![1]),
+    )
+    .unwrap()
+    .unwrap();
+    let result = res
+        .spawn_entity(
+            wit::EntityTypeId {
+                value: "probe:ship".into(),
+            },
+            wit::Position {
+                x: 0.0,
+                y: 70.0,
+                z: 0.0,
+            },
+            wit::EntityRotation {
+                yaw: 0.0,
+                pitch: 0.0,
+            },
+        )
+        .unwrap();
+    assert!(matches!(result, Err(WorldError::Unavailable)));
+    assert!(res.ops.iter().all(|op| matches!(op, Op::StoreWrite { .. })));
+    assert_eq!(res.ops.len(), 1);
+    assert!(res.entities().unwrap().is_empty());
+}

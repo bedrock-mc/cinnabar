@@ -64,3 +64,36 @@ func TestReloadRefusesNewItemRegistration(t *testing.T) {
 		t.Fatal("a rejected item replacement must leave no active helper")
 	}
 }
+
+// Entity schemas stay fixed after the world registry and resource packs are finalized.
+func TestRegistrationRefusesChangedEntities(t *testing.T) {
+	registered := fakeLoaded()
+	registered.Entities = []EntityDefinition{entityDefinition()}
+	cases := []struct {
+		name   string
+		change func(*Loaded)
+	}{
+		{"added", func(l *Loaded) { l.Entities = append(l.Entities, entityDefinition()) }},
+		{"removed", func(l *Loaded) { l.Entities = nil }},
+		{"kind", func(l *Loaded) { l.Entities[0].ID += "_new" }},
+		{"collision", func(l *Loaded) { l.Entities[0].Collision.Max.Y++ }},
+		{"appearance", func(l *Loaded) { l.Entities[0].Appearance.ID += "_new" }},
+		{"seat", func(l *Loaded) { l.Entities[0].Seats[0].Steers = false }},
+		{"property", func(l *Loaded) { l.Entities[0].Properties[0].Max++ }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			loaded := registered
+			loaded.Entities = []EntityDefinition{entityDefinition()}
+			tc.change(&loaded)
+			if err := matchRegistration(registered, loaded); err == nil || !strings.Contains(err.Error(), "entity") {
+				t.Fatalf("changed entities: %v; want an entity mismatch", err)
+			}
+		})
+	}
+	loaded := registered
+	loaded.Version += "-fixed"
+	if err := matchRegistration(registered, loaded); err != nil {
+		t.Fatalf("unchanged entities with a new helper version: %v", err)
+	}
+}

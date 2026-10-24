@@ -254,7 +254,11 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	go func() {
 		defer close(accepting)
 		for p := range srv.Accept() {
-			p.Handle(&localPlayerHandler{host: host})
+			handler := &localPlayerHandler{}
+			if host != nil {
+				handler.host = host
+			}
+			p.Handle(handler)
 			if host != nil {
 				host.PlayerJoined(p)
 			}
