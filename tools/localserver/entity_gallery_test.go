@@ -49,6 +49,25 @@ func TestEntityGalleryCoversTheRetailRegistryAcrossPages(t *testing.T) {
 	}
 }
 
+func TestEntityGalleryIncludesDedicatedSpawnTypesFromNativeFacts(t *testing.T) {
+	paths, err := filepath.Glob("../../crates/assets/data/entity-facts-*.bin")
+	if err != nil || len(paths) == 0 {
+		t.Fatal("missing pinned entity facts registry")
+	}
+	for _, path := range paths {
+		gallery, err := loadEntityGallery(path, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, identifier := range []string{"minecraft:item", "minecraft:painting", "minecraft:falling_block"} {
+			page, _ := entityGalleryPage("/entitygallery "+identifier, gallery)
+			if len(page) != 1 {
+				t.Errorf("missing native actor %s", identifier)
+			}
+		}
+	}
+}
+
 func TestEntityGalleryPreservesWireTypesAndSpecialSpawns(t *testing.T) {
 	page := []entityAppearance{{Identifier: "minecraft:sheep", Name: "baby", Color: 14, Variant: 2, Flags: []uint8{protocol.EntityDataFlagBaby, 100}}, {Identifier: "minecraft:painting", Painting: "Alban"}, {Identifier: "minecraft:item"}}
 	packets := entityGalleryPackets(page, mgl32.Vec3{0, 65.62, 0})
@@ -61,6 +80,10 @@ func TestEntityGalleryPreservesWireTypesAndSpecialSpawns(t *testing.T) {
 	}
 	if packets[2].(*packet.AddPainting).Title != "Alban" || packets[4].(*packet.AddItemActor).Item.Stack.Count != 1 {
 		t.Fatal("special spawn path lost its payload")
+	}
+	centered := entityGalleryPackets(page[:1], mgl32.Vec3{20, 65, 0})[0].(*packet.AddActor)
+	if centered.Position[0] != 20 {
+		t.Fatal("single-actor page is outside the viewer's center")
 	}
 }
 

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -44,9 +46,32 @@ func loadEntityGallery(registry, appearances string) ([]entityAppearance, error)
 	if err != nil {
 		return nil, err
 	}
+	identifiers := strings.Fields(string(data))
+	if bytes.HasPrefix(data, []byte("EFACT001")) {
+		if len(data) < 40 {
+			return nil, fmt.Errorf("truncated entity facts registry")
+		}
+		payload, checksum := data[:len(data)-32], data[len(data)-32:]
+		hash := sha256.Sum256(payload)
+		if !bytes.Equal(hash[:], checksum) {
+			return nil, fmt.Errorf("invalid entity facts checksum")
+		}
+		var facts struct {
+			Records []struct {
+				Identifier string `json:"identifier"`
+			} `json:"records"`
+		}
+		if err := json.Unmarshal(payload[8:], &facts); err != nil {
+			return nil, err
+		}
+		identifiers = nil
+		for _, record := range facts.Records {
+			identifiers = append(identifiers, record.Identifier)
+		}
+	}
 	known := map[string]bool{}
 	var gallery []entityAppearance
-	for _, id := range strings.Fields(string(data)) {
+	for _, id := range identifiers {
 		if !strings.HasPrefix(id, "minecraft:") || known[id] {
 			return nil, fmt.Errorf("invalid or duplicate actor %q", id)
 		}
@@ -215,7 +240,8 @@ func entityGalleryPackets(page []entityAppearance, origin mgl32.Vec3) []packet.P
 	var packets []packet.Packet
 	for i, appearance := range page {
 		id := int64(entityGalleryFirstID + i*2)
-		position := origin.Add(mgl32.Vec3{float32(i%4)*5 - 7.5, -1.62, 7 + float32(i/4)*7})
+		columns := min(4, len(page))
+		position := origin.Add(mgl32.Vec3{(float32(i%4) - float32(columns-1)/2) * 5, -1.62, 7 + float32(i/4)*7})
 		metadata := appearance.metadata()
 		var actor packet.Packet = &packet.AddActor{EntityUniqueID: id, EntityRuntimeID: uint64(id), EntityType: appearance.Identifier, Position: position, Yaw: 180, HeadYaw: 180, BodyYaw: 180, EntityMetadata: metadata}
 		if appearance.Identifier == "minecraft:painting" {
