@@ -765,17 +765,17 @@ fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
             }
         }
         cache.finish_frame();
-        if let Some((previous_count, revision, builds)) = previous {
-            if previous_count == count {
-                assert_eq!(
-                    cache.revision, revision,
-                    "unchanged artwork keeps its upload revision"
-                );
-                assert_eq!(
-                    cache.model_builds, builds,
-                    "unchanged plans reuse validated source costs and resident sprites"
-                );
-            }
+        if let Some((previous_count, revision, builds)) = previous
+            && previous_count == count
+        {
+            assert_eq!(
+                cache.revision, revision,
+                "unchanged artwork keeps its upload revision"
+            );
+            assert_eq!(
+                cache.model_builds, builds,
+                "unchanged plans reuse validated source costs and resident sprites"
+            );
         }
         previous = Some((count, cache.revision, cache.model_builds));
         let mut budget = cache.budget;
