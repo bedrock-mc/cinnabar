@@ -5,8 +5,8 @@ use render_model::{DroppedItemCube, DroppedItemSprite};
 
 #[test]
 fn prepared_carried_models_replace_pixels_and_retire_with_their_source() {
-    let (first, _) = crate::presentation::equipment::PreparedBlockItems::test_model(20);
-    let (second, _) = crate::presentation::equipment::PreparedBlockItems::test_model(80);
+    let (first, _) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
+    let (second, _) = crate::presentation::equipment::PreparedBlockItems::narrow_box(80);
     let mut cache = ModelCache::default();
     let pose = DroppedItemSpawnPose::new([0.0; 3], Some(([0.0; 3], 30.0)));
     cache.spawn_poses.insert((7, 1), pose);

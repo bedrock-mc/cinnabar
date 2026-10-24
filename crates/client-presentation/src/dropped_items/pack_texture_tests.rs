@@ -82,9 +82,9 @@ fn fixture_with_block(
 
 #[test]
 fn drops_use_matching_carried_models_and_preserve_session_sprite_overrides() {
-    let (source, terrain) = crate::presentation::equipment::PreparedBlockItems::test_model(20);
+    let (source, terrain) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
     let (replacement_source, replacement) =
-        crate::presentation::equipment::PreparedBlockItems::test_model(80);
+        crate::presentation::equipment::PreparedBlockItems::narrow_box(80);
     let (mut icons, stream) = fixture_with_block(0, 1);
     let mut world = World::new();
     world.init_resource::<DroppedItemScene>();
