@@ -5,9 +5,17 @@ use crate::{ColumnPos, EncodedSummary, Versioned};
 /// Columns along one side of a region.
 pub const REGION_SIDE: i32 = 32;
 const REGION_COLUMNS: usize = (REGION_SIDE * REGION_SIDE) as usize;
-const MAGIC: &[u8; 8] = b"CNBRLOD2";
+const MAGIC: &[u8; 8] = b"CNBRLOD3";
 /// Slot, payload length, content hash and version.
 const ENTRY_BYTES: usize = 2 + 4 + 8 + 8;
+const CHECKSUM_BYTES: usize = 8;
+/// Maximum canonical region size, including its table and integrity trailer.
+pub(crate) const MAX_REGION_BYTES: usize = MAGIC.len()
+    + 2
+    + REGION_COLUMNS * (ENTRY_BYTES + crate::summary::MAX_ENCODED_BYTES)
+    + CHECKSUM_BYTES;
+/// Persisted clocks reserve half their range for recovery before arithmetic can overflow.
+pub(crate) const MAX_VERSION: u64 = u64::MAX / 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct RegionPos {
@@ -87,11 +95,20 @@ pub fn encode_region(columns: &[(u16, Versioned)]) -> Vec<u8> {
     for column in latest.values() {
         bytes.extend_from_slice(&column.summary.bytes);
     }
+    let checksum = xxhash_rust::xxh64::xxh64(&bytes, 0);
+    bytes.extend_from_slice(&checksum.to_le_bytes());
     bytes
 }
 
 /// Reads [`encode_region`] output, rejecting any inconsistency rather than reading part.
 pub fn decode_region(bytes: &[u8]) -> Result<Vec<(u16, Versioned)>, RegionDecodeError> {
+    if bytes.len() > MAX_REGION_BYTES || bytes.len() < MAGIC.len() + 2 + CHECKSUM_BYTES {
+        return Err(RegionDecodeError);
+    }
+    let (bytes, trailer) = bytes.split_at(bytes.len() - CHECKSUM_BYTES);
+    if xxhash_rust::xxh64::xxh64(bytes, 0).to_le_bytes() != trailer {
+        return Err(RegionDecodeError);
+    }
     let rest = bytes.strip_prefix(MAGIC).ok_or(RegionDecodeError)?;
     let (count, mut rest) = rest.split_first_chunk::<2>().ok_or(RegionDecodeError)?;
     let count = usize::from(u16::from_le_bytes(*count));
@@ -106,7 +123,11 @@ pub fn decode_region(bytes: &[u8]) -> Result<Vec<(u16, Versioned)>, RegionDecode
         let len = u32::from_le_bytes(entry[2..6].try_into().expect("four bytes")) as usize;
         let hash = u64::from_le_bytes(entry[6..14].try_into().expect("eight bytes"));
         let version = u64::from_le_bytes(entry[14..22].try_into().expect("eight bytes"));
-        if usize::from(index) >= REGION_COLUMNS || len > payload.len() {
+        if usize::from(index) >= REGION_COLUMNS
+            || len > payload.len()
+            || len > crate::summary::MAX_ENCODED_BYTES
+            || version > MAX_VERSION
+        {
             return Err(RegionDecodeError);
         }
         let (summary, next) = payload.split_at(len);

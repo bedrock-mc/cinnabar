@@ -272,6 +272,11 @@ impl ImageDirectory {
     /// Deletes this cache's oldest files until the count and byte bounds hold; files it did not
     /// name, such as the core's persona art in the launcher folder, neither count nor go.
     fn evict(&self) {
+        self.evict_with(|path| fs::remove_file(path));
+    }
+
+    /// Counts only successful removals, leaving failed candidates available for retry.
+    fn evict_with(&self, mut remove: impl FnMut(&Path) -> std::io::Result<()>) {
         let Ok(entries) = fs::read_dir(&self.0.dir) else {
             return;
         };
@@ -296,9 +301,19 @@ impl ImageDirectory {
             {
                 break;
             }
-            let _ = fs::remove_file(path);
+            if let Err(error) = remove(&path)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(path = %path.display(), %error, "image cache eviction failed");
+                continue;
+            }
             count -= 1;
             total = total.saturating_sub(size);
+        }
+        if count > surface.max_files
+            || (surface.max_dir_bytes != 0 && total > surface.max_dir_bytes)
+        {
+            tracing::warn!(count, total, "image cache could not meet its disk quota");
         }
     }
 }

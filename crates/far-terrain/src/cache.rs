@@ -15,8 +15,9 @@ use crate::{
     ColumnPos, ColumnSummary, EncodedSummary, FarTerrainConfig, NamespaceKey, ServerKey,
     SummaryBudget, SummaryStore, Versioned, WorldKey,
     config::{
-        MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER, REGION_FLUSH_COLUMNS, WORLD_DIVERGED_COLUMNS,
-        WORLD_PROBE_COLUMNS, WORLD_PROBE_SIMILARITY, WORLD_PROBE_TIMEOUT, WORLD_VERIFY_COLUMNS,
+        MAX_PENDING_WRITE_REGIONS, MAX_UNRESOLVED_COLUMNS, REGION_FLUSH_AFTER,
+        REGION_FLUSH_COLUMNS, WORLD_DIVERGED_COLUMNS, WORLD_PROBE_COLUMNS, WORLD_PROBE_SIMILARITY,
+        WORLD_PROBE_TIMEOUT, WORLD_VERIFY_COLUMNS,
     },
     disk::{DiskBounds, DiskCache},
     identity::surface_similarity,
@@ -25,6 +26,9 @@ use crate::{
 
 mod completion;
 use completion::PendingEvent;
+
+#[cfg(test)]
+mod admission_tests;
 
 #[derive(Debug)]
 struct DirtyRegion {
@@ -105,6 +109,8 @@ pub struct FarTerrainCache {
     unresolved: Vec<(ColumnPos, Versioned)>,
     probes: Vec<(ColumnPos, ColumnSummary)>,
     resolving: bool,
+    /// A diverged visit waits for worker admission before its fresh namespace is resolved.
+    fresh_from: Option<NamespaceKey>,
     /// When this visit's first column arrived, for [`WORLD_PROBE_TIMEOUT`].
     pending_since: Option<Instant>,
     /// Changes waiting to be written, per namespace and region.
@@ -131,6 +137,12 @@ impl FarTerrainCache {
     /// exceed every version an earlier run stamped, as a clock reading in microseconds does.
     #[must_use]
     pub fn new(config: FarTerrainConfig, disk_root: Option<PathBuf>, version_base: u64) -> Self {
+        // An invalid caller clock cannot seed persistence or overflow a later live stamp.
+        let (disk_root, version_base) = if version_base >= crate::region::MAX_VERSION {
+            (None, 0)
+        } else {
+            (disk_root, version_base)
+        };
         let bounds = DiskBounds {
             server_cap_bytes: config.server_disk_cap_bytes,
             global_cap_bytes: config.global_disk_cap_bytes,
@@ -145,6 +157,7 @@ impl FarTerrainCache {
             unresolved: Vec::new(),
             probes: Vec::new(),
             resolving: false,
+            fresh_from: None,
             pending_since: None,
             dirty: BTreeMap::new(),
             writing: BTreeMap::new(),
@@ -269,6 +282,7 @@ impl FarTerrainCache {
         self.unresolved.clear();
         self.probes.clear();
         self.resolving = false;
+        self.fresh_from = None;
         self.pending_since = None;
         self.requested.clear();
         self.reread.clear();
@@ -313,7 +327,9 @@ impl FarTerrainCache {
                     self.queue_write(namespace, pos, column, now);
                 }
                 Some(Retired::Unresolved { columns, .. })
-                    if self.disk.is_some() && columns.len() < MAX_UNRESOLVED_COLUMNS =>
+                    if self.disk.is_some()
+                        && columns.len() < MAX_UNRESOLVED_COLUMNS
+                        && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES =>
                 {
                     columns.push((pos, column));
                 }
@@ -342,7 +358,10 @@ impl FarTerrainCache {
         {
             self.probes.push((pos, decoded));
         }
-        if self.disk.is_some() && self.unresolved.len() < MAX_UNRESOLVED_COLUMNS {
+        if self.disk.is_some()
+            && self.unresolved.len() < MAX_UNRESOLVED_COLUMNS
+            && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES
+        {
             self.unresolved.push((pos, column.clone()));
         }
         self.store.admit_versioned(pos, column);
@@ -370,6 +389,9 @@ impl FarTerrainCache {
     /// Applies a bounded share of completed disk columns, retaining partial events in order.
     pub fn poll_budgeted(&mut self, now: Instant, budget: &mut SummaryBudget) {
         self.apply_completions(now, budget);
+        if self.fresh_from.is_some() && self.namespace.is_none() && !self.resolving {
+            self.start_resolving();
+        }
         if self.namespace.is_none()
             && !self.resolving
             && self
@@ -379,6 +401,7 @@ impl FarTerrainCache {
             self.start_resolving();
         }
         self.flush_retired();
+        self.request_focus();
         let evicted = self.store.take_evicted();
         self.reread_evicted(&evicted);
         let due: Vec<(NamespaceKey, RegionPos)> = self
@@ -446,7 +469,12 @@ impl FarTerrainCache {
             }
             match namespace {
                 Some(namespace) => self.queue_write(namespace, pos, column, now),
-                None => unresolved.push((pos, column)),
+                None if unresolved.len() < MAX_UNRESOLVED_COLUMNS
+                    && column.summary.bytes.len() <= crate::summary::MAX_ENCODED_BYTES =>
+                {
+                    unresolved.push((pos, column))
+                }
+                None => {}
             }
         }
         if let Some(disk) = &self.disk
@@ -527,8 +555,7 @@ impl FarTerrainCache {
     /// Drops what the cache showed for this visit and starts a new epoch for it, keeping
     /// every live column, which is written there once it resolves.
     fn diverge(&mut self) {
-        let (Some(world), Some(namespace), Some(disk)) =
-            (self.world, self.namespace.take(), &self.disk)
+        let (Some(_), Some(namespace), Some(_)) = (self.world, self.namespace.take(), &self.disk)
         else {
             return;
         };
@@ -552,22 +579,39 @@ impl FarTerrainCache {
             if dirty.columns.is_empty() {
                 self.dirty.remove(&key);
             }
-            // Every one moves, uncapped: they are this visit's terrain.
-            self.unresolved.extend(live);
+            // Persistence is optional under pressure; the live store already owns these.
+            self.unresolved.extend(
+                live.into_iter()
+                    .take(MAX_UNRESOLVED_COLUMNS.saturating_sub(self.unresolved.len())),
+            );
         }
         self.entry += 1;
-        self.resolving = true;
+        self.resolving = false;
+        self.fresh_from = Some(namespace);
         self.requested.clear();
         self.reread.clear();
         self.compared = WORLD_VERIFY_COLUMNS;
         // Columns of this visit already written, or in flight before this, move on the IO
         // thread, which handles commands in order.
-        disk.resolve_fresh(world, self.entry, namespace, self.visit_start);
+        self.start_resolving();
     }
 
     fn stamp(&mut self) -> u64 {
         if let Some(disk) = &self.disk {
             self.next_version = self.next_version.max(disk.observed_version());
+        }
+        if self.next_version >= crate::region::MAX_VERSION {
+            // Clock exhaustion invalidates optional cache state, never wraps its ordering.
+            self.disk = None;
+            self.disk_root = None;
+            self.store.clear();
+            self.dirty.clear();
+            self.writing.clear();
+            self.unresolved.clear();
+            self.retired = None;
+            self.pending_event = None;
+            self.next_version = 0;
+            self.visit_start = 1;
         }
         self.next_version += 1;
         self.next_version
@@ -577,11 +621,16 @@ impl FarTerrainCache {
         let Some(world) = self.world else {
             return;
         };
-        self.resolving = true;
-        match &self.disk {
-            Some(disk) => disk.resolve(world, self.entry, self.probes.clone()),
-            None => self.resolved(world, 0),
-        }
+        self.resolving = match &self.disk {
+            Some(disk) => match self.fresh_from {
+                Some(from) => disk.resolve_fresh(world, self.entry, from, self.visit_start),
+                None => disk.resolve(world, self.entry, self.probes.clone()),
+            },
+            None => {
+                self.resolved(world, 0);
+                true
+            }
+        };
     }
 
     fn resolved(&mut self, world: WorldKey, epoch: u32) {
@@ -604,7 +653,11 @@ impl FarTerrainCache {
         column: Versioned,
         now: Instant,
     ) {
-        if self.disk.is_none() {
+        if self.disk.is_none() || column.summary.bytes.len() > crate::summary::MAX_ENCODED_BYTES {
+            return;
+        }
+        let key = (namespace, RegionPos::of(pos));
+        if !self.dirty.contains_key(&key) && self.dirty.len() >= MAX_PENDING_WRITE_REGIONS {
             return;
         }
         let waiting = &mut self
@@ -624,10 +677,21 @@ impl FarTerrainCache {
     }
 
     fn flush(&mut self, key: (NamespaceKey, RegionPos)) {
+        if !self.writing.contains_key(&key) && self.writing.len() >= MAX_PENDING_WRITE_REGIONS {
+            return;
+        }
         let (Some(dirty), Some(disk)) = (self.dirty.remove(&key), &self.disk) else {
             return;
         };
-        let mut columns = Vec::with_capacity(dirty.columns.len());
+        let columns = dirty
+            .columns
+            .iter()
+            .map(|(pos, column)| (region_index(*pos), column.clone()))
+            .collect();
+        if !disk.write(key.0, key.1, columns) {
+            self.dirty.insert(key, dirty);
+            return;
+        }
         for (pos, column) in dirty.columns {
             let in_flight = self
                 .writing
@@ -638,9 +702,7 @@ impl FarTerrainCache {
             if in_flight.version < column.version {
                 *in_flight = column.clone();
             }
-            columns.push((region_index(pos), column));
         }
-        disk.write(key.0, key.1, columns);
     }
 
     /// Reads regions again whose columns memory dropped while still in focus, once per
@@ -681,8 +743,11 @@ impl FarTerrainCache {
         for x in low.x..=high.x {
             for z in low.z..=high.z {
                 let region = RegionPos { x, z };
-                if self.requested.insert(region) {
-                    disk.load(namespace, region);
+                if !self.requested.contains(&region) {
+                    if !disk.load(namespace, region) {
+                        return;
+                    }
+                    self.requested.insert(region);
                 }
             }
         }

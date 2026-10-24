@@ -17,6 +17,39 @@ const SIGNATURE_IMAGES: Surface = Surface {
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest";
 
+/// A failed oldest deletion cannot end eviction early or become invisible to a retry.
+#[test]
+fn failed_eviction_tries_later_files_and_can_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let cache = ImageDirectory::new(
+        dir.path().into(),
+        Surface {
+            max_files: 1,
+            ..LAUNCHER_ART
+        },
+    );
+    let paths = [1, 2, 3].map(|value| dir.path().join(format!("{:064x}.png", value)));
+    for (index, path) in paths.iter().enumerate() {
+        let file = fs::File::create(path).unwrap();
+        file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(index as u64))
+            .unwrap();
+    }
+    cache.evict_with(|path| {
+        if path == paths[0] {
+            Err(std::io::ErrorKind::PermissionDenied.into())
+        } else {
+            fs::remove_file(path)
+        }
+    });
+    assert!(paths[0].exists());
+    assert!(!paths[1].exists());
+    assert!(!paths[2].exists());
+    fs::write(&paths[1], PNG).unwrap();
+    cache.evict();
+    assert!(!paths[0].exists());
+    assert!(paths[1].exists());
+}
+
 /// A loopback surface: the launcher policy without the public-address rule.
 fn local(surface: Surface) -> Surface {
     Surface {

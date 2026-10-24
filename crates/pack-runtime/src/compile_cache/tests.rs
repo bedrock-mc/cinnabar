@@ -1,6 +1,32 @@
 //! Persistent subscriber results must survive a new cache and dependency recorder.
 use super::*;
 
+/// Both physical and decoded sizes are cache admissions, even with an intact checksum.
+#[test]
+fn oversized_physical_and_decoded_entries_miss_and_recompile() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut cache = CompileCache::new(dir.path().into(), 1 << 20);
+    let key = [9; 32];
+    cache.store(&key, &[0; 8192]);
+    assert!(fs::metadata(cache.entry(&key)).unwrap().len() < 1024);
+    cache.max_bytes = 1024;
+    assert!(
+        cache.load(&key).is_none(),
+        "decoded length exceeds admission"
+    );
+    fs::File::create(cache.entry(&key))
+        .unwrap()
+        .set_len(1025)
+        .unwrap();
+    assert!(
+        cache.load(&key).is_none(),
+        "physical length exceeds admission"
+    );
+    let stack = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+    let view = resource_pack::LayeredPackView::tracked(stack);
+    assert_eq!(cache.get_or_compile(&key, &view, || vec![42u8]), [42]);
+}
+
 #[test]
 fn fresh_block_and_icon_caches_skip_compilation_and_restore_reads() {
     for subscriber in ["blocks", "icons"] {

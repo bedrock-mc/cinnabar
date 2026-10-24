@@ -12,7 +12,13 @@ use std::{
     time::SystemTime,
 };
 
-use crossbeam_channel::{Receiver, Sender, unbounded};
+use crossbeam_channel::{Receiver, Sender, bounded};
+
+mod admission;
+use admission::{Admission, Envelope, MAX_PENDING_OPERATIONS};
+
+#[cfg(test)]
+mod tests;
 
 use crate::{
     ColumnPos, ColumnSummary, NamespaceKey, ServerKey, Versioned, WorldKey,
@@ -84,8 +90,9 @@ enum Command {
 
 /// Handle to the IO thread; dropping it finishes queued writes first.
 pub struct DiskCache {
-    tx: Option<Sender<Command>>,
-    rx: Receiver<DiskEvent>,
+    tx: Option<Sender<Envelope<Command>>>,
+    admission: Arc<Admission>,
+    rx: Receiver<Envelope<DiskEvent>>,
     thread: Option<JoinHandle<()>>,
     observed_version: Arc<AtomicU64>,
 }
@@ -94,29 +101,45 @@ impl DiskCache {
     /// Starts the IO thread for files under `root`, or returns `None` if it cannot start.
     #[must_use]
     pub fn spawn(root: PathBuf, bounds: DiskBounds) -> Option<Self> {
-        let (tx, commands) = unbounded();
-        let (events, rx) = unbounded();
+        fs::create_dir_all(&root).ok()?;
+        let lease = fs::File::options()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(root.join(".writer.lock"))
+            .ok()?;
+        lease.try_lock().ok()?;
+        let (tx, commands) = bounded::<Envelope<Command>>(MAX_PENDING_OPERATIONS);
+        let (events, rx) = bounded(MAX_PENDING_OPERATIONS);
         let observed_version = Arc::new(AtomicU64::new(0));
         let worker_version = Arc::clone(&observed_version);
         let thread = std::thread::Builder::new()
             .name("far-terrain-io".into())
             .spawn(move || {
+                // The descriptor owns the lease until all queued work has finished.
+                let _lease = lease;
                 let mut worker = Worker {
                     root,
                     bounds,
                     index: None,
-                    events,
                     claimed: HashSet::new(),
                     visits: HashMap::new(),
                     observed_version: worker_version,
                 };
                 for command in commands {
-                    worker.run(command);
+                    if let Some(event) = worker.run(command.value) {
+                        let _ = events.send(Envelope {
+                            value: event,
+                            permit: command.permit,
+                        });
+                    }
                 }
             })
             .ok()?;
         Some(Self {
             tx: Some(tx),
+            admission: Arc::new(Admission::default()),
             rx,
             thread: Some(thread),
             observed_version,
@@ -129,37 +152,49 @@ impl DiskCache {
         namespace: NamespaceKey,
         region: RegionPos,
         columns: Vec<(u16, Versioned)>,
-    ) {
+    ) -> bool {
         self.send(Command::Write {
             namespace,
             region,
             columns,
-        });
+        })
     }
 
-    pub fn load(&self, namespace: NamespaceKey, region: RegionPos) {
-        self.send(Command::Load { namespace, region });
+    /// Attempts a read without retaining more than the pending-work budget.
+    pub fn load(&self, namespace: NamespaceKey, region: RegionPos) -> bool {
+        self.send(Command::Load { namespace, region })
     }
 
     /// Picks the epoch of `world` whose cached columns match `probes`.
-    pub fn resolve(&self, world: WorldKey, entry: u64, probes: Vec<(ColumnPos, ColumnSummary)>) {
+    pub fn resolve(
+        &self,
+        world: WorldKey,
+        entry: u64,
+        probes: Vec<(ColumnPos, ColumnSummary)>,
+    ) -> bool {
         self.send(Command::Resolve {
             world,
             entry,
             probes,
-        });
+        })
     }
 
     /// Gives visit `entry` to `world` a new epoch of its own, as when its cached columns turned
     /// out to be another map's, and moves the columns that visit already wrote to `from`
     /// (versions from `since` on) there.
-    pub fn resolve_fresh(&self, world: WorldKey, entry: u64, from: NamespaceKey, since: u64) {
+    pub fn resolve_fresh(
+        &self,
+        world: WorldKey,
+        entry: u64,
+        from: NamespaceKey,
+        since: u64,
+    ) -> bool {
         self.send(Command::ResolveFresh {
             world,
             entry,
             from,
             since,
-        });
+        })
     }
 
     /// Writes `columns` to the epoch of visit `entry` to `world`, resolving it from `probes`
@@ -170,18 +205,18 @@ impl DiskCache {
         entry: u64,
         probes: Vec<(ColumnPos, ColumnSummary)>,
         columns: Vec<(ColumnPos, Versioned)>,
-    ) {
+    ) -> bool {
         self.send(Command::ResolveWrite {
             world,
             entry,
             probes,
             columns,
-        });
+        })
     }
 
     /// Events finished so far.
     pub fn events(&self) -> impl Iterator<Item = DiskEvent> + '_ {
-        self.rx.try_iter()
+        self.rx.try_iter().map(|envelope| envelope.value)
     }
 
     /// Highest version read by the worker, including events the owner has not consumed yet.
@@ -192,14 +227,27 @@ impl DiskCache {
     /// Blocks until every earlier command has finished.
     pub fn sync(&self) {
         let (done, wait) = crossbeam_channel::bounded(1);
-        self.send(Command::Sync(done));
-        let _ = wait.recv();
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(Envelope {
+                value: Command::Sync(done),
+                permit: None,
+            });
+            let _ = wait.recv();
+        }
     }
 
-    fn send(&self, command: Command) {
-        if let Some(tx) = &self.tx {
-            let _ = tx.send(command);
-        }
+    /// Optional cache work is refused immediately when commands or results fill admission.
+    fn send(&self, command: Command) -> bool {
+        let Some(permit) = self.admission.acquire(command.retained_bytes()) else {
+            return false;
+        };
+        self.tx.as_ref().is_some_and(|tx| {
+            tx.try_send(Envelope {
+                value: command,
+                permit: Some(permit),
+            })
+            .is_ok()
+        })
     }
 }
 
@@ -231,7 +279,6 @@ struct Worker {
     bounds: DiskBounds,
     /// Built on first use, so a session that only reads never walks the whole cache.
     index: Option<FileIndex>,
-    events: Sender<DiskEvent>,
     /// Namespaces handed out by this run, so two worlds resolved before either writes
     /// never share one.
     claimed: HashSet<NamespaceKey>,
@@ -241,7 +288,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn run(&mut self, command: Command) {
+    fn run(&mut self, command: Command) -> Option<DiskEvent> {
         match command {
             Command::Write {
                 namespace,
@@ -253,10 +300,10 @@ impl Worker {
                     .map(|(slot, column)| (region.column(*slot), column.version))
                     .collect();
                 self.write(namespace, region, columns);
-                let _ = self.events.send(DiskEvent::Written {
+                Some(DiskEvent::Written {
                     namespace,
                     columns: written,
-                });
+                })
             }
             Command::Load { namespace, region } => {
                 let columns = self.load(namespace, region);
@@ -266,11 +313,11 @@ impl Worker {
                     .max()
                     .unwrap_or(0);
                 self.observed_version.fetch_max(highest, Ordering::Relaxed);
-                let _ = self.events.send(DiskEvent::Loaded {
+                Some(DiskEvent::Loaded {
                     namespace,
                     region,
                     columns,
-                });
+                })
             }
             Command::Resolve {
                 world,
@@ -278,11 +325,11 @@ impl Worker {
                 probes,
             } => {
                 let epoch = self.resolve_entry(world, entry, &probes);
-                let _ = self.events.send(DiskEvent::Resolved {
+                Some(DiskEvent::Resolved {
                     world,
                     entry,
                     epoch,
-                });
+                })
             }
             Command::ResolveFresh {
                 world,
@@ -294,11 +341,11 @@ impl Worker {
                 self.claim(world.namespace(epoch));
                 self.visits.insert((world, entry), epoch);
                 self.move_newer(from, world.namespace(epoch), since);
-                let _ = self.events.send(DiskEvent::Resolved {
+                Some(DiskEvent::Resolved {
                     world,
                     entry,
                     epoch,
-                });
+                })
             }
             Command::ResolveWrite {
                 world,
@@ -317,9 +364,11 @@ impl Worker {
                 for (region, columns) in regions {
                     self.write(namespace, region, columns);
                 }
+                None
             }
             Command::Sync(done) => {
                 let _ = done.send(());
+                None
             }
         }
     }
@@ -369,8 +418,9 @@ impl Worker {
                     .collect()
             }
             None => {
-                let _ = fs::remove_file(&path);
-                if let Some(index) = &mut self.index {
+                if remove_cached_file(&path)
+                    && let Some(index) = &mut self.index
+                {
                     index.files.remove(&path);
                 }
                 Vec::new()
@@ -524,6 +574,11 @@ impl Worker {
 
     /// Removes the least recently used regions until every server and the total fit.
     fn enforce_caps(&mut self) {
+        self.enforce_caps_with(remove_cached_file);
+    }
+
+    /// Keeps failed deletions in the index so later passes can retry their real bytes.
+    fn enforce_caps_with(&mut self, mut remove: impl FnMut(&Path) -> bool) {
         let bounds = self.bounds;
         let index = self.index();
         let mut by_age: Vec<(PathBuf, FileEntry)> = index
@@ -543,7 +598,9 @@ impl Worker {
             if server_total <= bounds.server_cap_bytes && total <= bounds.global_cap_bytes {
                 continue;
             }
-            let _ = fs::remove_file(&path);
+            if !remove(&path) {
+                continue;
+            }
             index.files.remove(&path);
             *per_server.get_mut(&entry.server).expect("counted above") -= entry.bytes;
             total -= entry.bytes;
@@ -553,6 +610,13 @@ impl Worker {
                     let _ = fs::remove_dir(server);
                 }
             }
+        }
+        if total > bounds.global_cap_bytes
+            || per_server
+                .values()
+                .any(|bytes| *bytes > bounds.server_cap_bytes)
+        {
+            tracing::warn!(total, "far-terrain cache could not meet its disk quota");
         }
     }
 }
@@ -624,7 +688,28 @@ impl FileIndex {
 }
 
 fn read_region(path: &Path) -> Option<Vec<(u16, Versioned)>> {
-    decode_region(&fs::read(path).ok()?).ok()
+    use std::io::Read;
+    let file = fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > crate::region::MAX_REGION_BYTES as u64 {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(crate::region::MAX_REGION_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    decode_region(&bytes).ok()
+}
+
+/// Treats an already absent file as removed, retaining every other failure for retry.
+fn remove_cached_file(path: &Path) -> bool {
+    match fs::remove_file(path) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "far-terrain cache eviction failed");
+            false
+        }
+    }
 }
 
 /// Writes through a sibling temporary file so readers never see a partial region.
