@@ -208,7 +208,6 @@ fn fragmented_byte_overflow_drains_the_message_and_preserves_other_recipients() 
             max_fragment_bytes: 1024,
             max_message_bytes: 8192,
             max_reassembly_bytes: 8192,
-            ..negotiation::Limits::host()
         },
     };
     message.version = grant.wire.version;
