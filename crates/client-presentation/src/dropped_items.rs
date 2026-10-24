@@ -100,10 +100,11 @@ fn tint_rgba(flags: u32) -> u32 {
     rope_color(r, g, b)
 }
 
-/// Resolves item blocks while leaving crossed vegetation on its carried sprite route.
+/// Resolves item blocks while keeping carried-sprite families off the placed-model path.
 fn item_block_id(
     stream: &WorldStream,
     visual: ItemVisualRoute,
+    identifier: Option<&str>,
     assets: Option<&RuntimeAssets>,
 ) -> Option<(NetworkIdMode, u32)> {
     let block = match visual {
@@ -114,6 +115,11 @@ fn item_block_id(
         )),
         _ => None,
     }?;
+    if identifier.is_some_and(|identifier| {
+        assets::facts::block_render_fact(identifier).kind == assets::facts::BlockRenderKind::Lantern
+    }) {
+        return None;
+    }
     assets
         .is_none_or(|assets| assets.resolve(block.0, block.1).kind() != VisualKind::Cross)
         .then_some(block)
@@ -455,7 +461,12 @@ impl DroppedItemPublisher<'_, '_> {
             {
                 cache.request(&ModelKey::session_block(sheet));
             }
-            if let Some((mode, id)) = item_block_id(stream, view.item.visual, assets) {
+            if let Some((mode, id)) = item_block_id(
+                stream,
+                view.item.visual,
+                view.item.identifier.as_deref(),
+                assets,
+            ) {
                 let hashed = mode == NetworkIdMode::Hashed;
                 cache.request(&ModelKey::CarriedBlock { hashed, id });
                 cache.request(&ModelKey::Block { hashed, id });
@@ -499,7 +510,7 @@ impl DroppedItemPublisher<'_, '_> {
             let Some(identifier) = view.item.identifier.as_ref() else {
                 continue;
             };
-            let block_id = item_block_id(stream, view.item.visual, assets);
+            let block_id = item_block_id(stream, view.item.visual, Some(identifier), assets);
             let preparation = DropPreparation {
                 view,
                 native_origin: stream.authority().actor(view.runtime_id).map_or(
