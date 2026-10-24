@@ -96,7 +96,7 @@ impl ControllerFrame {
             modes.restore_controls(sprinting, modes.sneaking());
         }
         let previous_modes = *modes;
-        let [move_sideways, move_forward] = ModeObservation::input_vector(*input);
+        let [move_sideways, move_forward] = modes.intent_vector(*input, environment.in_water);
         let mut observed = ModeObservation {
             feet: state.position,
             on_ground: state.on_ground,

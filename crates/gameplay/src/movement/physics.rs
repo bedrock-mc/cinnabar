@@ -604,7 +604,9 @@ impl LocalPhysicsController {
             let mut flight_request = None;
             let mut mode_error = None;
             let previous_modes = self.modes;
-            let [move_sideways, move_forward] = ModeObservation::input_vector(input);
+            let [move_sideways, move_forward] = self
+                .modes
+                .intent_vector(input, self.last_environment.in_water);
             let mut observed = ModeObservation {
                 feet: state.position,
                 on_ground: state.on_ground,

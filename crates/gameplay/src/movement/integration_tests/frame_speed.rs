@@ -279,7 +279,7 @@ fn always_sprint_keeps_request_flags_while_actor_sprint_is_gated() {
         (1.0, false, false, true, true),
         (0.0, false, false, true, false),
         (1.0, false, false, true, true),
-        (1.0, true, false, true, true),
+        (1.0, true, false, true, false),
         (1.0, false, true, true, false),
         (1.0, false, false, true, true),
         (1.0, false, false, false, false),
