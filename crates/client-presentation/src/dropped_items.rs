@@ -434,7 +434,10 @@ impl DroppedItemPublisher<'_, '_> {
             self.textures.as_ref().map(|textures| textures.identity()),
             icons.session_icon_generation(),
         );
-        let assets = self.textures.as_ref().map(|textures| textures.assets());
+        let assets = self
+            .textures
+            .as_ref()
+            .map(|textures| textures.assets().as_ref());
         instances.clear();
         terrain_instances.clear();
         placement_icons.clear();
