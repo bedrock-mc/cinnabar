@@ -16,6 +16,13 @@ pub(super) struct SyncState {
     previous_mode: sim::MovementMode,
 }
 
+/// A pose correction and the resize it caused when accepted by the live actor.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct PoseWrite {
+    pub correction: server_flags::FlagCorrection,
+    pub resized: bool,
+}
+
 /// One accepted server edit retained in arrival order between completed ticks.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum ServerWrite {
@@ -24,9 +31,9 @@ pub(super) enum ServerWrite {
         client_world::ExplicitDimensions,
     ),
     Flags(client_world::MovementFlagUpdate),
-    /// An unstamped pose write that replay copy-back can supersede before its tick.
-    LivePose(server_flags::FlagCorrection),
-    PoseCorrection(server_flags::FlagCorrection),
+    /// A live pose or resize whose flag bits replay copy-back can supersede.
+    LivePose(PoseWrite),
+    PoseCorrection(PoseWrite),
     Controls(client_world::MovementFlagUpdate),
     Dimensions(client_world::ExplicitDimensions),
 }
@@ -142,9 +149,9 @@ impl SyncState {
                     self.replace_actor(flags, dimensions)
                 }
                 ServerWrite::Flags(flags) => self.apply_flags(flags),
-                ServerWrite::LivePose(correction) | ServerWrite::PoseCorrection(correction) => {
-                    self.flags.merge(correction.flags());
-                    self.resize();
+                ServerWrite::LivePose(write) | ServerWrite::PoseCorrection(write) => {
+                    self.flags.merge(write.correction.flags());
+                    self.apply_pose_resize(write);
                 }
                 ServerWrite::Dimensions(dimensions) => {
                     self.apply_dimensions(dimensions);
@@ -152,6 +159,30 @@ impl SyncState {
                 ServerWrite::Controls(_) => {}
             }
         }
+    }
+
+    /// Keeps pending resize effects in arrival order under the replayed pose word.
+    pub(super) fn replay_pending(&mut self, writes: &mut [ServerWrite]) {
+        for write in writes {
+            match write {
+                ServerWrite::LivePose(pose) => {
+                    // Copy-back replaced this pose, but its accepted resize still
+                    // precedes any dimensions received after it.
+                    pose.correction = Default::default();
+                    self.apply_pose_resize(*pose);
+                }
+                ServerWrite::PoseCorrection(pose) => self.apply_pose_resize(*pose),
+                _ => self.replay_server(std::iter::once(&*write)),
+            }
+        }
+    }
+
+    /// Preserves an accepted resize even when replay moved the flag correction earlier.
+    fn apply_pose_resize(&mut self, write: PoseWrite) {
+        if write.resized {
+            self.explicit_size = false;
+        }
+        self.resize();
     }
 
     /// Records producer writes after a successful movement tick.
@@ -167,13 +198,13 @@ impl SyncState {
         self.accept_poses(frame.modes.pose_flags(), state.spin_attack_ticks.is_some());
     }
 
-    /// Sizes the actor from the accepted pose word after a trigger or flag correction.
-    pub(super) fn accept_poses(&mut self, poses: super::super::PoseFlags, spinning: bool) {
+    /// Sizes the accepted pose word and reports whether it changed the sizing pose.
+    pub(super) fn accept_poses(&mut self, poses: super::super::PoseFlags, spinning: bool) -> bool {
         self.flags.gliding = Some(poses.gliding);
         self.flags.swimming = Some(poses.swimming);
         self.flags.crawling = Some(poses.crawling);
         self.flags.spinning = Some(spinning);
-        self.resize();
+        self.resize()
     }
 
     /// Whether the accepted sneak bit requests a crouching walking size.
@@ -182,11 +213,12 @@ impl SyncState {
     }
 
     /// A pose change replaces an explicit request; unchanged poses retain its dimensions.
-    fn resize(&mut self) {
+    fn resize(&mut self) -> bool {
         let horizontal = self.flags.spinning == Some(true)
             || [self.flags.gliding, self.flags.swimming, self.flags.crawling].contains(&Some(true));
         let pose = (self.sneaking_pose(), horizontal);
-        if pose != self.last_pose {
+        let changed = pose != self.last_pose;
+        if changed {
             self.explicit_size = false;
         }
         self.last_pose = pose;
@@ -200,6 +232,7 @@ impl SyncState {
                 },
             ]);
         }
+        changed
     }
 }
 
@@ -397,6 +430,124 @@ mod tests {
             stopped_glide(true).sync_state,
             stopped_glide(false).sync_state
         );
+    }
+
+    #[test]
+    fn future_pose_resize_keeps_the_intervening_local_stop() {
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position([0.5, 72.0, 0.5], 100, false);
+        let anchor = physics
+            .advance(
+                simulation_clock::TICK_DURATION,
+                MovementInput::default(),
+                &OpenWorld,
+            )
+            .samples
+            .remove(0);
+        physics.apply_server_movement_flags(
+            anchor.tick,
+            client_world::MovementFlagUpdate {
+                gliding: Some(true),
+                ..Default::default()
+            },
+        );
+        let mut dimensions = client_world::ExplicitDimensions::for_spawn(1);
+        dimensions.record(
+            &protocol::ActorMetadata {
+                key: protocol_ids::ActorDataKey::Height.wire_value(),
+                value: protocol::ActorMetadataValue::Float(0.7),
+            },
+            1,
+        );
+        physics.note_server_dimensions(dimensions);
+        physics.advance(
+            simulation_clock::TICK_DURATION,
+            MovementInput::default(),
+            &OpenWorld,
+        );
+        assert_eq!(
+            physics.prediction_sync_size().unwrap()[1],
+            sim::PLAYER_HEIGHT as f32
+        );
+        physics.apply_server_movement_flags(
+            physics.state().unwrap().tick + 1,
+            client_world::MovementFlagUpdate {
+                spinning: Some(true),
+                ..Default::default()
+            },
+        );
+        let live = physics.sync_state;
+        assert_eq!(live.size, Some([sim::PLAYER_WIDTH as f32; 2]));
+        physics
+            .apply_correction(
+                crate::movement::PhysicsAnchor {
+                    network_position: anchor.position,
+                    tick: anchor.tick,
+                    on_ground: false,
+                    velocity: Some(anchor.velocity),
+                },
+                crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                None,
+                &OpenWorld,
+            )
+            .unwrap();
+        assert_eq!(physics.sync_state, live);
+    }
+
+    #[test]
+    fn pending_dimensions_keep_their_order_with_retained_and_future_resizes() {
+        for retained in [false, true] {
+            for dimensions_first in [false, true] {
+                let mut physics = stopped_glide(false);
+                let anchor = physics.sample_at(101).unwrap().clone();
+                let mut dimensions = client_world::ExplicitDimensions::for_spawn(1);
+                dimensions.record(
+                    &protocol::ActorMetadata {
+                        key: protocol_ids::ActorDataKey::Height.wire_value(),
+                        value: protocol::ActorMetadataValue::Float(0.7),
+                    },
+                    2,
+                );
+                if dimensions_first {
+                    physics.note_server_dimensions(dimensions);
+                }
+                physics.apply_server_movement_flags(
+                    if retained {
+                        anchor.tick
+                    } else {
+                        physics.state().unwrap().tick + 1
+                    },
+                    client_world::MovementFlagUpdate {
+                        spinning: Some(true),
+                        ..Default::default()
+                    },
+                );
+                if !dimensions_first {
+                    physics.note_server_dimensions(dimensions);
+                }
+                let live = physics.sync_state;
+                assert_eq!(live.explicit_size, !dimensions_first);
+                for _ in 0..2 {
+                    physics
+                        .apply_correction(
+                            crate::movement::PhysicsAnchor {
+                                network_position: anchor.position,
+                                tick: anchor.tick,
+                                on_ground: false,
+                                velocity: Some(anchor.velocity),
+                            },
+                            crate::movement::PhysicsCorrectionMode::ReplayIfRetained,
+                            None,
+                            &OpenWorld,
+                        )
+                        .unwrap();
+                    assert_eq!(
+                        physics.sync_state, live,
+                        "retained {retained}, dimensions first {dimensions_first}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

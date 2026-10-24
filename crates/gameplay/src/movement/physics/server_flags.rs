@@ -343,9 +343,10 @@ impl LocalPhysicsController {
         )
     }
 
-    /// Applies `correction` to the live state.
-    fn correct_live(&mut self, correction: FlagCorrection) {
+    /// Applies a correction live and retains whether accepting it caused a resize.
+    fn correct_live(&mut self, correction: FlagCorrection) -> posture::PoseWrite {
         let live = self.live_flag_word();
+        let mut resized = false;
         if let Some(state) = self.state.as_mut() {
             apply_live_correction(
                 correction,
@@ -354,8 +355,13 @@ impl LocalPhysicsController {
                 state,
                 &mut self.server_flags,
             );
-            self.sync_state
+            resized = self
+                .sync_state
                 .accept_poses(self.modes.pose_flags(), state.spin_attack_ticks.is_some());
+        }
+        posture::PoseWrite {
+            correction,
+            resized,
         }
     }
 
@@ -370,13 +376,13 @@ impl LocalPhysicsController {
         if correction.is_empty() {
             return;
         }
-        self.correct_live(correction);
+        let write = self.correct_live(correction);
         if tick == 0 {
             self.sync_pending
-                .push(posture::ServerWrite::LivePose(correction));
+                .push(posture::ServerWrite::LivePose(write));
             return;
         }
-        let sync_write = posture::ServerWrite::PoseCorrection(correction);
+        let sync_write = posture::ServerWrite::PoseCorrection(write);
         let Some(current) = self.state.as_ref().map(|state| state.tick) else {
             return;
         };
@@ -387,10 +393,11 @@ impl LocalPhysicsController {
                 .find(|frame| frame.tick == current)
             {
                 frame.flag_correction = frame.flag_correction.then(correction);
-                frame.sync_server.push(sync_write);
-            } else {
-                self.sync_pending.push(sync_write);
             }
+            // Its flag correction belongs to the completed frame, while the
+            // accepted resize follows that frame and any pending dimensions.
+            self.sync_pending
+                .push(posture::ServerWrite::LivePose(write));
             return;
         }
         self.sync_pending.push(sync_write);
@@ -411,23 +418,31 @@ impl LocalPhysicsController {
     /// tick, the write applies live and waits for the next capture. Returns
     /// whether a retained frame changed.
     pub(super) fn retain_server_flags(&mut self, tick: u64, write: FlagWrite) -> bool {
-        let Some(frame) = self
+        let Some(index) = self
             .controller_history
-            .iter_mut()
-            .find(|frame| Some(frame.tick) == tick.checked_add(1))
+            .iter()
+            .position(|frame| Some(frame.tick) == tick.checked_add(1))
         else {
             self.adopt_live_server_flags(tick, write);
             return false;
         };
+        let frame = &mut self.controller_history[index];
         let correction = FlagCorrection::against(write, frame.entry_flags);
         if correction.is_empty() {
             return false;
         }
         frame.flag_correction = frame.flag_correction.then(correction);
-        frame
+        let write = self.correct_live(correction);
+        self.controller_history[index]
             .sync_server
-            .push(posture::ServerWrite::PoseCorrection(correction));
-        self.correct_live(correction);
+            .push(posture::ServerWrite::PoseCorrection(write));
+        if write.resized {
+            self.sync_pending
+                .push(posture::ServerWrite::LivePose(posture::PoseWrite {
+                    correction: Default::default(),
+                    ..write
+                }));
+        }
         true
     }
 
