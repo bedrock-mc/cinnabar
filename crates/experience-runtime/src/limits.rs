@@ -4,6 +4,9 @@ use std::time::Duration;
 
 use crate::protocol::INVENTORY_SLOTS;
 
+/// Fixed server simulation step, checked against the adapter clock fixture.
+pub const SIMULATION_STEP_NANOS: u64 = 50_000_000;
+
 /// Fuel granted to one callback.
 pub const CALLBACK_FUEL: u64 = 10_000_000;
 /// Fuel granted to `register`.

@@ -44,15 +44,36 @@ func (messageTeller) tell(p world.Entity, text string) {
 // commit applies ops, the committed result of ev's callback on snap, in a fresh task of the
 // event's world, unless the snapshot went stale or an op is invalid; then it applies nothing.
 // Once the result has applied, its client messages go out to the actor's client part.
-func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) {
+// Cancellation returns an error only when the transaction did not run.
+func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapshot, ops []Op) error {
+	if ev.call.Player != nil && ev.call.Player.Event.Type == "leave" {
+		err := h.commitLeave(d.id, ev, snap, ops)
+		if err != nil {
+			h.log.Warn("leave commit refused", "experience", d.id, "error", err)
+		}
+		return err
+	}
+	for _, op := range ops {
+		if op.World != nil {
+			err := h.commitLifecycle(ctx, d, ev, snap, ops)
+			if err != nil {
+				h.log.Warn("world operation refused", "experience", d.id, "error", err)
+			}
+			return err
+		}
+	}
 	var sends []*SendClientOp
 	var result error
-	task := ev.w.Do(func(tx *world.Tx) { sends, result = h.apply(tx, d.id, ev, snap, ops) })
-	if err := await(ctx, task); err != nil {
+	applied := false
+	task := ev.w.Do(func(tx *world.Tx) {
+		sends, result = h.apply(tx, d.id, ev, snap, ops)
+		applied = true
+	})
+	if err := await(ctx, task); err != nil && !applied {
 		if ctx.Err() == nil {
 			h.log.Warn("commit failed", "experience", d.id, "error", err)
 		}
-		return
+		return err
 	}
 	switch {
 	case errors.Is(result, errStale):
@@ -61,9 +82,11 @@ func (h *Host) commit(ctx context.Context, d *dispatcher, ev event, snap snapsho
 		h.log.Error("invalid result discarded", "experience", d.id, "error", result)
 	default:
 		for _, send := range sends {
-			h.sendClient(d, ev.actor.UUID(), send)
+			h.sendCurrent(d, ev, send)
 		}
 	}
+	// A completed transaction must not replay merely because its caller was cancelled.
+	return nil
 }
 
 // apply checks snap against the world in tx and validates every op before it applies any. Then
@@ -84,6 +107,12 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		return nil, err
 	}
 	if err := slotsCurrent(actor, snap, plan.slots); err != nil {
+		return nil, err
+	}
+	h.simulation.mu.Lock()
+	defer h.simulation.mu.Unlock()
+	timers, err := h.validateTimers(exp, ev, snap, ops)
+	if err != nil {
 		return nil, err
 	}
 	for _, op := range ops {
@@ -119,6 +148,14 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 				h.log.Error("validated data write failed", "experience", exp, "pos", w.pos, "error", err)
 			}
 		}
+		for _, write := range plan.states {
+			if (write.delta > 0) != grow {
+				continue
+			}
+			if err := h.store.setState(exp, write.address, write.key, write.data, write.present); err != nil {
+				return nil, err
+			}
+		}
 	}
 	for _, w := range plan.slots {
 		inv, slot := slotHolder(actor.(*player.Player), w.slot)
@@ -136,6 +173,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 			tx.ScheduleBlockUpdate(pos, b, time.Duration(update.Ticks)*tickDuration)
 		}
 	}
+	if timers != nil {
+		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
+	}
 	var sends []*SendClientOp
 	for _, op := range ops {
 		switch {
@@ -151,6 +191,17 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 // current validates retained cells and rejected network boundaries, then resolves the actor.
 // A boundary that gains an owned network member makes the callback's topology stale.
 func (h *Host) current(tx *world.Tx, exp string, ev event, snap snapshot) (world.Entity, error) {
+	if !h.playerCurrent(ev) {
+		return nil, fmt.Errorf("%w: player location epoch changed", errStale)
+	}
+	return h.currentWorld(tx, exp, ev, snap)
+}
+
+// currentWorld validates transaction-owned state after a coordinator has fenced player admission.
+func (h *Host) currentWorld(tx *world.Tx, exp string, ev event, snap snapshot) (world.Entity, error) {
+	if snap.req.Info.Context != nil && !h.store.statesCurrent(exp, stateAddresses(ev.instance.handle.ID, ev.storePrincipal(snap.req.Actor)), snap.req.Info.Context.Stores) {
+		return nil, fmt.Errorf("%w: private state changed", errStale)
+	}
 	if instance, ok := h.worlds.of(tx.World()); !ok || instance.handle != ev.instance.handle {
 		return nil, fmt.Errorf("%w: world instance changed", errStale)
 	}
@@ -206,6 +257,7 @@ type commitPlan struct {
 	slots   []slotWrite
 	drops   []itemDrop
 	updates []*ScheduleUpdateOp
+	states  []stateWrite
 }
 
 // tickDuration is one game tick, which a scheduled update counts in.
@@ -283,6 +335,17 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 	tells, sends := 0, 0
 	for i, op := range ops {
 		switch {
+		case op.Schedule != nil || op.CancelSchedule != nil:
+			// Checked together under the simulation lock before any mutation.
+		case op.World != nil:
+			return commitPlan{}, fmt.Errorf("%w: lifecycle result in block commit", errInvalid)
+		case op.StoreWrite != nil:
+			write, err := h.validateStateWrite(ev, snap, op.StoreWrite, plan.states)
+			if err != nil {
+				return commitPlan{}, err
+			}
+			used += write.delta
+			plan.states = append(plan.states, write)
 		case op.SetBlock != nil:
 			c, err := writable(i, op.SetBlock.Pos, false)
 			if err != nil {

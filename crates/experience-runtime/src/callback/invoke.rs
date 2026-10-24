@@ -26,6 +26,10 @@ pub(super) fn invoke(
         Pre::V0_1(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
+                Export::Tick(_) | Export::Timer { .. } => {
+                    bail!("this world has no simulation callbacks")
+                }
+                Export::Player { .. } => bail!("this world has no player observations"),
                 Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
                 Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
                 Export::Interact { player, pos, face } => {
@@ -44,6 +48,10 @@ pub(super) fn invoke(
         Pre::V0_2(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
+                Export::Tick(_) | Export::Timer { .. } => {
+                    bail!("this world has no simulation callbacks")
+                }
+                Export::Player { .. } => bail!("this world has no player observations"),
                 Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
                 Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
                 Export::Interact { player, pos, face } => {
@@ -75,6 +83,10 @@ pub(super) fn invoke(
         Pre::V0_3(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
+                Export::Tick(_) | Export::Timer { .. } => {
+                    bail!("this world has no simulation callbacks")
+                }
+                Export::Player { .. } => bail!("this world has no player observations"),
                 Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
                 Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
                 Export::Interact { player, pos, face } => {
@@ -101,6 +113,10 @@ pub(super) fn invoke(
         Pre::V0_4(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
+                Export::Tick(_) | Export::Timer { .. } => {
+                    bail!("this world has no simulation callbacks")
+                }
+                Export::Player { .. } => bail!("this world has no player observations"),
                 Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
                 Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
                 Export::Interact { player, pos, face } => {
@@ -127,6 +143,10 @@ pub(super) fn invoke(
         Pre::V0_5(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
+                Export::Tick(_) | Export::Timer { .. } => {
+                    bail!("this world has no simulation callbacks")
+                }
+                Export::Player { .. } => bail!("this world has no player observations"),
                 Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
                 Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
                 Export::Interact { player, pos, face } => {
@@ -153,6 +173,75 @@ pub(super) fn invoke(
         Pre::V0_6(pre) => {
             let server = pre.instantiate(&mut *store)?;
             match export {
+                Export::Tick(_) | Export::Timer { .. } => {
+                    bail!("this world has no simulation callbacks")
+                }
+                Export::Player { .. } => bail!("this world has no player observations"),
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                Export::ClientMessage {
+                    player,
+                    channel,
+                    schema,
+                    payload,
+                } => {
+                    let nodes = value::encode(payload);
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
+                }
+                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
+                Export::ScheduledUpdate { pos } => {
+                    server.call_on_scheduled_update(&mut *store, ctx, *pos)
+                }
+            }
+        }
+        Pre::V0_8(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Tick(_) | Export::Timer { .. } => {
+                    bail!("this world has no simulation callbacks")
+                }
+                Export::Player { player, event } => {
+                    server.call_on_player(&mut *store, ctx, player, event)
+                }
+                Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
+                Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
+                Export::Interact { player, pos, face } => {
+                    server.call_on_interact(&mut *store, ctx, player, *pos, *face)
+                }
+                Export::Neighbor { pos, neighbor } => {
+                    server.call_on_neighbor_changed(&mut *store, ctx, *pos, *neighbor)
+                }
+                Export::ClientMessage {
+                    player,
+                    channel,
+                    schema,
+                    payload,
+                } => {
+                    let nodes = value::encode(payload);
+                    server.call_client_message(&mut *store, ctx, player, channel, *schema, &nodes)
+                }
+                Export::Epoch { player } => server.call_epoch(&mut *store, ctx, player),
+                Export::ScheduledUpdate { pos } => {
+                    server.call_on_scheduled_update(&mut *store, ctx, *pos)
+                }
+            }
+        }
+        Pre::V0_9(pre) => {
+            let server = pre.instantiate(&mut *store)?;
+            match export {
+                Export::Tick(step) => server.call_on_tick(&mut *store, ctx, *step),
+                Export::Timer { handle, step } => {
+                    server.call_on_timer(&mut *store, ctx, handle, *step)
+                }
+                Export::Player { player, event } => {
+                    server.call_on_player(&mut *store, ctx, player, event)
+                }
                 Export::Place(change) => server.call_on_place(&mut *store, ctx, change),
                 Export::Break(change) => server.call_on_break(&mut *store, ctx, change),
                 Export::Interact { player, pos, face } => {
@@ -186,6 +275,10 @@ pub(super) fn invoke(
 /// 0.4 and later have a focus, and only 0.6 has on-scheduled-update.
 pub(super) fn unsupported(pre: &Pre, export: &Export<'_>, focused: bool) -> Option<&'static str> {
     match (pre, export) {
+        (Pre::V0_9(_), _) => None,
+        (_, Export::Tick(_) | Export::Timer { .. }) => Some("no simulation callbacks"),
+        (Pre::V0_8(_), _) => None,
+        (_, Export::Player { .. }) => Some("no player observations"),
         (Pre::V0_1(_), Export::ClientMessage { .. }) => Some("no client-message"),
         (Pre::V0_1(_) | Pre::V0_2(_), Export::Epoch { .. }) => Some("no epoch"),
         (Pre::V0_2(_), Export::ClientMessage { payload, .. }) if value::depth(payload) > 0 => {

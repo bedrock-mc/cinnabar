@@ -147,27 +147,27 @@ impl UiPresentationRuntime {
             .map(|button| InventoryCellHit::Widget(Widget::Reader(button)))
     }
 
-    /// Whether a press at a GUI point drops the held stack: it lands off every
-    /// part of the open screen that takes presses.
-    pub fn inventory_press_drops(
+    /// What a press at a GUI point that reaches no slot does with the held stack: it drops
+    /// off every part of the open screen that takes presses, and an engine-drawn item grid
+    /// may destroy it.
+    pub fn inventory_held_stack_press(
         &self,
         gui: [f32; 2],
         physical_size: [u32; 2],
         dpi_scale: f32,
         screen: InventoryScreen,
-    ) -> bool {
+    ) -> Option<ui_screens::containers::HeldStackPress> {
         if let Some(frame) = self.engine_container_frame() {
-            return ui_screens::containers::engine_press_drops(frame, gui);
+            return ui_screens::containers::engine_held_stack_press(frame, gui);
         }
-        let Some(geometry) = self.inventory_geometry(physical_size, dpi_scale) else {
-            return false;
-        };
+        let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
         let size = screens::panel_size(screen);
         let origin = screens::panel_origin(screen, [geometry.gui_width, geometry.gui_height]);
-        !(gui[0] >= origin[0]
+        let inside = gui[0] >= origin[0]
             && gui[0] < origin[0] + size[0]
             && gui[1] >= origin[1]
-            && gui[1] < origin[1] + size[1])
+            && gui[1] < origin[1] + size[1];
+        (!inside).then_some(ui_screens::containers::HeldStackPress::Drop)
     }
 
     fn inventory_geometry(&self, physical_size: [u32; 2], dpi_scale: f32) -> Option<HudGeometry> {

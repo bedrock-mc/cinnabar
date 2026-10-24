@@ -16,15 +16,16 @@ import (
 
 // fixtureLimits mirrors the limits fixture: the constants the Go adapter must share with Rust.
 type fixtureLimits struct {
-	MaxFrameBytes      int    `json:"max_frame_bytes"`
-	Protocol           uint32 `json:"protocol"`
-	MaxBlockDataBytes  int    `json:"max_block_data_bytes"`
-	MaxStagedOps       int    `json:"max_staged_ops"`
-	MaxTells           int    `json:"max_tells"`
-	MaxTellBytes       int    `json:"max_tell_bytes"`
-	MaxClientSends     int    `json:"max_client_sends"`
-	MaxClientSendBytes int    `json:"max_client_send_bytes"`
-	MaxValueDepth      int    `json:"max_value_depth"`
+	SimulationStepNanos uint64 `json:"simulation_step_nanos"`
+	MaxFrameBytes       int    `json:"max_frame_bytes"`
+	Protocol            uint32 `json:"protocol"`
+	MaxBlockDataBytes   int    `json:"max_block_data_bytes"`
+	MaxStagedOps        int    `json:"max_staged_ops"`
+	MaxTells            int    `json:"max_tells"`
+	MaxTellBytes        int    `json:"max_tell_bytes"`
+	MaxClientSends      int    `json:"max_client_sends"`
+	MaxClientSendBytes  int    `json:"max_client_send_bytes"`
+	MaxValueDepth       int    `json:"max_value_depth"`
 	// The bounds on a block type, which the adapter checks again at registration.
 	MaxNameBytes      int `json:"max_name_bytes"`
 	MaxStateValues    int `json:"max_state_values"`
@@ -67,6 +68,9 @@ func rustLimits(t *testing.T) fixtureLimits {
 
 // fixtureEnums mirrors the enums fixture: every protocol enum string, in Rust's order.
 type fixtureEnums struct {
+	Dimensions      []DimensionType  `json:"dimensions"`
+	Generators      []Generator      `json:"generators"`
+	StoreScopes     []StoreScope     `json:"store_scopes"`
 	Faces           []Face           `json:"faces"`
 	Causes          []Cause          `json:"causes"`
 	FailKinds       []FailKind       `json:"fail_kinds"`
@@ -171,6 +175,9 @@ func TestFixturesRoundTrip(t *testing.T) {
 // checkEnums checks that Go knows exactly Rust's enum strings and refuses any other.
 func checkEnums(t *testing.T, rust *fixtureEnums) {
 	t.Helper()
+	if !slices.Equal(dimensions, rust.Dimensions) || !slices.Equal(generators, rust.Generators) || !slices.Equal(storeScopes, rust.StoreScopes) {
+		t.Error("world enums differ from Rust")
+	}
 	if !slices.Equal(faces, rust.Faces) {
 		t.Errorf("Go faces %q, Rust faces %q", faces, rust.Faces)
 	}
@@ -395,5 +402,12 @@ func TestCommitLimitsMatchRust(t *testing.T) {
 		if limit.goV != limit.rust {
 			t.Errorf("%s = %d, Rust has %d", limit.name, limit.goV, limit.rust)
 		}
+	}
+}
+
+// TestSimulationStepMatchesRuntime keeps the adapter clock and guest contract in agreement.
+func TestSimulationStepMatchesRuntime(t *testing.T) {
+	if rustLimits(t).SimulationStepNanos != uint64(tickDuration) {
+		t.Fatal("simulation step differs from runtime")
 	}
 }

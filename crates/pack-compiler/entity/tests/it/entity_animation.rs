@@ -7,6 +7,7 @@ use assets::{
 use pack_entity_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use tempfile::TempDir;
 
+mod animation_conflicts;
 mod held_scale;
 mod legacy_scales;
 mod player_attack;
@@ -985,24 +986,6 @@ fn duplicate_geometry_identifiers_reject_the_ambiguous_rig_without_collapsing_so
     )));
 }
 
-#[test]
-fn duplicate_animation_identifiers_reject_the_ambiguous_rig_without_collapsing_sources() {
-    let pack = animation_pack(false);
-    write(
-        pack.path(),
-        "animations/duplicate.animation.json",
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":[9,0,0]}}}}}"#,
-    );
-    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
-    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
-        outcome,
-        pack_entity_compiler::CompileReferenceOutcome::RequiredRigRejected {
-            reason: pack_entity_compiler::RejectReason::AmbiguousAnimationReference,
-            ..
-        }
-    )));
-}
-
 /// One definition repeated verbatim in a second file names a single model, not two.
 #[test]
 fn identical_duplicate_definitions_keep_the_rig() {
@@ -1072,31 +1055,6 @@ fn duplicate_geometry_inheritance_compares_resolved_parents() {
             ambiguous
         );
     }
-}
-
-#[test]
-fn differing_duplicate_controllers_reject_the_ambiguous_rig() {
-    let pack = animation_pack(false);
-    // The controller is reachable only through the legacy controller list.
-    write(
-        pack.path(),
-        "entity/test.entity.json",
-        br#"{"format_version":"1.8.0","minecraft:client_entity":{"description":{"identifier":"minecraft:test","textures":{"default":"textures/entity/test"},"geometry":{"default":"geometry.test"},"animations":{"walk":"animation.test.walk","attack":"animation.test.attack"},"animation_controllers":[{"main":"controller.animation.test"}],"render_controllers":["controller.render.test"]}}}"#,
-    );
-    write(
-        pack.path(),
-        "animation_controllers/other.animation_controllers.json",
-        br#"{"format_version":"1.10.0","animation_controllers":{"controller.animation.test":{"initial_state":"default","states":{"default":{"animations":["animation.test.attack"]}}}}}"#,
-    );
-    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
-    assert!(compiled.assets.rig_bindings.is_empty());
-    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
-        outcome,
-        pack_entity_compiler::CompileReferenceOutcome::RequiredRigRejected {
-            reason: pack_entity_compiler::RejectReason::AmbiguousAnimationReference,
-            ..
-        }
-    )));
 }
 
 #[test]

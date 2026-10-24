@@ -3,6 +3,7 @@ package experience
 import (
 	"encoding/json"
 	"errors"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -69,7 +70,7 @@ func TestStoredDefaultInstanceIDsStayReadable(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := openTestStore(t, dir)
-	for i, id := range []WorldInstanceID{OverworldInstance, NetherInstance, EndInstance} {
+	for i, id := range []cinnabarext.WorldID{OverworldInstance, NetherInstance, EndInstance} {
 		key := Key{Instance: id, Y: 64}
 		if data, ok := s.Data("probe", key); !ok || len(data) != 1 || data[0] != byte(i) {
 			t.Fatalf("stored default instance %s no longer resolves: %x, %v", id, data, ok)
@@ -91,7 +92,7 @@ func TestLegacyStoreMigration(t *testing.T) {
 	s := openTestStore(t, dir)
 	check := func(s *Store) {
 		t.Helper()
-		for i, instance := range []WorldInstanceID{OverworldInstance, NetherInstance, EndInstance} {
+		for i, instance := range []cinnabarext.WorldID{OverworldInstance, NetherInstance, EndInstance} {
 			key := Key{Instance: instance, X: 1, Y: 64}
 			want := Token{Generation: uint64(3 + i*2), Revision: uint64(4 + i*2)}
 			if token, ok := s.Token("probe", key); !ok || token != want {

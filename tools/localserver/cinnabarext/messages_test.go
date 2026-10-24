@@ -60,7 +60,7 @@ func TestTypedSendBroadcastAndReceive(t *testing.T) {
 func TestWorldChangedFencesMessagesUntilAcknowledgment(t *testing.T) {
 	f, accept := readyFixture(t)
 	var epochs int
-	f.s.OnEpoch(func(id uuid.UUID, _ string) {
+	f.s.OnEpoch(func(id uuid.UUID, _ PlayerSession, _ string) {
 		if id == f.player {
 			epochs++
 		}
