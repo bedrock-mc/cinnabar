@@ -3,9 +3,11 @@ use super::*;
 /// No write, explicit clear and set stay distinct across successful events and frame starts.
 #[test]
 fn retained_environment_lifecycle_preserves_three_state_writes() {
-    let mut environment = Environment::default();
-    environment.pending_time = Some(Some(1000));
-    environment.pending_fullbright = Some(true);
+    let mut environment = Environment {
+        pending_time: Some(Some(1000)),
+        pending_fullbright: Some(true),
+        ..Default::default()
+    };
     environment.commit();
     environment.begin_frame();
     environment.begin_callback();
@@ -31,8 +33,10 @@ fn retained_environment_lifecycle_preserves_three_state_writes() {
 /// Event staging and a deferred next frame cannot publish a jump from an earlier callback.
 #[test]
 fn transient_movement_lifecycle_drops_unpublished_output_and_honors_cancellation() {
-    let mut movement = Movement::default();
-    movement.pending_jump = true;
+    let mut movement = Movement {
+        pending_jump: true,
+        ..Default::default()
+    };
     movement.begin_frame();
     movement.commit_frame();
     assert!(!movement.jump_pulse);
