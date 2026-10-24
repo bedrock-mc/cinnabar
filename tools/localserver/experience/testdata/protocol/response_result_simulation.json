@@ -1,0 +1,33 @@
+{
+  "type": "result",
+  "seq": 1,
+  "outcome": {
+    "type": "committed",
+    "ops": [
+      {
+        "type": "schedule",
+        "handle": {
+          "world": {
+            "id": "probe:clock",
+            "generation": 9
+          },
+          "sequence": 1,
+          "slot": 0
+        },
+        "after": 2,
+        "period": 3
+      },
+      {
+        "type": "cancel_schedule",
+        "handle": {
+          "world": {
+            "id": "probe:clock",
+            "generation": 9
+          },
+          "sequence": 1,
+          "slot": 0
+        }
+      }
+    ]
+  }
+}

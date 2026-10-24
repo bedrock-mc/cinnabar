@@ -66,17 +66,21 @@ fn value_noise(p: vec2<f32>) -> f32 {
     return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
-// Five cube faces, Y rotation 45 degrees, translation (0,-.5,0), scale .7.
-// Camera-ray intersection preserves perspective UVs and the open top.
+// The burning view is a unit cube without its top face, fixed to the view, scaled by
+// FIRE_CUBE_SCALE and centred FIRE_CUBE_DROP below the eye. Every face stretches the whole
+// sprite: walls read v down from the cube top and u against their horizontal view axis, so
+// the face ahead appears mirrored; the floor reads v toward the viewer.
+const FIRE_CUBE_SCALE: f32 = 0.7;
+const FIRE_CUBE_DROP: f32 = 0.2;
+
 fn camera_fire(uv: vec2<f32>) -> vec4<f32> {
     if overlays.fire.w < 0.5 {
         return vec4<f32>(0.0);
     }
-    let ray = vec3<f32>((uv.x * 2.0 - 1.0) * overlays.projection.x,
-                       (1.0 - uv.y * 2.0) * overlays.projection.y, 1.0);
-    let c = sqrt(0.5);
-    let direction = vec3<f32>(c * (ray.x - ray.z), ray.y, c * (ray.x + ray.z));
-    let origin = vec3<f32>(0.0, 0.5 / 0.7, 0.0);
+    // View ray (x right, y up, z toward the viewer) leaving the eye, in cube units.
+    let direction = vec3<f32>((uv.x * 2.0 - 1.0) * overlays.projection.x,
+                              (1.0 - uv.y * 2.0) * overlays.projection.y, -1.0);
+    let origin = vec3<f32>(0.0, FIRE_CUBE_DROP / FIRE_CUBE_SCALE, 0.0);
     let boundary = select(vec3<f32>(-1.0), vec3<f32>(1.0), direction >= vec3<f32>(0.0));
     let divisor = select(vec3<f32>(1.0e-10), direction, abs(direction) > vec3<f32>(1.0e-10));
     let exit = (boundary - origin) / divisor;
@@ -87,17 +91,11 @@ fn camera_fire(uv: vec2<f32>) -> vec4<f32> {
         if direction.y > 0.0 {
             return vec4<f32>(0.0);
         }
-        texture_uv = vec2<f32>((p.x + 1.0) * 0.5, (1.0 - p.z) * 0.5);
+        texture_uv = vec2<f32>((1.0 - p.x) * 0.5, (1.0 + p.z) * 0.5);
     } else if exit.x < exit.z {
-        texture_uv = vec2<f32>((p.z + 1.0) * 0.5, (1.0 - p.y) * 0.5);
-        if direction.x > 0.0 {
-            texture_uv = vec2<f32>(texture_uv.x, 1.0 - texture_uv.y);
-        }
+        texture_uv = vec2<f32>((1.0 - p.z) * 0.5, (1.0 - p.y) * 0.5);
     } else {
-        texture_uv = vec2<f32>((p.x + 1.0) * 0.5, (1.0 - p.y) * 0.5);
-        if direction.z < 0.0 {
-            texture_uv = vec2<f32>(texture_uv.x, 1.0 - texture_uv.y);
-        }
+        texture_uv = vec2<f32>((1.0 - p.x) * 0.5, (1.0 - p.y) * 0.5);
     }
     let current = textureSampleLevel(fire_textures, fire_sampler, texture_uv, i32(overlays.fire.x), 0.0);
     let next = textureSampleLevel(fire_textures, fire_sampler, texture_uv, i32(overlays.fire.y), 0.0);

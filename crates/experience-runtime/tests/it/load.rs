@@ -528,3 +528,58 @@ fn api_must_match_the_component() {
         );
     }
 }
+
+/// Existing 0.6 artifacts retain their imports, registration and scheduled-update export.
+#[test]
+fn v0_6_artifact_loads_and_runs() {
+    let dir = common::v0_6_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.6");
+    assert!(loaded.worlds.is_none());
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.6")]
+        }
+    );
+    assert_eq!(
+        run(&engine, &loaded, &scheduled(p(0))),
+        Outcome::Committed { ops: vec![] }
+    );
+}
+
+/// Retained replies from the paired-mod 0.6 SDK keep their transport semantics.
+#[test]
+fn v0_6_control_artifact_loads_and_retains_replies() {
+    let dir = common::v0_6_control_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    let payload = vec![Scalar::Text("registry fingerprint".to_owned())];
+    let mut expected = send("probe.echo", 1, payload.clone());
+    if let experience_runtime::protocol::Op::SendClient { control, .. } = &mut expected {
+        *control = true;
+    }
+    assert_eq!(
+        run(&engine, &loaded, &client_message("probe.echo", 1, payload)),
+        Outcome::Committed {
+            ops: vec![expected]
+        }
+    );
+}
+
+/// Frozen world artifacts keep their original exports without simulation callbacks.
+#[test]
+fn v0_8_artifact_loads_and_runs_without_simulation_exports() {
+    let dir = common::v0_8_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.8");
+    assert!(loaded.worlds.as_ref().unwrap().definitions.is_empty());
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.8")]
+        }
+    );
+}

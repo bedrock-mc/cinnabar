@@ -114,9 +114,75 @@ impl PreparedBlockItems {
             .as_ref()
             .is_some_and(|source| Arc::ptr_eq(source, world))
     }
+
+    /// Predicts the texture layers used by an available carried model without copying pixels.
+    pub(crate) fn dropped_model_layers(&self, visual: u32) -> Option<usize> {
+        self.sheet_placement(visual)?;
+        let grid = assets::BLOCK_ITEM_SHEET_GRID.map(f32::from);
+        let layers = self
+            .models
+            .get(&visual)?
+            .iter()
+            .try_fold(0_usize, |layers, vertex| {
+                let tile = std::array::from_fn::<_, 2, _>(|axis| {
+                    (vertex.glint_origin[axis] * grid[axis]).round()
+                });
+                if tile
+                    .iter()
+                    .zip(grid)
+                    .any(|(&tile, size)| !tile.is_finite() || tile < 0.0 || tile >= size)
+                {
+                    return None;
+                }
+                let slot = tile[1] as usize * usize::from(assets::BLOCK_ITEM_SHEET_GRID[0])
+                    + tile[0] as usize;
+                Some(layers.max(slot + 1))
+            })?;
+        (layers > 0).then_some(layers)
+    }
+
+    /// Converts the carried geometry and its matching prepared pixels for world item draws.
+    pub(crate) fn dropped_model(&self, visual: u32) -> Option<render_model::DroppedItemBlock> {
+        let layers = self.dropped_model_layers(visual)?;
+        let vertices = self.models.get(&visual)?;
+        let (raster, placement) = self.sheet_placement(visual)?;
+        let [width, height] = [placement.width, placement.height].map(usize::from);
+        let mut pixels = Vec::with_capacity(width * height * 4);
+        for row in 0..height {
+            let start = ((usize::from(placement.y) + row) * usize::from(raster.width)
+                + usize::from(placement.x))
+                * 4;
+            pixels.extend_from_slice(raster.rgba8.get(start..start + width * 4)?);
+        }
+        let mut model = render_model::equipment::blocks::dropped_model(
+            render_model::DroppedItemSprite {
+                width: u32::from(placement.width),
+                height: u32::from(placement.height),
+                rgba8: pixels.into(),
+            },
+            vertices,
+        )?;
+        model.materials = model.materials.get(..layers)?.into();
+        Some(model)
+    }
+
+    /// Locates one carried sheet entirely within the same prepared raster generation.
+    fn sheet_placement(&self, visual: u32) -> Option<(&EquipmentRaster, Placement)> {
+        let index = *self.sheets.get(&visual)?;
+        let placement = self.placements.get(index).copied().flatten()?;
+        let raster = self.rasters.get(placement.layer)?;
+        (u32::from(placement.x) + u32::from(placement.width) <= u32::from(raster.width)
+            && u32::from(placement.y) + u32::from(placement.height) <= u32::from(raster.height))
+        .then_some((raster, placement))
+    }
 }
 
 impl EquipmentRuntime {
+    /// Borrows the active carried model source; consumers must match it to their terrain.
+    pub(crate) fn prepared_block_items(&self) -> &Arc<PreparedBlockItems> {
+        &self.blocks.source
+    }
+
     /// Shares only the immutable inputs needed by the resource-pack worker.
     pub fn block_item_preparer(&self) -> Option<BlockItemPreparer> {
         Some(BlockItemPreparer {
@@ -184,3 +250,7 @@ impl EquipmentRuntime {
         self.blocks.source.alpha.get(&visual).copied()
     }
 }
+
+#[cfg(test)]
+#[path = "block_items/tests.rs"]
+mod tests;

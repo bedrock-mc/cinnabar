@@ -1,4 +1,6 @@
 mod native_import;
+#[cfg(target_os = "linux")]
+mod publication;
 use super::*;
 use mod_host::ModHost;
 

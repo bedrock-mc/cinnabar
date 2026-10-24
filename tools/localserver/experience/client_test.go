@@ -368,3 +368,6 @@ func TestClientMessageSenderMustStay(t *testing.T) {
 		t.Fatalf("a stale client message told %+v and sent %+v", tells, sent)
 	}
 }
+
+// PlayerSession leaves transport mechanics to the real helper's tests.
+func (*fakeChannels) PlayerSession(uuid.UUID) cinnabarext.PlayerSession { return nil }

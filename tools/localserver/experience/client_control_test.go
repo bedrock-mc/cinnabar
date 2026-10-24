@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/df-mc/dragonfly/server"
+	playerpkg "github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/session"
+	"github.com/df-mc/dragonfly/server/world"
 	"github.com/google/uuid"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/login"
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
@@ -99,6 +101,9 @@ func TestRegistryConfirmationRetriesAfterBudgetRefills(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if err := conn.WritePacket(&packet.ItemRegistry{}); err != nil {
+			t.Fatal(err)
+		}
 		deliver := func(message ext.Control) {
 			t.Helper()
 			raw, err := ext.Encode(message)
@@ -152,7 +157,11 @@ func TestRegistryConfirmationRetriesAfterBudgetRefills(t *testing.T) {
 		if err := json.Unmarshal(raw, &op); err != nil {
 			t.Fatal(err)
 		}
-		h.sendClient(d, player, &op)
+		actor := world.EntitySpawnOpts{ID: player}.New(playerpkg.Type, playerpkg.Config{Name: "Actor"})
+		h.players.items = map[*world.EntityHandle]*playerState{
+			actor: {connection: transport.PlayerSession(player)},
+		}
+		h.sendCurrent(d, event{actor: actor}, &op)
 		if len(inner.messages()) != before {
 			t.Fatal("confirmation bypassed the exhausted budget")
 		}

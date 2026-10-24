@@ -1,58 +1,43 @@
 # Local terrain reads
 
-The `terrain` grant, denied by default, lets local components and packages read nearby
-terrain through `terrain.read-region` in the extension world. It also admits the local pose
-from `gameplay.read-frame`, without other players. Limits live in `mod_api`
-(`MAX_TERRAIN_*`).
+[Personal mods](mods/personal.md) with the default-denied `terrain` grant can call
+`terrain.read-region` and read local pose from `gameplay.read-frame`. Other players
+need their own grants. Screens suspend reads. Limits are `MAX_TERRAIN_*` in
+[`mod-api`](../crates/mod-api/src/lib.rs).
 
-## Queries and polling
+## Query lifecycle
 
-A query names an inclusive minimum, an exclusive maximum (each extent 1 to
-`MAX_TERRAIN_EXTENT` blocks) and the `geometry` it needs: `collision`, `selection`, both or
-neither. It must lie within `MAX_TERRAIN_DISTANCE` blocks of the player's feet on each axis.
-A callback may stage `MAX_TERRAIN_QUERIES` distinct queries. Errors are typed: `denied`,
-`unavailable` (no gameplay frame), `invalid-query`, `out-of-range`, `budget-exhausted` and
-`limit-exceeded`.
+A query has inclusive minimum, exclusive maximum and requested collision/selection
+geometry (either, both or neither). Extents and distance from the player's feet
+must fit the SDK limits. Errors are `denied`, `unavailable`, `invalid-query`,
+`out-of-range`, `budget-exhausted` or `limit-exceeded`.
 
-The queries a callback reads become its subscriptions; the next callback that runs replaces
-them, so a query it no longer reads is dropped. A callback that is deferred or skipped keeps
-them. Before each frame's callbacks the client refreshes every mod's subscriptions, so a new
-query first reads `pending`. Pass the stamp of the last region received for a query as
-`after`: an unchanged sample returns `unchanged(stamp)` without copying any terrain, and a
-changed one returns the whole region. A stamp compares equal only within one query, session,
-dimension and registry generation.
+Queries read in a callback replace its subscriptions. Deferred/skipped callbacks
+retain them. New queries first return `pending`; the client refreshes subscriptions
+before callbacks. Pass the previous stamp as `after` to receive `unchanged(stamp)`
+without copying unchanged terrain. Stamps compare only within the same query,
+session, dimension and registry generation.
 
-A subscription is re-sampled only when its session, dimension, registry or a column it read
-changed. Re-sampling shares one per-frame cell budget (`MAX_TERRAIN_FRAME_CELLS`) across all
-mods, taken round-robin from where the previous frame stopped; a stale subscription past the
-budget reads `pending` until its turn, within a few frames. Regions over the box, metadata or
-response-size limits fail with `limit-exceeded`; ask for a smaller region.
+Subscriptions refresh when their session, dimension, registry or read columns
+change. A shared round-robin frame-cell budget defers remaining refreshes as
+`pending`. Oversized geometry/metadata/responses return `limit-exceeded`; shrink
+the query. Sampling is host work; guest pathfinding and caches still consume the
+ordinary frame fuel and should be incremental.
 
 ## Region layout
 
-Cell `((x * size-z) + z) * size-y + y`, relative to the minimum, is Y-contiguous. Bit
-`cell % 64` of `loaded[cell / 64]` is set for known cells; unknown cells are never air.
-Layer `l` of a cell is `states[l * cells + cell]`, an index into `palette`, or 65535 when the
-cell has no such layer. A known section without storage is air in layer 0.
+| Field | Interpretation |
+| --- | --- |
+| Cell index | `((x * size-z) + z) * size-y + y`, relative to minimum |
+| `loaded[cell / 64]` | Bit `cell % 64` marks known cells; unknown is not air |
+| `states[l * cells + cell]` | Palette index at layer `l`; 65535 means no layer |
+| `palette` | Runtime ID, identifier, canonical state JSON, tags and available physics; missing facts stay absent |
+| `shape-offsets`, `shape-boxes` | Shared block-local boxes; shape 0 is known-empty |
+| `overrides` | Per-cell geometry, sorted by slot |
+| `chunks` | Every consulted column and its revision, including neighbor geometry reads; none means absent terrain |
 
-Each palette entry is one runtime ID with its identifier, canonical state JSON, tags and
-physics (friction, speed factors, fluid height, physics flags and surface response). Each
-is absent when the registry lacks it, never inferred.
-
-Shapes are shared: shape `s` is boxes `shape-offsets[s]` to `shape-offsets[s + 1]` of
-`shape-boxes`, six block-local `f64` values each, with native position offsets applied.
-Shape 0 is known-empty. A state binds collision and selection to `fixed` geometry,
-`not-requested`, or `per-cell` when geometry depends on position: paired doors, random
-offsets, neighbour-dependent or block-actor selection, and coordinates beyond single
-precision. Every per-cell occurrence has an entry in `overrides`, sorted by slot.
-`unavailable` geometry needs a neighbour or registry fact the client lacks. Selection uses
-the default interaction context.
-
-`chunks` lists every column read, including columns consulted for neighbour or actor
-geometry, with its revision; `none` is absent terrain.
-
-## Computation
-
-Sampling runs in the client, outside guest fuel, and is bounded by the cell budget. Callbacks
-of terrain-authorized mods have the ordinary frame fuel; pathfinding, raycasts and caching
-belong to the mod and should stay incremental. Screens suspend reads.
+A known section without storage is air in layer 0. Geometry may be `fixed`,
+`not-requested`, `per-cell` or `unavailable`. Position-dependent shapes include
+neighbors, block actors and native offsets. `unavailable` means required facts
+are missing. Selection uses the default interaction context. See the
+[terrain WIT](../crates/mod-api/wit/extension.wit).

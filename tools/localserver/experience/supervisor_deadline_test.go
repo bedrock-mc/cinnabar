@@ -1,6 +1,8 @@
 package experience
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -27,7 +29,7 @@ func TestRoundTripHonorsDeadline(t *testing.T) {
 				done := make(chan error, 1)
 				started := time.Now()
 				go func() {
-					_, err := h.roundTrip([]byte("callback"), resultDeadline)
+					_, err := h.roundTrip(context.Background(), []byte("callback"), resultDeadline)
 					done <- err
 				}()
 				synctest.Wait()
@@ -38,7 +40,7 @@ func TestRoundTripHonorsDeadline(t *testing.T) {
 				default:
 				}
 				<-time.After(time.Nanosecond)
-				if err := <-done; err == nil || !strings.Contains(err.Error(), "no answer within") {
+				if err := <-done; !errors.Is(err, errGuestFault) || !strings.Contains(err.Error(), "no answer within") {
 					t.Fatalf("roundTrip: %v, want deadline fault", err)
 				}
 				if elapsed := time.Since(started); elapsed != resultDeadline {
@@ -47,4 +49,32 @@ func TestRoundTripHonorsDeadline(t *testing.T) {
 			})
 		})
 	}
+}
+
+// TestRoundTripCancellation releases blocked callback and load I/O as soon as their host cancels.
+func TestRoundTripCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		requests, stdin := io.Pipe()
+		stdout, responses := io.Pipe()
+		defer requests.Close()
+		defer stdin.Close()
+		defer stdout.Close()
+		defer responses.Close()
+		h := helper{stdin: stdin, stdout: stdout}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() { _, err := h.roundTrip(ctx, []byte("callback"), resultDeadline); done <- err }()
+		synctest.Wait()
+		cancel()
+		synctest.Wait()
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("roundTrip cancellation = %v", err)
+			}
+		default:
+			t.Fatal("callback I/O ignored host cancellation")
+		}
+	})
 }
