@@ -450,11 +450,21 @@ fn properties_read(binding: &Value) -> Vec<String> {
         .collect()
 }
 
+/// Adds every `$variable` `control` and its children read, whole-valued or as an expression
+/// operand, so the caller can restore the built-in globals among them.
 fn collect_globals(control: &RawControl, names: &mut BTreeSet<String>) {
     fn visit(value: &Value, names: &mut BTreeSet<String>) {
         match value {
-            Value::String(text) if text.starts_with('$') => {
-                names.insert(text[1..].to_owned());
+            Value::String(text) => {
+                for (start, _) in text.match_indices('$') {
+                    let name = text[start + 1..]
+                        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                        .next()
+                        .unwrap_or_default();
+                    if !name.is_empty() {
+                        names.insert(name.to_owned());
+                    }
+                }
             }
             Value::Array(values) => values.iter().for_each(|value| visit(value, names)),
             Value::Object(values) => values.values().for_each(|value| visit(value, names)),

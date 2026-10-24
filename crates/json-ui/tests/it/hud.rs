@@ -153,6 +153,11 @@ fn catalog_for(dir: &Path) -> Catalog {
 }
 
 fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
+    render_in(model, java, &hud_context(&Context::desktop()))
+}
+
+/// The HUD screen under `context`, over the built-in pack when `java` is set.
+fn render_in(model: &HudModel, java: bool, context: &Context) -> Option<json_ui::ScreenRender> {
     let dir = pack()?;
     let mut catalog = catalog_for(&dir);
     if java {
@@ -174,7 +179,7 @@ fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
     let render = render_screen(
         Reference::HudHudScreen.as_str(),
         &catalog,
-        &hud_context(&Context::desktop()),
+        context,
         &hud_data_source(model),
         [480.0, 270.0],
         &env,
@@ -520,6 +525,71 @@ fn java_pack_places_the_hud() {
         text_node(&nodes, "Alex").dest.x,
         text_node(&nodes, "Steve").dest.x
     );
+}
+
+// The Bedrock hotbar setting raises the built-in hotbar to vanilla's desktop height and lifts
+// everything stacked on it, and the chat, by the same distance.
+#[test]
+fn bedrock_hotbar_flag_raises_the_java_hud_to_the_vanilla_hotbar() {
+    let raised_context =
+        hud_context(&Context::desktop()).with_flag("cinnabar_bedrock_hotbar", true);
+    let (Some(vanilla), Some(flush), Some(raised)) = (
+        render_with(&model(), false),
+        render_with(&model(), true),
+        render_in(&model(), true, &raised_context),
+    ) else {
+        return;
+    };
+    let raised = raised.nodes.to_vec();
+    let slot_y = |nodes: &[DrawNode]| custom(nodes, "hotbar_renderer")[0].dest.y;
+    assert_eq!(slot_y(&flush) + 22.0, 270.0, "Java's hotbar is flush");
+    assert_eq!(slot_y(&raised), slot_y(&vanilla), "vanilla's hotbar height");
+    let lift = slot_y(&flush) - slot_y(&raised);
+    assert!(lift > 0.0);
+    let lifted = |flush: &DrawNode, raised: &DrawNode| {
+        assert_eq!(
+            [raised.dest.x, raised.dest.y],
+            [flush.dest.x, flush.dest.y - lift],
+            "{}",
+            flush.key
+        );
+    };
+    for renderer in [
+        "hotbar_renderer",
+        "heart_renderer",
+        "armor_renderer",
+        "hunger_renderer",
+        "inventory_item_renderer",
+    ] {
+        let (flush, raised) = (custom(&flush, renderer), custom(&raised, renderer));
+        assert_eq!(flush.len(), raised.len(), "{renderer}");
+        assert!(!flush.is_empty(), "{renderer}");
+        for (flush, raised) in flush.into_iter().zip(raised) {
+            lifted(flush, raised);
+        }
+    }
+    for name in ["hotbar_slot_selected_image", "empty_progress_bar"] {
+        let (flush, raised) = (named(&flush, name), named(&raised, name));
+        assert_eq!(flush.len(), raised.len(), "{name}");
+        for (flush, raised) in flush.into_iter().zip(raised) {
+            // The boss bar shares the progress bar template from the top of the screen.
+            if flush.dest.y > 200.0 {
+                lifted(flush, raised);
+            } else {
+                assert_eq!(flush.dest, raised.dest, "{}", flush.key);
+            }
+        }
+    }
+    for text in ["7", "12", "hello"] {
+        lifted(text_node(&flush, text), text_node(&raised, text));
+    }
+    for text in ["Title", "Sub", "bar", "Wither", "Kills"] {
+        assert_eq!(
+            text_node(&flush, text).dest,
+            text_node(&raised, text).dest,
+            "{text} keeps its place"
+        );
+    }
 }
 
 // The tip text rides its own `hud_tip_text` slot: it draws beside, not over, the

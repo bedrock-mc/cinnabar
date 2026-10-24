@@ -231,6 +231,7 @@ fn fixture_with_entity_assets(
     assert!(snapshot.phases[Action::Use as usize].pressed);
     let mut world = World::new();
     world.init_resource::<client_state::ScreenFocus>();
+    world.init_resource::<client_state::GameplayScreenControls>();
     world.insert_resource(client_state::SemanticInputSnapshot(
         semantic_input::finalized::FinalizedInput::from_finalized(snapshot),
     ));

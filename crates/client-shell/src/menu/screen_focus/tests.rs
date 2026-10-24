@@ -74,3 +74,21 @@ fn shell_controls_publish_pick_binding_and_clear_the_next_frame() {
             .pick_block_pressed
     );
 }
+
+#[test]
+fn shell_controls_publish_hide_hud() {
+    for hidden in [false, true] {
+        let mut app = App::new();
+        let mut menu = MenuRuntime::new(false, 2, "Controls".into());
+        menu.set_session_option(SettingId::HideHud, hidden.then_some(1));
+        app.init_resource::<GameplayScreenControls>()
+            .insert_resource(menu);
+        app.world_mut()
+            .run_system_once(publish_gameplay_screen_controls)
+            .unwrap();
+        assert_eq!(
+            app.world().resource::<GameplayScreenControls>().hide_hud,
+            hidden
+        );
+    }
+}

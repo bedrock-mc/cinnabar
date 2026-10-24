@@ -4,14 +4,17 @@
 pub struct GameplayOverlayVisibility {
     pub hand: bool,
     pub nametags: bool,
+    /// The block outline or highlight drawn around the picked block.
+    pub selection: bool,
 }
 
 impl GameplayOverlayVisibility {
-    /// Hide HUD suppresses both overlays; spectators always hide their hands and held items.
+    /// Hide HUD suppresses every overlay; spectators always hide their hands and held items.
     pub const fn new(hide_hud: bool, hide_hand: bool, spectator: bool) -> Self {
         Self {
             hand: !hide_hud && !hide_hand && !spectator,
             nametags: !hide_hud,
+            selection: !hide_hud,
         }
     }
 }
@@ -25,12 +28,14 @@ mod tests {
         for hide_hand in [false, true] {
             let shown = GameplayOverlayVisibility::new(false, hide_hand, false);
             assert!(shown.nametags);
+            assert!(shown.selection);
             assert_eq!(shown.hand, !hide_hand);
             assert_eq!(
                 GameplayOverlayVisibility::new(true, hide_hand, false),
                 GameplayOverlayVisibility {
                     hand: false,
                     nametags: false,
+                    selection: false,
                 }
             );
             assert_eq!(
