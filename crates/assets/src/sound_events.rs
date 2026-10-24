@@ -10,6 +10,9 @@ use serde_json::Value;
 /// Material used when neither a resource-pack block entry nor a server component names a sound.
 pub const DEFAULT_BLOCK_MATERIAL: &str = "stone";
 
+/// Material whose events stand in for any event a block's own material lacks.
+const FALLBACK_SOUND_MATERIAL: &str = "normal";
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FloatRange {
     pub min: f32,
@@ -279,6 +282,41 @@ fn resolve(set: &EventSet, event: &str, material: Option<&str>) -> Option<SoundR
     lookup(set, event, material).route()
 }
 
+/// The set defining `event` along `material`'s `base` chain. A valid chain visits each
+/// material once, which also bounds malformed cycles.
+fn defining_set<'a>(
+    sets: &'a HashMap<Box<str>, EventSet>,
+    material: &str,
+    event: &str,
+) -> Option<&'a EventSet> {
+    let mut material = material;
+    for _ in 0..sets.len() {
+        let set = sets.get(material)?;
+        if set.events.contains_key(event) {
+            return Some(set);
+        }
+        material = set.base.as_deref()?;
+    }
+    None
+}
+
+/// The set and event name a material plays for `event`, as the native lookup chooses them:
+/// the material's own event through its `base` chain, else the `normal` material's event,
+/// else that material's `default`. A material's own `default` is no fallback for other events.
+fn material_event<'a>(
+    sets: &'a HashMap<Box<str>, EventSet>,
+    material: &str,
+    event: &'a str,
+) -> Option<(&'a EventSet, &'a str)> {
+    defining_set(sets, material, event)
+        .map(|set| (set, event))
+        .or_else(|| {
+            [event, "default"].into_iter().find_map(|candidate| {
+                defining_set(sets, FALLBACK_SOUND_MATERIAL, candidate).map(|set| (set, candidate))
+            })
+        })
+}
+
 impl SoundEventTables {
     /// Parses `sounds.json` (already JSONC-normalized) and a `block -> material` map.
     #[allow(clippy::field_reassign_with_default)]
@@ -371,28 +409,11 @@ impl SoundEventTables {
             .unwrap_or(DEFAULT_BLOCK_MATERIAL)
     }
 
-    /// Resolves a block event through its base materials, preserving explicit silence and
-    /// the defining material's ranges. Named inherited events precede default fallbacks.
+    /// Resolves a block event through its base materials, then the `normal` material's event
+    /// or default, preserving explicit silence and the defining material's ranges.
     pub fn block(&self, material: &str, event: &str) -> Option<SoundRoute> {
-        let mut material = material;
-        let mut fallback = None;
-        // A valid chain visits each material once; this also bounds malformed cycles.
-        for _ in 0..self.blocks.len() {
-            let Some(set) = self.blocks.get(material) else {
-                break;
-            };
-            if set.events.contains_key(event) {
-                return resolve(set, event, None);
-            }
-            if fallback.is_none() && set.events.contains_key("default") {
-                fallback = Some(resolve(set, "default", None));
-            }
-            let Some(base) = set.base.as_deref() else {
-                break;
-            };
-            material = base;
-        }
-        fallback.flatten()
+        let (set, event) = material_event(&self.blocks, material, event)?;
+        resolve(set, event, None)
     }
 
     /// Route of an actor event; `variant` selects a `variants.map` entry when the base lacks it.
@@ -459,7 +480,8 @@ impl SoundEventTables {
         lookup(&self.entity_defaults, event, None)
     }
 
-    /// Footstep/fall/jump/land route of an actor moving over a block sound material. Block routes are
+    /// Footstep/fall/jump/land route of an actor moving over a block sound material. Block routes
+    /// follow the material's base chain and then the `normal` material, as [`Self::block`] does,
     /// scaled by the actor's interactive volume/pitch (the shared default when it has none).
     pub fn interactive(&self, entity: &str, event: &str, material: &str) -> Option<SoundRoute> {
         let explicit = self.interactive_entities.get(bare(entity));
@@ -467,11 +489,7 @@ impl SoundEventTables {
             return resolve(set, event, Some(material));
         }
         let scale = explicit.unwrap_or(&self.interactive_defaults);
-        if let Some(set) = self
-            .interactive_blocks
-            .get(material)
-            .filter(|set| set.events.contains_key(event))
-        {
+        if let Some((set, event)) = material_event(&self.interactive_blocks, material, event) {
             return resolve(set, event, Some(material)).map(|route| SoundRoute {
                 volume: route.volume.scaled(scale.volume),
                 pitch: route.pitch.scaled(scale.pitch),

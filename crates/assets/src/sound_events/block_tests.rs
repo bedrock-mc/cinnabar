@@ -111,3 +111,86 @@ fn inherited_routes_follow_pack_overrides_of_the_base() {
         "child.ambient"
     );
 }
+
+#[test]
+fn events_a_material_lacks_fall_back_to_the_normal_material() {
+    let tables = SoundEventTables::from_json(
+        &json!({"block_sounds": {
+            "normal": {"events": {
+                "brush": "brush.generic", "hit": "hit.stone",
+                "break": {"sound": "dig.stone", "pitch": [0.8, 1.0]}, "default": ""
+            }},
+            "stone": {"events": {"break": "dig.stone", "default": ""}},
+            "terracotta": {"base": "stone", "events": {"ambient": "block.sand.ambient"}},
+            "plant": {"events": {"break": "dig.grass", "hit": "", "default": "plant.default"}}
+        }}),
+        &json!({}),
+    );
+    assert_eq!(
+        &*tables.block("terracotta", "brush").unwrap().sound,
+        "brush.generic"
+    );
+    assert_eq!(
+        &*tables.block("terracotta", "break").unwrap().sound,
+        "dig.stone",
+        "a base event precedes the normal fallback"
+    );
+    assert_eq!(
+        &*tables.block("plant", "brush").unwrap().sound,
+        "brush.generic"
+    );
+    assert!(
+        tables.block("plant", "hit").is_none(),
+        "explicit silence wins over the normal fallback"
+    );
+    let unknown = tables.block("unlisted", "break").unwrap();
+    assert_eq!(&*unknown.sound, "dig.stone");
+    assert_eq!(unknown.pitch, FloatRange { min: 0.8, max: 1.0 });
+    assert!(
+        tables.block("plant", "ambient").is_none(),
+        "the normal default is silent; a material's own default is no fallback"
+    );
+}
+
+#[test]
+fn footsteps_on_materials_without_interactive_entries_use_the_normal_material() {
+    let tables = SoundEventTables::from_json(
+        &json!({"interactive_sounds": {
+            "block_sounds": {
+                "normal": {"events": {
+                    "step": {"sound": "step.stone", "volume": 0.3},
+                    "jump": {"sound": "jump.stone", "volume": 0.12},
+                    "default": ""
+                }},
+                "copper": {"base": "metal", "events": {}},
+                "metal": {"events": {"step": "step.metal", "default": ""}}
+            },
+            "entity_sounds": {"defaults": {"volume": 0.5, "events": {
+                "jump": {"default": {"sound": ""}}
+            }}}
+        }}),
+        &json!({"black_terracotta": "terracotta"}),
+    );
+    let material = tables.material_of("minecraft:black_terracotta").unwrap();
+    let step = tables
+        .interactive("minecraft:player", "step", material)
+        .expect("terracotta footsteps");
+    assert_eq!(&*step.sound, "step.stone");
+    assert!((step.volume.min - 0.15).abs() < 1e-6);
+    assert_eq!(
+        &*tables
+            .interactive("player", "jump", material)
+            .unwrap()
+            .sound,
+        "jump.stone"
+    );
+    assert_eq!(
+        &*tables
+            .interactive("player", "step", "copper")
+            .unwrap()
+            .sound,
+        "step.metal",
+        "interactive materials follow their base chain"
+    );
+    assert!(tables.interactive("player", "land", material).is_none());
+}
