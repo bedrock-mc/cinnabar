@@ -114,9 +114,53 @@ impl PreparedBlockItems {
             .as_ref()
             .is_some_and(|source| Arc::ptr_eq(source, world))
     }
+
+    /// Predicts the texture layers used by an available carried model without copying pixels.
+    pub(crate) fn dropped_model_layers(&self, visual: u32) -> Option<usize> {
+        self.models.get(&visual)?;
+        self.sheet_placement(visual)?;
+        Some(assets::BlockFace::ALL.len())
+    }
+
+    /// Converts the carried geometry and its matching prepared pixels for world item draws.
+    pub(crate) fn dropped_model(&self, visual: u32) -> Option<render_model::DroppedItemBlock> {
+        let vertices = self.models.get(&visual)?;
+        let (raster, placement) = self.sheet_placement(visual)?;
+        let [width, height] = [placement.width, placement.height].map(usize::from);
+        let mut pixels = Vec::with_capacity(width * height * 4);
+        for row in 0..height {
+            let start = ((usize::from(placement.y) + row) * usize::from(raster.width)
+                + usize::from(placement.x))
+                * 4;
+            pixels.extend_from_slice(raster.rgba8.get(start..start + width * 4)?);
+        }
+        render_model::equipment::blocks::dropped_model(
+            render_model::DroppedItemSprite {
+                width: u32::from(placement.width),
+                height: u32::from(placement.height),
+                rgba8: pixels.into(),
+            },
+            vertices,
+        )
+    }
+
+    /// Locates one carried sheet entirely within the same prepared raster generation.
+    fn sheet_placement(&self, visual: u32) -> Option<(&EquipmentRaster, Placement)> {
+        let index = *self.sheets.get(&visual)?;
+        let placement = self.placements.get(index).copied().flatten()?;
+        let raster = self.rasters.get(placement.layer)?;
+        (u32::from(placement.x) + u32::from(placement.width) <= u32::from(raster.width)
+            && u32::from(placement.y) + u32::from(placement.height) <= u32::from(raster.height))
+        .then_some((raster, placement))
+    }
 }
 
 impl EquipmentRuntime {
+    /// Borrows the active carried model source; consumers must match it to their terrain.
+    pub(crate) fn prepared_block_items(&self) -> &Arc<PreparedBlockItems> {
+        &self.blocks.source
+    }
+
     /// Shares only the immutable inputs needed by the resource-pack worker.
     pub fn block_item_preparer(&self) -> Option<BlockItemPreparer> {
         Some(BlockItemPreparer {
@@ -184,3 +228,7 @@ impl EquipmentRuntime {
         self.blocks.source.alpha.get(&visual).copied()
     }
 }
+
+#[cfg(test)]
+#[path = "block_items/tests.rs"]
+mod tests;
