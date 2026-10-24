@@ -2,18 +2,20 @@
 #[cfg(test)]
 use bevy::prelude::{MessageWriter, Mut, Time, Update, default};
 use bevy::{
+    app::MainScheduleOrder,
+    ecs::schedule::ScheduleLabel,
     input::{
         InputSystems,
         mouse::{AccumulatedMouseMotion, MouseButtonInput},
     },
     prelude::{
-        App, ButtonInput, DetectChangesMut, Entity, Gamepad, IntoScheduleConfigs, KeyCode, Local,
-        MessageReader, MouseButton, PostUpdate, PreUpdate, Query, Res, ResMut, Single, Touches,
-        Vec2, Window, With,
+        App, ButtonInput, Changed, DetectChangesMut, Entity, Gamepad, IntoScheduleConfigs, KeyCode,
+        Last, Local, MessageReader, MouseButton, PostUpdate, PreUpdate, Query, Res, ResMut, Single,
+        Touches, Vec2, Window, With,
     },
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowFocused, WindowOccluded},
 };
-use client_shell::physical_input::release_cursor;
+use client_shell::physical_input::{release_cursor, withhold_cursor_change};
 use client_state::CursorFocus;
 
 use {client_presentation::camera::AutoFly, client_state::DrivenInput};
@@ -34,6 +36,33 @@ pub(super) fn install(app: &mut App) {
         .add_message::<MouseButtonInput>()
         .add_systems(PreUpdate, track_focus.after(InputSystems))
         .add_systems(PostUpdate, enforce_cursor_ownership);
+    if !OS_CURSOR_GRAB {
+        install_grab_free_cursor(app);
+    }
+}
+
+/// Runs after every `PostUpdate` cursor writer and before Winit applies cursor changes in `Last`.
+#[derive(ScheduleLabel, Clone, Debug, PartialEq, Eq, Hash)]
+struct GrabFreeCursor;
+
+/// Keeps screen cursor requests from reaching a window backend that rejects every grab.
+fn install_grab_free_cursor(app: &mut App) {
+    app.add_systems(GrabFreeCursor, withhold_cursor_requests);
+    app.world_mut()
+        .resource_mut::<MainScheduleOrder>()
+        .insert_before(Last, GrabFreeCursor);
+}
+
+/// Drops this frame's cursor requests on a platform without an OS cursor grab.
+///
+/// Winit attempts a native grab for every changed `CursorOptions`, and screens re-assert a free
+/// cursor each frame they own input. Without an OS grab each attempt fails and logs an error, so
+/// the log fills every frame. The pointer stays free, the state Winit restores after a failed grab.
+fn withhold_cursor_requests(mut cursors: Query<&mut CursorOptions, Changed<CursorOptions>>) {
+    for mut cursor in &mut cursors {
+        cursor.bypass_change_detection().grab_mode = CursorGrabMode::None;
+        withhold_cursor_change(&mut cursor);
+    }
 }
 
 /// Retains primary-window loss events before gameplay or screen input is sampled.
@@ -282,3 +311,6 @@ mod recapture_tests;
 
 #[cfg(test)]
 mod regain_tests;
+
+#[cfg(test)]
+mod grab_free_tests;

@@ -2,10 +2,7 @@
 
 use bevy::{
     app::MainScheduleOrder,
-    ecs::{
-        change_detection::{MAX_CHANGE_AGE, Tick},
-        schedule::ScheduleLabel,
-    },
+    ecs::schedule::ScheduleLabel,
     prelude::*,
     window::{CursorOptions, InternalWindowState, PrimaryWindow},
 };
@@ -125,11 +122,8 @@ fn end(
     window.focused = physical.focused;
     *cursor.bypass_change_detection() = physical.cursor;
     // Restoring equal values alone is insufficient: Winit attempts a grab for every
-    // Changed<CursorOptions>, including None. Roll back the virtual component's tick
-    // beyond any observer's change window so it cannot enter that native query.
-    cursor.set_last_changed(Tick::new(
-        cursor.this_run().get().wrapping_sub(MAX_CHANGE_AGE),
-    ));
+    // Changed<CursorOptions>, including None.
+    client_shell::physical_input::withhold_cursor_change(&mut cursor);
     // Visible driven control must release capture held before isolation began. Once
     // released, this helper leaves later synthetic cursor changes suppressed.
     if !isolation.hidden {

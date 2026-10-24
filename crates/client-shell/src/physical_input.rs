@@ -1,7 +1,8 @@
 //! Bevy device codes shared by menu binding capture, UI input and gameplay sampling.
 use bevy::{
+    ecs::change_detection::{MAX_CHANGE_AGE, Tick},
     input::mouse::MouseScrollUnit,
-    prelude::{GamepadButton, KeyCode, MouseButton, Mut},
+    prelude::{DetectChanges, DetectChangesMut, GamepadButton, KeyCode, MouseButton, Mut},
     window::{CursorGrabMode, CursorOptions},
 };
 use semantic_input::{KeyboardKey, ScrollUnit};
@@ -189,6 +190,16 @@ pub fn release_cursor(cursor: &mut Mut<CursorOptions>) {
         cursor.grab_mode = CursorGrabMode::None;
         cursor.visible = true;
     }
+}
+
+/// Hides this frame's writes to `cursor` from every later change check, including Winit's.
+///
+/// Winit applies each changed `CursorOptions` as a native grab request in `Last`, even when the
+/// written value equals the current one. The component's tick is moved beyond any observer's
+/// change window, so the values stay as written but no native request is made for them.
+pub fn withhold_cursor_change(cursor: &mut Mut<CursorOptions>) {
+    let this_run = cursor.this_run();
+    cursor.set_last_changed(Tick::new(this_run.get().wrapping_sub(MAX_CHANGE_AGE)));
 }
 
 #[cfg(test)]
