@@ -339,16 +339,29 @@ pub(super) fn apply_inventory_pointer(
         }
     }
     if !scrollbar_owned && hit.is_none() && !mod_owned {
+        use ui_screens::containers::HeldStackPress;
         // A held stack clicked off the screen's panels is dropped: all of it
-        // on a primary click, one item on a secondary click.
-        let outside = gui.is_some_and(|gui| {
-            presentation.inventory_press_drops(gui, physical_size, window.scale_factor(), screen)
+        // on a primary click, one item on a secondary click. A primary click on
+        // the item grid's empty background deletes it in creative.
+        let press = gui.and_then(|gui| {
+            presentation.inventory_held_stack_press(
+                gui,
+                physical_size,
+                window.scale_factor(),
+                screen,
+            )
         });
-        if outside && (primary_pressed || secondary_pressed) {
-            let amount = (!primary_pressed).then_some(1);
-            let _ = runtime
-                .inventory_ledger_mut(player_runtime)
-                .begin_drop(DropSource::Cursor, amount);
+        match press {
+            Some(HeldStackPress::Drop) if primary_pressed || secondary_pressed => {
+                let amount = (!primary_pressed).then_some(1);
+                let _ = runtime
+                    .inventory_ledger_mut(player_runtime)
+                    .begin_drop(DropSource::Cursor, amount);
+            }
+            Some(HeldStackPress::Destroy) if primary_pressed => {
+                let _ = runtime.destroy_held_on_item_grid(player_runtime);
+            }
+            _ => {}
         }
     }
 }
