@@ -868,6 +868,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Server WIT 0.7 adds registered world definitions, instance creation/unload, typed scoped state,
   player observations and a transfer coordinator with departure epochs and source recovery.
   Client-part transfers use the extension helper's prepared connection and acknowledgment fence.
+  Server WIT 0.8 adds instance simulation ticks and cancellable timers through the existing
+  callback queue, with unload pause, opening fences and counted overflow. Entity registration,
+  instances, riding, steering and mixed-client ship acceptance remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
 - Native click caps and local weather overrides have transactional host APIs and

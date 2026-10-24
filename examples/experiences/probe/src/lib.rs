@@ -33,6 +33,34 @@ const NIL_PLAYER: &str = "00000000-0000-0000-0000-000000000000";
 struct Probe;
 
 impl Experience for Probe {
+    /// Exercises the simulation imports only in the clock conformance instance.
+    fn on_tick(
+        ctx: &Callback,
+        step: experience_sdk::server::SimulationStep,
+    ) -> Result<(), GuestError> {
+        if ctx.world().id.value == "probe:clock" {
+            let current = ctx
+                .simulation()
+                .map_err(|e| GuestError::Failed(e.to_string()))?;
+            if current.tick != step.tick || current.duration_nanos != step.duration_nanos {
+                return Err(GuestError::Failed("inconsistent simulation time".into()));
+            }
+            if step.tick == 1 {
+                let _ = ctx.schedule(2, 3);
+            }
+        }
+        Ok(())
+    }
+    /// A repeating callback can cancel itself through its typed handle.
+    fn on_timer(
+        ctx: &Callback,
+        handle: experience_sdk::server::ScheduleHandle,
+        _step: experience_sdk::server::SimulationStep,
+    ) -> Result<(), GuestError> {
+        ctx.cancel_schedule(&handle)
+            .map_err(|e| GuestError::Failed(e.to_string()))
+    }
+
     /// Exercises ordered player observations through the canonical server world.
     fn on_player(
         ctx: &Callback,

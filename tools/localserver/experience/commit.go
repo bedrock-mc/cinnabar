@@ -94,6 +94,12 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	if err := slotsCurrent(actor, snap, plan.slots); err != nil {
 		return nil, err
 	}
+	h.simulation.mu.Lock()
+	defer h.simulation.mu.Unlock()
+	timers, err := h.validateTimers(exp, ev, snap, ops)
+	if err != nil {
+		return nil, err
+	}
 	for _, op := range ops {
 		if op.SetBlockState != nil {
 			pos := op.SetBlockState.Pos.cube()
@@ -151,6 +157,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 		if b, ok := tx.Block(pos).(Block); ok && b.t.exp == exp {
 			tx.ScheduleBlockUpdate(pos, b, time.Duration(update.Ticks)*tickDuration)
 		}
+	}
+	if timers != nil {
+		h.simulation.timers[simulationKey{exp, ev.instance.handle}] = timers
 	}
 	var sends []*SendClientOp
 	for _, op := range ops {
@@ -306,6 +315,8 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 	tells, sends := 0, 0
 	for i, op := range ops {
 		switch {
+		case op.Schedule != nil || op.CancelSchedule != nil:
+			// Checked together under the simulation lock before any mutation.
 		case op.World != nil:
 			return commitPlan{}, fmt.Errorf("%w: lifecycle result in block commit", errInvalid)
 		case op.StoreWrite != nil:

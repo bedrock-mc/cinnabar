@@ -307,6 +307,9 @@ func matchRegistration(registered, loaded Loaded) error {
 	if !reflect.DeepEqual(loaded.Worlds, registered.Worlds) {
 		return errors.New("its world definitions changed")
 	}
+	if loaded.Simulation != registered.Simulation {
+		return errors.New("simulation callbacks changed")
+	}
 	if loaded.Focus != registered.Focus {
 		return fmt.Errorf("whether it takes a focus changed from %v to %v", registered.Focus, loaded.Focus)
 	}

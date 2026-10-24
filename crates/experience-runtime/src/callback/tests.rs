@@ -97,6 +97,7 @@ impl Fixture {
             seq: 1,
             info: Info {
                 context: None,
+                simulation: None,
                 world_id: "world".to_owned(),
                 dimension_id: "overworld".to_owned(),
                 tick: 1,
@@ -155,6 +156,7 @@ impl Fixture {
             seq: 1,
             info: Info {
                 context: None,
+                simulation: None,
                 world_id: "world".to_owned(),
                 dimension_id: "overworld".to_owned(),
                 tick: 1,
@@ -1179,3 +1181,5 @@ fn malformed_inventories_are_refused() {
 }
 
 mod worlds;
+
+mod simulation;

@@ -196,6 +196,7 @@ func (h *Host) unloadWorld(ctx context.Context, owner string, handle WorldHandle
 	if result != nil {
 		return result
 	}
+	h.forgetSimulation(handle)
 	delete(h.manager.owned, handle)
 	return w.Close()
 }
@@ -235,6 +236,7 @@ func (h *Host) closeWorlds() error {
 		if err := w.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close instance %s: %w", handle.ID, err))
 		}
+		h.forgetSimulation(handle)
 		delete(h.manager.owned, handle)
 	}
 	return errors.Join(errs...)

@@ -144,7 +144,7 @@ startup.
 ## WIT and semantics
 
 The contract is `crates/experience-sdk/wit/server/server.wit`, package
-`cinnabar:experience-server@0.6.0`, world `server`. The guest exports `register`, which runs once
+`cinnabar:experience-server@0.8.0`, world `server`. The guest exports `register`, which runs once
 at startup and declares its blocks and items as a `registration`, the callbacks `on-place`,
 `on-break`, `on-interact` and `on-neighbor-changed`, `client-message`, `epoch` and
 `on-scheduled-update`. Every world
@@ -647,3 +647,31 @@ Another server can host the same artifacts by speaking the protocol to `experien
 
 Check your implementation against the fixtures in `tools/localserver/experience/testdata/protocol`
 and the Go adapter's tests.
+
+## Simulation callbacks
+
+Server WIT 0.8 adds `Experience::on_tick` and `Experience::on_timer`. Each bound world
+instance advances on the host's fixed tick edge, even without viewers. `SimulationStep`
+contains its counter and fixed duration in nanoseconds. Unloading pauses the counter;
+reopening resumes it with a new world generation. Host pause also pauses admission.
+The clock is process-local and is not restored after a server restart.
+
+`Callback::schedule(after, period)` returns a typed handle scoped to this mod and instance
+opening. The delay starts when the result commits. A zero period runs once; a positive
+period repeats. `cancel_schedule` cancels an active handle, including an occurrence already
+queued behind the cancelling callback. Unload discards the opening's timers. Timers and
+state writes share whole-result validation, staged-op limits and callback fuel. Active timers
+per mod and instance share `MAX_SCHEDULED_UPDATES`; delays use `MAX_SCHEDULE_TICKS`.
+
+Tick callbacks enter the existing per-mod FIFO before that tick's due timers, ordered by
+handle. Guest work runs off world threads, with the existing fuel, deadline, strikes and
+quarantine rules. Queue overflow drops and counts ticks and repeating occurrences. A
+one-shot whose admission fails remains due for a later tick. Repeating callbacks retain at
+most one queued occurrence; missed periods are counted and skipped, without catch-up bursts.
+Callbacks receive their admitted tick, even if execution happens later. Scheduling inside a
+late callback remains relative to commit, rather than replaying elapsed simulation.
+
+Migration: rebuild SDK guests with `api = "0.8"` and deploy the matching IPC protocol 8
+adapter and helper. Frozen server WIT 0.1–0.7 artifacts retain their earlier exports and do
+not receive simulation callbacks. Existing 0.7 world and private-state APIs are unchanged.
+The probe's `probe:clock` conformance instance shows scheduling and self-cancellation.

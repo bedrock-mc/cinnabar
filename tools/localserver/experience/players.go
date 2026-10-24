@@ -213,7 +213,11 @@ func (h *Host) observationSnapshot(d *dispatcher, ev event) snapshot {
 		copy := *loc
 		context.Player = &copy
 	}
-	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context}, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
+	var simulation *SimulationContext
+	if d.sup.registered.Simulation {
+		simulation = h.simulationContext(d.id, ev, d.seq)
+	}
+	return snapshot{req: CallbackRequest{Info: Info{WorldID: h.worldID, DimensionID: ev.instance.id, EventSequence: d.seq, Context: context, Simulation: simulation}, Actor: actor, DataBudget: h.store.Budget(d.id), Snapshot: []Cell{}, Call: ev.call}}
 }
 
 // storePrincipal retains an observed player's private record after its live actor leaves.

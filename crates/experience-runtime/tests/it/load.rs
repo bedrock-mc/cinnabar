@@ -549,3 +549,18 @@ fn v0_6_artifact_loads_and_runs() {
         Outcome::Committed { ops: vec![] }
     );
 }
+
+#[test]
+fn v0_7_artifact_loads_and_runs_without_simulation_exports() {
+    let dir = common::v0_7_dir();
+    let (engine, _ticker) = engine().unwrap();
+    let loaded = load(&engine, dir.path()).unwrap();
+    assert_eq!(loaded.manifest.api, "0.7");
+    assert!(loaded.worlds.as_ref().unwrap().definitions.is_empty());
+    assert_eq!(
+        run(&engine, &loaded, &interact(0)),
+        Outcome::Committed {
+            ops: vec![tell("v0.7")]
+        }
+    );
+}

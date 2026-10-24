@@ -29,13 +29,14 @@ const airID = "minecraft:air"
 // current and the result valid before it applies anything. Client messages that a commit stages
 // go out through channels afterwards, and client messages that players send queue like events.
 type Host struct {
-	reg     *Registry
-	store   *Store
-	log     *slog.Logger
-	worldID string
-	worlds  worldBindings
-	manager worldManager
-	players playerLocations
+	reg        *Registry
+	store      *Store
+	log        *slog.Logger
+	worldID    string
+	worlds     worldBindings
+	manager    worldManager
+	players    playerLocations
+	simulation simulationClock
 	// worldChanged observes publication in tests, before the coordinator releases its fence.
 	worldChanged func(uuid.UUID, WorldHandle, uint64) bool
 	// channels is the server half of the client parts; nil when the server has none, which
@@ -117,7 +118,7 @@ type event struct {
 // an epoch are about their player: they run in the world that player is in, and have an anchor
 // and a snapshot only with that player's focus.
 func (c Call) anchored() bool {
-	return c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
+	return c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
 }
 
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
@@ -167,6 +168,7 @@ func (h *Host) Run(ctx context.Context) {
 	}
 	h.running = true
 	h.workers.Go(func() { h.runPlayerTicks(ctx) })
+	h.workers.Go(func() { h.runSimulationTicks(ctx) })
 	for _, d := range h.dispatchers {
 		h.workers.Go(func() { h.work(ctx, d) })
 	}
@@ -425,6 +427,12 @@ func (h *Host) work(ctx context.Context, d *dispatcher) {
 // A failed or rejected callback or an error publishes nothing; the supervisor has counted a
 // failure already.
 func (h *Host) dispatch(ctx context.Context, d *dispatcher, ev event) {
+	if ev.call.Timer != nil {
+		if !h.timerCurrent(d.id, ev.call.Timer.Handle) {
+			return
+		}
+		defer h.finishTimer(d.id, ev.call.Timer.Handle)
+	}
 	// A cancelled worker takes no more events, though select may still pick one.
 	if ctx.Err() != nil || !h.resumed(ctx) {
 		return
@@ -506,7 +514,7 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	if !h.playerCurrent(*ev) {
 		return snapshot{}, errStale
 	}
-	if ev.call.anchored() {
+	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil {
 		valid := false
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) {
 			if !h.playerCurrent(*ev) {
@@ -606,6 +614,9 @@ func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		}
 		snap.req.Snapshot = append(snap.req.Snapshot, cell)
 		snap.cells = append(snap.cells, st)
+	}
+	if d.sup != nil && d.sup.registered.Simulation {
+		snap.req.Info.Simulation = h.simulationContext(d.id, ev, d.seq)
 	}
 	h.network(tx, d, ev, &snap)
 	if d.sup != nil && d.sup.registered.Worlds != nil {

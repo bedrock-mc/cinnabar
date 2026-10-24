@@ -95,6 +95,7 @@ fn failed(error: &anyhow::Error) -> Outcome {
 pub struct CallbackRes {
     info: CallbackInfo,
     context: Option<protocol::WorldContext>,
+    simulation: Option<protocol::SimulationContext>,
     actor: Option<String>,
     player_store: bool,
     /// The actor's focus, which a client message or an epoch may have; its snapshot is the one
@@ -157,6 +158,11 @@ struct Slot {
 
 /// The export a callback calls, with its arguments.
 enum Export<'a> {
+    Tick(wit::SimulationStep),
+    Timer {
+        handle: wit::ScheduleHandle,
+        step: wit::SimulationStep,
+    },
     Player {
         player: &'a wit::PlayerId,
         event: wit::PlayerEvent,
@@ -214,6 +220,36 @@ fn prepare<'a>(
     player_id("actor", actor.as_deref())?;
     let mut focused = None;
     let (anchor, export) = match call {
+        Call::Tick { step } | Call::Timer { step, .. } => {
+            if actor.is_some()
+                || !snapshot.is_empty()
+                || info.simulation.as_ref().is_none_or(|s| s.step != *step)
+            {
+                return Err(
+                    "simulation callback has unauthorized snapshot or inconsistent time".into(),
+                );
+            }
+            if let Call::Timer { handle, .. } = call
+                && (info
+                    .context
+                    .as_ref()
+                    .is_none_or(|c| c.current != handle.world)
+                    || info
+                        .simulation
+                        .as_ref()
+                        .is_none_or(|s| !s.schedules.contains(handle)))
+            {
+                return Err("scheduled callback has no active instance handle".into());
+            }
+            let export = match call {
+                Call::Timer { handle, .. } => Export::Timer {
+                    handle: handle.clone().into(),
+                    step: (*step).into(),
+                },
+                _ => Export::Tick((*step).into()),
+            };
+            (None, export)
+        }
         Call::Player { player, event } => {
             player_id("player", Some(player))?;
             if !snapshot.is_empty() || actor.as_deref().is_some_and(|actor| actor != player) {
@@ -305,6 +341,7 @@ fn prepare<'a>(
     }
     let res = CallbackRes {
         context: info.context.clone(),
+        simulation: info.simulation.clone(),
         info: CallbackInfo {
             world_id: info.world_id.clone(),
             dimension_id: info.dimension_id.clone(),
@@ -844,3 +881,5 @@ mod items;
 mod tests;
 
 mod worlds;
+
+mod simulation;
