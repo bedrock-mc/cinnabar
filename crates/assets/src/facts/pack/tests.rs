@@ -212,7 +212,11 @@ fn generated_material_states_cover_the_pack_without_stale_aliases() {
     );
     for name in expected {
         assert_eq!(
-            rules().material_state(name).is_some(),
+            rules().material_state(name).is_some()
+                || matches!(
+                    rules().raster(name),
+                    EntityRenderMaterial::DissolveDepth | EntityRenderMaterial::DissolveColor
+                ),
             !missing.contains(name),
             "{name}"
         );
@@ -276,11 +280,11 @@ fn pack_rules_preserve_material_alias_states_and_rasters() {
             _ => EntityRenderMaterial::Default,
         };
         assert_eq!(rules().raster(name), expected, "{name}");
-        assert_eq!(
-            rules().material_state(name),
-            material_states().get(material_name(name)).copied(),
-            "{name}"
-        );
+        let expected = match rules().raster(name) {
+            EntityRenderMaterial::DissolveDepth | EntityRenderMaterial::DissolveColor => None,
+            _ => material_states().get(material_name(name)).copied(),
+        };
+        assert_eq!(rules().material_state(name), expected, "{name}");
     }
 }
 

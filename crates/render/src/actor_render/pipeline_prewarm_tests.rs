@@ -119,6 +119,34 @@ fn authored_depth_and_channel_overrides_have_draw_and_motion_pipelines() {
 }
 
 #[test]
+fn late_dissolve_color_keeps_the_paired_depth_contract_with_overrides() {
+    let (mut app, _) = crate::queue_review_support::app();
+    let world = app.world_mut();
+    world.init_resource::<ActorPipeline>();
+    world.resource_scope(|world, mut pipeline: Mut<ActorPipeline>| {
+        pipeline
+            .prewarm(world.resource::<PipelineCache>(), Msaa::Off, false, false)
+            .unwrap();
+        for cull in [false, true] {
+            for depth_write in [false, true] {
+                let material =
+                    EntityRenderMaterial::DissolveColor.word(Some(EntityRenderMaterialState {
+                        depth_equal: true,
+                        cull,
+                        depth_write,
+                        ..Default::default()
+                    })) | crate::actor::material::LATE_DISSOLVE_COLOR;
+                assert!(
+                    pipeline
+                        .draw_variant(Msaa::Off, false, false, material)
+                        .is_some()
+                );
+            }
+        }
+    });
+}
+
+#[test]
 fn always_depth_prewarm_covers_blend_and_depth_write_combinations() {
     let (mut app, _) = crate::queue_review_support::app();
     let world = app.world_mut();

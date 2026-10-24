@@ -538,7 +538,8 @@ impl ActorPipelineKey {
             blend: state.blend,
             depth_write: state.depth_write,
             depth_always: state.depth_always,
-            depth_equal: state.depth_equal && !state.depth_always,
+            depth_equal: (state.depth_equal || kind == assets::EntityRenderMaterial::DissolveColor)
+                && !state.depth_always,
             write_color: !state.disable_color_write,
             additive: state.blend && state.additive,
             additive_alpha: state.blend && state.additive && state.additive_alpha,

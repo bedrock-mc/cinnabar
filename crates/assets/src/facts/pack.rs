@@ -296,13 +296,21 @@ impl PackRules {
     }
     /// Resolves generated declaration states, including their skinning aliases.
     pub fn material_state(&self, name: &str) -> Option<EntityRenderMaterialState> {
+        if matches!(
+            self.raster(name),
+            EntityRenderMaterial::DissolveDepth | EntityRenderMaterial::DissolveColor
+        ) {
+            // Paired passes retain the dedicated renderer's comparison and write contracts.
+            return None;
+        }
         material_states().get(material_name(name)).copied()
     }
     /// Enumerates generated states so pipeline preparation follows the material catalog.
     pub fn material_states(&self) -> impl Iterator<Item = (&str, EntityRenderMaterialState)> {
-        material_states()
-            .iter()
-            .map(|(name, state)| (name.as_str(), *state))
+        material_states().keys().filter_map(|name| {
+            self.material_state(name)
+                .map(|state| (name.as_str(), state))
+        })
     }
     /// Resolves the actor-to-retail egg rename, retaining ordinary suffix routing.
     pub fn egg_identifier(&self, actor: &str) -> String {
