@@ -909,6 +909,24 @@ fn a_rejected_modal_stops_only_its_owner_and_restores_the_other_modal() {
     assert!(live.modal().is_none());
 }
 
+/// Splits a fake helper publication so callbacks can commit a newer snapshot in flight.
+fn snapshot_chunks(
+    revision: u64,
+    output: &mod_host::presentation::Output,
+) -> VecDeque<mod_host::presentation::Chunk> {
+    let bytes = serde_json::to_vec(output).unwrap();
+    bytes
+        .chunks(32)
+        .enumerate()
+        .map(|(index, part)| mod_host::presentation::Chunk {
+            revision,
+            offset: (index * 32) as u32,
+            total: bytes.len() as u32,
+            bytes: part.to_vec(),
+        })
+        .collect()
+}
+
 #[test]
 fn mask_selected_during_transfer_is_admitted_while_culled_and_returns_to_drawing() {
     let mut live = initialized(1);
@@ -939,8 +957,8 @@ fn mask_selected_during_transfer_is_admitted_while_culled_and_returns_to_drawing
     instance.capabilities.scope.gpu_bytes = MAX_GPU_BYTES;
     instance.dispatch(None, Event::Frame, 1, None).unwrap();
     let helper = instance.helper.as_mut().unwrap();
-    let old = serde_json::to_vec(&mod_host::presentation::Output::default()).unwrap();
-    let selected = serde_json::to_vec(&mod_host::presentation::Output {
+    helper.presentation = snapshot_chunks(1, &mod_host::presentation::Output::default());
+    let selected = mod_host::presentation::Output {
         masks: vec![mod_render::masks::Mask {
             handle: mod_api::drawing::DrawingHandle {
                 owner: 1,
@@ -960,29 +978,21 @@ fn mask_selected_during_transfer_is_admitted_while_culled_and_returns_to_drawing
             position: None,
         }],
         ..Default::default()
-    })
-    .unwrap();
-    // The first piece predates the selection; the next snapshot starts after culling.
-    for (revision, bytes) in [(1, &old), (2, &selected)] {
-        helper
-            .presentation
-            .extend(bytes.chunks(32).enumerate().map(|(index, bytes)| {
-                mod_host::presentation::Chunk {
-                    revision,
-                    offset: (index * 32) as u32,
-                    total: if revision == 1 {
-                        old.len()
-                    } else {
-                        selected.len()
-                    } as u32,
-                    bytes: bytes.to_vec(),
-                }
-            }));
-    }
-    let pieces = helper.presentation.len();
+    };
     live.poll(1, CALLBACK_INTERVAL_MS, true, |key| key == actor)
         .unwrap();
     assert!(live.drawing().0.masks.is_empty());
+    // Select only after the older snapshot has started transferring.
+    let helper = live
+        .instances
+        .get_mut("bundle0")
+        .unwrap()
+        .helper
+        .as_mut()
+        .unwrap();
+    assert!(!helper.presentation.is_empty());
+    helper.presentation.extend(snapshot_chunks(2, &selected));
+    let pieces = helper.presentation.len() + 1;
     for slice in 2..=pieces {
         live.bind_drawing(&context(1), |key| key == actor).unwrap();
         live.poll(1, slice as u64 * CALLBACK_INTERVAL_MS, true, |key| {
