@@ -521,7 +521,7 @@ impl BundleHost {
             self.last_fuel = 0;
             let confirms = matches!(event, Event::Message { channel, .. } if channel == &negotiation.confirmation);
             if !confirms {
-                if let Err(error) = negotiation.hold(event) {
+                if let Err(error) = negotiation.hold(event, epoch) {
                     self.active = false;
                     self.store.data_mut().negotiation = None;
                     return Err(error);
@@ -536,7 +536,7 @@ impl BundleHost {
         crate::execution::arm(&mut self.store, CALLBACK_FUEL, false)?;
         let called = self.call(event).and_then(|()| {
             if let Some(negotiation) = self.store.data_mut().negotiation.take() {
-                for held in negotiation.into_callbacks() {
+                for held in negotiation.into_callbacks(epoch) {
                     self.call(&held)?;
                 }
             }

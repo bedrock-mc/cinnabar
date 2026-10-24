@@ -271,6 +271,11 @@ struct Partial {
     bytes: usize,
 }
 
+/// Allows a message to run only in the world epoch where it originated.
+pub fn is_current_epoch(message_epoch: u64, world_epoch: u64) -> bool {
+    message_epoch == world_epoch
+}
+
 /// One reliable direction, shared by every bundle in a server session.
 #[derive(Debug)]
 pub struct Ingress {
@@ -484,7 +489,7 @@ impl Ingress {
             if *publication > committed {
                 return None;
             }
-            if message.world_epoch == world_epoch {
+            if is_current_epoch(message.world_epoch, world_epoch) {
                 return self.queue.front().map(|entry| &entry.2);
             }
             let (_, bytes, _) = self.queue.pop_front()?;

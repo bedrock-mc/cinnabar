@@ -795,7 +795,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Source-driven mod projects generate typed Rust/Go messages, registry confirmation,
   compile-checked asset constants and signed bundles through `devtool mod new/build`.
   The host holds callbacks during registry negotiation, replays latest state before
-  ordered events after initialization, and stops a part visibly on queue overflow.
+  ordered events after initialization, drops held messages from other world epochs,
+  and stops a part visibly on queue overflow.
   Complete server-helper delivery and personal-renderer port acceptance remain incomplete;
   see [mod projects](docs/mod-projects.md).
 - Native click caps and local weather overrides have transactional host APIs and

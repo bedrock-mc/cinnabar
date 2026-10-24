@@ -1,7 +1,7 @@
 //! Holds callbacks at the host boundary until registry-confirmed initialization succeeds.
 
 use crate::helper::Event;
-use server_experience::{policy::*, runtime::Command};
+use server_experience::{policy::*, runtime::Command, wire::is_current_epoch};
 
 /// A terminal failure: retaining another callback would exceed the reliable queue budget.
 #[derive(Debug)]
@@ -19,8 +19,21 @@ impl std::error::Error for Overflow {}
 pub(super) struct Negotiation {
     pub confirmation: String,
     pub request: Command,
-    held: Vec<Event>,
+    held: Vec<Held>,
     bytes: usize,
+}
+
+struct Held {
+    event: Event,
+    epoch: u64,
+    bytes: usize,
+}
+
+impl Held {
+    /// Keeps state and input callbacks, but delivers messages only in their originating world.
+    fn deliver_in(&self, epoch: u64) -> bool {
+        !matches!(self.event, Event::Message { .. }) || is_current_epoch(self.epoch, epoch)
+    }
 }
 
 impl Negotiation {
@@ -34,35 +47,48 @@ impl Negotiation {
         }
     }
 
-    /// Retains every event in order, replacing only observations of the same state.
-    pub fn hold(&mut self, event: &Event) -> anyhow::Result<()> {
+    /// Drops messages from other worlds, then retains the event or replaces its latest state.
+    pub fn hold(&mut self, event: &Event, epoch: u64) -> anyhow::Result<()> {
+        self.held.retain(|pending| {
+            if pending.deliver_in(epoch) {
+                true
+            } else {
+                self.bytes -= pending.bytes;
+                false
+            }
+        });
         let replaced = state_key(event).and_then(|key| {
             self.held
                 .iter()
-                .position(|pending| state_key(pending) == Some(key))
+                .position(|pending| state_key(&pending.event) == Some(key))
         });
-        let previous = replaced.map_or(Ok(0), |index| {
-            serde_json::to_vec(&self.held[index]).map(|bytes| bytes.len())
-        })?;
-        let bytes = self.bytes - previous + serde_json::to_vec(event)?.len();
+        let previous = replaced.map_or(0, |index| self.held[index].bytes);
+        let pending = Held {
+            event: event.clone(),
+            epoch,
+            bytes: serde_json::to_vec(event)?.len(),
+        };
+        let bytes = self.bytes - previous + pending.bytes;
         if bytes > MAX_QUEUE_BYTES || (replaced.is_none() && self.held.len() >= MAX_QUEUE_MESSAGES)
         {
             return Err(Overflow.into());
         }
         if let Some(index) = replaced {
-            self.held[index] = event.clone();
+            self.held[index] = pending;
         } else {
-            self.held.push(event.clone());
+            self.held.push(pending);
         }
         self.bytes = bytes;
         Ok(())
     }
 
-    /// Replays the latest epoch and other state before the ordered event backlog.
-    pub fn into_callbacks(self) -> impl Iterator<Item = Event> {
+    /// Replays latest state before ordered events, excluding messages from other worlds.
+    pub fn into_callbacks(self, epoch: u64) -> impl Iterator<Item = Event> {
         let (mut state, events): (Vec<_>, Vec<_>) = self
             .held
             .into_iter()
+            .filter(|pending| pending.deliver_in(epoch))
+            .map(|pending| pending.event)
             .partition(|event| state_key(event).is_some());
         state.sort_by_key(|event| !matches!(event, Event::Epoch));
         state.into_iter().chain(events)

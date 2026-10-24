@@ -168,6 +168,68 @@ fn pending_negotiation_resends_once_per_new_epoch_without_dropping_callbacks() {
 }
 
 #[test]
+fn pending_messages_stay_in_their_world_epoch() {
+    let mut host = waiting();
+    host.take_transaction();
+    host.dispatch(&on("demo.old"), 1).unwrap();
+    assert_request(host.dispatch(&Event::Epoch, 2).unwrap(), 2);
+    host.dispatch(&on("demo.older"), 2).unwrap();
+    assert_request(host.dispatch(&Event::Epoch, 3).unwrap(), 3);
+    for channel in ["demo.first", "demo.second"] {
+        assert!(host.dispatch(&on(channel), 3).unwrap().commands.is_empty());
+    }
+    let replay = host.dispatch(&confirmation(), 3).unwrap();
+    assert_eq!(replay.epoch, 3);
+    assert_eq!(
+        widgets(&replay),
+        [
+            ("init", "init"),
+            ("epoch", "epoch"),
+            ("demo.first", "[]"),
+            ("demo.second", "[]"),
+        ]
+    );
+}
+
+#[test]
+fn confirmation_in_a_new_epoch_discards_pending_old_messages() {
+    let mut host = waiting();
+    host.take_transaction();
+    host.dispatch(&on("demo.old"), 1).unwrap();
+    let replay = host.dispatch(&confirmation(), 2).unwrap();
+    assert_eq!(replay.epoch, 2);
+    assert_eq!(widgets(&replay), [("init", "init")]);
+}
+
+#[test]
+fn world_change_releases_stale_message_count_and_bytes() {
+    for record in [vec![], vec![b' '; MAX_MESSAGE_BYTES]] {
+        let mut pending = Negotiation::new("registry".into(), Command::Screen { template: None });
+        pending.hold(&Event::Epoch, 1).unwrap();
+        let message = Event::Message {
+            channel: "demo.event".into(),
+            record,
+        };
+        let mut capacity = 0;
+        while pending.hold(&message, 1).is_ok() {
+            capacity += 1;
+        }
+        assert!(capacity > 0);
+        pending.hold(&Event::Epoch, 2).unwrap();
+        for _ in 0..capacity {
+            pending.hold(&message, 2).unwrap();
+        }
+        assert!(pending.hold(&message, 2).unwrap_err().is::<Overflow>());
+        assert_eq!(
+            pending.into_callbacks(2).collect::<Vec<_>>(),
+            std::iter::once(Event::Epoch)
+                .chain(std::iter::repeat_n(message, capacity))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn latest_state_is_coalesced_separately_for_each_control() {
     let mut pending = Negotiation::new("registry".into(), Command::Screen { template: None });
     let size = |width| Event::Resized {
@@ -198,13 +260,13 @@ fn latest_state_is_coalesced_separately_for_each_control() {
         scroll("list", 0.0),
         Event::Shift { held: true },
     ] {
-        pending.hold(&event).unwrap();
+        pending.hold(&event, 1).unwrap();
     }
     for event in other.iter().chain(latest.iter()) {
-        pending.hold(event).unwrap();
+        pending.hold(event, 1).unwrap();
     }
     assert_eq!(
-        pending.into_callbacks().collect::<Vec<_>>(),
+        pending.into_callbacks(1).collect::<Vec<_>>(),
         latest.into_iter().chain(other).collect::<Vec<_>>()
     );
 }

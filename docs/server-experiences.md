@@ -395,7 +395,9 @@ by semver) and receives only the callbacks it exports: one built against 1.0.0 e
 with no import change. 1.4.0 adds `messaging.negotiate`, used by the SDK to hold
 host callbacks until registry confirmation successfully initializes the guest.
 Latest state is replayed first (epoch before UI/input state), then messages and
-actions in order, sharing one callback's fuel and output budgets. Retention is
+actions in order, sharing one callback's fuel and output budgets. Held messages
+keep their originating world epoch; messages from another epoch are discarded
+before replay and stop consuming queue capacity when the epoch changes. Retention is
 bounded by `MAX_QUEUE_MESSAGES` and `MAX_QUEUE_BYTES`; overflow stops the part
 immediately with a trusted status message. Existing components keep their current
 initialization behavior. 1.1's two callbacks and
