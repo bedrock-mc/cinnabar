@@ -107,8 +107,8 @@ fn save_graphics_settings(path: &Path, graphics: &GraphicsSettings) -> Result<()
     })
 }
 
-/// Reads the saved mode before renderer creation, using the same file as the menu.
-pub(crate) fn load_render_mode(path: &Path) -> Option<RenderMode> {
+#[cfg(test)]
+fn load_render_mode(path: &Path) -> Option<RenderMode> {
     load_graphics_settings(path).map(|saved| saved.mode)
 }
 

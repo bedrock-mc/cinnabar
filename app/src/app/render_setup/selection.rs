@@ -160,12 +160,13 @@ fn device_rank(kind: wgpu::DeviceType, preference: wgpu::PowerPreference) -> u8 
     }
 }
 
-/// Ranks device types by power preference, then uses this session's backend order.
+/// Ranks device types by power preference, then uses the platform's default backend order.
 pub(super) fn rank<T>(
     candidates: &mut [Candidate<T>],
-    order: &[Backend],
+    platform: Platform,
     preference: wgpu::PowerPreference,
 ) {
+    let order = platform.backends();
     candidates.sort_by_key(|candidate| {
         (
             device_rank(candidate.device_type, preference),

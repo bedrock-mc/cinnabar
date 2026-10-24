@@ -99,7 +99,7 @@ fn discrete_vulkan_beats_integrated_or_software_dx12_and_dx12_breaks_ties_for_ev
         ];
         rank(
             &mut adapters,
-            Platform::Windows.backends(),
+            Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
         assert_eq!(adapters[0].backend, Backend::Vulkan);
@@ -111,7 +111,7 @@ fn discrete_vulkan_beats_integrated_or_software_dx12_and_dx12_breaks_ties_for_ev
         ];
         rank(
             &mut adapters,
-            Platform::Windows.backends(),
+            Platform::Windows,
             wgpu::PowerPreference::HighPerformance,
         );
         assert_eq!(adapters[0].backend, Backend::Dx12, "{vendor:#x}");
@@ -127,7 +127,7 @@ fn discrete_vulkan_beats_integrated_or_software_dx12_and_dx12_breaks_ties_for_ev
     .collect();
     rank(
         &mut adapters,
-        Platform::Windows.backends(),
+        Platform::Windows,
         wgpu::PowerPreference::HighPerformance,
     );
     assert_eq!(
@@ -244,7 +244,7 @@ fn unclassified_gl_hardware_ranks_ahead_of_software_vulkan() {
             candidate(Backend::Vulkan, wgpu::DeviceType::Cpu, 0),
             candidate(Backend::Gl, wgpu::DeviceType::Other, 0),
         ];
-        rank(&mut adapters, Platform::Linux.backends(), preference);
+        rank(&mut adapters, Platform::Linux, preference);
         assert_eq!(adapters[0].backend, Backend::Gl);
     }
 }
@@ -260,7 +260,7 @@ fn low_power_prefers_integrated_hardware_over_discrete_hardware() {
             candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, 0),
             candidate(Backend::Vulkan, wgpu::DeviceType::IntegratedGpu, 0),
         ];
-        rank(&mut adapters, Platform::Windows.backends(), preference);
+        rank(&mut adapters, Platform::Windows, preference);
         assert_eq!(adapters[0].backend, preferred);
     }
 }
@@ -490,18 +490,4 @@ fn startup_summary_names_the_request_the_api_in_use_and_the_reason() {
     }
     assert!(summary(Some(&[Backend::Dx12]), None, Backend::Dx12, None).contains("WGPU_BACKEND"));
     assert!(summary(None, None, Backend::Vulkan, None).contains("requested Auto"));
-}
-
-#[test]
-fn shader_pack_sessions_prefer_vulkan_between_equivalent_adapters() {
-    let mut adapters = vec![
-        candidate(Backend::Dx12, wgpu::DeviceType::DiscreteGpu, 0),
-        candidate(Backend::Vulkan, wgpu::DeviceType::DiscreteGpu, 0),
-    ];
-    rank(
-        &mut adapters,
-        Platform::Windows.session_backends(true),
-        wgpu::PowerPreference::HighPerformance,
-    );
-    assert_eq!(adapters[0].backend, Backend::Vulkan);
 }
