@@ -10,13 +10,14 @@ pub(crate) struct HandFragmentBindings<'a> {
     pub(crate) light: &'a Buffer,
     pub(crate) main_atlas: &'a TextureView,
     pub(crate) offhand_atlas: &'a TextureView,
+    pub(crate) map_background: &'a TextureView,
     pub(crate) item_glint: &'a TextureView,
     pub(crate) glint_sampler: &'a Sampler,
 }
 
 impl<'a> HandFragmentBindings<'a> {
     /// Binds every resource read by the hand fragment, including item glint instance words.
-    pub(crate) fn entries(self) -> [BindGroupEntry<'a>; 9] {
+    pub(crate) fn entries(self) -> [BindGroupEntry<'a>; 10] {
         [
             BindGroupEntry {
                 binding: 1,
@@ -45,6 +46,10 @@ impl<'a> HandFragmentBindings<'a> {
             BindGroupEntry {
                 binding: 11,
                 resource: BindingResource::TextureView(self.offhand_atlas),
+            },
+            BindGroupEntry {
+                binding: 14,
+                resource: BindingResource::TextureView(self.map_background),
             },
             BindGroupEntry {
                 binding: 12,

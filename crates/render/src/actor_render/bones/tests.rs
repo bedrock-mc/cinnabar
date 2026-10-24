@@ -26,7 +26,7 @@ fn frame(actors: &[(u64, usize)]) -> ActorRigRenderFrame {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: id,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: Some(1),
                 movement_revision: 1,
@@ -278,7 +278,10 @@ fn layers_lifetimes_resets_geometry_and_resource_replacement_refresh_bones() {
         match change {
             0 => entry.identity.session_id += 1,
             1 => entry.identity.dimension += 1,
-            2 => entry.identity.spawn_revision += 1,
+            2 => {
+                entry.identity.spawn_revision =
+                    entry.identity.spawn_revision.checked_add(1).unwrap()
+            }
             3 => entry.identity.layer += 1,
             4 => entry.rig.0 += 1,
             5 => entry.reset_generation += 1,

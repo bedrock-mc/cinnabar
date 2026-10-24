@@ -40,6 +40,7 @@ fn hd_armor_keeps_the_same_cpu_preview_when_only_texel_density_changes() {
 fn hd_armor_gpu_mesh_spans_the_scaled_atlas_region() {
     let model = |scale| {
         let armor = IconRef {
+            color_mask: None,
             page: 24,
             uv: [0, 0, 64 * scale, 32 * scale],
             glint: false,
@@ -49,6 +50,7 @@ fn hd_armor_gpu_mesh_spans_the_scaled_atlas_region() {
             Default::default(),
             0.0,
             IconRef {
+                color_mask: None,
                 page: 23,
                 uv: [0, 0, 64, 64],
                 glint: false,

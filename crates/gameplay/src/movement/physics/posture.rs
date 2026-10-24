@@ -6,7 +6,7 @@ use super::*;
 const MOVING_FLAG_DISTANCE_SQUARED: f32 = 0.001;
 
 /// Accepted flag writes and size, independent of replay history and travel-mode selection.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(super) struct SyncState {
     pub flags: client_world::MovementFlagUpdate,
     pub size: Option<[f32; 2]>,
@@ -14,9 +14,34 @@ pub(super) struct SyncState {
     dimensions: client_world::ExplicitDimensions,
     last_pose: (bool, bool),
     previous_mode: sim::MovementMode,
-    pending: client_world::MovementFlagUpdate,
     local_spinning: bool,
     sneak_profile: sim::SneakProfile,
+}
+
+/// One accepted server edit retained in arrival order between completed ticks.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum ServerWrite {
+    Replacement(
+        client_world::MovementFlagUpdate,
+        client_world::ExplicitDimensions,
+    ),
+    Flags(client_world::MovementFlagUpdate),
+    Controls(client_world::MovementFlagUpdate),
+    EndMode(sim::MovementMode),
+    Dimensions(client_world::ExplicitDimensions),
+}
+
+/// Replays the control actions actually adopted between completed movement ticks.
+pub(super) fn replay_actor_modes(writes: &[ServerWrite], modes: &mut ModeTracker) {
+    for write in writes {
+        match *write {
+            ServerWrite::Controls(flags) => {
+                modes.adopt_actor_flags(flags);
+            }
+            ServerWrite::EndMode(mode) => modes.end(mode),
+            ServerWrite::Replacement(..) | ServerWrite::Flags(_) | ServerWrite::Dimensions(_) => {}
+        }
+    }
 }
 
 impl SyncState {
@@ -28,10 +53,29 @@ impl SyncState {
         };
     }
 
-    /// Applies only supplied server bits, preserving independent pose flags.
-    pub(super) fn server_flags(&mut self, update: client_world::MovementFlagUpdate) {
+    /// Replaces every lifetime-owned field before accepting the new actor's state.
+    fn replace_actor(
+        &mut self,
+        flags: client_world::MovementFlagUpdate,
+        dimensions: client_world::ExplicitDimensions,
+    ) {
+        *self = Self {
+            flags,
+            size: None,
+            explicit_size: false,
+            dimensions: Default::default(),
+            last_pose: (false, false),
+            previous_mode: sim::MovementMode::Walking,
+            local_spinning: false,
+            sneak_profile: self.sneak_profile,
+        };
+        self.resize();
+        self.apply_dimensions(dimensions);
+    }
+
+    /// Updates flag and pose ownership without recording another replay edit.
+    pub(super) fn apply_flags(&mut self, update: client_world::MovementFlagUpdate) {
         self.flags.merge(update);
-        self.pending.merge(update);
         if self.explicit_size && update.sneaking.is_some() {
             // A matching local sneak does not request another resize.
             self.last_pose.0 = self.sneaking_pose();
@@ -51,9 +95,12 @@ impl SyncState {
         }
     }
 
-    /// Applies sparse dimensions without changing accepted pose comparisons.
-    /// A replacement starts from default dimensions instead of the previous actor's size.
-    fn server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
+    /// Applies a size arrival and reports whether it changed component ownership or lifetime.
+    pub(super) fn apply_dimensions(
+        &mut self,
+        dimensions: client_world::ExplicitDimensions,
+    ) -> bool {
+        let mut changed = false;
         if let Some(revision) = dimensions.spawn_revision
             && self.dimensions.spawn_revision != Some(revision)
         {
@@ -62,18 +109,19 @@ impl SyncState {
                 .spawn_revision
                 .is_some_and(|current| revision < current)
             {
-                return;
+                return false;
             }
             if self.dimensions.spawn_revision.is_some() {
                 self.size = None;
                 self.explicit_size = false;
             }
             self.dimensions = client_world::ExplicitDimensions::for_spawn(revision);
+            changed = true;
         }
         let mut size = self
             .size
             .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]);
-        let mut changed = false;
+        let mut resized = false;
         for ((previous, received), value) in
             [&mut self.dimensions.width, &mut self.dimensions.height]
                 .into_iter()
@@ -83,30 +131,35 @@ impl SyncState {
             if let Some(write) = received.filter(|write| Some(*write) != *previous) {
                 *previous = Some(write);
                 *value = write.value;
-                changed = true;
+                resized = true;
             }
         }
-        if changed {
+        if resized {
             self.size = Some(size);
             self.explicit_size = true;
         }
+        changed || resized
     }
 
-    /// Associates server writes with the next retained tick for correction replay.
-    pub(super) fn take_pending(&mut self) -> client_world::MovementFlagUpdate {
-        std::mem::take(&mut self.pending)
-    }
-
-    /// Reapplies server writes received after the last completed tick to a replay result.
-    pub(super) fn restore_pending(&mut self, live: Self) {
-        self.server_flags(live.pending);
-        self.server_dimensions(live.dimensions);
+    /// Replays accepted flag and dimension writes in their original order.
+    pub(super) fn replay_server(&mut self, writes: &[ServerWrite]) {
+        for write in writes {
+            match *write {
+                ServerWrite::Replacement(flags, dimensions) => {
+                    self.replace_actor(flags, dimensions)
+                }
+                ServerWrite::Flags(flags) => self.apply_flags(flags),
+                ServerWrite::Dimensions(dimensions) => {
+                    self.apply_dimensions(dimensions);
+                }
+                ServerWrite::Controls(_) | ServerWrite::EndMode(_) => {}
+            }
+        }
     }
 
     /// Records producer writes after a successful movement tick.
     pub(super) fn complete_tick(&mut self, frame: &ControllerFrame, state: &PlayerState) {
         self.sneak_profile = frame.input.sneak_profile;
-        self.server_dimensions(frame.intent.explicit_dimensions);
         self.flags.sneaking = Some(frame.input.sneaking);
         self.flags.sprinting = Some(frame.input.sprinting);
         self.flags.has_collision = Some(!frame.input.no_clip);
@@ -155,6 +208,28 @@ impl SyncState {
 }
 
 impl LocalPhysicsController {
+    /// Starts accepted sync and control state for a replacement actor without rewinding old inputs.
+    pub(crate) fn replace_actor_authority(
+        &mut self,
+        flags: client_world::MovementFlagUpdate,
+        dimensions: client_world::ExplicitDimensions,
+    ) {
+        self.sync_state.replace_actor(flags, dimensions);
+        self.sync_pending
+            .push(ServerWrite::Replacement(flags, dimensions));
+        self.live_posture = Default::default();
+        self.server_control_flags = None;
+        self.adopt_live_flags(flags);
+    }
+
+    /// Records one sparse server flag write without replacing prior replay actions.
+    pub(super) fn note_server_flags(&mut self, flags: client_world::MovementFlagUpdate) {
+        if flags != client_world::MovementFlagUpdate::default() {
+            self.sync_state.apply_flags(flags);
+            self.sync_pending.push(ServerWrite::Flags(flags));
+        }
+    }
+
     /// Returns effective flight independently of the current travel mode.
     pub(in crate::movement) fn prediction_sync_flying(&self) -> bool {
         self.modes.flying()
@@ -176,11 +251,10 @@ impl LocalPhysicsController {
     }
 
     /// Records a server dimension write before any later local resize is evaluated.
-    pub(in crate::movement) fn note_server_dimensions(
-        &mut self,
-        dimensions: client_world::ExplicitDimensions,
-    ) {
-        self.sync_state.server_dimensions(dimensions);
+    pub(crate) fn note_server_dimensions(&mut self, dimensions: client_world::ExplicitDimensions) {
+        if self.sync_state.apply_dimensions(dimensions) {
+            self.sync_pending.push(ServerWrite::Dimensions(dimensions));
+        }
     }
 
     /// Whether a newer explicit dimension request still owns the reported size.
@@ -188,7 +262,7 @@ impl LocalPhysicsController {
         self.sync_state.explicit_size
     }
 
-    /// Returns the unscaled size written by the most recent local resize.
+    /// Returns the unscaled size after accepted server and completed local writes.
     pub(in crate::movement) fn prediction_sync_size(&self) -> Option<[f32; 2]> {
         self.sync_state.size
     }
@@ -226,6 +300,34 @@ impl LocalPhysicsController {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_resets_every_sync_field_and_replays_as_one_write() {
+        let flags = client_world::MovementFlagUpdate::default();
+        let dimensions = client_world::ExplicitDimensions::for_spawn(2);
+        let mut dirty = SyncState {
+            flags: client_world::MovementFlagUpdate {
+                moving: Some(true),
+                spinning: Some(true),
+                ..Default::default()
+            },
+            size: Some([0.9, 0.7]),
+            explicit_size: true,
+            dimensions: client_world::ExplicitDimensions::for_spawn(1),
+            last_pose: (true, true),
+            previous_mode: sim::MovementMode::Gliding,
+            local_spinning: true,
+            sneak_profile: sim::SneakProfile::default(),
+        };
+        let mut fresh = SyncState::default();
+        fresh.replace_actor(flags, dimensions);
+        dirty.replay_server(&[ServerWrite::Replacement(flags, dimensions)]);
+        assert_eq!(dirty, fresh);
+        assert_eq!(
+            dirty.size,
+            Some([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+        );
+    }
 
     #[test]
     fn moving_threshold_keeps_the_small_vertical_and_horizontal_contributions() {

@@ -80,7 +80,9 @@ pub(super) fn validate(
 }
 
 /// Regenerates validation and transitive usage information for the current module.
-fn module_info(module: &Module) -> Result<ModuleInfo, Box<naga::WithSpan<ValidationError>>> {
+pub(super) fn module_info(
+    module: &Module,
+) -> Result<ModuleInfo, Box<naga::WithSpan<ValidationError>>> {
     Validator::new(ValidationFlags::all(), Capabilities::all())
         .validate(module)
         .map_err(Box::new)

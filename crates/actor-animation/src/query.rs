@@ -8,6 +8,7 @@ use {
 
 mod item_use;
 pub(super) mod potion;
+pub(super) mod tint;
 pub(super) mod wolf;
 
 #[cfg(test)]

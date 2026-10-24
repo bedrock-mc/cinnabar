@@ -71,7 +71,7 @@ fn server_content_keeps_keys_for_long_safe_paths() {
     ]);
     let (pack, _) = validate_archive_parts(
         PACK_ID,
-        "1.2.3",
+        crate::manifest::Version([1, 2, 3]),
         "",
         archive,
         ContentKey::new(PACK_KEY),

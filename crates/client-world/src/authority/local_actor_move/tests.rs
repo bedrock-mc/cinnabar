@@ -119,6 +119,7 @@ fn dimension_and_move_player_boundaries_replace_the_partial_actor_target() {
         .unwrap();
     authority.reset_dimension(2, 1);
     authority.resolve_position(2, [30.0, 80.0, 40.0]);
+    authority.take_committed_controls();
     // A delayed old-dimension update must not seed the new dimension's target.
     authority
         .apply_ordered_event(event.clone(), Some(3))

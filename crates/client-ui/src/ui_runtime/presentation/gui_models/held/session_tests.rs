@@ -52,6 +52,7 @@ fn preview_projects_body_once_for_base_and_session_items() {
         let custom = render_model::standard_biped_vertices().repeat(3);
         presentation.menu_preview_model.vertices = Some(custom.clone().into());
         let preview = IconRef {
+            color_mask: None,
             page: u16::MAX,
             uv: [0, 0, 96, 112],
             glint: false,
@@ -311,12 +312,13 @@ fn preview_custom_session_identity_and_cpu_fallback_use_admitted_pixels() {
 fn preview_session_thumbnail_does_not_replace_block_or_authored_held_geometry() {
     let mut presentation = presentation();
     let source = IconRef {
+        color_mask: None,
         page: 3,
         uv: [0, 0, 64, 48],
         glint: true,
     };
     let model = block(source, [[0.0; 3]; 2]);
-    presentation.gui_models.held.insert(
+    presentation.gui_models.sources.held.insert(
         ItemVisualKey {
             identifier: ITEM.into(),
             metadata: 0,
@@ -452,6 +454,7 @@ fn preview_dense_sprite_reserves_surrounding_controls_and_repeated_player_nodes(
         install(&mut presentation, vec![art]);
         presentation.set_player_preview_gear([None; 4], Some((ITEM, 0)));
         let region = IconRef {
+            color_mask: None,
             page: u16::MAX,
             uv: [0, 0, 96, 112],
             glint: false,
@@ -619,6 +622,7 @@ fn preview_batch_admission_includes_surrounding_sprite_batches() {
         }),
     );
     let preview = IconRef {
+        color_mask: None,
         page: u16::MAX,
         uv: [0, 0, 96, 112],
         glint: false,

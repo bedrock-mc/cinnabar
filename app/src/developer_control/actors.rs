@@ -146,7 +146,7 @@ pub(super) fn snapshot(world: &World) -> Value {
                 "unique_id": actor.map(|actor| actor.unique_id),
                 "identifier": identifier,
                 "display_actor": resolved.map(|(_, display)| display),
-                "actor_lifetime_matches": actor.map(|actor| actor.spawn_revision == identity.spawn_revision),
+                "actor_lifetime_matches": actor.map(|actor| actor.render_spawn_revision == identity.spawn_revision),
                 "spawn_revision": identity.spawn_revision,
                 "ingress_sequence": identity.ingress_sequence,
                 "source_tick": identity.source_tick,

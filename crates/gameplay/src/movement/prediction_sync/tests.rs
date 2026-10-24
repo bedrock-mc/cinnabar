@@ -4,6 +4,7 @@ use super::*;
 
 mod authority_writes;
 mod lifetimes;
+mod ordered_dimensions;
 mod progress;
 mod server_writes;
 mod size_edges;

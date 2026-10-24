@@ -7,6 +7,7 @@ impl LocalPhysicsController {
     pub fn deactivate(&mut self) {
         self.prediction_sync.clear();
         self.sync_state.reset();
+        self.sync_pending.clear();
         self.state = None;
         self.eye_offset = eye::LocalEyeOffset::default();
         self.visual_correction = visual_correction::VisualCorrection::default();

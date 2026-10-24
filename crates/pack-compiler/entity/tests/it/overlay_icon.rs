@@ -104,7 +104,7 @@ fn carried_cube_icons_sample_the_referenced_overlay_shard() {
 #[test]
 fn disabled_face_dimming_keeps_inventory_faces_unshaded() {
     let mut overlay = geometry_block(assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING);
-    overlay.model_quads[0].positions = [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]];
+    overlay.model_quads[0].positions = [[0, 0, 256], [256, 0, 256], [256, 256, 256], [0, 256, 256]];
     let sprite = pack_entity_compiler::overlay_block_icon(&overlay, 0, None).unwrap();
     let visible = sprite
         .rgba8

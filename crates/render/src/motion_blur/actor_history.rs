@@ -35,7 +35,7 @@ fn key(identity: ActorRenderIdentity, rig: EntityRigId) -> Key {
         identity.session_id,
         identity.dimension,
         identity.runtime_id,
-        identity.spawn_revision,
+        identity.spawn_revision.get(),
         identity.layer,
         rig,
     )

@@ -465,11 +465,13 @@ pub(in crate::chunk) fn apply_chunk_render_queue(
             }
             commands.entity(entity).insert((instance, bounds));
         } else {
+            // Chunks never move or join a hierarchy, so they carry only the world transform that
+            // culling reads; a `Transform` would add every chunk to Bevy's per-frame sync scan.
             let entity = commands
                 .spawn((
                     instance,
                     Visibility::default(),
-                    Transform::from_xyz(origin[0] as f32, origin[1] as f32, origin[2] as f32),
+                    GlobalTransform::from_xyz(origin[0] as f32, origin[1] as f32, origin[2] as f32),
                     bounds,
                 ))
                 .id();

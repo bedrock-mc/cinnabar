@@ -145,7 +145,9 @@ fn join_sized_arena_uploads_avoid_repeated_migrations() {
 #[test]
 fn best_fit_preserves_large_holes_under_small_allocation_churn() {
     let mut len = 256;
-    let mut free = vec![0..128, 160..168, 192..200];
+    let mut free = [0..128, 160..168, 192..200]
+        .into_iter()
+        .collect::<FreeRanges>();
     assert_eq!(allocate_quad_range(&mut len, &mut free, 8, 256), Some(160));
     assert_eq!(allocate_quad_range(&mut len, &mut free, 8, 256), Some(192));
     assert_eq!(allocate_quad_range(&mut len, &mut free, 128, 256), Some(0));
@@ -274,7 +276,9 @@ fn fragmented_arena_admits_fitting_uploads_beyond_a_repeatedly_failing_prefix() 
         arena.quad_len = capacity;
         arena.limits.max_quad_items = capacity;
         // Enough free space in total for a large upload, but neither hole can hold it.
-        arena.free_quads = vec![0..quads as u32, (2 * quads) as u32..capacity as u32];
+        arena.free_quads = [0..quads as u32, (2 * quads) as u32..capacity as u32]
+            .into_iter()
+            .collect();
         let lighting_bytes = buffer_byte_len(2 * quads, PACKED_QUAD_LIGHTING_BYTES);
         arena.geometry_stream_buffer =
             create_storage_buffer(&device, "test lighting holes", lighting_bytes);
