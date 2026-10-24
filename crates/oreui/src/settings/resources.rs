@@ -414,18 +414,32 @@ pub(super) fn card(
     face: Face<'_>,
     body: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
 ) -> Result<(), PaintError> {
-    card_with_summary(content, face, |_| Ok(()), body)
+    sized_card(content, face, 7.2, body)
 }
 
-/// Draws a card with permanent controls before its optional revealed details.
-pub(super) fn card_with_summary(
+/// Draws a shorter library header with every control inside its disclosure.
+pub(super) fn compact_card(
     content: &mut Content<'_, '_>,
     face: Face<'_>,
-    summary: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
+    body: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
+) -> Result<(), PaintError> {
+    sized_card(content, face, 6.0, body)
+}
+
+/// Shares card artwork and disclosure behavior at the requested header height.
+fn sized_card(
+    content: &mut Content<'_, '_>,
+    face: Face<'_>,
+    header_height: f32,
     body: impl FnOnce(&mut Content<'_, '_>) -> Result<(), PaintError>,
 ) -> Result<(), PaintError> {
     let [left, right] = content.inset();
-    let header = [left, content.y, right, content.y + content.canvas.r(7.2)];
+    let header = [
+        left,
+        content.y,
+        right,
+        content.y + content.canvas.r(header_height),
+    ];
     widgets::row(
         content.canvas,
         content.view,
@@ -434,7 +448,7 @@ pub(super) fn card_with_summary(
         face.interactive.then_some(face.toggle),
     )?;
     let pad = content.canvas.r(1.2);
-    let side = content.canvas.r(4.8);
+    let side = content.canvas.r(header_height - 2.4);
     thumbnail(
         content,
         [
@@ -450,14 +464,17 @@ pub(super) fn card_with_summary(
     let width = (right - text_left - pad - content.canvas.r(2.4)).max(1.0);
     content.canvas.text_line(
         face.title,
-        [text_left, content.y + content.canvas.r(1.6)],
+        [
+            text_left,
+            content.y + content.canvas.r((header_height - 4.0) * 0.5),
+        ],
         width,
         BODY,
         TEXT,
     )?;
     content.canvas.text_line(
         face.subtitle,
-        [text_left, content.y + content.canvas.r(3.6)],
+        [text_left, content.y + content.canvas.r(header_height * 0.5)],
         width,
         CAPTION,
         TEXT_DIMMER,
@@ -479,11 +496,6 @@ pub(super) fn card_with_summary(
     )?;
     let span = content.span;
     content.span = [span[0] + pad, span[1] - pad];
-    content.y += pad;
-    summary(content)?;
-    if content.y == top + pad {
-        content.y = top;
-    }
     reveal(
         content,
         face.details,

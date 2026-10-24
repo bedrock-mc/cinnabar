@@ -427,7 +427,8 @@ and rendered qualification remain incomplete.
   Dropped crossed plants, lanterns, chains, torches, bamboo, coral fans, rails, leaf litter,
   resin clumps, hooks, ladders, lily pads, sea pickles, candles and metal bars use their carried
   sprites; falling blocks retain their world models.
-  Implemented dropped sprite families, including flower beds, use their carried artwork.
+  Implemented dropped sprite families, including flower beds, shaped plants and eggs, use
+  their carried artwork. Spike icon faces and native transforms remain incomplete.
   Other drop classes and native poses remain incomplete. Falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, ladders, lily pads, sea pickles and powered rails use their carried sprites; falling blocks retain their world models.
   Dropped crossed plants, lanterns, chains, bamboo, coral fans, rails, leaf litter, resin clumps,
@@ -997,7 +998,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   fenced throughout. Write failures end the optional session without retry timers. A two-world
   example uses upstream Dragonfly. Cold-client bundle hosting and live multi-client transfer qualification remain
   incomplete.
-- Local mods and server experiences still need runtime/input isolation, reload/reorder/
+- The Mods settings list starts with compact headers and opens one whole card at a time;
+  actions and permission details remain inside that card.
+  Local mods and server experiences still need runtime/input isolation, reload/reorder/
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four

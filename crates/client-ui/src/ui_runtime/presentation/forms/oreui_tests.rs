@@ -9,6 +9,7 @@ mod focus;
 mod fonts;
 mod inbox;
 mod minecraft_import;
+mod mods;
 mod play_tabs;
 mod progress;
 mod progress_destination;

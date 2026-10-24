@@ -333,9 +333,10 @@ mod tests {
         ));
     }
 
-    /// Sprint intent runs before sneak slowdown, and a crouch request does not cancel its action.
+    /// The trigger reads only the move vector it is given; a crouch blocks a sprint by scaling
+    /// that vector first (`ModeTracker::intent_vector`), not through the sneak request here.
     #[test]
-    fn a_sprint_button_can_start_while_crouch_is_requested() {
+    fn the_trigger_judges_the_given_vector_not_the_crouch_request() {
         let mut trigger = SprintTrigger::default();
         let mut observed = sprint(Vec3::ZERO, Vec3::ZERO);
         observed.sprint_down = true;
