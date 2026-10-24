@@ -627,6 +627,34 @@ mod tests {
     }
 
     #[test]
+    fn every_enchantment_name_exists_in_the_pinned_language() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(assets::vanilla_source().resource_pack_dir())
+            .join("texts/en_US.lang");
+        if !path.is_file() {
+            eprintln!(
+                "skipping every_enchantment_name_exists_in_the_pinned_language: missing en_US.lang fixture at {}",
+                path.display()
+            );
+            return;
+        }
+        let text = std::fs::read_to_string(path).unwrap();
+        let keys: std::collections::BTreeSet<_> = text
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(key, _)| key))
+            .collect();
+        for enchantment in &ENCHANTMENTS {
+            assert!(
+                keys.contains(enchantment.lang_key),
+                "enchantment {} names missing language key {}",
+                enchantment.id,
+                enchantment.lang_key
+            );
+        }
+    }
+
+    #[test]
     fn registered_skulls_support_cosmetic_head_curses() {
         let registry = protocol::vanilla_item_registry();
         let mut skulls = 0;
