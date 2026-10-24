@@ -777,10 +777,13 @@ fn standby_and_three_pulling_frames_choose_matching_geometry_texture_and_pose() 
 
 /// Explicit local diagnostic: native packs and carriers never enter the test fixtures or git.
 #[test]
-#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
 fn downloaded_vanilla_attachables_evaluate_at_idle() {
-    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER",
+        "downloaded_vanilla_attachables_evaluate_at_idle",
+    ) else {
+        return;
+    };
     let mut runtime = AttachablesRuntime::new(Arc::clone(&assets));
     let mut owner = crate::tests::actor_with_metadata(HashMap::new());
     owner.kind = ActorKind::Player {
@@ -822,10 +825,13 @@ fn downloaded_vanilla_attachables_evaluate_at_idle() {
 
 /// Runs the installed pack's actual Shield controller and keyframes, without modifying a server.
 #[test]
-#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
 fn downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority() {
-    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER",
+        "downloaded_shield_blocking_uses_authoritative_metadata_and_hand_priority",
+    ) else {
+        return;
+    };
     let mut runtime = AttachablesRuntime::new(assets);
     let mut owner = crate::tests::actor_with_metadata(HashMap::new());
     owner.kind = ActorKind::Player {
@@ -908,10 +914,13 @@ fn offhand_keeps_owner_bow_queries_without_main_hand_charge_state() {
 
 /// Runs the pinned shield's bow-retraction script and authored keyframes offline.
 #[test]
-#[ignore = "requires CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER pointing to a local entity carrier"]
 fn downloaded_offhand_shield_retracts_while_owner_draws_bow() {
-    let path = std::env::var("CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER").unwrap();
-    let assets = Arc::new(RuntimeEntityAssets::decode(&std::fs::read(path).unwrap()).unwrap());
+    let Some(assets) = crate::test_support::entity_assets(
+        "CINNABAR_ATTACHABLE_DIAGNOSTIC_CARRIER",
+        "downloaded_offhand_shield_retracts_while_owner_draws_bow",
+    ) else {
+        return;
+    };
     let mut runtime = AttachablesRuntime::new(assets);
     let mut owner = crate::tests::actor_with_metadata(HashMap::new());
     owner.kind = ActorKind::Player {
