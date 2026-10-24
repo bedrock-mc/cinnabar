@@ -526,6 +526,6 @@ fn a_spectator_game_mode_control_stops_item_use() {
             &NoQueries,
             |_| {},
         );
-        assert_eq!(physics.take_game_mode_stop(), spectator);
+        assert_eq!(physics.take_server_item_use_stop(), spectator);
     }
 }

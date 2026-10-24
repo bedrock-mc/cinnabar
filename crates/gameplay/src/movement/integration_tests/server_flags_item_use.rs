@@ -340,11 +340,11 @@ fn a_game_mode_stop_keeps_its_order_with_item_use_writes() {
     physics.apply_server_movement_flags(0, using(true));
     physics.stop_item_use_for_game_mode();
     assert!(!physics.live_using_item());
-    assert!(physics.take_game_mode_stop());
+    assert!(physics.take_server_item_use_stop());
     assert_eq!(physics.take_server_using_item(), None);
     physics.stop_item_use_for_game_mode();
     physics.apply_server_movement_flags(0, using(true));
-    assert!(physics.take_game_mode_stop());
+    assert!(physics.take_server_item_use_stop());
     assert_eq!(physics.take_server_using_item(), Some(true));
 }
 

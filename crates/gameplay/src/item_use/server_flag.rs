@@ -119,11 +119,9 @@ impl ItemUseRuntime {
         self.world = world;
     }
 
-    /// Applies a game-mode change to spectator, taken in packet order with
-    /// server item-use writes: vanilla's change stops the use without a
-    /// release transaction and clears the flag whether or not an item is in
-    /// use, dropping earlier server values; later ones reconcile as usual.
-    pub fn stop_for_game_mode(&mut self) {
+    /// Stops an old use after actor replacement or a spectator change, before later flags.
+    /// Movement already applied the flag change, so this publishes no local write.
+    pub fn stop_for_server_control(&mut self) {
         self.stop_without_release();
         // Movement already cleared the flag in packet order; a local write
         // here would overwrite a later server start's flag.

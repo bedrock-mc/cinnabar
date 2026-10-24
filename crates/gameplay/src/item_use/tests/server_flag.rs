@@ -410,7 +410,7 @@ fn a_game_mode_stop_stops_the_use_and_later_starts_reconcile() {
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
     runtime.take_local_using_item();
     runtime.adopt_server_using_item(Some(true));
-    runtime.stop_for_game_mode();
+    runtime.stop_for_server_control();
     assert!(!runtime.is_using());
     assert!(!runtime.has_server_using_item());
     // Movement cleared the flag itself, so no local write follows.
@@ -437,7 +437,7 @@ fn a_server_start_under_a_held_button_releases_on_button_up() {
 fn a_game_mode_stop_clears_a_pending_start_flag() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(Some(true));
-    runtime.stop_for_game_mode();
+    runtime.stop_for_server_control();
     assert!(!runtime.has_server_using_item());
     assert_eq!(runtime.take_local_using_item(), None);
 }
@@ -499,7 +499,7 @@ fn a_game_mode_stop_publishes_no_local_flag_write() {
     let mut runtime = ItemUseRuntime::default();
     runtime.adopt_server_using_item(Some(true));
     assert!(runtime.resolve_server_using_item(&bread(10, false)));
-    runtime.stop_for_game_mode();
+    runtime.stop_for_server_control();
     assert_eq!(runtime.take_local_using_item(), None);
 }
 

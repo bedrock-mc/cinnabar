@@ -10,6 +10,9 @@ fn apply_use_controls(
     runtime: &mut ItemUseRuntime,
 ) {
     super::state_updates::apply_controls(world, physics);
+    if physics.take_server_item_use_stop() {
+        runtime.stop_for_server_control();
+    }
     runtime.adopt_server_using_item(physics.take_server_using_item());
 }
 
@@ -860,18 +863,32 @@ fn pending_replacement_preserves_newer_pose_and_spin_through_replay() {
     assert!(physics.live_using_item());
 }
 
-/// A replacement flag follows the player game-mode stop that preceded the replacement.
+/// Every replacement ends the old use before its flag, including an earlier player stop.
 #[test]
-fn actor_replacement_preserves_an_unconsumed_item_use_stop() {
-    let mut physics = due_physics();
-    physics.stop_item_use_for_game_mode();
-    physics.replace_actor_authority(
-        client_world::MovementFlagUpdate {
-            using_item: Some(true),
-            ..Default::default()
-        },
-        client_world::ExplicitDimensions::for_spawn(1),
-    );
-    assert!(physics.take_game_mode_stop());
-    assert_eq!(physics.take_server_using_item(), Some(true));
+fn actor_replacement_stops_item_use_before_its_new_flag() {
+    for prior_stop in [false, true] {
+        let mut physics = due_physics();
+        let mut runtime = ItemUseRuntime::default();
+        let (_, mut frame) = super::progress::food_use();
+        runtime.observe_press(true);
+        assert!(runtime.step(&frame).started);
+        runtime.take_local_using_item();
+        if prior_stop {
+            physics.stop_item_use_for_game_mode();
+        }
+        physics.replace_actor_authority(
+            client_world::MovementFlagUpdate {
+                using_item: Some(true),
+                ..Default::default()
+            },
+            client_world::ExplicitDimensions::for_spawn(1),
+        );
+        assert!(physics.take_server_item_use_stop());
+        runtime.stop_for_server_control();
+        assert!(!runtime.is_using());
+        runtime.adopt_server_using_item(physics.take_server_using_item());
+        frame.tick += 1;
+        assert!(runtime.resolve_server_using_item(&frame));
+        assert_eq!(runtime.active_timing().unwrap().0, frame.tick);
+    }
 }

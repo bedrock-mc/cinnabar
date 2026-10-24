@@ -335,8 +335,8 @@ fn take_server_item_use(
     let Some(physics) = physics else {
         return;
     };
-    if physics.take_game_mode_stop() {
-        runtime.stop_for_game_mode();
+    if physics.take_server_item_use_stop() {
+        runtime.stop_for_server_control();
     }
     if let Some(using) = physics.take_server_using_item() {
         runtime.adopt_server_using_item(Some(using));
